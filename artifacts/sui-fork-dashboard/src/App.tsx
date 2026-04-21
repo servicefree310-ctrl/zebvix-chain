@@ -25,6 +25,7 @@ import Dex from "@/pages/dex";
 import ZbxTokenomics from "@/pages/zbx-tokenomics";
 import Implementation from "@/pages/implementation";
 import Rebranding from "@/pages/rebranding";
+import PhaseTracker from "@/pages/phase-tracker";
 
 const queryClient = new QueryClient();
 
@@ -51,6 +52,7 @@ function Router() {
         <Route path="/zbx-tokenomics" component={ZbxTokenomics} />
         <Route path="/implementation" component={Implementation} />
         <Route path="/rebranding" component={Rebranding} />
+        <Route path="/phase-tracker" component={PhaseTracker} />
         <Route component={NotFound} />
       </Switch>
     </Shell>
