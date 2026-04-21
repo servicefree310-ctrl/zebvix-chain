@@ -1,0 +1,55 @@
+# ================================================================
+# Zebvix Genesis Configuration Template
+# Modify addresses, keys, and validator info before running genesis
+# ================================================================
+
+chain-id: zebvix-mainnet-1
+token-symbol: ZBX
+token-decimals: 9
+
+# ── Supply ──
+genesis-supply-zbx: 2000000
+max-supply-zbx: 150000000
+
+# ── Initial allocation (founder treasury) ──
+# Replace with your actual founder MultiSig wallet address
+founder-treasury-address: "0x<YOUR_FOUNDER_MULTISIG_20BYTE_ADDR>"
+genesis-allocation-zbx: 2000000
+
+# ── Validators (add your validator addresses here) ──
+# Format: 20-byte EVM-style address (last 20 of Blake2b256)
+validators:
+  - name: "Zebvix Validator 1"
+    address: "0x<VALIDATOR_1_ADDRESS>"
+    public-key: "<VALIDATOR_1_ED25519_PUBKEY>"
+    stake-zbx: 10000
+
+# ── Block params ──
+block-time-ms: 400
+epoch-duration-hours: 24
+initial-block-reward-mist: 100000000   # 0.1 ZBX
+
+# ── Gas fee split ──
+gas-validator-bps: 7200   # 72%
+gas-treasury-bps:  1800   # 18%
+gas-burn-bps:      1000   # 10%
+
+# ── Burn cap ──
+max-burn-zbx: 75000000    # 50% of max supply
+
+# ── Staking params ──
+max-validators:            41
+min-validator-stake-zbx:   10000
+max-stake-per-validator-zbx: 5000000
+validator-staking-apr:     120   # %
+delegator-apr:             80    # %
+validator-delegation-bonus: 40   # % on delegated amount
+node-daily-reward-zbx:     5
+
+# ── MultiSig thresholds ──
+treasury-multisig-m: 3
+treasury-multisig-n: 5
+chain-upgrade-m: 4
+chain-upgrade-n: 6
+validator-key-rotation-m: 3
+validator-key-rotation-n: 5

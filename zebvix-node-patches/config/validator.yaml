@@ -1,0 +1,33 @@
+# Zebvix Validator Configuration
+# Copy to: ~/.zebvix/validator.yaml
+
+chain-id: zebvix-mainnet-1
+
+# Validator identity
+validator-key-path: /root/.zebvix/validator.key
+worker-key-path:    /root/.zebvix/worker.key
+network-key-path:   /root/.zebvix/network.key
+account-key-path:   /root/.zebvix/account.key
+
+# Network
+p2p-config:
+  listen-address: "0.0.0.0:8084"
+  external-address: "<YOUR_SERVER_IP>:8084"
+
+# RPC
+json-rpc-address: "0.0.0.0:9000"
+metrics-address:  "0.0.0.0:9184"
+admin-interface-port: 1337
+
+# Data
+db-path: /root/zebvix-data/db
+genesis-file-location: /root/zebvix-data/genesis.blob
+
+# Staking
+stake-amount-zbx: 10000
+node-wallet-address: "<YOUR_NODE_WALLET_ADDRESS>"
+
+# Consensus
+consensus-config:
+  max-pending-txn-limit: 1000
+  proposer-timeout-ms: 2000

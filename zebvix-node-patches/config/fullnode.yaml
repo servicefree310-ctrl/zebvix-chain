@@ -1,0 +1,28 @@
+# Zebvix Full Node Configuration
+# Copy to: ~/.zebvix/fullnode.yaml
+
+chain-id: zebvix-mainnet-1
+
+# Network
+p2p-config:
+  listen-address: "0.0.0.0:8084"
+  external-address: "<YOUR_SERVER_IP>:8084"
+  seed-peers:
+    - address: "<SEED_NODE_ADDRESS>:8084"
+      peer-id: "<SEED_NODE_PEER_ID>"
+
+# RPC
+json-rpc-address: "0.0.0.0:9000"
+websocket-address: "0.0.0.0:9001"
+metrics-address: "0.0.0.0:9184"
+
+# Data
+db-path: /root/zebvix-data/db
+genesis-file-location: /root/zebvix-data/genesis.blob
+
+# Limits
+max-concurrent-requests: 1000
+request-timeout-ms: 30000
+
+# Grpc
+grpc-address: "0.0.0.0:8888"
