@@ -1,0 +1,35 @@
+# Key se address kaise banta hai
+grep -n "fn from\|keccak\|blake2\|hash\|ADDRESS_LENGTH" \
+    crates/sui-types/src/crypto.rs | head -30
+grep: crates/sui-types/src/sui_address.rs: No such file or directory
+23:use fastcrypto::hash::{Blake2b256, HashFunction};
+51:use std::hash::{Hash, Hasher};
+199:    pub fn from_bytes(bytes: &[u8]) -> Result<Self, eyre::Report> {
+422:    pub fn from_zklogin_inputs(inputs: &ZkLoginInputs) -> SuiResult<Self> {
+520:    fn from(pk: &AuthorityPublicKey) -> AuthorityPublicKeyBytes {
+538:    fn from_bytes(bytes: &[u8]) -> Result<Self, fastcrypto::error::FastCryptoError> {
+559:    fn from_str(s: &str) -> Result<Self, Self::Err> {
+763:    /// The messaged passed in is already hashed form.
+764:    pub fn new_hashed(hashed_msg: &[u8], secret: &dyn Signer<Signature>) -> Self {
+765:        Signer::sign(secret, hashed_msg)
+772:        // Compute the BCS hash of the value in intent message. In the case of transaction data,
+773:        // this is the BCS hash of `struct TransactionData`, different from the transaction digest
+774:        // itself that computes the BCS hash of the Rust type prefix and `struct TransactionData`.
+776:        let mut hasher = DefaultHash::default();
+777:        hasher.update(bcs::to_bytes(&value).expect("Message serialization should not fail"));
+779:        Signer::sign(secret, &hasher.finalize().digest)
+803:    fn from_bytes(bytes: &[u8]) -> Result<Self, FastCryptoError> {
+862:    fn from_bytes(bytes: &[u8]) -> Result<Self, FastCryptoError> {
+903:    fn from_bytes(bytes: &[u8]) -> Result<Self, FastCryptoError> {
+944:    fn from_bytes(bytes: &[u8]) -> Result<Self, FastCryptoError> {
+1045:        let mut hasher = DefaultHash::default();
+1046:        hasher.update(bcs::to_bytes(&value).expect("Message serialization should not fail"));
+1047:        let digest = hasher.finalize().digest;
+1205:    fn hash<H: Hasher>(&self, state: &mut H) {
+1206:        self.epoch.hash(state);
+1207:        self.authority.hash(state);
+1261:    fn from(info: &AuthorityStrongQuorumSignInfo) -> Self {
+1480:/// Something that we know how to hash and sign.
+1489:    fn from_signable_bytes(bytes: &[u8]) -> Result<Self, Error>;
+1494:/// * We use `BCS` to generate canonical bytes suitable for hashing and signing.
+root@srv1266996:~/zebvix-node# 
