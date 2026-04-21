@@ -450,10 +450,12 @@ const PAY_ID_CODE = `module zebvix::pay_id {
         let dname_str = string::utf8(display_name);
 
         // ── Validations ──
-        assert!(string::length(&id_str)    > 0, E_NAME_EMPTY);         // ID must not be empty
-        assert!(string::length(&dname_str) > 0, E_DISPLAY_NAME_EMPTY); // name must not be empty
+        assert!(string::length(&id_str)    > 0, E_NAME_EMPTY);         // pay_id must not be empty
+        assert!(string::length(&dname_str) > 0, E_DISPLAY_NAME_EMPTY); // display_name must not be empty
+        // NOTE: display_name has NO uniqueness check — "Rahul Kumar" ya koi bhi naam
+        //       do alag log rakh sakte hain. Sirf pay_id globally unique hota hai.
         assert!(!table::contains(&registry.addr_to_name, sender),  E_ALREADY_REGISTERED);
-        assert!(!table::contains(&registry.name_to_addr, id_str),  E_NAME_TAKEN);
+        assert!(!table::contains(&registry.name_to_addr, id_str),  E_NAME_TAKEN); // pay_id unique check
 
         // ── Build full ID: "rahul" + "@zbx" = "rahul@zbx" ──
         let mut full_id = id_str;
@@ -828,18 +830,31 @@ export default function FabricLayer() {
 
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs mb-3">
               {[
-                { k: "Pay ID format", v: "name@zbx" },
-                { k: "Display Name", v: "✅ Mandatory" },
-                { k: "Per address", v: "Sirf 1 ID" },
-                { k: "Delete/Edit", v: "❌ Never" },
-                { k: "Unique", v: "✅ Global" },
-                { k: "Transfer via ID", v: "ZBX + Tokens" },
+                { k: "Pay ID format", v: "name@zbx", note: "✅ Globally unique" },
+                { k: "Display Name", v: "Mandatory", note: "Not unique — same ho sakta" },
+                { k: "Per address", v: "Sirf 1 ID", note: "" },
+                { k: "Delete/Edit", v: "❌ Never", note: "" },
+                { k: "Transfer via ID", v: "ZBX + Tokens", note: "" },
+                { k: "ID Uniqueness", v: "Pay ID only", note: "Display Name free hai" },
               ].map(r => (
                 <div key={r.k} className="rounded-lg bg-muted/20 p-3 border border-border/50">
                   <div className="text-muted-foreground">{r.k}</div>
                   <div className="font-mono font-semibold text-foreground mt-0.5">{r.v}</div>
+                  {r.note && <div className="text-[10px] text-muted-foreground mt-0.5">{r.note}</div>}
                 </div>
               ))}
+            </div>
+
+            {/* Unique vs Not unique clarification */}
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-xs">
+                <div className="font-semibold text-primary mb-1">✅ Pay ID — UNIQUE</div>
+                <div className="text-muted-foreground">Sirf ek address ke paas <code className="font-mono text-foreground">rahul@zbx</code> ho sakta hai — globally. Koi duplicate nahi.</div>
+              </div>
+              <div className="rounded-lg border border-muted bg-muted/10 p-3 text-xs">
+                <div className="font-semibold text-muted-foreground mb-1">Display Name — NOT unique</div>
+                <div className="text-muted-foreground">Do alag log <code className="font-mono text-foreground">Rahul Kumar</code> naam rakh sakte hain — koi uniqueness check nahi. Sirf Pay ID check hota hai.</div>
+              </div>
             </div>
 
             {/* Example IDs with full names */}
@@ -847,10 +862,10 @@ export default function FabricLayer() {
               <div className="text-xs font-semibold text-violet-300 mb-2">Example Registered IDs:</div>
               <div className="space-y-2">
                 {[
-                  { id: "rahul@zbx",        name: "Rahul Kumar" },
-                  { id: "zebvix_tech@zbx",  name: "Zebvix Technologies" },
-                  { id: "alice123@zbx",     name: "Alice Sharma" },
-                  { id: "validator1@zbx",   name: "Node Operator One" },
+                  { id: "rahul@zbx",        name: "Rahul Kumar",       unique: true  },
+                  { id: "rahul_k@zbx",      name: "Rahul Kumar",       unique: true  },
+                  { id: "zebvix_tech@zbx",  name: "Zebvix Technologies", unique: true },
+                  { id: "validator1@zbx",   name: "Rahul Kumar",       unique: true  },
                 ].map(ex => (
                   <div key={ex.id} className="flex items-center gap-3 text-xs">
                     <code className="bg-violet-500/20 text-violet-200 px-2.5 py-1 rounded-full font-mono shrink-0">{ex.id}</code>
@@ -858,6 +873,9 @@ export default function FabricLayer() {
                     <span className="text-green-300 font-medium">{ex.name}</span>
                   </div>
                 ))}
+              </div>
+              <div className="mt-2 pt-2 border-t border-violet-500/20 text-[10px] text-muted-foreground">
+                💡 Upar teen log ka display name <code className="font-mono">"Rahul Kumar"</code> hai — allowed hai. Lekin Pay ID (<code className="font-mono">rahul@zbx</code>, <code className="font-mono">rahul_k@zbx</code>, <code className="font-mono">validator1@zbx</code>) sab alag hain — yahi unique hain.
               </div>
             </div>
 
