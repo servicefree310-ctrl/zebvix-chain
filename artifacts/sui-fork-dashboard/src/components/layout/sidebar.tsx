@@ -21,7 +21,8 @@ import {
   Map,
   Paintbrush,
   ListChecks,
-  Calculator
+  Calculator,
+  Layers
 } from "lucide-react";
 import { useChecklist } from "@/hooks/useChecklist";
 import { Progress } from "@/components/ui/progress";
@@ -53,6 +54,7 @@ const ADDON_NAV = [
   { href: "/bridge", label: "Cross-Chain Bridge", icon: ArrowLeftRight },
   { href: "/staking", label: "Staking Dashboard", icon: TrendingUp },
   { href: "/dex", label: "DEX / Swap", icon: ArrowUpDown },
+  { href: "/fabric-layer", label: "Zebvix Fabric Layer", icon: Layers },
 ];
 
 export function Sidebar() {

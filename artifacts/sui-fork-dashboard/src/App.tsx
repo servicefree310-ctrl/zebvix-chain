@@ -27,6 +27,7 @@ import Implementation from "@/pages/implementation";
 import Rebranding from "@/pages/rebranding";
 import PhaseTracker from "@/pages/phase-tracker";
 import EconomicDesign from "@/pages/economic-design";
+import FabricLayer from "@/pages/fabric-layer";
 
 const queryClient = new QueryClient();
 
@@ -55,6 +56,7 @@ function Router() {
         <Route path="/rebranding" component={Rebranding} />
         <Route path="/phase-tracker" component={PhaseTracker} />
         <Route path="/economic-design" component={EconomicDesign} />
+        <Route path="/fabric-layer" component={FabricLayer} />
         <Route component={NotFound} />
       </Switch>
     </Shell>
