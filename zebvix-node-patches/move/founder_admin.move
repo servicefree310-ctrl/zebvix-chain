@@ -52,6 +52,7 @@ module zebvix::founder_admin {
     // MAX_BURN_SUPPLY_ZBX  = 75_000_000           ← IMMUTABLE
     // MAX_VALIDATORS       = 41                   ← IMMUTABLE
     // SUI_ADDRESS_LENGTH   = 20                   ← IMMUTABLE
+    // NODE_BOND_MIST        = 100 × 10⁹           ← IMMUTABLE (100 ZBX node collateral)
     // GAS_NODE_BPS          = 2200                 ← IMMUTABLE (22% node runners)
     // GAS_VALIDATOR_BPS     = 3000                 ← IMMUTABLE (30% validators)
     // GAS_DELEGATOR_BPS     = 2000                 ← IMMUTABLE (20% delegators)

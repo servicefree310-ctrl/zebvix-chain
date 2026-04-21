@@ -42,6 +42,7 @@ max-burn-zbx: 75000000    # 50% of max supply
 # ── Staking params ──
 max-validators:            41
 min-validator-stake-zbx:   10000
+node-bond-zbx:             100        # mandatory collateral per node runner — locked in ValidatorStake.node_bond
 max-stake-per-validator-zbx: 5000000
 validator-staking-apr:     120   # %
 delegator-apr:             80    # %

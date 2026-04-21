@@ -8,10 +8,15 @@
 //   - GLOBAL_STAKE_CAP = 5,000,000 ZBX (ALL validators + ALL delegators combined)
 //   - Math: 41 slots × 10,000 min = 410,000 ZBX minimum commitment; joining
 //     one slot (10,000) leaves 400,000 ZBX for remaining 40 validators
+//   - NODE_BOND = 100 ZBX (required collateral to receive 22% gas fee reward)
+//       • node runners must bond exactly 100 ZBX when staking
+//       • bond is LOCKED for entire duration — returned only on unstake
+//       • bond does NOT count toward staking total / APR calculation
+//       • if node goes offline / misbehaves → bond can be slashed (future upgrade)
 //   - VALIDATOR_STAKING_APR = 120% (on own stake)
 //   - DELEGATOR_APR = 80% (on delegated amount)
 //   - VALIDATOR_DELEGATION_BONUS = 40% (on total delegated in their slot)
-//   - NODE_DAILY_REWARD = 5 ZBX/day (only node runners get this)
+//   - NODE_DAILY_REWARD = 5 ZBX/day (only bonded node runners get this)
 //   - Reward distribution per epoch:
 //       active_slots   → reward_balance (validators/delegators claim from here)
 //       empty_slots    → founder treasury (slot subsidy for unfilled positions)
@@ -31,6 +36,7 @@ module zebvix::staking_pool {
     const MIN_VALIDATOR_STAKE_MIST:      u64 =     10_000_000_000_000; // 10,000 ZBX
     const MAX_VALIDATOR_STAKE_MIST:      u64 =    250_000_000_000_000; // 250,000 ZBX (per validator, own stake only)
     const GLOBAL_STAKE_CAP_MIST:         u64 =  5_000_000_000_000_000; // 5,000,000 ZBX total (validators + delegators)
+    const NODE_BOND_MIST:                u64 =        100_000_000_000; // 100 ZBX — mandatory node collateral
     const VALIDATOR_STAKING_APR_BPS:     u64 = 12_000; // 120% APR in BPS
     const DELEGATOR_APR_BPS:             u64 =  8_000; //  80% APR in BPS
     const VALIDATOR_DELEGATION_BONUS_BPS: u64 = 4_000; //  40% bonus APR on delegated amount
@@ -45,13 +51,15 @@ module zebvix::staking_pool {
     const E_LOCK_PERIOD_NOT_MET:     u64 = 6;
     const E_INVALID_VALIDATOR:       u64 = 7;
     const E_ALREADY_VALIDATOR:       u64 = 8;
-    const E_MAX_VALIDATOR_STAKE:     u64 = 9; // validator's own stake > 250,000 ZBX
+    const E_MAX_VALIDATOR_STAKE:     u64 = 9;  // validator's own stake > 250,000 ZBX
+    const E_BOND_WRONG_AMOUNT:       u64 = 10; // node bond must be exactly 100 ZBX
 
     // ── Validator Stake object ──
     public struct ValidatorStake has key, store {
         id:                UID,
         validator_addr:    address,
         staked_balance:    Balance<ZBX>,
+        node_bond:         Balance<ZBX>, // 100 ZBX locked collateral — returned on unstake
         staked_epoch:      u64,
         last_reward_epoch: u64,
         node_wallet:       address,
@@ -175,39 +183,54 @@ module zebvix::staking_pool {
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // VALIDATOR: stake ZBX and become a validator
+    // VALIDATOR: stake ZBX + bond 100 ZBX → become a validator + node runner
+    //
+    // Parameters:
+    //   zbx_coin    — validator's own stake (10,000–250,000 ZBX)
+    //   bond_coin   — EXACTLY 100 ZBX node collateral (separate from stake)
+    //   node_wallet — wallet address where node daily rewards are sent
     //
     // Constraints:
     //   1. Sender not already a validator
     //   2. Active slots < 41
-    //   3. amount >= 10,000 ZBX  (MIN_VALIDATOR_STAKE)
-    //   4. amount <= 250,000 ZBX (MAX_VALIDATOR_STAKE — validator's own only)
+    //   3. zbx_coin amount >= 10,000 ZBX  (MIN_VALIDATOR_STAKE)
+    //   4. zbx_coin amount <= 250,000 ZBX (MAX_VALIDATOR_STAKE — own only)
     //   5. pool.total_staked + amount <= 5,000,000 ZBX (GLOBAL_STAKE_CAP)
+    //   6. bond_coin == exactly 100 ZBX   (NODE_BOND_MIST)
+    //
+    // The 100 ZBX bond is locked in ValidatorStake.node_bond.
+    // It does NOT count toward staking totals or APR.
+    // It is returned intact on unstake (future: can be slashed for misbehavior).
     // ──────────────────────────────────────────────────────────────────────
     public fun stake(
         pool:        &mut StakingPool,
         zbx_coin:    Coin<ZBX>,
+        bond_coin:   Coin<ZBX>,  // exactly 100 ZBX node collateral
         node_wallet: address,
         ctx:         &mut TxContext,
     ) {
         let sender = tx_context::sender(ctx);
         let amount = coin::value(&zbx_coin);
+        let bond   = coin::value(&bond_coin);
 
-        assert!(!table::contains(&pool.slot_stakes, sender),           E_ALREADY_VALIDATOR);
-        assert!(pool.active_validators < MAX_VALIDATORS,               E_VALIDATOR_CAP_REACHED);
-        assert!(amount >= MIN_VALIDATOR_STAKE_MIST,                    E_MIN_STAKE_NOT_MET);
-        assert!(amount <= MAX_VALIDATOR_STAKE_MIST,                    E_MAX_VALIDATOR_STAKE);
-        assert!(pool.total_staked_mist + amount <= GLOBAL_STAKE_CAP_MIST, E_GLOBAL_CAP_REACHED);
+        assert!(!table::contains(&pool.slot_stakes, sender),              E_ALREADY_VALIDATOR);
+        assert!(pool.active_validators < MAX_VALIDATORS,                   E_VALIDATOR_CAP_REACHED);
+        assert!(amount >= MIN_VALIDATOR_STAKE_MIST,                        E_MIN_STAKE_NOT_MET);
+        assert!(amount <= MAX_VALIDATOR_STAKE_MIST,                        E_MAX_VALIDATOR_STAKE);
+        assert!(pool.total_staked_mist + amount <= GLOBAL_STAKE_CAP_MIST,  E_GLOBAL_CAP_REACHED);
+        assert!(bond == NODE_BOND_MIST,                                    E_BOND_WRONG_AMOUNT);
 
         table::add(&mut pool.slot_stakes,    sender, amount);
         table::add(&mut pool.slot_delegated, sender, 0);
         pool.active_validators  = pool.active_validators + 1;
         pool.total_staked_mist  = pool.total_staked_mist + amount;
+        // NOTE: bond is NOT added to total_staked_mist — it is separate collateral
 
         let stake_obj = ValidatorStake {
             id:                object::new(ctx),
             validator_addr:    sender,
             staked_balance:    coin::into_balance(zbx_coin),
+            node_bond:         coin::into_balance(bond_coin), // lock 100 ZBX bond
             staked_epoch:      tx_context::epoch(ctx),
             last_reward_epoch: tx_context::epoch(ctx),
             node_wallet:       node_wallet,
@@ -224,33 +247,47 @@ module zebvix::staking_pool {
     }
 
     // ── VALIDATOR: unstake (min 1 epoch lock) ──
+    // Returns TWO coins:
+    //   1. staked ZBX (original stake amount)
+    //   2. node bond  (exactly 100 ZBX collateral returned)
     public fun unstake(
         pool:      &mut StakingPool,
         stake_obj: ValidatorStake,
         ctx:       &mut TxContext,
-    ): Coin<ZBX> {
+    ): (Coin<ZBX>, Coin<ZBX>) {
         let ValidatorStake {
-            id, validator_addr, staked_balance, staked_epoch,
-            last_reward_epoch: _, node_wallet: _,
+            id, validator_addr, staked_balance, node_bond,
+            staked_epoch, last_reward_epoch: _, node_wallet: _,
         } = stake_obj;
         object::delete(id);
 
         assert!(tx_context::epoch(ctx) > staked_epoch, E_LOCK_PERIOD_NOT_MET);
 
-        let amount   = balance::value(&staked_balance);
+        let amount    = balance::value(&staked_balance);
         let delegated = *table::borrow(&pool.slot_delegated, validator_addr);
 
         table::remove(&mut pool.slot_stakes,    validator_addr);
         table::remove(&mut pool.slot_delegated, validator_addr);
         pool.active_validators = pool.active_validators - 1;
 
-        // Remove only the validator's own stake from total (delegators will undelegate separately)
+        // Remove only the validator's own stake from total (delegators undelegate separately)
         pool.total_staked_mist = if (pool.total_staked_mist > amount) {
             pool.total_staked_mist - amount
         } else { 0 };
+        // Note: bond was never in total_staked_mist, so no adjustment needed for it
 
         let _ = delegated; // delegated stays in total until delegators undelegate
-        coin::from_balance(staked_balance, ctx)
+
+        // Return stake + bond separately so caller can merge or keep them distinct
+        (
+            coin::from_balance(staked_balance, ctx), // original stake
+            coin::from_balance(node_bond, ctx),       // 100 ZBX bond returned
+        )
+    }
+
+    // ── View: get node bond amount for a stake object ──
+    public fun node_bond_amount(stake_obj: &ValidatorStake): u64 {
+        balance::value(&stake_obj.node_bond)
     }
 
     // ── VALIDATOR: claim staking APR + delegation bonus rewards ──

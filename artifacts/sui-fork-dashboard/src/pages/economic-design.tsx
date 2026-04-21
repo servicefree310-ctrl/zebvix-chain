@@ -319,6 +319,9 @@ export default function EconomicDesign() {
                 {[
                   { l: "Max Validators", v: `${p.maxValidators} slots` },
                   { l: "Max / Validator Stake", v: "250,000 ZBX (own only)" },
+                  { l: "Node Bond (required)", v: "100 ZBX — locked collateral" },
+                  { l: "Bond counts toward APR?", v: "No — separate from stake" },
+                  { l: "Bond returned on exit?", v: "Yes — intact on unstake" },
                   { l: "Global Stake Cap", v: "5,000,000 ZBX total" },
                   { l: "% of Total Supply", v: `${computed.maxNetworkStakePct}%` },
                   { l: "Delegator APR", v: `${p.delegatorApr}%` },
@@ -331,7 +334,7 @@ export default function EconomicDesign() {
                 ))}
               </div>
               <div className="text-[10px] text-muted-foreground pt-1 border-t border-border/50">
-                E_GLOBAL_CAP_REACHED: total 5M ZBX pool bhar gaya → reject | E_MAX_VALIDATOR_STAKE: validator apna 250K se zyada stake kar raha → reject | E_VALIDATOR_CAP_REACHED: 41 validators active → naya validator nahi
+                E_GLOBAL_CAP_REACHED: total 5M ZBX pool bhar gaya → reject | E_MAX_VALIDATOR_STAKE: validator apna 250K se zyada → reject | E_VALIDATOR_CAP_REACHED: 41 validators active → reject | E_BOND_WRONG_AMOUNT: bond_coin ≠ 100 ZBX → reject
               </div>
             </div>
 

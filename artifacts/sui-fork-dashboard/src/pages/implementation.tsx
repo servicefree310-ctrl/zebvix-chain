@@ -136,7 +136,31 @@ EOF
 echo "Halving logic added ✅"`,
       },
       {
-        title: "Step 2.4 — Gas Fee Split: 22% Node / 30% Validators / 20% Delegators / 18% Treasury / 10% Burn",
+        title: "Step 2.4 — Node Bond: 100 ZBX Mandatory Collateral for Node Runners",
+        file: "crates/sui-framework/packages/zebvix/sources/staking_pool.move",
+        description: "Har node runner ko 100 ZBX node bond lock karna padega — gas fee 22% share ke liye eligible hone ke liye",
+        code: `# staking_pool.move mein ye changes pehle se included hain patches archive mein
+# Manual verify karo:
+
+grep "NODE_BOND_MIST" ~/zebvix-node/crates/sui-framework/packages/zebvix/sources/staking_pool.move
+
+# Expected output:
+# const NODE_BOND_MIST: u64 = 100_000_000_000; // 100 ZBX — mandatory node collateral
+
+# stake() call — 100 ZBX bond alag coin se dena padega
+# Example PTB (programmable transaction):
+#   let stake_coin = split(your_wallet, 10_000 * 1_000_000_000);  // 10,000 ZBX
+#   let bond_coin  = split(your_wallet,    100 * 1_000_000_000);  //    100 ZBX
+#   staking_pool::stake(pool, stake_coin, bond_coin, node_wallet_addr, ctx);
+
+# unstake() → returns TWO coins
+#   let (stake_back, bond_back) = staking_pool::unstake(pool, stake_obj, ctx);
+#   # bond_back = 100 ZBX returned after exit
+
+echo "Node bond logic verify karo ✅"`,
+      },
+      {
+        title: "Step 2.5 — Gas Fee Split: 22% Node / 30% Validators / 20% Delegators / 18% Treasury / 10% Burn",
         file: "crates/sui-types/src/sui_system_state/",
         description: "Gas fee ko teen parts mein baanto — validators, treasury, aur burn",
         code: `cd ~/zebvix-node
@@ -167,7 +191,7 @@ EOF
 echo "Gas fee constants added ✅"`,
       },
       {
-        title: "Step 2.5 — Rebuild After All Rust Changes",
+        title: "Step 2.6 — Rebuild After All Rust Changes",
         file: "",
         description: "Ek baar saare changes karne ke baad — single rebuild",
         code: `cd ~/zebvix-node
