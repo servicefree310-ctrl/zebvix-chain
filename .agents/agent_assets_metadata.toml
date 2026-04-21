@@ -18,3 +18,9 @@ id = "B9kmaWIdWag9BR2TJC2pO"
 uri = "file://zebvix-chain-patches.zip"
 type = "unspecified"
 title = "Zebvix Chain Patches — zebvix-chain-patches.zip"
+
+[[outputs]]
+id = "Tzb11uSYeVGUuPhv6D69g"
+uri = "file://zebvix-full-source.zip"
+type = "unspecified"
+title = "Zebvix Full Chain Source — zebvix-full-source.zip (87.5MB)"
