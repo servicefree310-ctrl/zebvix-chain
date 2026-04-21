@@ -71,11 +71,14 @@ export function Sidebar() {
     <>
       {/* Mobile Sidebar */}
       <div className="md:hidden flex items-center justify-between p-4 border-b border-border bg-card">
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded bg-primary flex items-center justify-center">
-            <div className="w-2.5 h-2.5 bg-background rounded-sm" />
+        <div className="flex flex-col">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded bg-primary flex items-center justify-center">
+              <div className="w-2.5 h-2.5 bg-background rounded-sm" />
+            </div>
+            <span className="font-semibold text-foreground tracking-tight">Zebvix Dev</span>
           </div>
-          <span className="font-semibold text-foreground tracking-tight">Zebvix Dev</span>
+          <p className="text-[10px] text-muted-foreground font-mono pl-8 tracking-wide">Zebvix Technologies Pvt Ltd</p>
         </div>
         <Sheet>
           <SheetTrigger asChild>
@@ -85,11 +88,14 @@ export function Sidebar() {
           </SheetTrigger>
           <SheetContent side="left" className="w-64 p-4 bg-background border-r border-border">
             <div className="mb-6 px-2">
-              <div className="flex items-center gap-2 mb-8">
-                <div className="w-6 h-6 rounded bg-primary flex items-center justify-center">
-                  <div className="w-2.5 h-2.5 bg-background rounded-sm" />
+              <div className="mb-8">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <div className="w-6 h-6 rounded bg-primary flex items-center justify-center">
+                    <div className="w-2.5 h-2.5 bg-background rounded-sm" />
+                  </div>
+                  <span className="font-semibold text-foreground tracking-tight">Zebvix Dev</span>
                 </div>
-                <span className="font-semibold text-foreground tracking-tight">Zebvix Dev</span>
+                <p className="text-[10px] text-muted-foreground font-mono pl-8 tracking-wide">Zebvix Technologies Pvt Ltd</p>
               </div>
               <NavLinks />
               <ProgressWidget />
@@ -101,12 +107,13 @@ export function Sidebar() {
       {/* Desktop Sidebar */}
       <div className="hidden md:flex flex-col w-64 border-r border-border bg-card/50 h-screen sticky top-0">
         <div className="p-6">
-          <div className="flex items-center gap-2 mb-6">
-            <div className="w-7 h-7 rounded bg-primary flex items-center justify-center shadow-[0_0_15px_rgba(76,163,255,0.3)]">
+          <div className="flex items-center gap-2 mb-1">
+            <div className="w-7 h-7 rounded bg-primary flex items-center justify-center shadow-[0_0_15px_rgba(34,197,94,0.35)]">
               <div className="w-3 h-3 bg-background rounded-sm" />
             </div>
             <span className="font-bold text-lg text-foreground tracking-tight">Zebvix Dev</span>
           </div>
+          <p className="text-[10px] text-muted-foreground font-mono pl-9 mb-5 tracking-wide">Zebvix Technologies Pvt Ltd</p>
           <NavLinks />
           <ProgressWidget />
         </div>
