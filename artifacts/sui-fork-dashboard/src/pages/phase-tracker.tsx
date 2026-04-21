@@ -82,6 +82,25 @@ const CHANGES_LOG = [
       { type: "change", text: "Supported key types: Ed25519 (primary), Secp256k1, Secp256r1 — ZkLogin bhi allowed" },
     ],
   },
+  {
+    phase: "P4",
+    date: "Apr 21, 2026",
+    color: "text-violet-400",
+    dot: "bg-violet-500",
+    label: "ZBX Pay ID",
+    entries: [
+      { type: "add", text: "Module: zebvix::pay_id (Fabric Layer — Move contract)" },
+      { type: "add", text: "PayIdRegistry: shared object — chain-wide global registry (ek hi instance)" },
+      { type: "add", text: "PayId struct { name: String, owner: address, created_epoch: u64 } — immutable on-chain object" },
+      { type: "add", text: "Format rule: ID = '<name>@zbx' — name required, @zbx suffix mandatory (e.g. rahul@zbx)" },
+      { type: "add", text: "register_pay_id(registry, name): ek address se sirf ek ID — dusri register karne pe abort" },
+      { type: "add", text: "Uniqueness check: Table<String, address> mein naam already exist kare to abort — duplicate blocked" },
+      { type: "add", text: "transfer_to_pay_id(registry, pay_id_name, coin, ctx) — naam se seedha coin/token bhejo" },
+      { type: "add", text: "resolve_pay_id(registry, name) → address — naam se wallet address lookup" },
+      { type: "change", text: "PayId object: key ability only (no store) — transfer + delete functions intentionally missing → permanent" },
+      { type: "change", text: "Name validation: empty string aur special chars blocked — alphanumeric + underscore only" },
+    ],
+  },
 ];
 
 const PHASES = [
@@ -411,6 +430,7 @@ export default function PhaseTracker() {
                         const c = log.color; // e.g. "text-orange-400", "text-red-400"
                         const col = c.includes("orange") ? "bg-orange-500/15 text-orange-400 border-orange-500/20"
                                   : c.includes("red")    ? "bg-red-500/15 text-red-400 border-red-500/20"
+                                  : c.includes("violet") ? "bg-violet-500/15 text-violet-400 border-violet-500/20"
                                   : c.includes("blue")   ? "bg-blue-500/15 text-blue-400 border-blue-500/20"
                                   : c.includes("green")  ? "bg-green-500/15 text-green-400 border-green-500/20"
                                   : c.includes("yellow") ? "bg-yellow-500/15 text-yellow-400 border-yellow-500/20"

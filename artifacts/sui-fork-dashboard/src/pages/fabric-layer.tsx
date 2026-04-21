@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import {
   Layers, Code2, Coins, Image, Vote, Droplets,
   Globe, Zap, ChevronDown, ChevronRight, Copy, Check,
-  ArrowLeftRight, BookOpen, Terminal, Link2
+  ArrowLeftRight, BookOpen, Terminal, Link2, AtSign
 } from "lucide-react";
 
 function CopyBtn({ text }: { text: string }) {
@@ -227,6 +227,110 @@ const DEFI_CODE = `module zebvix::simple_vault {
             balance::split(&mut vault.reserve, amount),
             ctx
         )
+    }
+}`;
+
+const PAY_ID_CODE = `module zebvix::pay_id {
+    use sui::object::{Self, UID};
+    use sui::tx_context::{Self, TxContext};
+    use sui::table::{Self, Table};
+    use sui::transfer;
+    use sui::coin::Coin;
+    use std::string::{Self, String};
+
+    // ── Global registry — chain pe ek hi shared instance ──
+    struct PayIdRegistry has key {
+        id: UID,
+        // name_str → owner_address  (e.g. "rahul" → 0xABC...)
+        name_to_addr: Table<String, address>,
+        // owner_address → name_str  (ek address = ek hi ID)
+        addr_to_name: Table<address, String>,
+    }
+
+    // ── On-chain PayId object — key only (no store = non-transferable, permanent) ──
+    struct PayId has key {
+        id: UID,
+        name: String,          // e.g. "rahul"
+        full_id: String,       // e.g. "rahul@zbx"
+        owner: address,
+        created_epoch: u64,
+    }
+
+    // ── Error codes ──
+    const E_NAME_EMPTY:         u64 = 1;
+    const E_NAME_TAKEN:         u64 = 2;
+    const E_ALREADY_REGISTERED: u64 = 3;
+    const E_INVALID_CHARS:      u64 = 4;
+    const E_PAY_ID_NOT_FOUND:   u64 = 5;
+
+    // ── Init: registry ek bar create hota hai (deployer ke paas) ──
+    fun init(ctx: &mut TxContext) {
+        transfer::share_object(PayIdRegistry {
+            id: object::new(ctx),
+            name_to_addr: table::new(ctx),
+            addr_to_name: table::new(ctx),
+        });
+    }
+
+    // ── Register: ek address sirf ek baar register kar sakta hai ──
+    public fun register_pay_id(
+        registry: &mut PayIdRegistry,
+        name: vector<u8>,          // e.g. b"rahul"
+        ctx: &mut TxContext
+    ) {
+        let sender = tx_context::sender(ctx);
+        let name_str = string::utf8(name);
+
+        // Validations
+        assert!(string::length(&name_str) > 0, E_NAME_EMPTY);
+        assert!(!table::contains(&registry.addr_to_name, sender), E_ALREADY_REGISTERED);
+        assert!(!table::contains(&registry.name_to_addr, name_str), E_NAME_TAKEN);
+
+        // Full ID = name + "@zbx"
+        let full = string::utf8(b"@zbx");
+        string::append(&mut full, name_str);  // "rahul@zbx"
+
+        // Register in both maps
+        table::add(&mut registry.name_to_addr, name_str, sender);
+        table::add(&mut registry.addr_to_name, sender, name_str);
+
+        // Mint PayId object to sender — permanently bound, no delete/transfer
+        transfer::transfer(PayId {
+            id: object::new(ctx),
+            name: name_str,
+            full_id: full,
+            owner: sender,
+            created_epoch: tx_context::epoch(ctx),
+        }, sender);
+    }
+
+    // ── Resolve: naam se address lookup ──
+    public fun resolve_pay_id(
+        registry: &PayIdRegistry,
+        name: vector<u8>,
+    ): address {
+        let name_str = string::utf8(name);
+        assert!(table::contains(&registry.name_to_addr, name_str), E_PAY_ID_NOT_FOUND);
+        *table::borrow(&registry.name_to_addr, name_str)
+    }
+
+    // ── Transfer: naam se seedha coin bhejo (ZBX ya koi bhi token) ──
+    public fun transfer_to_pay_id<T>(
+        registry: &PayIdRegistry,
+        name: vector<u8>,   // recipient ka naam, e.g. b"rahul"
+        coin: Coin<T>,
+        ctx: &mut TxContext
+    ) {
+        let recipient = resolve_pay_id(registry, name);
+        sui::transfer::public_transfer(coin, recipient);
+    }
+
+    // ── View: kya naam available hai? ──
+    public fun is_name_available(
+        registry: &PayIdRegistry,
+        name: vector<u8>,
+    ): bool {
+        !table::contains(&registry.name_to_addr, string::utf8(name))
     }
 }`;
 
@@ -462,6 +566,69 @@ export default function FabricLayer() {
               💡 <strong>Tip:</strong> Ek transaction mein max ~500 recipients — badi list ko batches mein split karo
             </div>
             <CodeBlock code={AIRDROP_CODE} />
+          </Section>
+
+          {/* ZBX Pay ID */}
+          <Section icon={AtSign} title="ZBX Pay ID — UPI-style Human Readable Address" color="border-violet-500/30 bg-violet-500/3" badge="name@zbx">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs mb-3">
+              {[
+                { k: "Format", v: "name@zbx" },
+                { k: "Per address", v: "Sirf 1 ID" },
+                { k: "Delete/Edit", v: "❌ Never" },
+                { k: "Unique", v: "✅ Global" },
+                { k: "Transfer via ID", v: "ZBX + Tokens" },
+                { k: "Name required", v: "Mandatory" },
+              ].map(r => (
+                <div key={r.k} className="rounded-lg bg-muted/20 p-3 border border-border/50">
+                  <div className="text-muted-foreground">{r.k}</div>
+                  <div className="font-mono font-semibold text-foreground mt-0.5">{r.v}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Example IDs */}
+            <div className="rounded-lg bg-violet-500/10 border border-violet-500/20 p-3 mb-3 space-y-2">
+              <div className="text-xs font-semibold text-violet-300 mb-2">Example Pay IDs:</div>
+              <div className="flex flex-wrap gap-2">
+                {["rahul@zbx", "zebvix_tech@zbx", "alice123@zbx", "validator1@zbx"].map(id => (
+                  <code key={id} className="text-xs bg-violet-500/20 text-violet-200 px-2.5 py-1 rounded-full font-mono">{id}</code>
+                ))}
+              </div>
+            </div>
+
+            {/* Rules box */}
+            <div className="rounded-lg bg-red-500/5 border border-red-500/20 p-3 mb-3 space-y-1 text-xs">
+              <div className="text-xs font-semibold text-red-400 mb-1">Hard Rules (chain level enforce):</div>
+              <div className="flex gap-2 text-muted-foreground"><span className="text-red-400">•</span><span>Name ke bina ID nahi banega — empty string = abort</span></div>
+              <div className="flex gap-2 text-muted-foreground"><span className="text-red-400">•</span><span>Ek address = sirf ek Pay ID — dusra try karo = transaction fail</span></div>
+              <div className="flex gap-2 text-muted-foreground"><span className="text-red-400">•</span><span>Same naam kisi aur ne liya = abort — globally unique</span></div>
+              <div className="flex gap-2 text-muted-foreground"><span className="text-red-400">•</span><span>PayId object: <code className="font-mono">has key</code> only — koi <code className="font-mono">store</code> nahi → transfer/delete permanently blocked</span></div>
+            </div>
+
+            <CodeBlock code={PAY_ID_CODE} />
+
+            {/* JS usage */}
+            <div className="mt-3">
+              <p className="text-xs text-muted-foreground mb-2 font-semibold">SDK se use karo (TypeScript):</p>
+              <CodeBlock code={`// Pay ID se coin bhejo
+const txb = new TransactionBlock();
+txb.moveCall({
+  target: '0xPKG::pay_id::transfer_to_pay_id',
+  typeArguments: ['0x2::zbx::ZBX'],
+  arguments: [
+    txb.object(REGISTRY_ID),     // shared PayIdRegistry object
+    txb.pure(b'rahul'),          // recipient ka naam
+    txb.object(coinObjectId),    // coin to send
+  ],
+});
+await client.signAndExecuteTransactionBlock({ signer, transactionBlock: txb });
+
+// Check naam available hai?
+const available = await client.devInspectTransactionBlock({
+  target: '0xPKG::pay_id::is_name_available',
+  arguments: [REGISTRY_ID, b'rahul'],
+});`} lang="typescript" />
+            </div>
           </Section>
 
         </div>
