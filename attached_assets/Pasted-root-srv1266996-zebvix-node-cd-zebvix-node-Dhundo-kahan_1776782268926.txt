@@ -1,0 +1,41 @@
+root@srv1266996:~/zebvix-node# cd ~/zebvix-node
+
+# Dhundo kahan se public key → address banta hai
+grep -n "From.*PublicKey\|impl.*SuiAddress\|flag.*bytes\|Blake2b" \
+    crates/sui-types/src/base_types.rs | head -20
+
+# Aur crypto.rs mein bhi
+grep -n "SuiAddress\|address.*from\|from.*key" \
+    crates/sui-types/src/crypto.rs | grep -i "address\|SuiAddress" | head -20
+801:impl SuiAddress {
+873:impl From<ObjectID> for SuiAddress {
+879:impl From<AccountAddress> for SuiAddress {
+885:impl TryFrom<&[u8]> for SuiAddress {
+894:impl TryFrom<Vec<u8>> for SuiAddress {
+903:impl AsRef<[u8]> for SuiAddress {
+909:impl FromStr for SuiAddress {
+916:impl<T: SuiPublicKey> From<&T> for SuiAddress {
+926:impl From<&PublicKey> for SuiAddress {
+936:impl From<&MultiSigPublicKey> for SuiAddress {
+938:    /// is defined as the 32-byte Blake2b hash of serializing the flag, the
+959:/// [zklogin_flag || iss_bytes_length || iss_bytes || unpadded_address_seed_in_bytes].
+960:impl TryFrom<&ZkLoginAuthenticator> for SuiAddress {
+967:impl TryFrom<&GenericSignature> for SuiAddress {
+999:impl fmt::Display for SuiAddress {
+1005:impl fmt::Debug for SuiAddress {
+1723:impl From<SuiAddress> for ObjectID {
+1809:impl From<SuiAddress> for AccountAddress {
+3:use crate::base_types::{AuthorityName, ConciseableName, SuiAddress};
+94:    address: SuiAddress,
+111:    sui_address: SuiAddress,
+640:pub fn get_key_pair<KP: KeypairTraits>() -> (SuiAddress, KP)
+666:pub fn deterministic_random_account_key() -> (SuiAddress, AccountKeyPair) {
+671:pub fn get_account_key_pair() -> (SuiAddress, AccountKeyPair) {
+675:pub fn get_authority_key_pair() -> (SuiAddress, AuthorityKeyPair) {
+680:pub fn get_key_pair_from_rng<KP: KeypairTraits, R>(csprng: &mut R) -> (SuiAddress, KP)
+690:pub fn get_key_pair_from_bytes<KP: KeypairTraits>(bytes: &[u8]) -> SuiResult<(SuiAddress, KP)>
+1012:        author: SuiAddress,
+1039:        author: SuiAddress,
+1051:            SignatureScheme::ZkLoginAuthenticator => {} // Pass this check because zk login does not derive address from pubkey.
+1053:                let address = SuiAddress::from(pk);
+root@srv1266996:~/zebvix-node# 
