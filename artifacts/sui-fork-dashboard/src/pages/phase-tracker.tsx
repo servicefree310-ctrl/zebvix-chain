@@ -7,7 +7,7 @@ const STORAGE_KEY = "zebvix-phase-tracker";
 const CHANGES_LOG = [
   {
     phase: "P1",
-    date: "Apr 21, 2025",
+    date: "Apr 21, 2026",
     color: "text-green-400",
     dot: "bg-green-500",
     entries: [
@@ -66,7 +66,7 @@ const CHANGES_LOG = [
     ],
   },
   {
-    phase: "P2",
+    phase: "P3",
     date: "Apr 21, 2026",
     color: "text-red-400",
     dot: "bg-red-500",
@@ -174,6 +174,43 @@ const CHANGES_LOG = [
       { type: "change", text: "Admin MultiSig: CHAIN_UPGRADE_THRESHOLD = 4/6 (67%) — feature add ke liye supermajority required" },
     ],
   },
+  {
+    phase: "P6",
+    date: "Apr 21, 2026",
+    color: "text-pink-400",
+    dot: "bg-pink-500",
+    label: "Move Contracts Written",
+    entries: [
+      { type: "add", text: "zbx_token.move (91 lines) — ZBX native token, OTW pattern, 2M genesis mint, 150M cap, MintAuthority shared obj" },
+      { type: "add", text: "pay_id.move (147 lines) — PayIdRegistry, PayId struct, register_pay_id(), transfer_to_pay_id<T>()" },
+      { type: "add", text: "staking_pool.move (347 lines) — ValidatorStake, DelegatorStake, StakingPool, NodeWallet — full APR system" },
+      { type: "add", text: "master_pool.move (117 lines) — MasterPool shared obj, x*y=k AMM, add/remove_liquidity permanently DISABLED" },
+      { type: "add", text: "sub_pool.move (228 lines) — SubPool<T> permissionless, buy/sell/swap_a_to_b, anti-rug locks" },
+      { type: "add", text: "founder_admin.move (136 lines) — FounderAdminCap, FeatureRecord, add_feature(), update_admin()" },
+      { type: "add", text: "Move.toml (14 lines) — package manifest: name=zebvix, edition=2024, deps=Sui" },
+      { type: "add", text: "zebvix-full-source.tar.gz (78MB) — complete Sui clone + all 6 patches applied, ready for VPS build" },
+      { type: "add", text: "apply_patches.sh — ek command se saari patches apply: bash apply_patches.sh ~/zebvix-node" },
+      { type: "change", text: "DEPLOY STATUS: Move modules WRITTEN & archived — VPS pe actual deploy karna baaki hai (P6 task list)" },
+    ],
+  },
+  {
+    phase: "P7",
+    date: "Pending",
+    color: "text-amber-400",
+    dot: "bg-amber-500",
+    label: "Ecosystem Setup",
+    entries: [
+      { type: "add", text: "GitHub repo: ZebvixTech/zebvix-node — push zebvix-full-source.tar.gz contents" },
+      { type: "add", text: "GitHub repo: ZebvixTech/zebvix-explorer — sui-explorer fork + ZBX branding" },
+      { type: "add", text: "GitHub repo: ZebvixTech/zebvix.js — @mysten/sui.js fork renamed to zebvix.js" },
+      { type: "add", text: "Block Explorer: deploy on domain (e.g. explorer.zebvix.network)" },
+      { type: "add", text: "ZBX Wallet: Chrome extension build + publish" },
+      { type: "add", text: "Testnet Faucet: deploy on testnet.zebvix.network" },
+      { type: "add", text: "Mainnet Domain: zebvix.network + docs.zebvix.network" },
+      { type: "add", text: "Documentation: full technical docs publish karo" },
+      { type: "change", text: "STATUS: Ye saare tasks VPS node launch ke BAAD karne hain (P5 complete hone ke baad)" },
+    ],
+  },
 ];
 
 const PHASES = [
@@ -256,17 +293,20 @@ const PHASES = [
     ],
   },
   {
-    id: "P6", title: "Move Contracts",
+    id: "P6", title: "Move Contracts Deploy",
     color: "from-pink-500 to-rose-500", lightColor: "text-pink-400",
     borderColor: "border-pink-500/40", bgColor: "bg-pink-500/5",
     points: [
-      { id: "p6_1", text: "zebvix-cli client new-env --alias zebvix" },
-      { id: "p6_2", text: "Test wallet address mila (ZBX mila faucet se)" },
-      { id: "p6_3", text: "Node Runner Rewards contract deploy kiya" },
-      { id: "p6_4", text: "Treasury Multisig contract deploy kiya" },
-      { id: "p6_5", text: "Staking contract deploy kiya" },
-      { id: "p6_6", text: "Contract Package IDs note kiye" },
-      { id: "p6_7", text: "Basic transaction test kiya (ZBX transfer)" },
+      { id: "p6_0", text: "zebvix-cli client new-env --alias zebvix (node se connect karo)" },
+      { id: "p6_1", text: "Test wallet address liya — faucet se ZBX gas mila" },
+      { id: "p6_2", text: "zbx_token.move deploy kiya (150M cap, 2M genesis, MintAuthority)" },
+      { id: "p6_3", text: "pay_id.move deploy kiya (PayIdRegistry shared obj, rahul@zbx format)" },
+      { id: "p6_4", text: "staking_pool.move deploy kiya (41 slots, 120%/80% APR, NodeWallet)" },
+      { id: "p6_5", text: "master_pool.move deploy kiya (AMM base, anti-rug locked)" },
+      { id: "p6_6", text: "sub_pool.move deploy kiya (permissionless pairs, x*y=k)" },
+      { id: "p6_7", text: "founder_admin.move deploy kiya (FounderAdminCap → MultiSig wallet transfer)" },
+      { id: "p6_8", text: "Saare 6 Package IDs note kiye aur config mein save kiye" },
+      { id: "p6_9", text: "Basic txn test kiya — ZBX transfer + Pay ID register + stake test" },
     ],
   },
   {
