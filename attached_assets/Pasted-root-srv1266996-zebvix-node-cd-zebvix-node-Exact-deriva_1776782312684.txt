@@ -1,0 +1,50 @@
+root@srv1266996:~/zebvix-node# cd ~/zebvix-node
+
+# Exact derivation code dekho — lines 916 to 960
+sed -n '916,960p' crates/sui-types/src/base_types.rs
+impl<T: SuiPublicKey> From<&T> for SuiAddress {
+    fn from(pk: &T) -> Self {
+        let mut hasher = DefaultHash::default();
+        hasher.update([T::SIGNATURE_SCHEME.flag()]);
+        hasher.update(pk);
+        let g_arr = hasher.finalize();
+        SuiAddress(g_arr.digest)
+    }
+}
+
+impl From<&PublicKey> for SuiAddress {
+    fn from(pk: &PublicKey) -> Self {
+        let mut hasher = DefaultHash::default();
+        hasher.update([pk.flag()]);
+        hasher.update(pk);
+        let g_arr = hasher.finalize();
+        SuiAddress(g_arr.digest)
+    }
+}
+
+impl From<&MultiSigPublicKey> for SuiAddress {
+    /// Derive a SuiAddress from [struct MultiSigPublicKey]. A MultiSig address
+    /// is defined as the 32-byte Blake2b hash of serializing the flag, the
+    /// threshold, concatenation of all n flag, public keys and
+    /// its weight. `flag_MultiSig || threshold || flag_1 || pk_1 || weight_1
+    /// || ... || flag_n || pk_n || weight_n`.
+    ///
+    /// When flag_i is ZkLogin, pk_i refers to [struct ZkLoginPublicIdentifier]
+    /// derived from padded address seed in bytes and iss.
+    fn from(multisig_pk: &MultiSigPublicKey) -> Self {
+        let mut hasher = DefaultHash::default();
+        hasher.update([SignatureScheme::MultiSig.flag()]);
+        hasher.update(multisig_pk.threshold().to_le_bytes());
+        multisig_pk.pubkeys().iter().for_each(|(pk, w)| {
+            hasher.update([pk.flag()]);
+            hasher.update(pk.as_ref());
+            hasher.update(w.to_le_bytes());
+        });
+        SuiAddress(hasher.finalize().digest)
+    }
+}
+
+/// Sui address for [struct ZkLoginAuthenticator] is defined as the black2b hash of
+/// [zklogin_flag || iss_bytes_length || iss_bytes || unpadded_address_seed_in_bytes].
+impl TryFrom<&ZkLoginAuthenticator> for SuiAddress {
+root@srv1266996:~/zebvix-node# 
