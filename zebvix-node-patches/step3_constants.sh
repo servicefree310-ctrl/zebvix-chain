@@ -52,14 +52,17 @@ pub const MAX_BURN_SUPPLY_ZBX:  u64 = 75_000_000;
 pub const MAX_BURN_SUPPLY_MIST: u64 = MAX_BURN_SUPPLY_ZBX * MIST_PER_ZBX;
 
 /// Validator system
-pub const MAX_VALIDATORS:           u64 = 41;
-pub const MIN_VALIDATOR_STAKE_ZBX:  u64 = 10_000;
-pub const MIN_VALIDATOR_STAKE_MIST: u64 = MIN_VALIDATOR_STAKE_ZBX * MIST_PER_ZBX;
-pub const MAX_STAKE_PER_VALIDATOR:  u64 = 5_000_000; // validator + delegators
-pub const VALIDATOR_STAKING_APR:    u64 = 120;        // % APR on self-stake
-pub const DELEGATOR_APR:            u64 = 80;         // % APR for delegators
-pub const VALIDATOR_DELEGATION_BONUS_APR: u64 = 40;  // % bonus on delegated amount
-pub const NODE_DAILY_REWARD_MIST:   u64 = 5 * MIST_PER_ZBX; // 5 ZBX/day per node
+pub const MAX_VALIDATORS:             u64 = 41;
+pub const MIN_VALIDATOR_STAKE_ZBX:    u64 = 10_000;
+pub const MIN_VALIDATOR_STAKE_MIST:   u64 = MIN_VALIDATOR_STAKE_ZBX * MIST_PER_ZBX;
+pub const MAX_VALIDATOR_STAKE_ZBX:    u64 = 250_000;  // validator's OWN stake cap
+pub const MAX_VALIDATOR_STAKE_MIST:   u64 = MAX_VALIDATOR_STAKE_ZBX * MIST_PER_ZBX;
+pub const GLOBAL_STAKE_CAP_ZBX:       u64 = 5_000_000; // ALL validators + ALL delegators combined
+pub const GLOBAL_STAKE_CAP_MIST:      u64 = GLOBAL_STAKE_CAP_ZBX * MIST_PER_ZBX;
+pub const VALIDATOR_STAKING_APR:      u64 = 120;       // % APR on self-stake
+pub const DELEGATOR_APR:              u64 = 80;        // % APR for delegators
+pub const VALIDATOR_DELEGATION_BONUS_APR: u64 = 40;   // % bonus on delegated amount
+pub const NODE_DAILY_REWARD_MIST:     u64 = 5 * MIST_PER_ZBX; // 5 ZBX/day per node
 
 /// Chain info
 pub const CHAIN_ID: &str     = "zebvix-mainnet-1";

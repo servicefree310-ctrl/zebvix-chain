@@ -314,8 +314,8 @@ export default function EconomicDesign() {
               <div className="grid grid-cols-2 gap-2">
                 {[
                   { l: "Max Validators", v: `${p.maxValidators} slots` },
-                  { l: "Max Stake / Slot", v: `${(p.maxStakePerValidator/1e6).toFixed(1)}M ZBX` },
-                  { l: "Max Network Stake", v: `${computed.maxNetworkStake} ZBX` },
+                  { l: "Max / Validator Stake", v: "250,000 ZBX (own only)" },
+                  { l: "Global Stake Cap", v: "5,000,000 ZBX total" },
                   { l: "% of Total Supply", v: `${computed.maxNetworkStakePct}%` },
                   { l: "Delegator APR", v: `${p.delegatorApr}%` },
                   { l: "Validator Bonus APR", v: `+${p.validatorDelegationBonus}% (on delegated)` },
@@ -327,7 +327,7 @@ export default function EconomicDesign() {
                 ))}
               </div>
               <div className="text-[10px] text-muted-foreground pt-1 border-t border-border/50">
-                E_SLOT_FULL: slot pe 5M ZBX ho gaye → naya delegation reject | E_VALIDATOR_CAP_REACHED: 41 validators active → naya validator nahi
+                E_GLOBAL_CAP_REACHED: total 5M ZBX pool bhar gaya → reject | E_MAX_VALIDATOR_STAKE: validator apna 250K se zyada stake kar raha → reject | E_VALIDATOR_CAP_REACHED: 41 validators active → naya validator nahi
               </div>
             </div>
 
@@ -339,8 +339,9 @@ export default function EconomicDesign() {
             <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-3 space-y-2 mt-1">
               <div className="text-xs font-semibold text-amber-400">Founder Treasury Rules:</div>
               <div className="space-y-1.5 text-xs text-muted-foreground">
-                <div className="flex gap-2"><span className="text-amber-400">•</span><span><strong className="text-foreground">Pre-validator period:</strong> Jab tak koi validator active nahi — saari staking rewards founder treasury mein jaati hain</span></div>
-                <div className="flex gap-2"><span className="text-amber-400">•</span><span><strong className="text-foreground">Validator active hone ke baad:</strong> {p.validatorStakingApr}% APR validator ko, {p.delegatorApr}% APR delegators ko, remaining surplus → founder treasury</span></div>
+                <div className="flex gap-2"><span className="text-amber-400">•</span><span><strong className="text-foreground">Pre-validator period (0 validators):</strong> Poori epoch reward → founder treasury (koi validator active nahi to kisi ko reward nahi)</span></div>
+                <div className="flex gap-2"><span className="text-amber-400">•</span><span><strong className="text-foreground">Partial launch (N &lt; 41 validators):</strong> N/41 × reward → active validators ko (APR claim karenge) | (41−N)/41 × reward → founder treasury (khali slots ka subsidy)</span></div>
+                <div className="flex gap-2"><span className="text-amber-400">•</span><span><strong className="text-foreground">Full launch (41 validators):</strong> Poori reward → reward_balance — validator + delegator APR claim karte hain</span></div>
                 <div className="flex gap-2"><span className="text-amber-400">•</span><span><strong className="text-foreground">Founder Admin Cap:</strong> Core chain change nahi kar sakta — sirf naye features add kar sakta hai (MultiSig 4/6)</span></div>
                 <div className="flex gap-2"><span className="text-green-400">→</span><span>Founder wallet = Admin MultiSig, akele kuch nahi badal sakta — supermajority required</span></div>
               </div>
