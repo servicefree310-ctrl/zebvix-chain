@@ -10,7 +10,8 @@ import {
   Settings, 
   CheckSquare,
   Menu,
-  Rocket
+  Rocket,
+  PlayCircle
 } from "lucide-react";
 import { useChecklist } from "@/hooks/useChecklist";
 import { Progress } from "@/components/ui/progress";
@@ -19,6 +20,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 
 const NAV_ITEMS = [
   { href: "/", label: "Overview", icon: BookOpen },
+  { href: "/quick-start", label: "Quick Start Script", icon: PlayCircle },
   { href: "/setup", label: "Environment Setup", icon: TerminalSquare },
   { href: "/genesis", label: "Genesis Config", icon: FileJson },
   { href: "/validators", label: "Validator Setup", icon: Users },

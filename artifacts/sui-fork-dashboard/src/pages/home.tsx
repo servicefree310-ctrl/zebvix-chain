@@ -80,6 +80,36 @@ cargo build --release -p sui-node`}
           </div>
         </div>
       </div>
+
+      <div className="space-y-4">
+        <h2 className="text-2xl font-semibold border-b border-border pb-2">One-Command Server Setup</h2>
+        <p className="text-muted-foreground text-sm">
+          Run this single command on your Ubuntu 22.04 server. It will automatically install Rust, clone Sui, apply all Zebvix rebranding, build the binary, create config files, and set up the systemd service.
+        </p>
+        <CodeBlock
+          language="bash"
+          code={`# On your Ubuntu 22.04 server — run as root or sudo
+curl -sSL https://raw.githubusercontent.com/your-org/zebvix/main/zebvix-setup.sh | sudo bash
+
+# Or download and review first (recommended):
+wget https://raw.githubusercontent.com/your-org/zebvix/main/zebvix-setup.sh
+chmod +x zebvix-setup.sh
+sudo ./zebvix-setup.sh`}
+        />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+          {[
+            { step: "01", label: "Installs Rust & deps" },
+            { step: "02", label: "Clones & renames fork" },
+            { step: "03", label: "Builds zebvix-node" },
+            { step: "04", label: "Creates configs & service" },
+          ].map(({ step, label }) => (
+            <div key={step} className="p-3 rounded-md bg-card border border-border text-center">
+              <div className="text-xl font-bold font-mono text-primary">{step}</div>
+              <div className="text-xs text-muted-foreground mt-1">{label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

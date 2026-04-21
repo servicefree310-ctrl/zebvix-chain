@@ -15,6 +15,7 @@ import Tokenomics from "@/pages/tokenomics";
 import Customization from "@/pages/customization";
 import Checklist from "@/pages/checklist";
 import Production from "@/pages/production";
+import QuickStart from "@/pages/quick-start";
 
 const queryClient = new QueryClient();
 
@@ -23,6 +24,7 @@ function Router() {
     <Shell>
       <Switch>
         <Route path="/" component={Home} />
+        <Route path="/quick-start" component={QuickStart} />
         <Route path="/setup" component={Setup} />
         <Route path="/genesis" component={Genesis} />
         <Route path="/validators" component={Validators} />
