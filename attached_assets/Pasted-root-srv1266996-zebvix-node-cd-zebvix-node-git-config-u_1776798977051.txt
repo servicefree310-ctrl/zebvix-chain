@@ -1,0 +1,50 @@
+root@srv1266996:~/zebvix-node# cd ~/zebvix-node
+
+git config user.email "servicefree310@gmail.com"
+git config user.name "servicefree310-ctrl"
+
+# Check git status
+git status
+Not currently on any branch.
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+        modified:   Cargo.lock
+        modified:   Cargo.toml
+        modified:   crates/simulacrum/src/lib.rs
+        modified:   crates/sui-benchmark/src/benchmark_setup.rs
+        modified:   crates/sui-benchmark/src/workloads/batch_payment.rs
+        modified:   crates/sui-benchmark/src/workloads/delegation.rs
+        modified:   crates/sui-benchmark/src/workloads/workload.rs
+        modified:   crates/sui-config/src/genesis.rs
+        modified:   crates/sui-config/src/lib.rs
+        modified:   crates/sui-e2e-tests/Cargo.toml
+        modified:   crates/sui-e2e-tests/tests/grpc_simulate_gas_coin_tests.rs
+        modified:   crates/sui-e2e-tests/tests/object_balance_tests.rs
+        modified:   crates/sui-node/Cargo.toml
+        modified:   crates/sui-oracle/tests/integration_tests.rs
+        modified:   crates/sui-replay-2/src/lib.rs
+        modified:   crates/sui-rpc-loadgen/src/main.rs
+        modified:   crates/sui-security-watchdog/src/scheduler.rs
+        modified:   crates/sui-swarm/Cargo.toml
+        modified:   crates/sui-synthetic-ingestion/src/synthetic_ingestion.rs
+        modified:   crates/sui-tool/src/commands.rs
+        modified:   crates/sui-types/src/base_types.rs
+        modified:   crates/sui-types/src/gas_coin.rs
+        modified:   crates/sui-types/src/governance.rs
+        modified:   crates/sui-types/src/multisig.rs
+        modified:   crates/sui/src/client_ptb/builder.rs
+        modified:   crates/sui/src/client_ptb/parser.rs
+        modified:   crates/sui/src/genesis_inspector.rs
+        modified:   crates/test-cluster/Cargo.toml
+        modified:   examples/tic-tac-toe/cli/src/client.rs
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+        ZEBVIX_INSTALL.md
+        crates/sui-framework/packages/zebvix/
+        zebvix-config/
+        zebvix-scripts/
+
+no changes added to commit (use "git add" and/or "git commit -a")
+root@srv1266996:~/zebvix-node# 
