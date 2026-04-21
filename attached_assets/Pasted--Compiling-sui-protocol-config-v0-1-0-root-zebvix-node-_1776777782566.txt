@@ -1,0 +1,130 @@
+   Compiling sui-protocol-config v0.1.0 (/root/zebvix-node/crates/sui-protocol-config)
+   Compiling passkey-types v0.4.0
+   Compiling move-symbol-pool v0.1.0 (/root/zebvix-node/external-crates/move/crates/move-symbol-pool)
+   Compiling sui-rpc v0.2.2 (https://github.com/MystenLabs/sui-rust-sdk.git?rev=e5c53de2e9570229b63bd0508b43f27c11cb5f76#e5c53de2)
+   Compiling roaring v0.10.9
+   Compiling num_enum v0.6.1
+   Compiling strum v0.27.1
+   Compiling p384 v0.13.0
+   Compiling lru v0.10.1
+   Compiling serde-name v0.2.1
+   Compiling nonempty v0.9.0
+   Compiling vfs v0.10.0
+   Compiling move-command-line-common v0.1.0 (/root/zebvix-node/external-crates/move/crates/move-command-line-common)
+   Compiling sui-types v0.1.0 (/root/zebvix-node/crates/sui-types)
+   Compiling io-lifetimes v1.0.3
+error[E0432]: unresolved import `crate::gas_coin::MIST_PER_SUI`
+  --> crates/sui-types/src/governance.rs:13:5
+   |
+13 | use crate::gas_coin::MIST_PER_SUI;
+   |     ^^^^^^^^^^^^^^^^^------------
+   |     |                |
+   |     |                help: a similar name exists in the module: `MIST_PER_ZBX`
+   |     no `MIST_PER_SUI` in `gas_coin`
+
+   Compiling rustix v0.37.7
+   Compiling move-regex-borrow-graph v0.0.1 (/root/zebvix-node/external-crates/move/crates/move-regex-borrow-graph)
+warning: method `successors_idx` is never used
+   --> external-crates/move/crates/move-regex-borrow-graph/src/collections.rs:132:8
+    |
+ 77 | impl<Loc: Copy, Lbl: Ord + Clone + fmt::Display> Graph<Loc, Lbl> {
+    | ---------------------------------------------------------------- method in this implementation
+...
+132 |     fn successors_idx(
+    |        ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: methods `edge_weight`, `all_edges_idx`, and `check_invariants` are never used
+   --> external-crates/move/crates/move-regex-borrow-graph/src/graph_map.rs:141:12
+    |
+ 32 | impl<N, E> GraphMap<N, E> {
+    | ------------------------- methods in this implementation
+...
+141 |     pub fn edge_weight(&self, from: NodeIndex, to: NodeIndex) -> Option<&E> {
+    |            ^^^^^^^^^^^
+...
+238 |     pub fn all_edges_idx(&self) -> impl Iterator<Item = (NodeIndex, &E, NodeIndex)> + '_ {
+    |            ^^^^^^^^^^^^^
+...
+265 |     pub(crate) fn check_invariants(&self) {
+    |                   ^^^^^^^^^^^^^^^^
+
+warning: `move-regex-borrow-graph` (lib) generated 2 warnings
+   Compiling unicode-width v0.1.11
+warning: variable does not need to be mutable
+    --> crates/sui-types/src/transaction.rs:1089:9
+     |
+1089 |     let mut types: Vec<TypeTag> = config
+     |         ----^^^^^
+     |         |
+     |         help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+For more information about this error, try `rustc --explain E0432`.
+warning: `sui-types` (lib) generated 1 warning
+error: could not compile `sui-types` (lib) due to 1 previous error; 1 warning emitted
+warning: build failed, waiting for other jobs to finish...
+^C
+[1]+  Exit 101                nohup cargo build --release -p sui-node --bin zebvix-node > ~/zebvix-data/logs/build.log 2>&1
+root@srv1266996:~/zebvix-node# ll
+total 1340
+drwxr-xr-x  26 root root   4096 Apr 21 12:54 ./
+drwx------  17 root root   4096 Apr 21 12:51 ../
+drwxr-xr-x   2 root root   4096 Apr 21 12:49 .cargo/
+drwxr-xr-x   3 root root   4096 Apr 21 12:49 .claude/
+-rw-r--r--   1 root root   1209 Apr 21 12:49 .clippy.toml
+drwxr-xr-x   2 root root   4096 Apr 21 12:49 .config/
+-rw-r--r--   1 root root     76 Apr 21 12:49 .dockerignore
+-rw-r--r--   1 root root   2614 Apr 21 12:49 .eslintrc.js
+drwxr-xr-x   8 root root   4096 Apr 21 12:49 .git/
+-rw-r--r--   1 root root    575 Apr 21 12:49 .gitattributes
+drwxr-xr-x   7 root root   4096 Apr 21 12:49 .github/
+-rw-r--r--   1 root root   1160 Apr 21 12:49 .gitignore
+-rw-r--r--   1 root root     80 Apr 21 12:49 .lycheeignore
+-rw-r--r--   1 root root     26 Apr 21 12:49 .mypkg
+-rw-r--r--   1 root root     91 Apr 21 12:49 .npmrc
+-rw-r--r--   1 root root    288 Apr 21 12:49 .prettierignore
+-rw-r--r--   1 root root    486 Apr 21 12:49 .typos.toml
+drwxr-xr-x   2 root root   4096 Apr 21 12:49 .vscode/
+-rw-r--r--   1 root root    169 Apr 21 12:49 AGENTS.md
+-rw-r--r--   1 root root   5391 Apr 21 12:49 CLAUDE.md
+-rw-r--r--   1 root root   1184 Apr 21 12:49 CODE_OF_CONDUCT.MD
+-rw-r--r--   1 root root   2757 Apr 21 12:49 CONTRIBUTING.md
+-rw-r--r--   1 root root 457056 Apr 21 12:49 Cargo.lock
+-rw-r--r--   1 root root  30302 Apr 21 12:49 Cargo.toml
+-rw-r--r--   1 root root  11357 Apr 21 12:49 LICENSE
+-rw-r--r--   1 root root  18104 Apr 21 12:49 LICENSE-docs
+-rw-r--r--   1 root root   4795 Apr 21 12:49 README.md
+-rw-r--r--   1 root root   3087 Apr 21 12:49 RELEASES.md
+-rw-r--r--   1 root root  12857 Apr 21 12:49 SECURITY.md
+-rw-r--r--   1 root root    380 Apr 21 12:49 binary-build-list.json
+drwxr-xr-x   5 root root   4096 Apr 21 12:49 bridge/
+drwxr-xr-x   2 root root   4096 Apr 21 12:49 chocolatey/
+drwxr-xr-x   6 root root   4096 Apr 21 12:49 consensus/
+drwxr-xr-x 124 root root   4096 Apr 21 12:49 crates/
+drwxr-xr-x   7 root root   4096 Apr 21 12:49 dapps/
+drwxr-xr-x   2 root root   4096 Apr 21 12:49 dashboards/
+-rw-r--r--   1 root root   8136 Apr 21 12:49 deny.toml
+drwxr-xr-x   3 root root   4096 Apr 21 12:49 doc/
+drwxr-xr-x  25 root root   4096 Apr 21 12:49 docker/
+drwxr-xr-x   6 root root   4096 Apr 21 12:49 docs/
+drwxr-xr-x  12 root root   4096 Apr 21 12:49 examples/
+drwxr-xr-x   3 root root   4096 Apr 21 12:49 external-crates/
+drwxr-xr-x   2 root root   4096 Apr 21 12:49 kiosk/
+drwxr-xr-x   9 root root   4096 Apr 21 12:49 nre/
+-rw-r--r--   1 root root   2446 Apr 21 12:49 package.json
+-rw-r--r--   1 root root 607704 Apr 21 12:49 pnpm-lock.yaml
+-rw-r--r--   1 root root    129 Apr 21 12:49 pnpm-workspace.yaml
+-rw-r--r--   1 root root    679 Apr 21 12:49 prettier.config.js
+drwxr-xr-x   3 root root   4096 Apr 21 12:49 release-notes/
+-rw-r--r--   1 root root     29 Apr 21 12:49 rust-toolchain.toml
+-rw-r--r--   1 root root     49 Apr 21 12:49 rustfmt.toml
+drwxr-xr-x   4 root root   4096 Apr 21 12:49 scripts/
+drwxr-xr-x  16 root root   4096 Apr 21 12:49 sdk/
+drwxr-xr-x   9 root root   4096 Apr 21 12:49 sui-execution/
+drwxr-xr-x   3 root root   4096 Apr 21 13:02 target/
+-rw-r--r--   1 root root    861 Apr 21 12:49 turbo.json
+-rw-r--r--   1 root root    130 Apr 21 12:49 vercel.json
+root@srv1266996:~/zebvix-node# 
