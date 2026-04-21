@@ -38,7 +38,7 @@ const files = [
 
 function getDownloadUrl(key: string) {
   const base = window.location.origin;
-  return `${base}/api-server/api/download/${key}`;
+  return `${base}/api/download/${key}`;
 }
 
 export default function Downloads() {
@@ -103,7 +103,7 @@ export default function Downloads() {
                   </a>
                 </Button>
                 <p className="text-[11px] text-slate-500 text-center">
-                  Direct link: <code className="text-slate-400">/api-server/api/download/{f.apiKey}</code>
+                  Direct link: <code className="text-slate-400">/api/download/{f.apiKey}</code>
                 </p>
               </div>
             </CardContent>
