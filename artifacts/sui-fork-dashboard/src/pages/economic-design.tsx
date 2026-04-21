@@ -10,6 +10,7 @@ interface EconomicParams {
   blockRewardGenesis: number;
   blockTimeMs: number;
   minValidatorStake: number;
+  validatorStakingApr: number;
   validatorMaxRewardEpoch: number;
   nodeRunnerDailyReward: number;
   nodeRunnerPoolCap: number;
@@ -30,6 +31,7 @@ const DEFAULTS: EconomicParams = {
   blockRewardGenesis: 0.1,
   blockTimeMs: 400,
   minValidatorStake: 10_000,
+  validatorStakingApr: 120,
   validatorMaxRewardEpoch: 1_000,
   nodeRunnerDailyReward: 5,
   nodeRunnerPoolCap: 4_000,
@@ -250,11 +252,23 @@ export default function EconomicDesign() {
               <span className="w-6 h-6 rounded-full bg-purple-500/20 text-purple-400 text-xs flex items-center justify-center font-bold">3</span>
               Validator & Node Rewards
             </h3>
-            <NumInput label="Min Validator Stake" value={p.minValidatorStake} onChange={v => update("minValidatorStake", v)} min={100} step={1000} unit="ZBX" />
-            <NumInput label="Validator Max Reward / Epoch" value={p.validatorMaxRewardEpoch} onChange={v => update("validatorMaxRewardEpoch", v)} min={10} step={100} unit="ZBX" note="Genesis phase mein — halving ke baad half hoga" />
-            <NumInput label="Node Runner Daily Reward" value={p.nodeRunnerDailyReward} onChange={v => update("nodeRunnerDailyReward", v)} min={0.1} step={0.5} unit="ZBX/day" />
+            <NumInput label="Min Validator Stake" value={p.minValidatorStake} onChange={v => update("minValidatorStake", v)} min={100} step={1000} unit="ZBX" note="Koi bhi isse stake + node chalaye → validator ban jaye" />
+            <NumInput label="Validator Staking APR" value={p.validatorStakingApr} onChange={v => update("validatorStakingApr", v)} min={1} max={500} step={5} unit="% APR" note={`${p.minValidatorStake.toLocaleString()} ZBX stake pe = ${Math.round(p.minValidatorStake * p.validatorStakingApr / 100).toLocaleString()} ZBX/year reward`} />
+            <NumInput label="Node Runner Daily Reward" value={p.nodeRunnerDailyReward} onChange={v => update("nodeRunnerDailyReward", v)} min={0.1} step={0.5} unit="ZBX/day" note="Staking APR ke upar alag se — node run karne ka bonus" />
             <NumInput label="Node Runner Pool Cap" value={p.nodeRunnerPoolCap} onChange={v => update("nodeRunnerPoolCap", v)} min={100} step={100} unit="ZBX/day total" note="Sabhi node runners milake max yeh le sakte hain" />
+            <NumInput label="Validator Max Reward / Epoch" value={p.validatorMaxRewardEpoch} onChange={v => update("validatorMaxRewardEpoch", v)} min={10} step={100} unit="ZBX" note="Genesis phase mein — halving ke baad half hoga" />
             <NumInput label="Delegator Base APR" value={p.delegatorBaseRate} onChange={v => update("delegatorBaseRate", v)} min={0.1} max={100} step={0.5} unit="% APR" note="Genesis phase mein — halving ke baad half hoga" />
+
+            {/* Pre-validator & Founder Treasury rule */}
+            <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-3 space-y-2 mt-1">
+              <div className="text-xs font-semibold text-amber-400">Founder Treasury Rules:</div>
+              <div className="space-y-1.5 text-xs text-muted-foreground">
+                <div className="flex gap-2"><span className="text-amber-400">•</span><span><strong className="text-foreground">Pre-validator period:</strong> Jab tak koi validator active nahi — saari staking rewards founder treasury mein jaati hain</span></div>
+                <div className="flex gap-2"><span className="text-amber-400">•</span><span><strong className="text-foreground">Validator active hone ke baad:</strong> 120% APR validator ko, remaining surplus → founder treasury</span></div>
+                <div className="flex gap-2"><span className="text-amber-400">•</span><span><strong className="text-foreground">Founder Admin Cap:</strong> Core chain change nahi kar sakta — sirf naye features add kar sakta hai (MultiSig 4/6)</span></div>
+                <div className="flex gap-2"><span className="text-green-400">→</span><span>Founder wallet = Admin MultiSig, akele kuch nahi badal sakta — supermajority required</span></div>
+              </div>
+            </div>
           </div>
 
           {/* Gas fee split */}
