@@ -38,6 +38,7 @@ const CORE_NAV = [
 ];
 
 const ADDON_NAV = [
+  { href: "/zbx-tokenomics", label: "ZBX Tokenomics Design", icon: Coins },
   { href: "/block-explorer", label: "Block Explorer", icon: Search },
   { href: "/wallet", label: "ZBX Wallet", icon: Wallet },
   { href: "/faucet", label: "Testnet Faucet", icon: Droplets },

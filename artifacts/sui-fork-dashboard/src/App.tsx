@@ -22,6 +22,7 @@ import Faucet from "@/pages/faucet";
 import Bridge from "@/pages/bridge";
 import Staking from "@/pages/staking";
 import Dex from "@/pages/dex";
+import ZbxTokenomics from "@/pages/zbx-tokenomics";
 
 const queryClient = new QueryClient();
 
@@ -45,6 +46,7 @@ function Router() {
         <Route path="/bridge" component={Bridge} />
         <Route path="/staking" component={Staking} />
         <Route path="/dex" component={Dex} />
+        <Route path="/zbx-tokenomics" component={ZbxTokenomics} />
         <Route component={NotFound} />
       </Switch>
     </Shell>
