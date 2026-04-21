@@ -65,6 +65,23 @@ const CHANGES_LOG = [
       { type: "change", text: "After-cap fee split: 82% validators + 18% treasury (burn share redirect)" },
     ],
   },
+  {
+    phase: "P2",
+    date: "Apr 21, 2026",
+    color: "text-red-400",
+    dot: "bg-red-500",
+    label: "MultiSig Rules",
+    entries: [
+      { type: "add", text: "MAX_MULTISIG_SIGNERS = 10 (base_types.rs) — ek multisig mein max 10 signers" },
+      { type: "add", text: "MAX_SIGNER_WEIGHT: u16 = 255 — har signer ka max weight" },
+      { type: "add", text: "TREASURY_MULTISIG_THRESHOLD = 3/5 (60%) — Zebvix Technologies treasury ke liye minimum" },
+      { type: "add", text: "CHAIN_UPGRADE_THRESHOLD = 4/6 (67%) — protocol upgrade ke liye 2/3 supermajority" },
+      { type: "add", text: "VALIDATOR_KEY_ROTATION_THRESHOLD = 3/5 — validator hot-key change ke liye minimum" },
+      { type: "add", text: "validate_multisig_threshold(weights, threshold) → Result function (crypto/multisig.rs)" },
+      { type: "change", text: "MultiSigPublicKey: threshold enforce hoga — threshold > 0 AND threshold ≤ Σ(weights) check" },
+      { type: "change", text: "Supported key types: Ed25519 (primary), Secp256k1, Secp256r1 — ZkLogin bhi allowed" },
+    ],
+  },
 ];
 
 const PHASES = [
@@ -390,11 +407,20 @@ export default function PhaseTracker() {
                       <span className="text-sm font-medium text-foreground">
                         {PHASES.find(p => p.id === log.phase)?.title}
                       </span>
-                      {(log as any).label && (
-                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-orange-500/15 text-orange-400 border border-orange-500/20">
-                          {(log as any).label}
-                        </span>
-                      )}
+                      {(log as any).label && (() => {
+                        const c = log.color; // e.g. "text-orange-400", "text-red-400"
+                        const col = c.includes("orange") ? "bg-orange-500/15 text-orange-400 border-orange-500/20"
+                                  : c.includes("red")    ? "bg-red-500/15 text-red-400 border-red-500/20"
+                                  : c.includes("blue")   ? "bg-blue-500/15 text-blue-400 border-blue-500/20"
+                                  : c.includes("green")  ? "bg-green-500/15 text-green-400 border-green-500/20"
+                                  : c.includes("yellow") ? "bg-yellow-500/15 text-yellow-400 border-yellow-500/20"
+                                  : "bg-muted/15 text-muted-foreground border-border";
+                        return (
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${col}`}>
+                            {(log as any).label}
+                          </span>
+                        );
+                      })()}
                       <span className="text-xs text-muted-foreground ml-auto">{log.date}</span>
                     </div>
 
