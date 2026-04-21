@@ -22,7 +22,8 @@ import {
   Paintbrush,
   ListChecks,
   Calculator,
-  Layers
+  Layers,
+  FileCode2
 } from "lucide-react";
 import { useChecklist } from "@/hooks/useChecklist";
 import { Progress } from "@/components/ui/progress";
@@ -55,6 +56,7 @@ const ADDON_NAV = [
   { href: "/staking", label: "Staking Dashboard", icon: TrendingUp },
   { href: "/dex", label: "DEX / Swap", icon: ArrowUpDown },
   { href: "/fabric-layer", label: "Zebvix Fabric Layer", icon: Layers },
+  { href: "/code-review", label: "Code Review — What Changed", icon: FileCode2 },
 ];
 
 export function Sidebar() {
