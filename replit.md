@@ -39,7 +39,10 @@ Standalone Rust crate building Zebvix L1 — token ZBX, chain-id 7878, EVM-style
 - **B.2 — Vote messages** ✅ — Domain-tagged Ed25519 votes, `VotePool` with double-sign detection, gossipsub `zebvix/7878/votes/v1` topic, `zbx_voteStats` RPC, **2/2 quorum on every block** verified on VPS.
 - **B.3.1 — On-chain validator updates** ✅ — `TxKind` enum (`Transfer` / `ValidatorAdd` / `ValidatorRemove`); admin-signed governance txs; CLI now submits via RPC; **verified on VPS** that both nodes log `validator-add applied` for the same tx → registry replicates without manual mirroring.
 - **B.3.1.5 — Genesis fix + RPC for validator-list** ✅ **VERIFIED on VPS** — Hardcoded `FOUNDER_PUBKEY_HEX` in `tokenomics.rs`; `cmd_init` now deterministically seeds genesis validator set with `{founder}` regardless of local `--validator-key`. CLI `validator-list` now defaults to RPC (`zbx_listValidators`) — no DB lock conflict; pass `--offline` only when node is stopped. Live VPS proof: split-brain diagnosed (Node-1 h=239 founder-genesis vs Node-2 h=2212 self-genesis), data dirs wiped+re-initd, both nodes converged to identical 2-validator set, `zbx_voteStats` shows true 2/2 prevote + precommit quorum on every block, logs print `✅ QUORUM` markers in real time.
-- **B.3.2+ — Tendermint state machine** ⏳ next — replace single-validator PoA producer with vote-driven commit (round-robin proposer, propose/prevote/precommit/commit timeouts, 2/3+ commit gate, `LastCommit` in header).
+- **B.3.2.1 — Round-robin proposer** ✅ CODE READY (VPS test pending) — `who_proposes(height, validators) -> Address` in `consensus.rs`; `Producer::run()` re-reads validator set every tick and skips production unless `elected == me`. Unit tests added. Backward compat: `--follower` flag still hard-overrides. Requires Node-2 restart WITHOUT `--follower` to take effect.
+- **B.3.2.2+ — State machine timeouts** ⏳ next — Propose/Prevote/Precommit/Commit phases with configurable timeouts; round increment for liveness recovery when elected proposer is absent.
+- **B.3.2.3 — 2/3+ commit gate** ⏳ — block reject if quorum miss (chain HALT — correct BFT).
+- **B.3.2.4 — `LastCommit` in BlockHeader** ⏳ — signed precommit set from prev block, validated on apply.
 
 ### Known follow-ups
 
