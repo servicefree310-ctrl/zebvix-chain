@@ -1,0 +1,52 @@
+root@srv1266996:/home/zebvix-chain# cd /root/zebvix-chain    # ya jahan source hai
+curl -fL -o /tmp/zebvix-src.tar.gz \
+  "https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/zebvix-chain-source.tar.gz"
+
+# backup current binary
+cp target/release/zebvix-node target/release/zebvix-node.pre-blocknum.bak
+
+# extract + build
+tar -xzf /tmp/zebvix-src.tar.gz
+cargo build --release
+
+# restart Node-1 (graceful)
+pkill -SIGTERM zebvix-node ; sleep 3
+nohup ./target/release/zebvix-node start --home /root/.zebvix > /root/.zebvix/node.log 2>&1 &
+
+# test naye commands
+./target/release/zebvix-node block-number --rpc-url http://127.0.0.1:8545
+./target/release/zebvix-node show-validator \
+  --address 0xe381...   # apna founder address daalein
+  --rpc-url http://127.0.0.1:8545
+bash: cd: /root/zebvix-chain: No such file or directory
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100  220k    0  220k    0     0   211k      0 --:--:--  0:00:01 --:--:--  211k
+
+gzip: stdin: not in gzip format
+tar: Child returned status 1
+tar: Error is not recoverable: exiting now
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:358:4
+    |
+358 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 0.27s
+[1]+  Terminated              nohup zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer "/ip4/127.0.0.1/tcp/30333" --no-mdns > /var/log/zebvix2.log 2>&1
+[1] 3537159
+error: unrecognized subcommand 'block-number'
+
+Usage: zebvix-node <COMMAND>
+
+For more information, try '--help'.
+error: unrecognized subcommand 'show-validator'
+
+Usage: zebvix-node <COMMAND>
+
+For more information, try '--help'.
+--rpc-url: command not found
+root@srv1266996:/home/zebvix-chain# 
