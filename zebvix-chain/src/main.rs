@@ -9,7 +9,7 @@ use zebvix_node::mempool::Mempool;
 use zebvix_node::rpc;
 use zebvix_node::state::State;
 use zebvix_node::tokenomics::{self, CHAIN_ID, FOUNDER_PREMINE_WEI, TOTAL_SUPPLY_WEI, WEI_PER_ZBX};
-use zebvix_node::types::{Address, TxBody, Validator};
+use zebvix_node::types::{Address, TxBody, TxKind, Validator};
 use zebvix_node::vote::{sign_vote, AddVoteResult, Vote, VoteData, VotePool, VoteType};
 
 #[derive(Parser)]
@@ -153,12 +153,11 @@ enum Cmd {
         #[arg(long, default_value = "./.zebvix")]
         home: PathBuf,
     },
-    /// Admin: add or update a validator (node must be stopped).
-    /// Voting power must be > 0. To remove, use `validator-remove`.
+    /// Admin: add or update a validator. Submits an on-chain transaction
+    /// (B.3.1+); the change replicates to all nodes via block apply.
+    /// **Node MUST be running** (this is now an RPC client command).
     ValidatorAdd {
-        #[arg(long, default_value = "./.zebvix")]
-        home: PathBuf,
-        /// Current admin's keyfile (authorization).
+        /// Current admin's keyfile (transaction signer).
         #[arg(long)]
         signer_key: PathBuf,
         /// Validator's ed25519 public key (0x… 32-byte hex).
@@ -167,16 +166,24 @@ enum Cmd {
         /// Voting power (positive integer; typical: 1 per validator for equal weight).
         #[arg(long, default_value_t = 1)]
         power: u64,
+        /// JSON-RPC endpoint of a running node.
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+        /// Fee (in wei) — must be ≥ MIN_TX_FEE_WEI.
+        #[arg(long, default_value = "0.0001")]
+        fee: String,
     },
-    /// Admin: remove a validator (node must be stopped).
+    /// Admin: remove a validator via on-chain tx. Node must be running.
     ValidatorRemove {
-        #[arg(long, default_value = "./.zebvix")]
-        home: PathBuf,
         #[arg(long)]
         signer_key: PathBuf,
         /// Validator address (0x… 20-byte hex).
         #[arg(long)]
         address: String,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+        #[arg(long, default_value = "0.0001")]
+        fee: String,
     },
 }
 
@@ -572,7 +579,10 @@ async fn cmd_send(from_key: PathBuf, to: String, amount: String, fee: String, rp
 
     // Get nonce from RPC
     let client = reqwest_get_nonce(&rpc_url, &from).await?;
-    let body = TxBody { from, to, amount: amount_wei, nonce: client, fee: fee_wei, chain_id: CHAIN_ID };
+    let body = TxBody {
+        from, to, amount: amount_wei, nonce: client, fee: fee_wei,
+        chain_id: CHAIN_ID, kind: TxKind::Transfer,
+    };
     let tx = sign_tx(&sk, body);
 
     // Submit
@@ -751,10 +761,10 @@ async fn main() -> Result<()> {
         Cmd::AdminChangeAddress { home, signer_key, new_admin } => cmd_admin_change_address(home, signer_key, new_admin),
         Cmd::AdminInfo { home } => cmd_admin_info(home),
         Cmd::ValidatorList { home } => cmd_validator_list(home),
-        Cmd::ValidatorAdd { home, signer_key, pubkey, power } =>
-            cmd_validator_add(home, signer_key, pubkey, power),
-        Cmd::ValidatorRemove { home, signer_key, address } =>
-            cmd_validator_remove(home, signer_key, address),
+        Cmd::ValidatorAdd { signer_key, pubkey, power, rpc_url, fee } =>
+            cmd_validator_add(signer_key, pubkey, power, rpc_url, fee).await,
+        Cmd::ValidatorRemove { signer_key, address, rpc_url, fee } =>
+            cmd_validator_remove(signer_key, address, rpc_url, fee).await,
     }
 }
 
@@ -812,54 +822,66 @@ fn parse_pubkey_hex(s: &str) -> Result<[u8; 32]> {
     Ok(a)
 }
 
-fn cmd_validator_add(home: PathBuf, signer_key: PathBuf, pubkey_hex: String, power: u64) -> Result<()> {
+async fn cmd_validator_add(
+    signer_key: PathBuf,
+    pubkey_hex: String,
+    power: u64,
+    rpc_url: String,
+    fee: String,
+) -> Result<()> {
     if power == 0 { return Err(anyhow!("voting power must be > 0")); }
-    let (_, signer_pk) = read_keyfile(&signer_key)?;
-    let signer = address_from_pubkey(&signer_pk);
-    let state = State::open(&home.join("data"))?;
-    let admin = state.current_admin();
-    if signer != admin {
-        return Err(anyhow!("only current admin {} can manage validators (got signer {})",
-            admin, signer));
-    }
-    let pk = parse_pubkey_hex(&pubkey_hex)?;
-    let v = Validator::new(pk, power);
-    let existed = state.get_validator(&v.address).is_some();
-    state.put_validator(&v)?;
-    let total = state.total_voting_power();
-    let quorum = state.quorum_threshold();
-    println!("✅ Validator {} (address={})", if existed { "updated" } else { "added" }, v.address);
-    println!("   voting power       : {}", v.voting_power);
-    println!("   total voting power : {}", total);
-    println!("   new quorum (>2/3)  : {}", quorum);
+    let (sk, pk) = read_keyfile(&signer_key)?;
+    let from = address_from_pubkey(&pk);
+    let val_pk = parse_pubkey_hex(&pubkey_hex)?;
+    let val_addr = address_from_pubkey(&val_pk);
+    let fee_wei = parse_zbx_amount(&fee)?;
+
+    let nonce = reqwest_get_nonce(&rpc_url, &from).await?;
+    let body = TxBody {
+        from, to: Address::ZERO, amount: 0, nonce, fee: fee_wei,
+        chain_id: CHAIN_ID,
+        kind: TxKind::ValidatorAdd { pubkey: val_pk, power },
+    };
+    let tx = sign_tx(&sk, body);
+    let req = serde_json::json!({
+        "jsonrpc":"2.0","id":1,"method":"zbx_sendTransaction","params":[tx]
+    });
+    let resp = http_post(&rpc_url, &req).await?;
+    println!("📝 Submitted validator-add tx for {} (power={})", val_addr, power);
+    println!("   signer (must be admin) : {}", from);
+    println!("   nonce / fee            : {} / {} wei", nonce, fee_wei);
+    println!("   RPC response           : {}", serde_json::to_string_pretty(&resp)?);
+    println!();
+    println!("✓ Tx in mempool. Once next block is committed, all nodes will apply the change.");
+    println!("  Verify after a few seconds: zebvix-node validator-list --home <each_node_home>");
     Ok(())
 }
 
-fn cmd_validator_remove(home: PathBuf, signer_key: PathBuf, address_hex: String) -> Result<()> {
-    let (_, signer_pk) = read_keyfile(&signer_key)?;
-    let signer = address_from_pubkey(&signer_pk);
-    let state = State::open(&home.join("data"))?;
-    let admin = state.current_admin();
-    if signer != admin {
-        return Err(anyhow!("only current admin {} can manage validators (got signer {})",
-            admin, signer));
-    }
-    let addr = Address::from_hex(&address_hex)?;
-    // Safety: never allow the validator set to be emptied — chain would halt.
-    let vals = state.validators();
-    if vals.len() <= 1 && vals.iter().any(|v| v.address == addr) {
-        return Err(anyhow!("refusing to remove the only validator (chain would halt)"));
-    }
-    let removed = state.remove_validator(&addr)?;
-    if !removed {
-        println!("⚠️  No validator found with address {} (no-op)", addr);
-    } else {
-        let total = state.total_voting_power();
-        let quorum = state.quorum_threshold();
-        println!("✅ Validator removed: {}", addr);
-        println!("   total voting power : {}", total);
-        println!("   new quorum (>2/3)  : {}", quorum);
-    }
+async fn cmd_validator_remove(
+    signer_key: PathBuf,
+    address_hex: String,
+    rpc_url: String,
+    fee: String,
+) -> Result<()> {
+    let (sk, pk) = read_keyfile(&signer_key)?;
+    let from = address_from_pubkey(&pk);
+    let target = Address::from_hex(&address_hex)?;
+    let fee_wei = parse_zbx_amount(&fee)?;
+
+    let nonce = reqwest_get_nonce(&rpc_url, &from).await?;
+    let body = TxBody {
+        from, to: Address::ZERO, amount: 0, nonce, fee: fee_wei,
+        chain_id: CHAIN_ID,
+        kind: TxKind::ValidatorRemove { address: target },
+    };
+    let tx = sign_tx(&sk, body);
+    let req = serde_json::json!({
+        "jsonrpc":"2.0","id":1,"method":"zbx_sendTransaction","params":[tx]
+    });
+    let resp = http_post(&rpc_url, &req).await?;
+    println!("📝 Submitted validator-remove tx for {}", target);
+    println!("   signer (must be admin) : {}", from);
+    println!("   RPC response           : {}", serde_json::to_string_pretty(&resp)?);
     Ok(())
 }
 

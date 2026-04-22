@@ -154,9 +154,12 @@ impl State {
         Ok(())
     }
 
-    /// Apply a single transaction. Intercepts transfers to POOL_ADDRESS:
-    ///   - sender == admin → single-sided liquidity add (no swap, no LP)
-    ///   - else → auto-swap ZBX → zUSD, returned to sender
+    /// Apply a single transaction. Dispatches by `tx.body.kind`:
+    ///   - `Transfer`        → standard transfer, with POOL intercept (admin
+    ///                         single-sided add OR auto-swap ZBX→zUSD)
+    ///   - `ValidatorAdd`    → admin-only; updates on-chain validator registry
+    ///   - `ValidatorRemove` → admin-only; deletes a validator (last-validator
+    ///                         safety enforced)
     pub fn apply_tx(&self, tx: &SignedTx) -> Result<()> {
         if tx.body.fee < crate::tokenomics::MIN_TX_FEE_WEI {
             return Err(anyhow!(
@@ -175,6 +178,55 @@ impl State {
 
         let pool_addr = pool_address();
         let admin = self.current_admin();
+
+        // ── Phase B.3.1: validator governance txs ─────────────────────
+        // These only consume `fee`; `amount` is refunded so admin doesn't
+        // need to lock funds for governance ops. Block reward path still
+        // credits the proposer with all collected fees, so admin's fee
+        // contributes to chain economics like any other tx.
+        match &tx.body.kind {
+            crate::types::TxKind::ValidatorAdd { pubkey, power } => {
+                if tx.body.from != admin {
+                    from.balance = from.balance.saturating_add(tx.body.amount);
+                    self.put_account(&tx.body.from, &from)?;
+                    return Err(anyhow!("validator-add: only current admin {} may submit", admin));
+                }
+                if *power == 0 {
+                    from.balance = from.balance.saturating_add(tx.body.amount);
+                    self.put_account(&tx.body.from, &from)?;
+                    return Err(anyhow!("validator-add: voting power must be > 0"));
+                }
+                let v = crate::types::Validator::new(*pubkey, *power);
+                self.put_validator(&v)?;
+                from.balance = from.balance.saturating_add(tx.body.amount);
+                self.put_account(&tx.body.from, &from)?;
+                tracing::info!("⚙️  validator-add applied: {} power={}", v.address, v.voting_power);
+                return Ok(());
+            }
+            crate::types::TxKind::ValidatorRemove { address } => {
+                if tx.body.from != admin {
+                    from.balance = from.balance.saturating_add(tx.body.amount);
+                    self.put_account(&tx.body.from, &from)?;
+                    return Err(anyhow!("validator-remove: only current admin {} may submit", admin));
+                }
+                let vs = self.validators();
+                if vs.len() <= 1 && vs.iter().any(|v| v.address == *address) {
+                    from.balance = from.balance.saturating_add(tx.body.amount);
+                    self.put_account(&tx.body.from, &from)?;
+                    return Err(anyhow!("validator-remove: refusing to remove last validator (chain would halt)"));
+                }
+                let removed = self.remove_validator(address)?;
+                from.balance = from.balance.saturating_add(tx.body.amount);
+                self.put_account(&tx.body.from, &from)?;
+                if removed {
+                    tracing::info!("⚙️  validator-remove applied: {}", address);
+                } else {
+                    tracing::warn!("validator-remove: address {} not in set (no-op)", address);
+                }
+                return Ok(());
+            }
+            crate::types::TxKind::Transfer => { /* fall through to legacy logic */ }
+        }
 
         if tx.body.to == pool_addr && tx.body.amount > 0 {
             // ─── Pool intercept ───

@@ -133,7 +133,7 @@ mod tests {
     fn sign_and_verify_roundtrip() {
         let (sk, pk) = generate_keypair();
         let from = address_from_pubkey(&pk);
-        let body = TxBody { from, to: Address::ZERO, amount: 100, nonce: 0, fee: 1, chain_id: 7777 };
+        let body = TxBody { from, to: Address::ZERO, amount: 100, nonce: 0, fee: 1, chain_id: 7777, kind: crate::types::TxKind::Transfer };
         let tx = sign_tx(&sk, body);
         assert!(verify_tx(&tx));
     }

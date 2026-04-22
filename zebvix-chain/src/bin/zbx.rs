@@ -395,6 +395,7 @@ async fn cmd_send(rpc: &str, from: PathBuf, to: String, amount: String, fee: Opt
     let body = TxBody {
         from: from_addr, to: to_addr,
         amount: amount_wei, nonce, fee: fee_wei, chain_id: CHAIN_ID,
+        kind: zebvix_node::types::TxKind::Transfer,
     };
     let tx = sign_tx(&sk, body);
 

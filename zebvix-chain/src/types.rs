@@ -61,7 +61,31 @@ impl fmt::Display for Hash {
     }
 }
 
+/// Phase B.3.1 — transaction kind discriminator.
+///
+/// `Transfer` is the legacy/default behaviour: move `amount` from
+/// `body.from` → `body.to` (or trigger pool intercept if `to == POOL`).
+///
+/// `ValidatorAdd` / `ValidatorRemove` are admin-only governance txs that
+/// mutate the on-chain validator registry. They MUST be signed by the
+/// current admin address; `body.amount` is refunded (only `body.fee` is
+/// burned/paid). This makes the validator set part of replicated state, so
+/// every node — including new joiners — converges on the same set by simply
+/// applying blocks.
+#[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum TxKind {
+    #[default]
+    Transfer,
+    ValidatorAdd { pubkey: [u8; 32], power: u64 },
+    ValidatorRemove { address: Address },
+}
+
 /// Transaction body (unsigned). Amount is in wei (1 ZBX = 10^18 wei).
+///
+/// **Wire format note (B.3.1):** `kind` was added at the end of this struct.
+/// This is a chain-breaking change vs. pre-B.3.1 binaries — devnets must
+/// re-init genesis. The default value is `Transfer` so all existing CLI
+/// helpers and EVM-style flows keep working unchanged.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TxBody {
     pub from: Address,
@@ -70,6 +94,7 @@ pub struct TxBody {
     pub nonce: u64,
     pub fee: u128,
     pub chain_id: u64,
+    pub kind: TxKind,
 }
 
 /// Signed transaction (BLS-style, but using ed25519 for v0.1).
