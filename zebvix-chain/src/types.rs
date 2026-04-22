@@ -78,6 +78,13 @@ pub enum TxKind {
     Transfer,
     ValidatorAdd { pubkey: [u8; 32], power: u64 },
     ValidatorRemove { address: Address },
+    /// Phase B.4 — Sui-style PoS staking dispatch. The inner [`StakeOp`]
+    /// variant selects the action (CreateValidator / Stake / Unstake /
+    /// Redelegate / ClaimRewards / EditValidator). Sender = `body.from`,
+    /// `body.amount` is debited from sender for `Stake` / `CreateValidator`
+    /// (and credited back for matured `Unstake` / `ClaimRewards` payouts at
+    /// epoch end). All other ops use `body.amount = 0`.
+    Staking(crate::staking::StakeOp),
 }
 
 /// Transaction body (unsigned). Amount is in wei (1 ZBX = 10^18 wei).

@@ -5,6 +5,7 @@ pub mod mempool;
 pub mod p2p;
 pub mod pool;
 pub mod rpc;
+pub mod staking;
 pub mod state;
 pub mod tokenomics;
 pub mod types;
