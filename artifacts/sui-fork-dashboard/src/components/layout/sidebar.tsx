@@ -26,7 +26,8 @@ import {
   FileCode2,
   Download,
   Code2,
-  Sparkles
+  Sparkles,
+  GitBranch
 } from "lucide-react";
 import { useChecklist } from "@/hooks/useChecklist";
 import { Progress } from "@/components/ui/progress";
@@ -62,6 +63,7 @@ const ADDON_NAV = [
   { href: "/code-review", label: "Code Review — What Changed", icon: FileCode2 },
   { href: "/chain-code", label: "Chain Source Code", icon: Code2 },
   { href: "/chain-status", label: "Chain Features", icon: Sparkles },
+  { href: "/consensus-roadmap", label: "Consensus Roadmap (DAG-BFT)", icon: GitBranch },
   { href: "/downloads", label: "Downloads", icon: Download },
 ];
 

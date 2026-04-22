@@ -32,6 +32,7 @@ import CodeReview from "@/pages/code-review";
 import Downloads from "@/pages/downloads";
 import ChainCode from "@/pages/chain-code";
 import ChainStatus from "@/pages/chain-status";
+import ConsensusRoadmap from "@/pages/consensus-roadmap";
 
 const queryClient = new QueryClient();
 
@@ -65,6 +66,7 @@ function Router() {
         <Route path="/downloads" component={Downloads} />
         <Route path="/chain-code" component={ChainCode} />
         <Route path="/chain-status" component={ChainStatus} />
+        <Route path="/consensus-roadmap" component={ConsensusRoadmap} />
         <Route component={NotFound} />
       </Switch>
     </Shell>
