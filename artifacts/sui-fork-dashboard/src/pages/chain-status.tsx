@@ -120,6 +120,27 @@ const GROUPS: FeatureGroup[] = [
         files: ["src/pool.rs", "src/tokenomics.rs", "src/rpc.rs"],
       },
       {
+        name: "Permissionless pool + auto-swap router (POOL_ADDRESS)",
+        desc: "Pool has a magic address (0x7a73776170...) with NO private key — controlled entirely by chain logic. Any normal user who SENDS ZBX to this address triggers an instant auto-swap: their ZBX is consumed by the pool, and zUSD is credited back to their wallet at the current spot rate. Admin transfers are exempted: admin → pool = single-sided liquidity add (no swap, no LP mint). Implemented in State::apply_tx as an interceptor.",
+        status: "done",
+        version: "v0.1.2",
+        files: ["src/state.rs", "src/pool.rs", "src/tokenomics.rs", "src/main.rs"],
+      },
+      {
+        name: "Genesis pool seed (10M ZBX + 10M zUSD loan, admin-bypass)",
+        desc: "On `admin-pool-genesis`, chain mints 10M ZBX directly into pool ZBX reserve AND 10M zUSD into pool zUSD reserve as a 'liquidity loan'. Admin receives ZERO — assets are pool-owned. All LP tokens are locked permanently to POOL_ADDRESS so nobody (not even admin) can withdraw the seed liquidity. Pool is provably permissionless from genesis.",
+        status: "done",
+        version: "v0.1.2",
+        files: ["src/state.rs", "src/pool.rs", "src/main.rs"],
+      },
+      {
+        name: "Liquidity loan repayment + 50/50 admin fee split",
+        desc: "0.3% swap fee deducted from input is sequestered into a separate fee bucket (NOT added to reserves). After every swap, settle_fees() runs: while the 10M zUSD loan is outstanding, 100% of fees go to repaying it (tokens move into reserves). Once loan = 0, future fees split 50% to admin (real income) + 50% back into reserves (compounding LP value). Lifetime totals tracked: total_fees_collected, total_admin_paid, total_reinvested — all visible via zbx_getPool RPC.",
+        status: "done",
+        version: "v0.1.2",
+        files: ["src/pool.rs"],
+      },
+      {
         name: "Anti-whale swap limit (100,000 per tx)",
         desc: "Single swap max = 100,000 ZBX or 100,000 zUSD. Bigger trades must split across multiple txs. Protects pool from whale dumps & flash-loan-style price manipulation. Enforced in pool.swap_zbx_for_zusd / swap_zusd_for_zbx (input + output cap).",
         status: "done",

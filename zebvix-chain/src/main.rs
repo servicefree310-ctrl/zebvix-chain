@@ -71,19 +71,13 @@ enum Cmd {
         #[arg(long)]
         amount: String,
     },
-    /// Admin: initialize the AMM pool with first liquidity (node must be stopped).
-    AdminPoolInit {
+    /// Admin: initialize the AMM pool with **genesis liquidity** (node must be stopped).
+    /// Mints 10M ZBX + 10M zUSD directly into pool reserves (no admin debit).
+    /// LP tokens are locked permanently to POOL_ADDRESS — nobody can withdraw.
+    /// The 10M zUSD is a "loan" repaid via accumulated swap fees.
+    AdminPoolGenesis {
         #[arg(long, default_value = "./.zebvix")]
         home: PathBuf,
-        /// Address that provides the initial liquidity (gets LP tokens).
-        #[arg(long)]
-        from: String,
-        /// ZBX amount to seed (decimals allowed).
-        #[arg(long)]
-        zbx: String,
-        /// zUSD amount to seed. Sets initial price = zusd / zbx.
-        #[arg(long)]
-        zusd: String,
     },
     /// Admin: add liquidity to the pool (node must be stopped).
     AdminPoolAdd {
@@ -365,18 +359,28 @@ fn cmd_admin_faucet(home: PathBuf, to: String, amount: String) -> Result<()> {
     Ok(())
 }
 
-fn cmd_admin_pool_init(home: PathBuf, from: String, zbx: String, zusd: String) -> Result<()> {
-    let from_addr = Address::from_hex(&from)?;
-    let zbx_w = parse_zbx_amount(&zbx)?;
-    let zusd_w = parse_zbx_amount(&zusd)?;
+fn cmd_admin_pool_genesis(home: PathBuf) -> Result<()> {
     let state = State::open(&home.join("data"))?;
-    let lp = state.pool_init(&from_addr, zbx_w, zusd_w)?;
+    let lp = state.pool_init_genesis()?;
     let p = state.pool();
-    println!("✅ Pool initialized!");
-    println!("   ZBX reserve : {} ZBX", fmt_zbx(p.zbx_reserve));
-    println!("   zUSD reserve: {} zUSD", fmt_zbx(p.zusd_reserve));
-    println!("   LP minted   : {} (to {})", lp, from_addr);
-    println!("   Spot price  : 1 ZBX = ${:.6}", p.spot_price_zusd_per_zbx() as f64 / 1e18);
+    let pool_addr = zebvix_node::state::pool_address();
+    let admin_addr = zebvix_node::state::admin_address();
+    println!("✅ Pool genesis complete — permissionless AMM is LIVE!");
+    println!();
+    println!("   Pool address  : {}  ⚠️  no private key — controlled by chain logic", pool_addr);
+    println!("   Admin address : {}", admin_addr);
+    println!();
+    println!("   ZBX reserve   : {} ZBX  (minted to pool, not admin)", fmt_zbx(p.zbx_reserve));
+    println!("   zUSD reserve  : {} zUSD (minted as liquidity loan)", fmt_zbx(p.zusd_reserve));
+    println!("   Loan to repay : {} zUSD ← will be repaid via 0.3% swap fees", fmt_zbx(p.loan_outstanding_zusd));
+    println!("   LP locked     : {} (held by POOL_ADDRESS, permanent)", lp);
+    println!();
+    println!("   Spot price    : 1 ZBX = ${:.6}", p.spot_price_zusd_per_zbx() as f64 / 1e18);
+    println!();
+    println!("   ┌─ How users swap ─────────────────────────────────────┐");
+    println!("   │  Send ZBX → {}  │", pool_addr);
+    println!("   │  → auto-swapped to zUSD, returned to your wallet     │");
+    println!("   └──────────────────────────────────────────────────────┘");
     Ok(())
 }
 
@@ -418,16 +422,26 @@ fn cmd_pool_info(home: PathBuf) -> Result<()> {
     let p = state.pool();
     if !p.is_initialized() {
         println!("Pool: ❌ Not initialized yet.");
-        println!("Run: zebvix-node admin-pool-init --from <addr> --zbx <N> --zusd <N>");
+        println!("Run: zebvix-node admin-pool-genesis");
         return Ok(());
     }
-    println!("📊 zSwap AMM Pool (ZBX / zUSD)");
-    println!("   ZBX reserve   : {} ZBX", fmt_zbx(p.zbx_reserve));
-    println!("   zUSD reserve  : {} zUSD", fmt_zbx(p.zusd_reserve));
-    println!("   LP supply     : {}", p.lp_supply);
-    println!("   Spot price    : 1 ZBX = ${:.6}", p.spot_price_zusd_per_zbx() as f64 / 1e18);
-    println!("   Init height   : {}", p.init_height);
-    println!("   Pool fee      : 0.30%");
+    println!("📊 zSwap AMM Pool (ZBX / zUSD)  — permissionless");
+    println!("   Pool address    : {}", zebvix_node::state::pool_address());
+    println!("   ZBX reserve     : {} ZBX", fmt_zbx(p.zbx_reserve));
+    println!("   zUSD reserve    : {} zUSD", fmt_zbx(p.zusd_reserve));
+    println!("   LP supply       : {} (locked to POOL_ADDRESS)", p.lp_supply);
+    println!("   Spot price      : 1 ZBX = ${:.6}", p.spot_price_zusd_per_zbx() as f64 / 1e18);
+    println!("   Pool fee        : 0.30% (input-deducted)");
+    println!();
+    println!("   💰 Loan status  : {}",
+        if p.loan_repaid() { "✅ REPAID — admin earning 50% of fees".to_string() }
+        else { format!("⏳ {} zUSD outstanding", fmt_zbx(p.loan_outstanding_zusd)) });
+    println!("   Fee bucket ZBX  : {} ZBX (pending settlement)", fmt_zbx(p.fee_acc_zbx));
+    println!("   Fee bucket zUSD : {} zUSD", fmt_zbx(p.fee_acc_zusd));
+    println!("   Lifetime fees   : {} zUSD", fmt_zbx(p.total_fees_collected_zusd));
+    println!("   To admin (life) : {} zUSD", fmt_zbx(p.total_admin_paid_zusd));
+    println!("   Reinvested      : {} zUSD", fmt_zbx(p.total_reinvested_zusd));
+    println!("   Init height     : {}", p.init_height);
     Ok(())
 }
 
@@ -444,7 +458,7 @@ async fn main() -> Result<()> {
         Cmd::Start { home, rpc } => cmd_start(home, rpc).await,
         Cmd::Send { from_key, to, amount, fee, rpc } => cmd_send(from_key, to, amount, fee, rpc).await,
         Cmd::AdminFaucet { home, to, amount } => cmd_admin_faucet(home, to, amount),
-        Cmd::AdminPoolInit { home, from, zbx, zusd } => cmd_admin_pool_init(home, from, zbx, zusd),
+        Cmd::AdminPoolGenesis { home } => cmd_admin_pool_genesis(home),
         Cmd::AdminPoolAdd { home, from, zbx, zusd } => cmd_admin_pool_add(home, from, zbx, zusd),
         Cmd::AdminSwap { home, from, sell, amount, min_out } => cmd_admin_swap(home, from, sell, amount, min_out),
         Cmd::PoolInfo { home } => cmd_pool_info(home),

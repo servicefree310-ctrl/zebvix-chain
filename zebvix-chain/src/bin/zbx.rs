@@ -100,8 +100,21 @@ enum Cmd {
     Supply,
     /// Show node sync/peer status.
     Status,
-    /// Show on-chain AMM pool state (ZBX/zUSD reserves, price, fee).
+    /// Show on-chain AMM pool state (ZBX/zUSD reserves, price, fee, loan, fees).
     Pool,
+    /// Swap ZBX → zUSD by sending to the pool address (one-shot helper).
+    /// Equivalent to `zbx send --to <POOL_ADDRESS> --amount <N>`.
+    Swap {
+        #[arg(long)]
+        from: PathBuf,
+        /// Amount of ZBX to swap (decimals allowed).
+        #[arg(long)]
+        amount: String,
+        #[arg(long, default_value = "0")]
+        fee: String,
+        #[arg(long)]
+        yes: bool,
+    },
     /// Show current ZBX/USD price (from on-chain pool oracle).
     Price,
     /// Show network's current dynamic gas price + fee per standard transfer.
@@ -545,6 +558,7 @@ async fn main() -> Result<()> {
         Cmd::Supply => cmd_supply(&rpc, q).await?,
         Cmd::Status => cmd_status(&rpc, q).await?,
         Cmd::Pool => cmd_pool(&rpc, q).await?,
+        Cmd::Swap { from, amount, fee, yes } => cmd_swap(&rpc, from, amount, fee, yes, q).await?,
         Cmd::Price => cmd_price(&rpc, q).await?,
         Cmd::Gas => cmd_gas(&rpc, q).await?,
         Cmd::Zusd { address } => cmd_zusd(&rpc, address, q).await?,
@@ -554,6 +568,20 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+async fn cmd_swap(rpc: &str, from: PathBuf, amount: String, fee: String, yes: bool, quiet: bool) -> Result<()> {
+    // Resolve pool address from the chain.
+    let r = rpc_call(rpc, "zbx_getPool", serde_json::json!([])).await?;
+    let pool_addr = r["pool_address"].as_str().unwrap_or("").to_string();
+    if pool_addr.is_empty() {
+        anyhow::bail!("could not fetch pool address from RPC");
+    }
+    if !quiet {
+        println!("{}🔄 Auto-swap: ZBX → zUSD via pool {}{}{}", C_CYAN, C_BOLD, pool_addr, C_RESET);
+        println!("{}   You'll receive zUSD at current pool rate, returned to your wallet.{}", C_DIM, C_RESET);
+    }
+    cmd_send(rpc, from, pool_addr, amount, Some(fee), yes, quiet).await
+}
+
 async fn cmd_pool(rpc: &str, quiet: bool) -> Result<()> {
     let r = rpc_call(rpc, "zbx_getPool", serde_json::json!([])).await?;
     if quiet { println!("{}", r); return Ok(()); }
@@ -561,23 +589,43 @@ async fn cmd_pool(rpc: &str, quiet: bool) -> Result<()> {
     if !init {
         println!("  {}❌ Pool not initialized yet.{}", C_YELLOW, C_RESET);
         println!("  Founder must run on the node:");
-        println!("    {}zebvix-node admin-pool-init --from <addr> --zbx <N> --zusd <N>{}", C_DIM, C_RESET);
+        println!("    {}zebvix-node admin-pool-genesis{}", C_DIM, C_RESET);
         return Ok(());
     }
     let zbx_r = r["zbx_reserve_wei"].as_str().unwrap_or("0").parse::<u128>().unwrap_or(0);
     let zusd_r = r["zusd_reserve"].as_str().unwrap_or("0").parse::<u128>().unwrap_or(0);
     let lp = r["lp_supply"].as_str().unwrap_or("0");
     let price = r["spot_price_usd_per_zbx"].as_str().unwrap_or("?");
-    println!("  {}{}📊 zSwap AMM Pool — ZBX / zUSD{}", C_BOLD, C_MAGENTA, C_RESET);
+    let pool_addr = r["pool_address"].as_str().unwrap_or("?");
+    let loan = r["loan_outstanding_zusd"].as_str().unwrap_or("0").parse::<u128>().unwrap_or(0);
+    let loan_repaid = r["loan_repaid"].as_bool().unwrap_or(false);
+    let fee_zbx = r["fee_acc_zbx"].as_str().unwrap_or("0").parse::<u128>().unwrap_or(0);
+    let fee_zusd = r["fee_acc_zusd"].as_str().unwrap_or("0").parse::<u128>().unwrap_or(0);
+    let life_fees = r["lifetime_fees_zusd"].as_str().unwrap_or("0").parse::<u128>().unwrap_or(0);
+    let life_admin = r["lifetime_admin_paid_zusd"].as_str().unwrap_or("0").parse::<u128>().unwrap_or(0);
+    println!("  {}{}📊 zSwap AMM Pool — ZBX / zUSD  (permissionless){}", C_BOLD, C_MAGENTA, C_RESET);
+    println!("  {}Pool addr    :{} {}{}{}", C_DIM, C_RESET, C_CYAN, pool_addr, C_RESET);
     println!("  {}ZBX reserve  :{} {}{} ZBX{}", C_DIM, C_RESET, C_BOLD, format_zbx(zbx_r), C_RESET);
     println!("  {}zUSD reserve :{} {}{} zUSD{}", C_DIM, C_RESET, C_BOLD, format_zbx(zusd_r), C_RESET);
-    println!("  {}LP supply    :{} {}", C_DIM, C_RESET, lp);
+    println!("  {}LP supply    :{} {} {}(locked to pool){}", C_DIM, C_RESET, lp, C_DIM, C_RESET);
     println!("  {}Spot price   :{} {}1 ZBX = ${}{}", C_DIM, C_RESET, C_GREEN, price, C_RESET);
-    println!("  {}Pool fee     :{} 0.30% (Uniswap V2)", C_DIM, C_RESET);
+    println!("  {}Pool fee     :{} 0.30% (input-deducted, sequestered)", C_DIM, C_RESET);
     println!("  {}Max per swap :{} {}{} ZBX{} or {}{} zUSD{}  {}(anti-whale){}",
         C_DIM, C_RESET, C_BOLD, r["max_swap_zbx"].as_str().unwrap_or("?"), C_RESET,
         C_BOLD, r["max_swap_zusd_display"].as_str().unwrap_or("?"), C_RESET,
         C_DIM, C_RESET);
+    println!();
+    if loan_repaid {
+        println!("  {}💰 Loan       :{} {}✅ REPAID{} — admin earning 50% of fees",
+            C_DIM, C_RESET, C_GREEN, C_RESET);
+    } else {
+        println!("  {}💰 Loan       :{} {}{} zUSD{} outstanding {}(repaid via fees){}",
+            C_DIM, C_RESET, C_YELLOW, format_zbx(loan), C_RESET, C_DIM, C_RESET);
+    }
+    println!("  {}Fee bucket   :{} {} ZBX  +  {} zUSD  {}(pending settle){}",
+        C_DIM, C_RESET, format_zbx(fee_zbx), format_zbx(fee_zusd), C_DIM, C_RESET);
+    println!("  {}Lifetime fees:{} {} zUSD", C_DIM, C_RESET, format_zbx(life_fees));
+    println!("  {}Admin earned :{} {} zUSD", C_DIM, C_RESET, format_zbx(life_admin));
     println!("  {}Init height  :{} {}", C_DIM, C_RESET, r["init_height"]);
     Ok(())
 }

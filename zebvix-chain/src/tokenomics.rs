@@ -55,6 +55,35 @@ pub const DYNAMIC_GAS_FLOOR_GWEI: u128 = 1;
 /// Cap gas price = 10,000 gwei = 0.21 ZBX max fee per tx (price-crash safety).
 pub const DYNAMIC_GAS_CAP_GWEI: u128 = 10_000;
 
+// ───────── Pool / admin addresses ─────────
+
+/// Admin / founder address. Also receives 50% of swap fees after the
+/// genesis liquidity loan (10M zUSD) is repaid.
+pub const ADMIN_ADDRESS_HEX: &str = "0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc";
+
+/// zSwap pool's magic address — no private key exists for it.
+/// Bytes spell "zswap" (7a 73 77 61 70) followed by 15 zero bytes.
+/// Any normal user sending ZBX (or zUSD) to this address triggers an
+/// **auto-swap** — they receive the opposite token back at the current pool
+/// rate. The admin address is exempt: admin transfers add to the corresponding
+/// reserve as single-sided liquidity (no swap, no LP mint).
+pub const POOL_ADDRESS_HEX: &str = "0x7a73776170000000000000000000000000000000";
+
+// ───────── Genesis pool seed (minted at first pool init) ─────────
+
+/// 10M ZBX minted directly INTO the pool's ZBX reserve at pool genesis.
+/// Admin does NOT receive these tokens — they are pool-owned permanent liquidity.
+pub const GENESIS_POOL_ZBX_WEI: u128 = 10_000_000u128 * WEI_PER_ZBX;
+
+/// 10M zUSD minted into the pool's zUSD reserve as a "liquidity loan".
+/// The loan balance decreases as swap fees accumulate; once fully repaid,
+/// future fees split 50/50 between admin payout and pool liquidity.
+pub const GENESIS_POOL_ZUSD_LOAN: u128 = 10_000_000u128 * WEI_PER_ZBX;
+
+/// Pool fee in basis-points-of-input (0.30%).
+pub const POOL_FEE_BPS_NUM: u128 = 3;
+pub const POOL_FEE_BPS_DEN: u128 = 1000;
+
 // ───────── Anti-whale swap limits (per single transaction) ─────────
 
 /// Maximum ZBX per single swap = 100,000 ZBX (1 lakh).

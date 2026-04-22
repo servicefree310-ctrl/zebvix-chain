@@ -119,9 +119,13 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
             let price = p.spot_price_zusd_per_zbx();
             ok(id, json!({
                 "initialized": p.is_initialized(),
+                "pool_address": crate::state::pool_address().to_hex(),
+                "admin_address": crate::state::admin_address().to_hex(),
+                "permissionless": true,
                 "zbx_reserve_wei": p.zbx_reserve.to_string(),
                 "zusd_reserve": p.zusd_reserve.to_string(),
                 "lp_supply": p.lp_supply.to_string(),
+                "lp_locked_to_pool": true,
                 "spot_price_zusd_per_zbx_q18": price.to_string(),
                 "spot_price_usd_per_zbx": format!("{:.6}", price as f64 / 1e18),
                 "init_height": p.init_height,
@@ -131,6 +135,13 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 "max_swap_zusd": MAX_SWAP_ZUSD.to_string(),
                 "max_swap_zbx": "100000",
                 "max_swap_zusd_display": "100000",
+                "loan_outstanding_zusd": p.loan_outstanding_zusd.to_string(),
+                "loan_repaid": p.loan_repaid(),
+                "fee_acc_zbx": p.fee_acc_zbx.to_string(),
+                "fee_acc_zusd": p.fee_acc_zusd.to_string(),
+                "lifetime_fees_zusd": p.total_fees_collected_zusd.to_string(),
+                "lifetime_admin_paid_zusd": p.total_admin_paid_zusd.to_string(),
+                "lifetime_reinvested_zusd": p.total_reinvested_zusd.to_string(),
             }))
         }
         "zbx_getPriceUSD" => {

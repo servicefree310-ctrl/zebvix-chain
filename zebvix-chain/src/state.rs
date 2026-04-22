@@ -2,7 +2,10 @@
 
 use crate::crypto::{block_hash, tx_hash, verify_tx, verify_txs_batch};
 use crate::pool::Pool;
-use crate::tokenomics::reward_at_height;
+use crate::tokenomics::{
+    reward_at_height, ADMIN_ADDRESS_HEX, GENESIS_POOL_ZBX_WEI, GENESIS_POOL_ZUSD_LOAN,
+    POOL_ADDRESS_HEX,
+};
 use crate::types::{Address, Block, Hash, SignedTx};
 use anyhow::{anyhow, Result};
 use parking_lot::RwLock;
@@ -10,27 +13,36 @@ use rocksdb::{ColumnFamilyDescriptor, Options, DB};
 use std::path::Path;
 use std::sync::Arc;
 
-const CF_ACCOUNTS: &str = "accounts"; // address -> Account
-const CF_BLOCKS: &str = "blocks";     // height (be u64) -> Block bytes
-const CF_META: &str = "meta";         // misc keys
+const CF_ACCOUNTS: &str = "accounts";
+const CF_BLOCKS: &str = "blocks";
+const CF_META: &str = "meta";
 
 const META_HEIGHT: &[u8] = b"height";
 const META_LAST_HASH: &[u8] = b"last_hash";
 const META_POOL: &[u8] = b"pool";
-const META_LP_PREFIX: &[u8] = b"lp/"; // followed by 20-byte address → u128 LP balance
+const META_LP_PREFIX: &[u8] = b"lp/";
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Account {
-    pub balance: u128,    // ZBX balance (wei)
+    pub balance: u128,
     pub nonce: u64,
     #[serde(default)]
-    pub zusd: u128,       // zUSD balance (18-decimals)
+    pub zusd: u128,
 }
 
 pub struct State {
     db: Arc<DB>,
-    /// In-memory cache of current tip for fast access.
     tip: RwLock<(u64, Hash)>,
+}
+
+/// Parse the pool's magic address (constant — no private key).
+pub fn pool_address() -> Address {
+    Address::from_hex(POOL_ADDRESS_HEX).expect("POOL_ADDRESS_HEX is valid")
+}
+
+/// Parse the admin/founder address.
+pub fn admin_address() -> Address {
+    Address::from_hex(ADMIN_ADDRESS_HEX).expect("ADMIN_ADDRESS_HEX is valid")
 }
 
 impl State {
@@ -46,26 +58,16 @@ impl State {
         let db = DB::open_cf_descriptors(&opts, path, cfs)?;
         let height = db
             .get_cf(db.cf_handle(CF_META).unwrap(), META_HEIGHT)?
-            .map(|b| {
-                let mut a = [0u8; 8];
-                a.copy_from_slice(&b);
-                u64::from_be_bytes(a)
-            })
+            .map(|b| { let mut a = [0u8; 8]; a.copy_from_slice(&b); u64::from_be_bytes(a) })
             .unwrap_or(0);
         let last = db
             .get_cf(db.cf_handle(CF_META).unwrap(), META_LAST_HASH)?
-            .map(|b| {
-                let mut a = [0u8; 32];
-                a.copy_from_slice(&b);
-                Hash(a)
-            })
+            .map(|b| { let mut a = [0u8; 32]; a.copy_from_slice(&b); Hash(a) })
             .unwrap_or(Hash::ZERO);
         Ok(Self { db: Arc::new(db), tip: RwLock::new((height, last)) })
     }
 
-    pub fn tip(&self) -> (u64, Hash) {
-        *self.tip.read()
-    }
+    pub fn tip(&self) -> (u64, Hash) { *self.tip.read() }
 
     pub fn account(&self, a: &Address) -> Account {
         let cf = self.db.cf_handle(CF_ACCOUNTS).unwrap();
@@ -80,12 +82,10 @@ impl State {
 
     fn put_account(&self, a: &Address, acc: &Account) -> Result<()> {
         let cf = self.db.cf_handle(CF_ACCOUNTS).unwrap();
-        let bytes = bincode::serialize(acc)?;
-        self.db.put_cf(cf, a.0, bytes)?;
+        self.db.put_cf(cf, a.0, bincode::serialize(acc)?)?;
         Ok(())
     }
 
-    /// Pre-allocate balances at genesis.
     pub fn genesis_credit(&self, alloc: &[(Address, u128)]) -> Result<()> {
         for (addr, amount) in alloc {
             let mut acc = self.account(addr);
@@ -95,13 +95,13 @@ impl State {
         Ok(())
     }
 
-    /// Apply a single transaction (no signature check — caller should verify first).
+    /// Apply a single transaction. Intercepts transfers to POOL_ADDRESS:
+    ///   - sender == admin → single-sided liquidity add (no swap, no LP)
+    ///   - else → auto-swap ZBX → zUSD, returned to sender
     pub fn apply_tx(&self, tx: &SignedTx) -> Result<()> {
-        // Enforce minimum gas fee (spam protection).
         if tx.body.fee < crate::tokenomics::MIN_TX_FEE_WEI {
             return Err(anyhow!(
-                "fee too low: {} wei < min {} wei (0.001 ZBX)",
-                tx.body.fee, crate::tokenomics::MIN_TX_FEE_WEI
+                "fee too low: {} wei < min {} wei", tx.body.fee, crate::tokenomics::MIN_TX_FEE_WEI
             ));
         }
         let mut from = self.account(&tx.body.from);
@@ -110,19 +110,55 @@ impl State {
         }
         let total = tx.body.amount.checked_add(tx.body.fee)
             .ok_or_else(|| anyhow!("amount+fee overflow"))?;
-        if from.balance < total {
-            return Err(anyhow!("insufficient balance"));
-        }
+        if from.balance < total { return Err(anyhow!("insufficient balance")); }
         from.balance -= total;
         from.nonce += 1;
-        let mut to = self.account(&tx.body.to);
-        to.balance = to.balance.saturating_add(tx.body.amount);
-        self.put_account(&tx.body.from, &from)?;
-        self.put_account(&tx.body.to, &to)?;
+
+        let pool_addr = pool_address();
+        let admin = admin_address();
+
+        if tx.body.to == pool_addr && tx.body.amount > 0 {
+            // ─── Pool intercept ───
+            self.put_account(&tx.body.from, &from)?; // commit fee+amount debit
+            let mut pool = self.pool();
+            if !pool.is_initialized() {
+                return Err(anyhow!("pool not yet initialized — cannot accept ZBX yet"));
+            }
+            let height = self.tip().0;
+            if tx.body.from == admin {
+                // Admin single-sided liquidity: just grow ZBX reserve.
+                pool.admin_add_zbx(tx.body.amount, height)
+                    .map_err(|e| anyhow!("admin add zbx: {}", e))?;
+                self.put_pool(&pool)?;
+            } else {
+                // Auto-swap ZBX → zUSD, credit back to sender.
+                let zusd_out = pool.swap_zbx_for_zusd(tx.body.amount, height)
+                    .map_err(|e| anyhow!("auto-swap: {}", e))?;
+                // Settle fees → may yield admin payout.
+                let (admin_zbx, admin_zusd) = pool.settle_fees();
+                self.put_pool(&pool)?;
+                // Credit zUSD to sender.
+                let mut sender = self.account(&tx.body.from);
+                sender.zusd = sender.zusd.saturating_add(zusd_out);
+                self.put_account(&tx.body.from, &sender)?;
+                // Credit any admin payout.
+                if admin_zbx > 0 || admin_zusd > 0 {
+                    let mut a = self.account(&admin);
+                    a.balance = a.balance.saturating_add(admin_zbx);
+                    a.zusd = a.zusd.saturating_add(admin_zusd);
+                    self.put_account(&admin, &a)?;
+                }
+            }
+        } else {
+            // Normal transfer.
+            let mut to = self.account(&tx.body.to);
+            to.balance = to.balance.saturating_add(tx.body.amount);
+            self.put_account(&tx.body.from, &from)?;
+            self.put_account(&tx.body.to, &to)?;
+        }
         Ok(())
     }
 
-    /// Apply a full block: verify txs, update state, mint reward + fees to proposer.
     pub fn apply_block(&self, block: &Block) -> Result<()> {
         let (h, last) = self.tip();
         if block.header.height != h + 1 {
@@ -131,8 +167,6 @@ impl State {
         if block.header.parent_hash != last {
             return Err(anyhow!("parent hash mismatch"));
         }
-        // Step 1 — parallel + batch signature verification (Rayon + ed25519 batch).
-        // For small blocks (<4 txs) the per-tx overhead beats batching, so fall back.
         if block.txs.len() >= 4 {
             if !verify_txs_batch(&block.txs) {
                 return Err(anyhow!("bad tx signature in block (batch verify failed)"));
@@ -145,21 +179,16 @@ impl State {
             }
         }
 
-        // Step 2 — sequential state apply (will be parallelized via Block-STM in v0.3).
         let mut total_fees: u128 = 0;
         for tx in &block.txs {
             self.apply_tx(tx)?;
             total_fees = total_fees.saturating_add(tx.body.fee);
         }
-        // Block reward + fees to proposer
         let reward = reward_at_height(block.header.height);
         let mut prop = self.account(&block.header.proposer);
-        prop.balance = prop.balance
-            .saturating_add(reward)
-            .saturating_add(total_fees);
+        prop.balance = prop.balance.saturating_add(reward).saturating_add(total_fees);
         self.put_account(&block.header.proposer, &prop)?;
 
-        // Persist block
         let cf_b = self.db.cf_handle(CF_BLOCKS).unwrap();
         let cf_m = self.db.cf_handle(CF_META).unwrap();
         let key = block.header.height.to_be_bytes();
@@ -177,9 +206,8 @@ impl State {
             .and_then(|b| bincode::deserialize(&b).ok())
     }
 
-    // ───────── zUSD + Pool operations ─────────
+    // ───────── Pool / zUSD operations ─────────
 
-    /// Read the singleton AMM pool. Returns default (uninitialized) if missing.
     pub fn pool(&self) -> Pool {
         let cf = self.db.cf_handle(CF_META).unwrap();
         self.db.get_cf(cf, META_POOL).ok().flatten()
@@ -193,7 +221,6 @@ impl State {
         Ok(())
     }
 
-    /// LP token balance for an address.
     pub fn lp_balance(&self, a: &Address) -> u128 {
         let cf = self.db.cf_handle(CF_META).unwrap();
         let mut k = META_LP_PREFIX.to_vec();
@@ -211,7 +238,6 @@ impl State {
         Ok(())
     }
 
-    /// Founder/admin: mint zUSD to an address (testnet faucet, removed in v1.0).
     pub fn faucet_mint_zusd(&self, to: &Address, amount: u128) -> Result<()> {
         let mut acc = self.account(to);
         acc.zusd = acc.zusd.saturating_add(amount);
@@ -219,27 +245,26 @@ impl State {
         Ok(())
     }
 
-    /// Initialize the pool with first liquidity (admin/founder action).
-    /// Debits ZBX + zUSD from `from`, credits LP tokens.
-    pub fn pool_init(&self, from: &Address, zbx: u128, zusd: u128) -> Result<u128> {
+    /// **Genesis pool init** — mints 10M ZBX + 10M zUSD directly into pool reserves.
+    /// No admin debit. LP tokens are locked permanently to POOL_ADDRESS (nobody can withdraw).
+    /// Sets `loan_outstanding = 10M zUSD` to be repaid via swap fees.
+    pub fn pool_init_genesis(&self) -> Result<u128> {
         let mut p = self.pool();
         if p.is_initialized() {
             return Err(anyhow!("pool already initialized"));
         }
-        let mut acc = self.account(from);
-        if acc.balance < zbx { return Err(anyhow!("insufficient ZBX")); }
-        if acc.zusd < zusd { return Err(anyhow!("insufficient zUSD")); }
         let height = self.tip().0;
-        let lp = p.init_liquidity(zbx, zusd, height).map_err(|e| anyhow!(e))?;
-        acc.balance -= zbx;
-        acc.zusd -= zusd;
-        self.put_account(from, &acc)?;
-        self.put_lp(from, self.lp_balance(from).saturating_add(lp))?;
+        let lp = p.init_genesis(GENESIS_POOL_ZBX_WEI, GENESIS_POOL_ZUSD_LOAN, height)
+            .map_err(|e| anyhow!(e))?;
         self.put_pool(&p)?;
+        // Lock all LP tokens to POOL_ADDRESS — provably permanent liquidity.
+        let pool_addr = pool_address();
+        self.put_lp(&pool_addr, lp)?;
         Ok(lp)
     }
 
-    /// Add liquidity proportionally to current ratio. Returns (zbx_used, zusd_used, lp_minted).
+    /// Admin: add proportional liquidity (still credits LP to admin if desired).
+    /// Kept for admin top-ups; users cannot call this.
     pub fn pool_add_liquidity(&self, from: &Address, zbx_max: u128, zusd_max: u128) -> Result<(u128, u128, u128)> {
         let mut p = self.pool();
         let mut acc = self.account(from);
@@ -255,7 +280,7 @@ impl State {
         Ok((zbx_in, zusd_in, lp))
     }
 
-    /// Swap ZBX → zUSD. Returns zUSD received.
+    /// Direct swap helper (admin/testing). Normal users should just send to POOL_ADDRESS.
     pub fn pool_swap_zbx_to_zusd(&self, from: &Address, zbx_in: u128, min_out: u128) -> Result<u128> {
         let mut p = self.pool();
         let mut acc = self.account(from);
@@ -263,14 +288,21 @@ impl State {
         let height = self.tip().0;
         let out = p.swap_zbx_for_zusd(zbx_in, height).map_err(|e| anyhow!(e))?;
         if out < min_out { return Err(anyhow!("slippage: got {} < min {}", out, min_out)); }
+        let (admin_zbx, admin_zusd) = p.settle_fees();
         acc.balance -= zbx_in;
         acc.zusd = acc.zusd.saturating_add(out);
         self.put_account(from, &acc)?;
         self.put_pool(&p)?;
+        if admin_zbx > 0 || admin_zusd > 0 {
+            let admin = admin_address();
+            let mut a = self.account(&admin);
+            a.balance = a.balance.saturating_add(admin_zbx);
+            a.zusd = a.zusd.saturating_add(admin_zusd);
+            self.put_account(&admin, &a)?;
+        }
         Ok(out)
     }
 
-    /// Swap zUSD → ZBX. Returns ZBX received.
     pub fn pool_swap_zusd_to_zbx(&self, from: &Address, zusd_in: u128, min_out: u128) -> Result<u128> {
         let mut p = self.pool();
         let mut acc = self.account(from);
@@ -278,10 +310,18 @@ impl State {
         let height = self.tip().0;
         let out = p.swap_zusd_for_zbx(zusd_in, height).map_err(|e| anyhow!(e))?;
         if out < min_out { return Err(anyhow!("slippage: got {} < min {}", out, min_out)); }
+        let (admin_zbx, admin_zusd) = p.settle_fees();
         acc.zusd -= zusd_in;
         acc.balance = acc.balance.saturating_add(out);
         self.put_account(from, &acc)?;
         self.put_pool(&p)?;
+        if admin_zbx > 0 || admin_zusd > 0 {
+            let admin = admin_address();
+            let mut a = self.account(&admin);
+            a.balance = a.balance.saturating_add(admin_zbx);
+            a.zusd = a.zusd.saturating_add(admin_zusd);
+            self.put_account(&admin, &a)?;
+        }
         Ok(out)
     }
 }
