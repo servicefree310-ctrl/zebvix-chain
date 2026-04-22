@@ -4,7 +4,7 @@ use crate::crypto::{block_hash, tx_hash, verify_tx, verify_txs_batch};
 use crate::pool::Pool;
 use crate::tokenomics::{
     reward_at_height, ADMIN_ADDRESS_HEX, GENESIS_POOL_ZBX_WEI, GENESIS_POOL_ZUSD_LOAN,
-    POOL_ADDRESS_HEX,
+    MAX_ADMIN_CHANGES, POOL_ADDRESS_HEX,
 };
 use crate::types::{Address, Block, Hash, SignedTx};
 use anyhow::{anyhow, Result};
@@ -21,6 +21,8 @@ const META_HEIGHT: &[u8] = b"height";
 const META_LAST_HASH: &[u8] = b"last_hash";
 const META_POOL: &[u8] = b"pool";
 const META_LP_PREFIX: &[u8] = b"lp/";
+const META_ADMIN: &[u8] = b"admin";              // 20-byte current admin address (override)
+const META_ADMIN_CHANGES: &[u8] = b"admin_changes"; // u8 count of rotations performed
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Account {
@@ -40,7 +42,9 @@ pub fn pool_address() -> Address {
     Address::from_hex(POOL_ADDRESS_HEX).expect("POOL_ADDRESS_HEX is valid")
 }
 
-/// Parse the admin/founder address.
+/// Parse the **default genesis** admin/founder address (compile-time constant).
+/// NOTE: this is only the bootstrap value. The live, possibly-rotated admin
+/// address is read from State via `State::current_admin()`.
 pub fn admin_address() -> Address {
     Address::from_hex(ADMIN_ADDRESS_HEX).expect("ADMIN_ADDRESS_HEX is valid")
 }
@@ -80,6 +84,58 @@ impl State {
     pub fn balance(&self, a: &Address) -> u128 { self.account(a).balance }
     pub fn nonce(&self, a: &Address) -> u64 { self.account(a).nonce }
 
+    // ───────── Admin rotation (max MAX_ADMIN_CHANGES) ─────────
+
+    /// Returns the **live** admin address. If the admin has been rotated, returns
+    /// the override stored in DB; otherwise returns the genesis default.
+    pub fn current_admin(&self) -> Address {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        match self.db.get_cf(cf, META_ADMIN).ok().flatten() {
+            Some(b) if b.len() == 20 => {
+                let mut a = [0u8; 20];
+                a.copy_from_slice(&b);
+                Address(a)
+            }
+            _ => admin_address(),
+        }
+    }
+
+    /// Number of admin rotations performed so far (0..=MAX_ADMIN_CHANGES).
+    pub fn admin_change_count(&self) -> u8 {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.get_cf(cf, META_ADMIN_CHANGES).ok().flatten()
+            .and_then(|b| b.first().copied())
+            .unwrap_or(0)
+    }
+
+    /// Remaining admin rotations available.
+    pub fn admin_changes_remaining(&self) -> u8 {
+        MAX_ADMIN_CHANGES.saturating_sub(self.admin_change_count())
+    }
+
+    /// Rotate the admin address. Must be called with `signer` == current admin.
+    /// Increments `admin_change_count`. Fails after MAX_ADMIN_CHANGES rotations.
+    pub fn change_admin(&self, signer: &Address, new_admin: &Address) -> Result<u8> {
+        let current = self.current_admin();
+        if signer != &current {
+            return Err(anyhow!("only current admin {} can rotate (got signer {})",
+                current, signer));
+        }
+        if new_admin == &current {
+            return Err(anyhow!("new admin is same as current — no-op"));
+        }
+        let count = self.admin_change_count();
+        if count >= MAX_ADMIN_CHANGES {
+            return Err(anyhow!("admin change limit reached: {} of {} rotations used (locked)",
+                count, MAX_ADMIN_CHANGES));
+        }
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.put_cf(cf, META_ADMIN, &new_admin.0)?;
+        let new_count = count + 1;
+        self.db.put_cf(cf, META_ADMIN_CHANGES, [new_count])?;
+        Ok(new_count)
+    }
+
     fn put_account(&self, a: &Address, acc: &Account) -> Result<()> {
         let cf = self.db.cf_handle(CF_ACCOUNTS).unwrap();
         self.db.put_cf(cf, a.0, bincode::serialize(acc)?)?;
@@ -115,7 +171,7 @@ impl State {
         from.nonce += 1;
 
         let pool_addr = pool_address();
-        let admin = admin_address();
+        let admin = self.current_admin();
 
         if tx.body.to == pool_addr && tx.body.amount > 0 {
             // ─── Pool intercept ───
@@ -317,7 +373,7 @@ impl State {
         self.put_account(from, &acc)?;
         self.put_pool(&p)?;
         if admin_zbx > 0 || admin_zusd > 0 {
-            let admin = admin_address();
+            let admin = self.current_admin();
             let mut a = self.account(&admin);
             a.balance = a.balance.saturating_add(admin_zbx);
             a.zusd = a.zusd.saturating_add(admin_zusd);
@@ -339,7 +395,7 @@ impl State {
         self.put_account(from, &acc)?;
         self.put_pool(&p)?;
         if admin_zbx > 0 || admin_zusd > 0 {
-            let admin = admin_address();
+            let admin = self.current_admin();
             let mut a = self.account(&admin);
             a.balance = a.balance.saturating_add(admin_zbx);
             a.zusd = a.zusd.saturating_add(admin_zusd);

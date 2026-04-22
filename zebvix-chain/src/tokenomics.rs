@@ -61,6 +61,11 @@ pub const DYNAMIC_GAS_CAP_GWEI: u128 = 10_000;
 /// genesis liquidity loan (10M zUSD) is repaid.
 pub const ADMIN_ADDRESS_HEX: &str = "0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc";
 
+/// Maximum number of times the admin/founder address may be rotated.
+/// After 3 changes, the admin address is permanently locked. Each change must
+/// be signed by the current admin's key.
+pub const MAX_ADMIN_CHANGES: u8 = 3;
+
 /// zSwap pool's magic address — no private key exists for it.
 /// Bytes spell "zswap" (7a 73 77 61 70) followed by 15 zero bytes.
 /// Any normal user sending ZBX (or zUSD) to this address triggers an

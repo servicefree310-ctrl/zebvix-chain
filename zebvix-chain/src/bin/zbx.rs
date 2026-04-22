@@ -132,6 +132,8 @@ enum Cmd {
     Lp {
         address: String,
     },
+    /// Show admin/founder address info (current address, rotations used, max).
+    Admin,
     /// Faucet-style helper: print common testnet info.
     Help,
 }
@@ -582,6 +584,7 @@ async fn main() -> Result<()> {
         Cmd::Gas => cmd_gas(&rpc, q).await?,
         Cmd::Zusd { address } => cmd_zusd(&rpc, address, q).await?,
         Cmd::Lp { address } => cmd_lp(&rpc, address, q).await?,
+        Cmd::Admin => cmd_admin(&rpc, q).await?,
         Cmd::Help => cmd_help_extra(),
     }
     Ok(())
@@ -687,6 +690,37 @@ async fn cmd_zusd(rpc: &str, address: String, quiet: bool) -> Result<()> {
     } else {
         println!("  {}Address :{} {}", C_DIM, C_RESET, addr.to_hex());
         println!("  {}zUSD    :{} {}{} zUSD{}  ($ {})", C_DIM, C_RESET, C_BOLD, format_zbx(bal), C_RESET, format_zbx(bal));
+    }
+    Ok(())
+}
+
+async fn cmd_admin(rpc: &str, quiet: bool) -> Result<()> {
+    let r = rpc_call(rpc, "zbx_getAdmin", serde_json::json!([])).await?;
+    let cur = r.get("current_admin").and_then(|v| v.as_str()).unwrap_or("?");
+    let gen = r.get("genesis_admin").and_then(|v| v.as_str()).unwrap_or("?");
+    let used = r.get("changes_used").and_then(|v| v.as_u64()).unwrap_or(0);
+    let max = r.get("max_changes").and_then(|v| v.as_u64()).unwrap_or(3);
+    let rem = r.get("changes_remaining").and_then(|v| v.as_u64()).unwrap_or(0);
+    let locked = r.get("locked").and_then(|v| v.as_bool()).unwrap_or(false);
+    if quiet {
+        println!("{}", serde_json::to_string(&r)?);
+    } else {
+        println!("  {}👑 Admin / Founder address{}", C_BOLD, C_RESET);
+        println!("  {}Current admin :{} {}{}{}", C_DIM, C_RESET, C_BOLD, cur, C_RESET);
+        println!("  {}Genesis admin :{} {}{}", C_DIM, C_RESET, gen,
+            if cur == gen { "  (unchanged)" } else { "" });
+        println!("  {}Rotations     :{} {} of {} used", C_DIM, C_RESET, used, max);
+        println!("  {}Remaining     :{} {}", C_DIM, C_RESET, rem);
+        println!("  {}Status        :{} {}", C_DIM, C_RESET,
+            if locked { "🔒 LOCKED — cannot rotate further".to_string() }
+            else { format!("✅ rotatable ({} left)", rem) });
+        if !locked {
+            println!();
+            println!("  {}To rotate (on the node, after stopping it):{}", C_DIM, C_RESET);
+            println!("    zebvix-node admin-change-address \\");
+            println!("      --signer-key <current-admin.key> \\");
+            println!("      --new-admin 0x<new-address>");
+        }
     }
     Ok(())
 }

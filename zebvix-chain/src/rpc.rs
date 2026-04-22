@@ -120,7 +120,7 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
             ok(id, json!({
                 "initialized": p.is_initialized(),
                 "pool_address": crate::state::pool_address().to_hex(),
-                "admin_address": crate::state::admin_address().to_hex(),
+                "admin_address": ctx.state.current_admin().to_hex(),
                 "permissionless": true,
                 "zbx_reserve_wei": p.zbx_reserve.to_string(),
                 "zusd_reserve": p.zusd_reserve.to_string(),
@@ -142,6 +142,16 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 "lifetime_fees_zusd": p.total_fees_collected_zusd.to_string(),
                 "lifetime_admin_paid_zusd": p.total_admin_paid_zusd.to_string(),
                 "lifetime_reinvested_zusd": p.total_reinvested_zusd.to_string(),
+            }))
+        }
+        "zbx_getAdmin" => {
+            ok(id, json!({
+                "current_admin": ctx.state.current_admin().to_hex(),
+                "genesis_admin": crate::state::admin_address().to_hex(),
+                "changes_used": ctx.state.admin_change_count(),
+                "max_changes": crate::tokenomics::MAX_ADMIN_CHANGES,
+                "changes_remaining": ctx.state.admin_changes_remaining(),
+                "locked": ctx.state.admin_changes_remaining() == 0,
             }))
         }
         "zbx_getPriceUSD" => {

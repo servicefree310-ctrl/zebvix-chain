@@ -111,6 +111,23 @@ enum Cmd {
         #[arg(long, default_value = "./.zebvix")]
         home: PathBuf,
     },
+    /// Admin: rotate the admin/founder address (max 3 times, ever).
+    /// Must be run with the CURRENT admin's keyfile. Node must be stopped.
+    AdminChangeAddress {
+        #[arg(long, default_value = "./.zebvix")]
+        home: PathBuf,
+        /// Current admin's keyfile (must match the live admin address).
+        #[arg(long)]
+        signer_key: PathBuf,
+        /// New admin address (0x… 20-byte hex).
+        #[arg(long)]
+        new_admin: String,
+    },
+    /// Print current admin info (live address, rotations used, remaining).
+    AdminInfo {
+        #[arg(long, default_value = "./.zebvix")]
+        home: PathBuf,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -462,5 +479,51 @@ async fn main() -> Result<()> {
         Cmd::AdminPoolAdd { home, from, zbx, zusd } => cmd_admin_pool_add(home, from, zbx, zusd),
         Cmd::AdminSwap { home, from, sell, amount, min_out } => cmd_admin_swap(home, from, sell, amount, min_out),
         Cmd::PoolInfo { home } => cmd_pool_info(home),
+        Cmd::AdminChangeAddress { home, signer_key, new_admin } => cmd_admin_change_address(home, signer_key, new_admin),
+        Cmd::AdminInfo { home } => cmd_admin_info(home),
     }
+}
+
+fn cmd_admin_change_address(home: PathBuf, signer_key: PathBuf, new_admin: String) -> Result<()> {
+    let (_, pk) = read_keyfile(&signer_key)?;
+    let signer = address_from_pubkey(&pk);
+    let new_addr = Address::from_hex(&new_admin)?;
+    let state = State::open(&home.join("data"))?;
+    let prev = state.current_admin();
+    let used_before = state.admin_change_count();
+    let new_count = state.change_admin(&signer, &new_addr)?;
+    println!("✅ Admin address rotated successfully!");
+    println!();
+    println!("   Previous admin   : {}", prev);
+    println!("   New admin        : {}", new_addr);
+    println!("   Rotations used   : {} → {} (of {} max)", used_before, new_count, tokenomics::MAX_ADMIN_CHANGES);
+    println!("   Remaining        : {}", tokenomics::MAX_ADMIN_CHANGES - new_count);
+    if new_count >= tokenomics::MAX_ADMIN_CHANGES {
+        println!();
+        println!("   ⚠️  Admin address is now PERMANENTLY LOCKED — no more rotations possible.");
+    }
+    println!();
+    println!("   ℹ️  Future swap-fee payouts (50% after loan repaid) go to the new admin.");
+    Ok(())
+}
+
+fn cmd_admin_info(home: PathBuf) -> Result<()> {
+    let state = State::open(&home.join("data"))?;
+    let current = state.current_admin();
+    let genesis = zebvix_node::state::admin_address();
+    let used = state.admin_change_count();
+    let remaining = state.admin_changes_remaining();
+    println!("👑 Admin / Founder address info");
+    println!();
+    println!("   Current admin    : {}", current);
+    println!("   Genesis admin    : {}{}", genesis,
+        if current == genesis { "  (unchanged)" } else { "" });
+    println!("   Rotations used   : {} of {} max", used, tokenomics::MAX_ADMIN_CHANGES);
+    println!("   Rotations left   : {}", remaining);
+    if remaining == 0 {
+        println!("   Status           : 🔒 LOCKED — cannot rotate further");
+    } else {
+        println!("   Status           : ✅ rotatable ({} remaining)", remaining);
+    }
+    Ok(())
 }
