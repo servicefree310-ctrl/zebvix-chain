@@ -258,11 +258,6 @@ async fn cmd_send(from_key: PathBuf, to: String, amount: String, fee: String, rp
 }
 
 async fn http_post(url: &str, body: &serde_json::Value) -> Result<serde_json::Value> {
-    let client = std::sync::Arc::new(tokio::sync::OnceCell::new());
-    let _ = client;
-    // simple manual HTTP via tokio + axum? Easier: use minimal reqwest-style with hyper.
-    // To avoid extra dep, use std with ureq-style? Just include reqwest? Simpler: spawn a tcp call.
-    // Use a tiny TCP-based JSON-RPC POST.
     let url = url.trim_end_matches('/');
     let parsed = url.strip_prefix("http://").ok_or_else(|| anyhow!("only http:// urls"))?;
     let (host_port, path) = match parsed.find('/') {
