@@ -1,0 +1,31 @@
+            └─3498182 /usr/local/bin/zebvix-node start --home /home/zebvix-chain/.zebvix --validator-key /home/zebvix-chain/validator.key
+
+Apr 22 11:50:35 srv1266996.hstgr.cloud systemd[1]: zebvix.service: Scheduled restart job, restart counter is at 1.
+Apr 22 11:50:35 srv1266996.hstgr.cloud systemd[1]: Started zebvix.service - Zebvix L1 Blockchain Node.
+Apr 22 11:50:35 srv1266996.hstgr.cloud zebvix-node[3498182]: error: unexpected argument '--validator-key' found
+Apr 22 11:50:35 srv1266996.hstgr.cloud zebvix-node[3498182]: Usage: zebvix-node start --home <HOME>
+Apr 22 11:50:35 srv1266996.hstgr.cloud zebvix-node[3498182]: For more information, try '--help'.
+Apr 22 11:50:30 srv1266996.hstgr.cloud systemd[1]: Started zebvix.service - Zebvix L1 Blockchain Node.
+Apr 22 11:50:30 srv1266996.hstgr.cloud zebvix-node[3498175]: error: unexpected argument '--validator-key' found
+Apr 22 11:50:30 srv1266996.hstgr.cloud zebvix-node[3498175]: Usage: zebvix-node start --home <HOME>
+Apr 22 11:50:30 srv1266996.hstgr.cloud zebvix-node[3498175]: For more information, try '--help'.
+Apr 22 11:50:30 srv1266996.hstgr.cloud systemd[1]: zebvix.service: Main process exited, code=exited, status=2/INVALIDARGUMENT
+Apr 22 11:50:30 srv1266996.hstgr.cloud systemd[1]: zebvix.service: Failed with result 'exit-code'.
+Apr 22 11:50:35 srv1266996.hstgr.cloud systemd[1]: zebvix.service: Scheduled restart job, restart counter is at 1.
+Apr 22 11:50:35 srv1266996.hstgr.cloud systemd[1]: Started zebvix.service - Zebvix L1 Blockchain Node.
+Apr 22 11:50:35 srv1266996.hstgr.cloud zebvix-node[3498182]: error: unexpected argument '--validator-key' found
+Apr 22 11:50:35 srv1266996.hstgr.cloud zebvix-node[3498182]: Usage: zebvix-node start --home <HOME>
+Apr 22 11:50:35 srv1266996.hstgr.cloud zebvix-node[3498182]: For more information, try '--help'.
+Apr 22 11:50:35 srv1266996.hstgr.cloud systemd[1]: zebvix.service: Main process exited, code=exited, status=2/INVALIDARGUMENT
+Apr 22 11:50:35 srv1266996.hstgr.cloud systemd[1]: zebvix.service: Failed with result 'exit-code'.
+Error: rpc error: {"code":-32601,"message":"method not found: zbx_getPool"}
+ls: cannot access '/home/zebvix-chain/founder.key': No such file or directory
+  Address : 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+  Balance : 10011245.5 ZBX
+  Wei     : 10011245500000000000000000
+Error: rpc error: {"code":-32601,"message":"method not found: zbx_getPool"}
+Error: rpc error: {"code":-32601,"message":"method not found: zbx_getPool"}
+  Address : 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+  Balance : 10011248.5 ZBX
+  Wei     : 10011248500000000000000000
+root@srv1266996:/home/zebvix-chain# 
