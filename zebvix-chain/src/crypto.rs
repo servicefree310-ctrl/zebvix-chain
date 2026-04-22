@@ -63,6 +63,50 @@ pub fn verify_tx(tx: &SignedTx) -> bool {
     verify_signature(&tx.pubkey, &msg, &tx.signature)
 }
 
+/// High-throughput batch verification of many signed transactions.
+///
+/// Uses two stacked optimizations:
+///   1. **Rayon parallel iterator** — distributes work across all CPU cores.
+///   2. **ed25519-dalek batch verify** — verifies a chunk of signatures in a single
+///      multi-scalar multiplication, which is ~3-5x faster than individual `verify`.
+///
+/// Returns `true` only if **every** tx is valid (matching `from`/`pubkey` and a
+/// valid Ed25519 signature). On any failure it short-circuits and returns `false`.
+pub fn verify_txs_batch(txs: &[SignedTx]) -> bool {
+    use ed25519_dalek::{Signature, VerifyingKey};
+    use rayon::prelude::*;
+
+    if txs.is_empty() {
+        return true;
+    }
+
+    // Step 1 — parallel from/pubkey binding check (cheap, parallel-safe).
+    let binding_ok = txs
+        .par_iter()
+        .all(|tx| address_from_pubkey(&tx.pubkey) == tx.body.from);
+    if !binding_ok {
+        return false;
+    }
+
+    // Step 2 — split into chunks; each chunk is batch-verified on a worker thread.
+    const BATCH_CHUNK: usize = 64;
+    txs.par_chunks(BATCH_CHUNK).all(|chunk| {
+        let mut msgs: Vec<Vec<u8>> = Vec::with_capacity(chunk.len());
+        let mut sigs: Vec<Signature> = Vec::with_capacity(chunk.len());
+        let mut keys: Vec<VerifyingKey> = Vec::with_capacity(chunk.len());
+
+        for tx in chunk {
+            msgs.push(tx_signing_bytes(&tx.body));
+            let Ok(sig) = Signature::from_slice(&tx.signature) else { return false };
+            let Ok(vk) = VerifyingKey::from_bytes(&tx.pubkey) else { return false };
+            sigs.push(sig);
+            keys.push(vk);
+        }
+        let msg_refs: Vec<&[u8]> = msgs.iter().map(|m| m.as_slice()).collect();
+        ed25519_dalek::verify_batch(&msg_refs, &sigs, &keys).is_ok()
+    })
+}
+
 pub fn tx_hash(tx: &SignedTx) -> Hash {
     let bytes = bincode::serialize(tx).expect("tx ser cannot fail");
     keccak256(&bytes)

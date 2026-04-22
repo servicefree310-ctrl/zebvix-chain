@@ -1,6 +1,6 @@
 //! Persistent state: balances, nonces, blocks. Backed by RocksDB.
 
-use crate::crypto::{block_hash, tx_hash, verify_tx};
+use crate::crypto::{block_hash, tx_hash, verify_tx, verify_txs_batch};
 use crate::tokenomics::reward_at_height;
 use crate::types::{Address, Block, Hash, SignedTx};
 use anyhow::{anyhow, Result};
@@ -119,11 +119,23 @@ impl State {
         if block.header.parent_hash != last {
             return Err(anyhow!("parent hash mismatch"));
         }
+        // Step 1 — parallel + batch signature verification (Rayon + ed25519 batch).
+        // For small blocks (<4 txs) the per-tx overhead beats batching, so fall back.
+        if block.txs.len() >= 4 {
+            if !verify_txs_batch(&block.txs) {
+                return Err(anyhow!("bad tx signature in block (batch verify failed)"));
+            }
+        } else {
+            for tx in &block.txs {
+                if !verify_tx(tx) {
+                    return Err(anyhow!("bad tx signature: {}", tx_hash(tx)));
+                }
+            }
+        }
+
+        // Step 2 — sequential state apply (will be parallelized via Block-STM in v0.3).
         let mut total_fees: u128 = 0;
         for tx in &block.txs {
-            if !verify_tx(tx) {
-                return Err(anyhow!("bad tx signature: {}", tx_hash(tx)));
-            }
             self.apply_tx(tx)?;
             total_fees = total_fees.saturating_add(tx.body.fee);
         }

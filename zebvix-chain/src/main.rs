@@ -1,3 +1,4 @@
+mod block_stm;
 mod consensus;
 mod crypto;
 mod mempool;
