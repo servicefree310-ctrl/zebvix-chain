@@ -79,10 +79,13 @@ impl Pool {
         if self.zbx_reserve == 0 {
             return 0;
         }
-        self.zusd_reserve
-            .saturating_mul(SCALE_18)
-            .checked_div(self.zbx_reserve)
-            .unwrap_or(0)
+        // Use U256 to avoid u128 overflow: zusd_reserve * SCALE_18 may exceed
+        // u128::MAX (~3.4e38) when reserves are 10M tokens (10^25 wei) — that
+        // multiplication produces 10^43 which saturates u128 and yields garbage.
+        use primitive_types::U256;
+        let num = U256::from(self.zusd_reserve) * U256::from(SCALE_18);
+        let result = num / U256::from(self.zbx_reserve);
+        if result.bits() > 128 { u128::MAX } else { result.as_u128() }
     }
 
     /// Convert a ZBX wei amount into its zUSD-value at current spot price.
@@ -180,10 +183,14 @@ impl Pool {
         }
         let fee = zbx_in.saturating_mul(POOL_FEE_BPS_NUM) / POOL_FEE_BPS_DEN;
         let amount_in_eff = zbx_in.saturating_sub(fee);
-        // No-fee CPMM on the effective input.
-        let numerator = amount_in_eff.saturating_mul(self.zusd_reserve);
-        let denominator = self.zbx_reserve.saturating_add(amount_in_eff);
-        let zusd_out = numerator.checked_div(denominator).ok_or("div by zero")?;
+        // CPMM with U256 intermediate math to avoid u128 overflow.
+        // amount_in_eff * zusd_reserve can exceed u128::MAX when reserves are large.
+        use primitive_types::U256;
+        let numerator = U256::from(amount_in_eff) * U256::from(self.zusd_reserve);
+        let denominator = U256::from(self.zbx_reserve) + U256::from(amount_in_eff);
+        let zusd_out_u256 = numerator / denominator;
+        if zusd_out_u256.bits() > 128 { return Err("output overflow"); }
+        let zusd_out = zusd_out_u256.as_u128();
         if zusd_out == 0 || zusd_out >= self.zusd_reserve { return Err("insufficient liquidity"); }
 
         self.update_oracle(height);
@@ -202,9 +209,13 @@ impl Pool {
         }
         let fee = zusd_in.saturating_mul(POOL_FEE_BPS_NUM) / POOL_FEE_BPS_DEN;
         let amount_in_eff = zusd_in.saturating_sub(fee);
-        let numerator = amount_in_eff.saturating_mul(self.zbx_reserve);
-        let denominator = self.zusd_reserve.saturating_add(amount_in_eff);
-        let zbx_out = numerator.checked_div(denominator).ok_or("div by zero")?;
+        // CPMM with U256 intermediate math to avoid u128 overflow.
+        use primitive_types::U256;
+        let numerator = U256::from(amount_in_eff) * U256::from(self.zbx_reserve);
+        let denominator = U256::from(self.zusd_reserve) + U256::from(amount_in_eff);
+        let zbx_out_u256 = numerator / denominator;
+        if zbx_out_u256.bits() > 128 { return Err("output overflow"); }
+        let zbx_out = zbx_out_u256.as_u128();
         if zbx_out == 0 || zbx_out >= self.zbx_reserve { return Err("insufficient liquidity"); }
         if zbx_out > crate::tokenomics::MAX_SWAP_ZBX_WEI {
             return Err("output exceeds max swap limit (100,000 ZBX per tx)");

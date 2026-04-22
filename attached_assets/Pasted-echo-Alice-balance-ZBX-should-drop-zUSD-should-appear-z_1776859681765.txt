@@ -1,0 +1,57 @@
+echo "=== Alice balance (ZBX should drop, zUSD should appear) ==="
+zbx balance $ALICE
+
+─── Transaction preview ───
+  From   : 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+  To     : 0xb913507b324a0bdabca383ccc7fbc2c6cca0abd8
+  Amount : 1000 ZBX
+  Fee    : 0.01 ZBX
+  Chain  : 7878
+
+
+  ✓ Submitted!
+  Tx hash : 0x54499e75961adc4516d8846c5523968852257959ace5e6a1758db7bb1eaa5b04
+  Nonce   : 0
+
+  Wait ~5 sec for next block, then:
+    zbx balance 0xb913507b324a0bdabca383ccc7fbc2c6cca0abd8
+  Address : 0xb913507b324a0bdabca383ccc7fbc2c6cca0abd8
+  Balance : 1000 ZBX
+  Wei     : 1000000000000000000000
+🔄 Auto-swap: ZBX → zUSD via pool 0x7a73776170000000000000000000000000000000
+   You'll receive zUSD at current pool rate, returned to your wallet.
+
+─── Transaction preview ───
+  From   : 0xb913507b324a0bdabca383ccc7fbc2c6cca0abd8
+  To     : 0x7a73776170000000000000000000000000000000
+  Amount : 100 ZBX
+  Fee    : 0.01 ZBX
+  Chain  : 7878
+
+
+  ✓ Submitted!
+  Tx hash : 0x5e8e2e5c187b30dc175bc854103ae7b5d2e5d9bf8fa87a0eb13a9191af386646
+  Nonce   : 0
+
+  Wait ~5 sec for next block, then:
+    zbx balance 0x7a73776170000000000000000000000000000000
+=== Pool state ===
+  📊 zSwap AMM Pool — ZBX / zUSD  (permissionless)
+  Pool addr    : 0x7a73776170000000000000000000000000000000
+  ZBX reserve  : 10000100 ZBX
+  zUSD reserve : 9999999.999965972102566044 zUSD
+  LP supply    : 10000000000000000000000000 (locked to pool)
+  Spot price   : 1 ZBX = $0.000034
+  Pool fee     : 0.30% (input-deducted, sequestered)
+  Max per swap : 100000 ZBX or 100000 zUSD  (anti-whale)
+
+  💰 Loan       : 9999999.999989791630769814 zUSD outstanding (repaid via fees)
+  Fee bucket   : 0 ZBX  +  0 zUSD  (pending settle)
+  Lifetime fees: 0.000010208369230186 zUSD
+  Admin earned : 0 zUSD
+  Init height  : 62
+=== Alice balance (ZBX should drop, zUSD should appear) ===
+  Address : 0xb913507b324a0bdabca383ccc7fbc2c6cca0abd8
+  Balance : 899.99 ZBX
+  Wei     : 899990000000000000000
+root@srv1266996:/home/zebvix-chain# 
