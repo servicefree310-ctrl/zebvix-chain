@@ -1,23 +1,15 @@
-mod block_stm;
-mod consensus;
-mod crypto;
-mod mempool;
-mod rpc;
-mod state;
-mod tokenomics;
-mod types;
-
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
-use consensus::Producer;
-use crypto::{address_from_pubkey, generate_keypair, keypair_from_secret, sign_tx};
-use mempool::Mempool;
 use serde::{Deserialize, Serialize};
-use state::State;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokenomics::{CHAIN_ID, FOUNDER_PREMINE_WEI, TOTAL_SUPPLY_WEI, WEI_PER_ZBX};
-use types::{Address, TxBody};
+use zebvix_node::consensus::Producer;
+use zebvix_node::crypto::{address_from_pubkey, generate_keypair, keypair_from_secret, sign_tx};
+use zebvix_node::mempool::Mempool;
+use zebvix_node::rpc;
+use zebvix_node::state::State;
+use zebvix_node::tokenomics::{self, CHAIN_ID, FOUNDER_PREMINE_WEI, TOTAL_SUPPLY_WEI, WEI_PER_ZBX};
+use zebvix_node::types::{Address, TxBody};
 
 #[derive(Parser)]
 #[command(name = "zebvix-node", version, about = "Zebvix L1 blockchain node (ZBX, EVM-style)")]
