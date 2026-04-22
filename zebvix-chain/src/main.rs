@@ -59,6 +59,11 @@ enum Cmd {
         /// Disable mDNS LAN discovery (recommended on production VPS).
         #[arg(long)]
         no_mdns: bool,
+        /// Follower mode: do NOT produce blocks, only receive from peers via P2P.
+        /// Use this for secondary nodes during Phase A testing (single-validator chain).
+        /// Multi-validator BFT (where every node may propose) arrives in Phase B.
+        #[arg(long)]
+        follower: bool,
     },
     /// Build, sign, and submit a transfer to a running node's RPC.
     Send {
@@ -291,6 +296,7 @@ async fn cmd_start(
     peer_strs: Vec<String>,
     no_p2p: bool,
     no_mdns: bool,
+    follower: bool,
 ) -> Result<()> {
     let cfg_path = home.join("node.json");
     let cfg: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&cfg_path)?)?;
@@ -308,6 +314,7 @@ async fn cmd_start(
     tracing::info!("   proposer  : {}", proposer);
     tracing::info!("   tip       : height={} hash={}", state.tip().0, state.tip().1);
     tracing::info!("   rpc       : http://{}", rpc_addr);
+    if follower { tracing::info!("   mode      : FOLLOWER (block production DISABLED)"); }
 
     // ── Phase A: spawn P2P gossip layer ────────────────────────────────
     let producer = if no_p2p {
@@ -364,8 +371,9 @@ async fn cmd_start(
                                     continue;
                                 }
                                 if h != tip_h + 1 {
-                                    tracing::warn!(
-                                        "p2p out-of-order block #{h} (tip={tip_h}); sync protocol arrives in Phase A.5"
+                                    // Out-of-order: sync protocol in p2p.rs has already triggered a request.
+                                    tracing::debug!(
+                                        "p2p out-of-order block #{h} (tip={tip_h}); awaiting sync response"
                                     );
                                     continue;
                                 }
@@ -392,8 +400,12 @@ async fn cmd_start(
 
         // Phase A.5: RPC-submitted txs are immediately gossiped to peers.
         let rpc_out = Some(out_tx.clone());
-        // Spawn producer
-        tokio::spawn(producer.clone().run());
+        // Spawn producer (skip in follower mode — node only receives blocks from peers).
+        if !follower {
+            tokio::spawn(producer.clone().run());
+        } else {
+            tracing::warn!("follower mode: producer DISABLED, this node will only sync from peers");
+        }
         // RPC server with P2P tx gossip enabled.
         let ctx = rpc::RpcCtx { state: state.clone(), mempool: mempool.clone(), p2p_out: rpc_out };
         let app = rpc::router(ctx);
@@ -402,7 +414,9 @@ async fn cmd_start(
     };
 
     // ── Legacy --no-p2p path ──────────────────────────────────────────
-    tokio::spawn(producer.clone().run());
+    if !follower {
+        tokio::spawn(producer.clone().run());
+    }
     let ctx = rpc::RpcCtx { state: state.clone(), mempool: mempool.clone(), p2p_out: None };
     let app = rpc::router(ctx);
     let listener = tokio::net::TcpListener::bind(&rpc_addr).await?;
@@ -587,8 +601,8 @@ async fn main() -> Result<()> {
     match cli.cmd {
         Cmd::Keygen { out } => cmd_keygen(out),
         Cmd::Init { home, validator_key, alloc, no_default_premine } => cmd_init(home, validator_key, alloc, no_default_premine),
-        Cmd::Start { home, rpc, p2p_port, peers, no_p2p, no_mdns } =>
-            cmd_start(home, rpc, p2p_port, peers, no_p2p, no_mdns).await,
+        Cmd::Start { home, rpc, p2p_port, peers, no_p2p, no_mdns, follower } =>
+            cmd_start(home, rpc, p2p_port, peers, no_p2p, no_mdns, follower).await,
         Cmd::Send { from_key, to, amount, fee, rpc } => cmd_send(from_key, to, amount, fee, rpc).await,
         Cmd::AdminFaucet { home, to, amount } => cmd_admin_faucet(home, to, amount),
         Cmd::AdminPoolGenesis { home } => cmd_admin_pool_genesis(home),
