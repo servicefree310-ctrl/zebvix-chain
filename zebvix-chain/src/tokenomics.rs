@@ -11,8 +11,10 @@ pub const WEI_PER_ZBX: u128 = 1_000_000_000_000_000_000u128;
 pub const TOTAL_SUPPLY_ZBX: u128 = 150_000_000u128;
 pub const TOTAL_SUPPLY_WEI: u128 = TOTAL_SUPPLY_ZBX * WEI_PER_ZBX;
 
-/// Default founder pre-mine = 10,000,000 ZBX (allocated at genesis to validator address).
-pub const FOUNDER_PREMINE_ZBX: u128 = 10_000_000u128;
+/// Default founder pre-mine = 0 ZBX. Admin/founder earns ZBX **only** through
+/// block rewards (proposer reward + tx fees) and the post-loan 50% swap-fee
+/// share. No genesis allocation to the founder.
+pub const FOUNDER_PREMINE_ZBX: u128 = 0u128;
 pub const FOUNDER_PREMINE_WEI: u128 = FOUNDER_PREMINE_ZBX * WEI_PER_ZBX;
 
 /// Initial block reward = 3 ZBX.
