@@ -475,13 +475,36 @@ const PHASES = [
     ],
   },
   {
-    id: "B323", title: "🔮 B.3.2.3 — 2/3+ Commit Gate (NEXT)",
-    color: "from-rose-500 to-pink-600", lightColor: "text-rose-400",
-    borderColor: "border-rose-500/40", bgColor: "bg-rose-500/5",
+    id: "SMALL_IMPR", title: "✨ Small Improvements (Apr 22, 2026) ✅ DEPLOYED",
+    color: "from-cyan-500 to-teal-600", lightColor: "text-cyan-400",
+    borderColor: "border-cyan-500/40", bgColor: "bg-cyan-500/5",
+    points: [
+      { id: "si_1", text: "RPC: zbx_blockNumber → { height, hex, hash, timestamp_ms, proposer } (richer than eth_blockNumber)" },
+      { id: "si_2", text: "CLI: zebvix-node block-number --rpc-url ... → live chain tip details" },
+      { id: "si_3", text: "CLI: zebvix-node show-validator --address 0x... --rpc-url ... → individual validator lookup via zbx_getValidator" },
+      { id: "si_4", text: "VPS LIVE PROOF: tip @ height=534 (0x216), hash=0x4149d7ab..., proposer=0xe381...0fecc — verified Apr 22, 2026" },
+      { id: "si_5", text: "Founder addresses confirmed: Node-1 = 0xe381e1d0...0fecc, Node-2 = 0xbdfbec5d...0d48 (both power=1, 2/2 quorum)" },
+    ],
+  },
+  {
+    id: "B323", title: "⏸️ B.3.2.3 — 2/3+ Commit Gate (DEFERRED until 4 validators)",
+    color: "from-amber-500 to-orange-600", lightColor: "text-amber-400",
+    borderColor: "border-amber-500/40", bgColor: "bg-amber-500/5",
     points: [
       { id: "b323_1", text: "Block apply gate: reject block at H if not 2/3+ precommits from prev height H-1" },
       { id: "b323_2", text: "Chain HALT under quorum loss (correct BFT — not a bug, a feature)" },
-      { id: "b323_3", text: "B.3.2.4: LastCommit field in BlockHeader (signed precommits chain-wide proof)" },
+      { id: "b323_3", text: "DEFERRED REASON: With only 2 validators, 1 node down = chain stops (bad demo UX). Re-activate after 3rd & 4th validator onboarding." },
+      { id: "b323_4", text: "Design fully documented: gated_apply() free function, ~150-200 LOC, reuses VotePool::has_quorum(). 30-45 min implementation when ready." },
+    ],
+  },
+  {
+    id: "B324", title: "🔮 B.3.2.4 — LastCommit in BlockHeader (FUTURE)",
+    color: "from-rose-500 to-pink-600", lightColor: "text-rose-400",
+    borderColor: "border-rose-500/40", bgColor: "bg-rose-500/5",
+    points: [
+      { id: "b324_1", text: "BlockHeader.last_commit: Vec<SignedPrecommit> from prev height — chain-wide proof of commit safety" },
+      { id: "b324_2", text: "Validated on apply: signatures verified, addresses match validator set, power ≥ quorum" },
+      { id: "b324_3", text: "Foundation for fast-sync, fork detection, and HotStuff transition (Phase B.4)" },
     ],
   },
 ];

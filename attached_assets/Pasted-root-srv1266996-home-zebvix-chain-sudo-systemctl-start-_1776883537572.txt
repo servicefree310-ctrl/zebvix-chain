@@ -1,0 +1,43 @@
+root@srv1266996:/home/zebvix-chain# sudo systemctl start zebvix.service
+sleep 5
+systemctl status zebvix.service --no-pager | head -20
+
+# Verify naya binary chal raha hai
+ps aux | grep zebvix-node | grep -v grep
+
+# Test
+/usr/local/bin/zebvix-node block-number --rpc-url http://127.0.0.1:8545
+/usr/local/bin/zebvix-node validator-list --rpc-url http://127.0.0.1:8545
+● zebvix.service - Zebvix L1 Blockchain Node
+     Loaded: loaded (/etc/systemd/system/zebvix.service; enabled; preset: enabled)
+     Active: active (running) since Wed 2026-04-22 18:44:32 UTC; 47s ago
+   Main PID: 3538509 (zebvix-node)
+      Tasks: 7 (limit: 9483)
+     Memory: 2.8M (peak: 3.3M)
+        CPU: 75ms
+     CGroup: /system.slice/zebvix.service
+             └─3538509 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns
+
+Apr 22 18:45:01 srv1266996.hstgr.cloud zebvix-node[3538509]: 2026-04-22T18:45:01.909794Z  INFO zebvix_node: 🗳  emitted prevote h=532 block=0xd6ce4ccc3a7c386866b92a10b3c326d3867ed71603e894f4726201c0b7071478
+Apr 22 18:45:01 srv1266996.hstgr.cloud zebvix-node[3538509]: 2026-04-22T18:45:01.910093Z  INFO zebvix_node: 🗳  emitted precommit h=532 block=0xd6ce4ccc3a7c386866b92a10b3c326d3867ed71603e894f4726201c0b7071478
+Apr 22 18:45:06 srv1266996.hstgr.cloud zebvix-node[3538509]: 2026-04-22T18:45:06.910128Z  INFO zebvix_node::consensus: ⛏  block #533 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0x7d4908c6c90d46878942bbc963372ef70a237e3733f48e7bfafc404081002fd8
+Apr 22 18:45:07 srv1266996.hstgr.cloud zebvix-node[3538509]: 2026-04-22T18:45:07.411342Z  INFO zebvix_node: 🗳  emitted prevote h=533 block=0x7d4908c6c90d46878942bbc963372ef70a237e3733f48e7bfafc404081002fd8
+Apr 22 18:45:07 srv1266996.hstgr.cloud zebvix-node[3538509]: 2026-04-22T18:45:07.411498Z  INFO zebvix_node: 🗳  emitted precommit h=533 block=0x7d4908c6c90d46878942bbc963372ef70a237e3733f48e7bfafc404081002fd8
+Apr 22 18:45:15 srv1266996.hstgr.cloud zebvix-node[3538509]: 2026-04-22T18:45:15.909552Z  WARN zebvix_node::consensus: ⏰ propose timeout at h=534 r=0 → bumping to r=1
+Apr 22 18:45:15 srv1266996.hstgr.cloud zebvix-node[3538509]: 2026-04-22T18:45:15.909889Z  INFO zebvix_node::consensus: ⛏  block #534 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=1  txs=0  hash=0x4149d7ab0bdfc2454ce17d15be958be93d3bd0e007456e2482731b1a64adb6cc
+Apr 22 18:45:16 srv1266996.hstgr.cloud zebvix-node[3538509]: 2026-04-22T18:45:16.409778Z  INFO zebvix_node::consensus: ✓ height advanced to 535 (recovered after r=1 at h=534)
+Apr 22 18:45:16 srv1266996.hstgr.cloud zebvix-node[3538509]: 2026-04-22T18:45:16.410096Z  INFO zebvix_node: 🗳  emitted prevote h=534 block=0x4149d7ab0bdfc2454ce17d15be958be93d3bd0e007456e2482731b1a64adb6cc
+Apr 22 18:45:16 srv1266996.hstgr.cloud zebvix-node[3538509]: 2026-04-22T18:45:16.410209Z  INFO zebvix_node: 🗳  emitted precommit h=534 block=0x4149d7ab0bdfc2454ce17d15be958be93d3bd0e007456e2482731b1a64adb6cc
+root     3538509  0.1  0.2 470092 17948 ?        Ssl  18:44   0:00 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns
+📦 Chain tip (via RPC http://127.0.0.1:8545)
+   height       : 534  (0x216)
+   hash         : 0x4149d7ab0bdfc2454ce17d15be958be93d3bd0e007456e2482731b1a64adb6cc
+   timestamp_ms : 1776883515909
+   proposer     : 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+🛡  Active validators: 2 (via RPC http://127.0.0.1:8545)
+   Total voting power : 2
+   Quorum (>2/3)      : 2
+
+   [ 1] 0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  power=1  pubkey=0xde996e74285312a38885abd1da3aa27b9e7549f11dd67c485d1671b29832fe75
+   [ 2] 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  power=1  pubkey=0xaa9f6c1f047126b58bdfe62d7adc2ad04ec36d83b9391d313022fbd50cb5d097
+root@srv1266996:/home/zebvix-chain# 
