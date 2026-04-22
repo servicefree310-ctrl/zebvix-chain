@@ -1,0 +1,31 @@
+ Finished `release` profile [optimized] target(s) in 1m 11s
+cp: cannot create regular file '/usr/local/bin/zebvix-node': Text file busy
+● zebvix.service - Zebvix L1 Blockchain Node
+     Loaded: loaded (/etc/systemd/system/zebvix.service; enabled; preset: enabled)
+     Active: active (running) since Wed 2026-04-22 17:50:56 UTC; 3s ago
+   Main PID: 3532077 (zebvix-node)
+      Tasks: 7 (limit: 9483)
+     Memory: 2.8M (peak: 3.2M)
+        CPU: 30ms
+     CGroup: /system.slice/zebvix.service
+             └─3532077 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns
+
+Apr 22 17:50:56 srv1266996.hstgr.cloud zebvix-node[3532077]: 2026-04-22T17:50:56.951345Z  INFO zebvix_node:    proposer  : 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+Apr 22 17:50:56 srv1266996.hstgr.cloud zebvix-node[3532077]: 2026-04-22T17:50:56.951395Z  INFO zebvix_node:    tip       : height=239 hash=0x48d2596af90b8df826a44179e75472468eeebcb7a9509433f4faa22d2c15b2ba
+Apr 22 17:50:56 srv1266996.hstgr.cloud zebvix-node[3532077]: 2026-04-22T17:50:56.951401Z  INFO zebvix_node:    rpc       : http://127.0.0.1:8545
+Apr 22 17:50:56 srv1266996.hstgr.cloud zebvix-node[3532077]: 2026-04-22T17:50:56.951845Z  INFO zebvix_node:    p2p       : tcp/30333  peer_id=12D3KooWH5L58uhAah2USrW4n2xBmhBDXBLMjiaMfTmSkLHiSh74
+Apr 22 17:50:56 srv1266996.hstgr.cloud zebvix-node[3532077]: 2026-04-22T17:50:56.951858Z  INFO zebvix_node:    mdns      : DISABLED (--no-mdns)
+[1]+  Terminated              nohup zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer "/ip4/127.0.0.1/tcp/30333" --no-mdns --follower > /var/log/zebvix2.log 2>&1
+[1] 3532152
+[1]+  Exit 2                  nohup zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peers /ip4/127.0.0.1/tcp/30333 > /var/log/zebvix2.log 2>&1
+🛡  Active validators: 2
+   Total voting power : 2
+   Quorum (>2/3)      : 2
+
+   [ 1] 0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  power=1  pubkey=0xde996e74285312a38885abd1da3aa27b9e7549f11dd67c485d1671b29832fe75
+   [ 2] 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  power=1  pubkey=0xaa9f6c1f047126b58bdfe62d7adc2ad04ec36d83b9391d313022fbd50cb5d097
+error: unexpected argument '--rpc-url' found
+
+Usage: zebvix-node validator-list [OPTIONS]
+
+For more information, try '--help'.
