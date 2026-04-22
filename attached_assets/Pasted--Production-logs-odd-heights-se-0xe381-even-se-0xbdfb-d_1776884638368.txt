@@ -1,0 +1,34 @@
+# Production logs — odd heights se 0xe381, even se 0xbdfb dikhne chahiye
+journalctl -u zebvix.service -n 8 --no-pager | grep "block #"
+journalctl -u zebvix2.service -n 8 --no-pager | grep "block #"
+📝 Submitting validator-add tx for 0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48 (power=1)
+   signer (must be admin) : 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+   nonce / fee            : 0 / 2000000000000000 wei
+   ✓ tx hash              : 0xdf109d690749dd681e872e93312428c53ce1f42fc584fd2ee1e3d3981400770e
+
+✓ Tx accepted into mempool. Once next block is committed,
+  every node applies the change → registry converges chain-wide.
+🛡  Active validators: 2 (via RPC http://127.0.0.1:8545)
+   Total voting power : 2
+   Quorum (>2/3)      : 2
+
+   [ 1] 0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  power=1  pubkey=0xde996e74285312a38885abd1da3aa27b9e7549f11dd67c485d1671b29832fe75
+   [ 2] 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  power=1  pubkey=0xaa9f6c1f047126b58bdfe62d7adc2ad04ec36d83b9391d313022fbd50cb5d097
+🛡  Active validators: 2 (via RPC http://127.0.0.1:8546)
+   Total voting power : 2
+   Quorum (>2/3)      : 2
+
+   [ 1] 0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  power=1  pubkey=0xde996e74285312a38885abd1da3aa27b9e7549f11dd67c485d1671b29832fe75
+   [ 2] 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  power=1  pubkey=0xaa9f6c1f047126b58bdfe62d7adc2ad04ec36d83b9391d313022fbd50cb5d097
+📦 Chain tip (via RPC http://127.0.0.1:8545)
+   height       : 19  (0x13)
+   hash         : 0x00e1ac7db0f428261bc37a6726a0d0c5973363d1164afa4ce157c0540d4038cd
+   timestamp_ms : 1776884613126
+   proposer     : 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+📦 Chain tip (via RPC http://127.0.0.1:8546)
+   height       : 19  (0x13)
+   hash         : 0x00e1ac7db0f428261bc37a6726a0d0c5973363d1164afa4ce157c0540d4038cd
+   timestamp_ms : 1776884613126
+   proposer     : 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+Apr 22 19:03:33 srv1266996.hstgr.cloud zebvix-node[3540463]: 2026-04-22T19:03:33.126358Z  INFO zebvix_node::consensus: ⛏  block #19 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0x00e1ac7db0f428261bc37a6726a0d0c5973363d1164afa4ce157c0540d4038cd
+root@srv1266996:/home/zebvix-chain# 
