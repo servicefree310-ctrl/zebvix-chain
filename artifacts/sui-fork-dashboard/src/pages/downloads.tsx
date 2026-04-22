@@ -1,15 +1,32 @@
-import { Download, FileArchive, CheckCircle2, AlertCircle } from "lucide-react";
+import { Download, FileArchive, CheckCircle2, AlertCircle, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
 const files = [
   {
+    key: "newchain",
+    title: "Zebvix Chain v0.1 (Scratch — Recommended)",
+    desc: "Brand new Rust L1 — scratch se likhi hui clean chain. EVM-style 20-byte addresses, RocksDB, JSON-RPC, halving tokenomics. Build + deploy in minutes.",
+    size: "13 KB source",
+    badge: "NEW · Production",
+    badgeColor: "bg-purple-500/20 text-purple-300 border-purple-500/40",
+    items: [
+      "150M ZBX cap · 10M founder pre-mine · 140M block-mined",
+      "Initial reward 3 ZBX/block · halving every 25M blocks (~3.96 yrs)",
+      "Single-validator PoA (v0.1) · multi-validator BFT roadmap (v0.2)",
+      "EVM smart contracts coming via revm in v0.2",
+      "Chain ID 7878 · 5s block time · Ed25519 signatures",
+      "8 Rust files · 1027 lines · builds in ~3 min on VPS",
+    ],
+    apiKey: "newchain",
+  },
+  {
     key: "patches",
-    title: "Zebvix Chain Patches",
+    title: "Zebvix Sui-Fork Patches (Legacy)",
     desc: "Sirf patch files — Move contracts, shell scripts, genesis config. Existing Sui codebase pe apply karo.",
     size: "27 KB",
-    badge: "Lightweight",
+    badge: "Legacy",
     badgeColor: "bg-blue-500/20 text-blue-400 border-blue-500/30",
     items: [
       "staking_pool.move (node bond + 5 bug fixes)",
@@ -21,10 +38,10 @@ const files = [
   },
   {
     key: "fullsource",
-    title: "Zebvix Full Source",
+    title: "Zebvix Full Sui-Fork Source (Legacy)",
     desc: "Complete patched Sui source code — VPS pe directly deploy kar sakte ho.",
     size: "87.5 MB",
-    badge: "Full Deploy",
+    badge: "Legacy · Full Deploy",
     badgeColor: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
     items: [
       "Sui codebase + all Zebvix Move packages",

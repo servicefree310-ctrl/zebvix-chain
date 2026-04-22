@@ -6,14 +6,21 @@ const downloadRouter = Router();
 
 const WORKSPACE = "/home/runner/workspace";
 
-const FILES: Record<string, { file: string; name: string }> = {
+const FILES: Record<string, { file: string; name: string; mime: string }> = {
   patches: {
     file: "zebvix-chain-patches.zip",
     name: "zebvix-chain-patches.zip",
+    mime: "application/zip",
   },
   fullsource: {
     file: "zebvix-full-source.zip",
     name: "zebvix-full-source.zip",
+    mime: "application/zip",
+  },
+  newchain: {
+    file: "zebvix-chain-source.tar.gz",
+    name: "zebvix-chain-source.tar.gz",
+    mime: "application/gzip",
   },
 };
 
@@ -28,7 +35,7 @@ downloadRouter.get("/download/:key", (req, res) => {
     res.status(404).json({ error: "File does not exist on server" });
     return;
   }
-  res.setHeader("Content-Type", "application/zip");
+  res.setHeader("Content-Type", entry.mime);
   res.setHeader(
     "Content-Disposition",
     `attachment; filename="${entry.name}"`,
