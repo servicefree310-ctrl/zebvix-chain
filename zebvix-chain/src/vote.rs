@@ -31,7 +31,7 @@ use std::collections::{BTreeMap, HashMap};
 
 pub const VOTE_DOMAIN_TAG: &[u8] = b"zebvix-vote/v1\0";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum VoteType {
     Prevote,
     Precommit,
