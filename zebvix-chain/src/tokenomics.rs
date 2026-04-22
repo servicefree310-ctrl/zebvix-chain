@@ -95,6 +95,12 @@ pub const MAX_SWAP_ZBX_WEI: u128 = 100_000u128 * WEI_PER_ZBX;
 /// Same scale as ZBX (18 decimals).
 pub const MAX_SWAP_ZUSD: u128 = 100_000u128 * WEI_PER_ZBX;
 
+/// Minimum swap output: 0.01 zUSD (or its ZBX-equivalent for reverse swaps).
+/// Trades that would receive less than this are rejected — protects the pool
+/// from dust-spam and ensures every swap is economically meaningful.
+pub const MIN_SWAP_OUT_ZUSD: u128 = 10_000_000_000_000_000u128; // 0.01 * 10^18
+pub const MIN_SWAP_OUT_ZBX_WEI: u128 = 10_000_000_000_000_000u128; // 0.01 ZBX
+
 /// Compute block reward at a given height (1-indexed). Returns 0 once reward halves to 0.
 pub fn reward_at_height(height: u64) -> u128 {
     if height == 0 {

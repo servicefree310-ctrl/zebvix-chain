@@ -192,6 +192,9 @@ impl Pool {
         if zusd_out_u256.bits() > 128 { return Err("output overflow"); }
         let zusd_out = zusd_out_u256.as_u128();
         if zusd_out == 0 || zusd_out >= self.zusd_reserve { return Err("insufficient liquidity"); }
+        if zusd_out < crate::tokenomics::MIN_SWAP_OUT_ZUSD {
+            return Err("swap too small: output below 0.01 zUSD minimum");
+        }
 
         self.update_oracle(height);
         self.zbx_reserve = self.zbx_reserve.saturating_add(amount_in_eff);
@@ -219,6 +222,9 @@ impl Pool {
         if zbx_out == 0 || zbx_out >= self.zbx_reserve { return Err("insufficient liquidity"); }
         if zbx_out > crate::tokenomics::MAX_SWAP_ZBX_WEI {
             return Err("output exceeds max swap limit (100,000 ZBX per tx)");
+        }
+        if zbx_out < crate::tokenomics::MIN_SWAP_OUT_ZBX_WEI {
+            return Err("swap too small: output below 0.01 ZBX minimum");
         }
 
         self.update_oracle(height);
