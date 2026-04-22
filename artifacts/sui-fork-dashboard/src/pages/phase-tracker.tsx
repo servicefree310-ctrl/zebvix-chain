@@ -433,16 +433,16 @@ const PHASES = [
     ],
   },
   {
-    id: "B315", title: "🔧 B.3.1.5 — Genesis Fix + RPC validator-list",
+    id: "B315", title: "🔧 B.3.1.5 — Genesis Fix + RPC validator-list ✅ VERIFIED",
     color: "from-fuchsia-500 to-pink-600", lightColor: "text-fuchsia-400",
     borderColor: "border-fuchsia-500/40", bgColor: "bg-fuchsia-500/5",
     points: [
       { id: "b315_1", text: "FOUNDER_PUBKEY_HEX constant in tokenomics.rs (0xaa9f6c1f...d097)" },
       { id: "b315_2", text: "cmd_init ab DETERMINISTIC genesis seed karta hai — sab nodes pe same {founder} validator at genesis" },
-      { id: "b315_3", text: "Old bug fixed: pehle har node apni local validator key ko genesis mein daal deti thi (divergence)" },
+      { id: "b315_3", text: "Old bug fixed: pehle har node apni local validator key ko genesis mein daal deti thi (divergence) — VPS pe diagnose hua: Node-1 height 239, Node-2 height 2212, alag chains" },
       { id: "b315_4", text: "validator-list CLI ab default mein RPC (zbx_listValidators) call karta hai — koi DB lock clash nahi" },
       { id: "b315_5", text: "--offline flag rakha hai diagnostic ke liye (jab node band ho)" },
-      { id: "b315_6", text: "VPS re-init zaroori naye deployment ke liye — existing chain to kaam kar rahi hai" },
+      { id: "b315_6", text: "VPS re-init DONE: dono nodes ab same chain pe, true 2/2 quorum (prevote + precommit) verified live" },
     ],
   },
   {

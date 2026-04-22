@@ -38,12 +38,12 @@ Standalone Rust crate building Zebvix L1 — token ZBX, chain-id 7878, EVM-style
 - **B.1 — Validator registry** ✅ — On-chain RocksDB-backed validator set, admin-gated CLI, RPCs.
 - **B.2 — Vote messages** ✅ — Domain-tagged Ed25519 votes, `VotePool` with double-sign detection, gossipsub `zebvix/7878/votes/v1` topic, `zbx_voteStats` RPC, **2/2 quorum on every block** verified on VPS.
 - **B.3.1 — On-chain validator updates** ✅ — `TxKind` enum (`Transfer` / `ValidatorAdd` / `ValidatorRemove`); admin-signed governance txs; CLI now submits via RPC; **verified on VPS** that both nodes log `validator-add applied` for the same tx → registry replicates without manual mirroring.
-- **B.3.1.5 — Genesis fix + RPC for validator-list** ✅ — Hardcoded `FOUNDER_PUBKEY_HEX` in `tokenomics.rs`; `cmd_init` now deterministically seeds genesis validator set with `{founder}` regardless of local `--validator-key`. CLI `validator-list` now defaults to RPC (`zbx_listValidators`) — no DB lock conflict; pass `--offline` only when node is stopped.
+- **B.3.1.5 — Genesis fix + RPC for validator-list** ✅ **VERIFIED on VPS** — Hardcoded `FOUNDER_PUBKEY_HEX` in `tokenomics.rs`; `cmd_init` now deterministically seeds genesis validator set with `{founder}` regardless of local `--validator-key`. CLI `validator-list` now defaults to RPC (`zbx_listValidators`) — no DB lock conflict; pass `--offline` only when node is stopped. Live VPS proof: split-brain diagnosed (Node-1 h=239 founder-genesis vs Node-2 h=2212 self-genesis), data dirs wiped+re-initd, both nodes converged to identical 2-validator set, `zbx_voteStats` shows true 2/2 prevote + precommit quorum on every block, logs print `✅ QUORUM` markers in real time.
 - **B.3.2+ — Tendermint state machine** ⏳ next — replace single-validator PoA producer with vote-driven commit (round-robin proposer, propose/prevote/precommit/commit timeouts, 2/3+ commit gate, `LastCommit` in header).
 
 ### Known follow-ups
 
-- **VPS re-init required for B.3.1.5**: existing VPS chain was init'd with the OLD `cmd_init` (Node-1's local key in genesis). To get the deterministic genesis, both nodes' DBs must be wiped and re-init'd. Until then, the chain still works (Node-2 was added via tx) but genesis isn't deterministic. New deployments will be clean.
+- **B.3.1.5 VPS re-init COMPLETE (Apr 22, 2026)**: backups taken (`/root/zebvix-backups/preB315-*`), `.zebvix` and `.zebvix2` data dirs wiped, both re-init'd with deterministic genesis. Node-2's `validator.key` was inside `.zebvix2/` and got wiped — restored from backup tarball (same pubkey `0xde996e74...` so the earlier `validator-add` tx still matches). Both nodes now on identical chain, genuine 2/2 quorum.
 
 ### VPS topology
 

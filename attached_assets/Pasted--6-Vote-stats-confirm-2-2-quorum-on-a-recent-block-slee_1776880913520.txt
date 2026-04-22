@@ -1,0 +1,97 @@
+# 6. Vote stats — confirm 2/2 quorum on a recent block
+sleep 10
+curl -s -X POST http://127.0.0.1:8545 -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"zbx_voteStats","params":[]}' \
+  | python3 -m json.tool
+total 12
+drwxr-xr-x  2 root   root   4096 Apr 22 18:01 .
+drwxr-xr-x 20 ubuntu ubuntu 4096 Apr 22 18:01 ..
+-rw-r--r--  1 root   root    229 Apr 22 16:17 validator.key
+{
+  "secret_hex": "7ea01de39c98379f0383780f09cddd7269ffbd1551be8becdc2dfbc62d7c51d8",
+  "pubkey_hex"
+ℹ️  No founder pre-mine — admin earns ZBX only via block rewards & swap fees.
+ℹ️  Genesis validator (founder, deterministic): 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc (power=1)
+ℹ️  Local validator key 0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48 is NOT the founder — it must be added post-genesis via `validator-add` tx (admin-signed).
+✅ Initialized Zebvix chain at /home/zebvix-chain/.zebvix2
+   chain_id          : 7878
+   validator address : 0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48
+   genesis           : /home/zebvix-chain/.zebvix2/genesis.json
+   data dir          : /home/zebvix-chain/.zebvix2/data
+[1] 3533364
+root     3532817  0.0  0.2 472672 18452 ?        Ssl  17:59   0:00 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns
+root     3533364  0.2  0.2 538212 18368 pts/5    Sl   18:01   0:00 zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns --follower
+
+2026-04-22T18:01:17.996543Z  INFO zebvix_node: 📦 p2p applied block #20 (0 txs)
+2026-04-22T18:01:18.045068Z  INFO zebvix_node: 🗳  emitted prevote h=20 block=0x562a0c2a4695d7c7401d5b889a95f39384f057b299e6afe599e88c8d1e4f651f
+2026-04-22T18:01:18.045285Z  INFO zebvix_node: 🗳  emitted precommit h=20 block=0x562a0c2a4695d7c7401d5b889a95f39384f057b299e6afe599e88c8d1e4f651f
+2026-04-22T18:01:18.494581Z  INFO zebvix_node: 🗳  vote precommit h=21 r=0 from 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+2026-04-22T18:01:18.494638Z  INFO zebvix_node: 🗳  vote prevote h=21 r=0 from 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+2026-04-22T18:01:21.994315Z  INFO zebvix_node::p2p: ⏬ heartbeat: 12D3KooWLki47ZS34Y73E1EjZvguCruNwjg4UCeQfZLRFD4cCXS8 tip=21 (we=20); requesting [21..=21]
+2026-04-22T18:01:21.995440Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWLki47ZS34Y73E1EjZvguCruNwjg4UCeQfZLRFD4cCXS8: 1 blocks
+2026-04-22T18:01:21.995571Z  INFO zebvix_node: 📦 p2p applied block #21 (0 txs)
+2026-04-22T18:01:22.044319Z  INFO zebvix_node: 🗳  emitted prevote h=21 block=0x6254f56e5d1d80f5dc651ddb3d8e6d640be4da30ce33c73106c1a3c83f6fe8c3  ✅ QUORUM
+2026-04-22T18:01:22.044487Z  INFO zebvix_node: 🗳  emitted precommit h=21 block=0x6254f56e5d1d80f5dc651ddb3d8e6d640be4da30ce33c73106c1a3c83f6fe8c3  ✅ QUORUM
+2026-04-22T18:01:22.994126Z  INFO zebvix_node: 📦 p2p applied block #22 (0 txs)
+2026-04-22T18:01:23.044424Z  INFO zebvix_node: 🗳  emitted prevote h=22 block=0x19a36a296af858829eb6acf24daf4db200afb846a2b6f1e830b80676022e5594
+2026-04-22T18:01:23.044548Z  INFO zebvix_node: 🗳  emitted precommit h=22 block=0x19a36a296af858829eb6acf24daf4db200afb846a2b6f1e830b80676022e5594
+2026-04-22T18:01:23.494631Z  INFO zebvix_node: 🗳  vote precommit h=22 r=0 from 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  ✅ QUORUM
+2026-04-22T18:01:23.494693Z  INFO zebvix_node: 🗳  vote prevote h=22 r=0 from 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  ✅ QUORUM
+--- Node-1 ---
+🛡  Active validators: 2 (via RPC http://127.0.0.1:8545)
+   Total voting power : 2
+   Quorum (>2/3)      : 2
+
+   [ 1] 0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  power=1  pubkey=0xde996e74285312a38885abd1da3aa27b9e7549f11dd67c485d1671b29832fe75
+   [ 2] 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  power=1  pubkey=0xaa9f6c1f047126b58bdfe62d7adc2ad04ec36d83b9391d313022fbd50cb5d097
+--- Node-2 ---
+🛡  Active validators: 2 (via RPC http://127.0.0.1:8546)
+   Total voting power : 2
+   Quorum (>2/3)      : 2
+
+   [ 1] 0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  power=1  pubkey=0xde996e74285312a38885abd1da3aa27b9e7549f11dd67c485d1671b29832fe75
+   [ 2] 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  power=1  pubkey=0xaa9f6c1f047126b58bdfe62d7adc2ad04ec36d83b9391d313022fbd50cb5d097
+{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+        "height": 24,
+        "quorum_threshold": 2,
+        "rounds": [
+            {
+                "round": 0,
+                "targets": [
+                    {
+                        "block_hash": "0xf5473495a98290f472ef7546ee589ea0740b183617e863ac4bb02aba12034ade",
+                        "has_quorum": true,
+                        "power": 2
+                    }
+                ],
+                "type": "precommit",
+                "vote_count": 2,
+                "voters": [
+                    "0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48",
+                    "0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc"
+                ]
+            },
+            {
+                "round": 0,
+                "targets": [
+                    {
+                        "block_hash": "0xf5473495a98290f472ef7546ee589ea0740b183617e863ac4bb02aba12034ade",
+                        "has_quorum": true,
+                        "power": 2
+                    }
+                ],
+                "type": "prevote",
+                "vote_count": 2,
+                "voters": [
+                    "0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48",
+                    "0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc"
+                ]
+            }
+        ],
+        "total_voting_power": 2
+    }
+}
+root@srv1266996:/home/zebvix-chain# 
