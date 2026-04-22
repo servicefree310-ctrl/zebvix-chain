@@ -1,0 +1,85 @@
+# 6. Sanity: confirm new mode log + alternation still working (~30s baseline)
+echo "=== Producer init logs ==="
+journalctl -u zebvix --since "30 seconds ago" --no-pager | grep "ROUND_ROBIN+TIMEOUTS" 
+tail -5 /var/log/zebvix2.log | grep "ROUND_ROBIN+TIMEOUTS"
+
+sleep 25
+echo ""
+echo "=== Last 6 blocks (should still alternate cleanly under healthy 2-node) ==="
+zebvix-node validator-list --rpc-url http://127.0.0.1:8546 | head -3applied block|block #.*produced|ROUND_ROBIN" | tail -10
+--2026-04-22 18:16:24--  https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/zebvix-chain-source.tar.gz
+Resolving 7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev (7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev)... 34.75.151.117
+Connecting to 7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev (7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev)|34.75.151.117|:443... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 53282 (52K) []
+Saving to: 'zebvix-chain-source.tar.gz'
+
+zebvix-chain-source.tar.gz                 100%[========================================================================================>]  52.03K   217KB/s    in 0.2s    
+
+2026-04-22 18:16:25 (217 KB/s) - 'zebvix-chain-source.tar.gz' saved [53282/53282]
+
+5://! block committed within `PROPOSE_TIMEOUT_SECS`, every node bumps its
+31:pub const PROPOSE_TIMEOUT_SECS: u64 = 8;
+35:pub const TICK_INTERVAL_MS: u64 = 500;
+111:        let mut ticker = tokio::time::interval(Duration::from_millis(TICK_INTERVAL_MS));
+117:            BLOCK_TIME_SECS, PROPOSE_TIMEOUT_SECS, TICK_INTERVAL_MS
+123:        let mut round_started_at: Instant = Instant::now();
+144:                round_started_at = Instant::now();
+146:            } else if round_started_at.elapsed() >= Duration::from_secs(PROPOSE_TIMEOUT_SECS) {
+     Running unittests src/lib.rs (target/release/deps/zebvix_node-437b6351014eee0b)
+
+running 4 tests
+test consensus::tests::deterministic_three_validators_with_rounds ... ok
+test consensus::tests::empty_registry_returns_none ... ok
+test consensus::tests::round_one_flips_proposer ... ok
+test consensus::tests::round_robin_two_validators_round_zero ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; finished in 0.00s
+
+
+warning: `zebvix-node` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 1m 06s
+[1]+  Terminated              nohup zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer "/ip4/127.0.0.1/tcp/30333" --no-mdns > /var/log/zebvix2.log 2>&1
+-rwxr-xr-x 1 root root 15682656 Apr 22 18:17 /usr/local/bin/zebvix-node
+[1] 3535995
+=== Producer init logs ===
+Apr 22 18:17:42 srv1266996.hstgr.cloud zebvix-node[3535927]: 2026-04-22T18:17:42.358532Z  INFO zebvix_node::consensus: ⛏  producer started: my_address=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc, mode=ROUND_ROBIN+TIMEOUTS (B.3.2.2) pacing=5s propose_timeout=8s tick=500ms
+2026-04-22T18:17:44.367234Z  INFO zebvix_node::consensus: ⛏  producer started: my_address=0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48, mode=ROUND_ROBIN+TIMEOUTS (B.3.2.2) pacing=5s propose_timeout=8s tick=500ms
+
+=== Last 6 blocks (should still alternate cleanly under healthy 2-node) ===
+Apr 22 18:17:54 srv1266996.hstgr.cloud zebvix-node[3535927]: 2026-04-22T18:17:54.860654Z  INFO zebvix_node::consensus: ⛏  block #311 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0xbd45755fbb8c331b7f4e04d6626c66d76080b15d8e7d0d9e6da6ba08526d619d
+Apr 22 18:18:05 srv1266996.hstgr.cloud zebvix-node[3535927]: 2026-04-22T18:18:05.865406Z  INFO zebvix_node::consensus: ⛏  block #313 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0xa4c95e826b0c290277eea63b2c88f277cb287fb2ee61f747a805712c263f6d9b
+2026-04-22T18:17:49.368394Z  INFO zebvix_node::consensus: ⛏  block #310 produced  proposer=0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  round=0  txs=0  hash=0x18eb834548cc6738e115a27ebd8bad78b6615f4e20497ec66dacb20df82670ff
+2026-04-22T18:18:00.368765Z  INFO zebvix_node::consensus: ⛏  block #312 produced  proposer=0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  round=0  txs=0  hash=0x457ee8e392a7c2fe287a96a374deb51f02523b4b0ce31a646bcae34c492d3562
+2026-04-22T18:18:11.368465Z  INFO zebvix_node::consensus: ⛏  block #314 produced  proposer=0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  round=0  txs=0  hash=0x92be315b2affe076702ad5716c9adf9fc491497bf8b3173a3d207da262ec59ef
+
+=== Killing Node-1 (founder) ===
+Tip before kill: #314
+Waiting 25s for timeouts + recovery...
+
+=== Node-2 logs during Node-1 outage (look for ⏰ propose timeout + r=1 production) ===
+2026-04-22T18:17:49.368394Z  INFO zebvix_node::consensus: ⛏  block #310 produced  proposer=0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  round=0  txs=0  hash=0x18eb834548cc6738e115a27ebd8bad78b6615f4e20497ec66dacb20df82670ff
+2026-04-22T18:18:00.368765Z  INFO zebvix_node::consensus: ⛏  block #312 produced  proposer=0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  round=0  txs=0  hash=0x457ee8e392a7c2fe287a96a374deb51f02523b4b0ce31a646bcae34c492d3562
+2026-04-22T18:18:11.368465Z  INFO zebvix_node::consensus: ⛏  block #314 produced  proposer=0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  round=0  txs=0  hash=0x92be315b2affe076702ad5716c9adf9fc491497bf8b3173a3d207da262ec59ef
+2026-04-22T18:18:20.368508Z  WARN zebvix_node::consensus: ⏰ propose timeout at h=315 r=0 → bumping to r=1
+2026-04-22T18:18:20.368772Z  INFO zebvix_node::consensus: ⛏  block #315 produced  proposer=0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  round=1  txs=0  hash=0x656a7a5cffa9334a494d1bb3f907ba5bc25db1f2da7dd0317d9d1c4776063692
+2026-04-22T18:18:20.868481Z  INFO zebvix_node::consensus: ✓ height advanced to 316 (recovered after r=1 at h=315)
+2026-04-22T18:18:26.368894Z  INFO zebvix_node::consensus: ⛏  block #316 produced  proposer=0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  round=0  txs=0  hash=0xf1231a1345e5aa8a5d8097abb09fcad319d5929011c9c29adba76d012553a134
+2026-04-22T18:18:34.868387Z  WARN zebvix_node::consensus: ⏰ propose timeout at h=317 r=0 → bumping to r=1
+2026-04-22T18:18:34.868681Z  INFO zebvix_node::consensus: ⛏  block #317 produced  proposer=0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  round=1  txs=0  hash=0x7b1faab8a4b230721bed2ec0444290e5427f5dc69fc3edcc38846c70d704cd2d
+2026-04-22T18:18:35.368061Z  INFO zebvix_node::consensus: ✓ height advanced to 318 (recovered after r=1 at h=317)
+
+=== Restarting Node-1 — should sync the recovery blocks ===
+
+=== Node-1 catch-up logs ===
+Apr 22 18:18:39 srv1266996.hstgr.cloud zebvix-node[3536167]: 2026-04-22T18:18:39.447326Z  INFO zebvix_node::consensus: ⛏  producer started: my_address=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc, mode=ROUND_ROBIN+TIMEOUTS (B.3.2.2) pacing=5s propose_timeout=8s tick=500ms
+Apr 22 18:18:44 srv1266996.hstgr.cloud zebvix-node[3536167]: 2026-04-22T18:18:44.449216Z  INFO zebvix_node::consensus: ⛏  block #315 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0x08f215fa25f24173c873d54b079f5a5afd846ac960985bcae153edd11a3c4d38
+
+=== Final convergence check ===
+🛡  Active validators: 2 (via RPC http://127.0.0.1:8545)
+   Total voting power : 2
+   Quorum (>2/3)      : 2
+🛡  Active validators: 2 (via RPC http://127.0.0.1:8546)
+   Total voting power : 2
+   Quorum (>2/3)      : 2
+root@srv1266996:/home/zebvix-chain# 

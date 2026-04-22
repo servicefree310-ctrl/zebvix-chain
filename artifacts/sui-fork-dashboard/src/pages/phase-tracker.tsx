@@ -459,7 +459,7 @@ const PHASES = [
     ],
   },
   {
-    id: "B322", title: "⏰ B.3.2.2 — State Machine Timeouts (CODE READY)",
+    id: "B322", title: "⏰ B.3.2.2 — State Machine Timeouts ✅ VERIFIED",
     color: "from-purple-500 to-fuchsia-600", lightColor: "text-purple-400",
     borderColor: "border-purple-500/40", bgColor: "bg-purple-500/5",
     points: [
@@ -470,7 +470,8 @@ const PHASES = [
       { id: "b322_5", text: "Local state per node: (current_height, current_round, round_started_at, produced_at)" },
       { id: "b322_6", text: "Tip-advance auto-resets round=0 (peer ne block deliver kar diya)" },
       { id: "b322_7", text: "Unit tests: round 1 ALWAYS flips proposer for 2-validator set; (h+r)%n math verified" },
-      { id: "b322_8", text: "VPS test: kill Node-1 → 8s baad chain Node-2 takeover, ⏰ propose timeout log dikhe" },
+      { id: "b322_8", text: "VPS LIVE PROOF: Node-1 killed @ #314 → Node-2 logged ⏰ propose timeout h=315 r=0, took over with round=1, recovered @ h=316. Pattern repeated every odd height. Chain stayed LIVE solo for 25s." },
+      { id: "b322_9", text: "Known limitation (B.3.2.3 will fix): Node-1 restart produced its OWN #315 (different hash) — soft fork. Need 2/3+ commit gate to reject blocks without quorum proof." },
     ],
   },
   {
