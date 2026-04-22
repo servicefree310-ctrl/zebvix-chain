@@ -446,7 +446,7 @@ const PHASES = [
     ],
   },
   {
-    id: "B321", title: "⚙️ B.3.2.1 — Round-Robin Proposer (CODE READY)",
+    id: "B321", title: "⚙️ B.3.2.1 — Round-Robin Proposer ✅ VERIFIED",
     color: "from-indigo-500 to-blue-600", lightColor: "text-indigo-400",
     borderColor: "border-indigo-500/40", bgColor: "bg-indigo-500/5",
     points: [
@@ -455,7 +455,7 @@ const PHASES = [
       { id: "b321_3", text: "Elected != me → skip (chain stalls if elected validator down — correct BFT, fix in B.3.2.2)" },
       { id: "b321_4", text: "Backward compat: --follower flag still hard-overrides (pure observer mode)" },
       { id: "b321_5", text: "Unit tests: 2-validator alternation, 3-validator round-robin, empty registry" },
-      { id: "b321_6", text: "VPS test plan: Node-2 ko --follower hata kar restart karo, fir block headers mein proposer alternate dikhe" },
+      { id: "b321_6", text: "VPS LIVE PROOF: Node-1 produced #123,125,127,129,131,133 (ODD), Node-2 produced #124,126,128,130,132,134 (EVEN) — strict alternation, 5-sec interval, 2/2 validator set converged" },
     ],
   },
   {

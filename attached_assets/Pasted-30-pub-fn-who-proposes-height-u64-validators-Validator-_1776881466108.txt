@@ -1,0 +1,80 @@
+30:pub fn who_proposes(height: u64, validators: &[Validator]) -> Option<Address> {
+99:        tracing::info!("⛏  producer started: my_address={me}, mode=ROUND_ROBIN (B.3.2.1)");
+108:            let elected = match who_proposes(next_height, &validators) {
+166:        assert_eq!(who_proposes(0, &vs).unwrap().0[0], 0x11);
+167:        assert_eq!(who_proposes(1, &vs).unwrap().0[0], 0xaa);
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib test) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 9.17s
+     Running unittests src/lib.rs (target/release/deps/zebvix_node-437b6351014eee0b)
+
+running 3 tests
+test consensus::tests::deterministic_across_three_validators ... ok
+test consensus::tests::empty_registry_returns_none ... ok
+test consensus::tests::round_robin_two_validators ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; finished in 0.00s
+
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 1m 10s
+[1]+  Terminated              nohup zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer "/ip4/127.0.0.1/tcp/30333" --no-mdns --follower > /var/log/zebvix2.log 2>&1
+-rwxr-xr-x 1 root root 15679936 Apr 22 18:09 /usr/local/bin/zebvix-node
+[1] 3534636
+root     3534568  0.3  0.2 470060 18372 ?        Ssl  18:09   0:00 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns
+root     3534636  0.1  0.2 470060 18044 pts/5    Sl   18:09   0:00 zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns
+--- Node-1 producer init ---
+Apr 22 18:09:28 srv1266996.hstgr.cloud zebvix-node[3532817]: 2026-04-22T18:09:28.003131Z  INFO zebvix_node::consensus: ⛏  block #119 produced  txs=0  hash=0xe6b3838cf8f0504d395760a6baa5fd1073533ad9e3d8f8a5ec49bf07acd5272a
+Apr 22 18:09:33 srv1266996.hstgr.cloud zebvix-node[3532817]: 2026-04-22T18:09:33.002783Z  INFO zebvix_node::consensus: ⛏  block #120 produced  txs=0  hash=0xceb068db965e29cc647ae845fc08fec61876493c10a28ddad4f4b276fef15224
+Apr 22 18:09:38 srv1266996.hstgr.cloud zebvix-node[3532817]: 2026-04-22T18:09:38.002997Z  INFO zebvix_node::consensus: ⛏  block #121 produced  txs=0  hash=0x496350a0878c4cf040b9c4e173a69832c9620f6cec02294464dd116fbec8111f
+Apr 22 18:09:43 srv1266996.hstgr.cloud zebvix-node[3532817]: 2026-04-22T18:09:43.002699Z  INFO zebvix_node::consensus: ⛏  block #122 produced  txs=0  hash=0xa633331f416b35c817357027b1d144713d1986ae4915d8283d09c4c82291f32f
+Apr 22 18:09:45 srv1266996.hstgr.cloud zebvix-node[3534568]: 2026-04-22T18:09:45.154226Z  INFO zebvix_node::consensus: ⛏  producer started: my_address=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc, mode=ROUND_ROBIN (B.3.2.1)
+Apr 22 18:09:45 srv1266996.hstgr.cloud zebvix-node[3534568]: 2026-04-22T18:09:45.156050Z  INFO zebvix_node::consensus: ⛏  block #123 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  txs=0  hash=0x257fd1083583ebbee43a4b64889297466d6c58394cc6ac3966ff35be0b0cebea
+--- Node-2 producer init ---
+2026-04-22T18:09:48.153193Z  INFO zebvix_node::consensus: ⛏  producer started: my_address=0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48, mode=ROUND_ROBIN (B.3.2.1)
+2026-04-22T18:09:53.155748Z  INFO zebvix_node: 📦 p2p applied block #123 (0 txs)
+--- Node-1 produced (founder 0xe381..., expect EVEN heights) ---
+Apr 22 18:09:38 srv1266996.hstgr.cloud zebvix-node[3532817]: 2026-04-22T18:09:38.002997Z  INFO zebvix_node::consensus: ⛏  block #121 produced  txs=0  hash=0x496350a0878c4cf040b9c4e173a69832c9620f6cec02294464dd116fbec8111f
+Apr 22 18:09:43 srv1266996.hstgr.cloud zebvix-node[3532817]: 2026-04-22T18:09:43.002699Z  INFO zebvix_node::consensus: ⛏  block #122 produced  txs=0  hash=0xa633331f416b35c817357027b1d144713d1986ae4915d8283d09c4c82291f32f
+Apr 22 18:09:45 srv1266996.hstgr.cloud zebvix-node[3534568]: 2026-04-22T18:09:45.156050Z  INFO zebvix_node::consensus: ⛏  block #123 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  txs=0  hash=0x257fd1083583ebbee43a4b64889297466d6c58394cc6ac3966ff35be0b0cebea
+Apr 22 18:10:00 srv1266996.hstgr.cloud zebvix-node[3534568]: 2026-04-22T18:10:00.156349Z  INFO zebvix_node::consensus: ⛏  block #125 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  txs=0  hash=0x824df67ab12cd544999bb6ec34315128ec0cc3b510b05a7ae9bf1c14e65c4431
+Apr 22 18:10:05 srv1266996.hstgr.cloud zebvix-node[3534568]: 2026-04-22T18:10:05.156517Z  INFO zebvix_node::consensus: ⛏  block #127 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  txs=0  hash=0xd8fad5fb588a66eef4b2073e5cfad1c001f03acd6bb389d870201ec4726e27a2
+Apr 22 18:10:10 srv1266996.hstgr.cloud zebvix-node[3534568]: 2026-04-22T18:10:10.156636Z  INFO zebvix_node::consensus: ⛏  block #129 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  txs=0  hash=0xcc78a23d1835282bb1f5b521a14a36441ef34c37e684ffdf1865fda7c088e579
+Apr 22 18:10:15 srv1266996.hstgr.cloud zebvix-node[3534568]: 2026-04-22T18:10:15.155815Z  INFO zebvix_node::consensus: ⛏  block #131 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  txs=0  hash=0x732f0736e942884ca4ed0bf243e584d0e9eea81a42d5dc5a743f65b43be79a01
+Apr 22 18:10:20 srv1266996.hstgr.cloud zebvix-node[3534568]: 2026-04-22T18:10:20.156527Z  INFO zebvix_node::consensus: ⛏  block #133 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  txs=0  hash=0xe050c2ecd4f8d9f39b0c60ea9c2ac95954fdb0fc5d3a84017ade106c5542314d
+
+--- Node-2 produced (Node-2 0xbdfb..., expect ODD heights) ---
+2026-04-22T18:09:58.154643Z  INFO zebvix_node::consensus: ⛏  block #124 produced  proposer=0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  txs=0  hash=0x7337d1c6a4643c131482f5ec74c4210e089b789bfbf5dba6174752cc8e2dfe99
+2026-04-22T18:10:03.155617Z  INFO zebvix_node::consensus: ⛏  block #126 produced  proposer=0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  txs=0  hash=0xbcfc9a445e60ab742c1e1035b36048f8eeea5320b44a87dae875f62726b6bf7d
+2026-04-22T18:10:08.155421Z  INFO zebvix_node::consensus: ⛏  block #128 produced  proposer=0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  txs=0  hash=0x3b5d81e92b92a8da2767e01aec175a92d6c5166fa580bbdb3f4718f963fce4f8
+2026-04-22T18:10:13.155165Z  INFO zebvix_node::consensus: ⛏  block #130 produced  proposer=0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  txs=0  hash=0xf7f92712e0a78f39d8c3638e4b6c22155ff606885ce4074dde4e681ff76cf80a
+2026-04-22T18:10:18.155470Z  INFO zebvix_node::consensus: ⛏  block #132 produced  proposer=0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  txs=0  hash=0xe9305e3ead485db6ec1894958d1912152df53e22d938f2b01c45b68c290b75b9
+2026-04-22T18:10:23.155327Z  INFO zebvix_node::consensus: ⛏  block #134 produced  proposer=0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  txs=0  hash=0x1a5a89d01df44b23d953ea3979de48fc74ee3204aafd226baf4b12b5438e1c3c
+🛡  Active validators: 2 (via RPC http://127.0.0.1:8545)
+   Total voting power : 2
+   Quorum (>2/3)      : 2
+
+   [ 1] 0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  power=1  pubkey=0xde996e74285312a38885abd1da3aa27b9e7549f11dd67c485d1671b29832fe75
+   [ 2] 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  power=1  pubkey=0xaa9f6c1f047126b58bdfe62d7adc2ad04ec36d83b9391d313022fbd50cb5d097
+🛡  Active validators: 2 (via RPC http://127.0.0.1:8546)
+   Total voting power : 2
+   Quorum (>2/3)      : 2
+
+   [ 1] 0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  power=1  pubkey=0xde996e74285312a38885abd1da3aa27b9e7549f11dd67c485d1671b29832fe75
+   [ 2] 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  power=1  pubkey=0xaa9f6c1f047126b58bdfe62d7adc2ad04ec36d83b9391d313022fbd50cb5d097
+{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+        "height": 134,
+        "quorum_threshold": 2,
+        "rounds": [],
+        "total_voting_power": 2
+    }
+}
+root@srv1266996:/home/zebvix-chain# 
