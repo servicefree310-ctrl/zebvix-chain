@@ -1,0 +1,32 @@
+# 4. Verify both at low height + same hash
+/usr/local/bin/zebvix-node block-number --rpc-url http://127.0.0.1:8545
+/usr/local/bin/zebvix-node block-number --rpc-url http://127.0.0.1:8546
+# Both should be near h=2 with IDENTICAL hashes
+
+# 5. Watch alternating production
+journalctl -u zebvix.service -n 5 --no-pager
+journalctl -u zebvix2.service -n 5 --no-pager
+# Expected: odd heights from 0xe381 (N1), even heights from 0xbdfb (N2)
+data.fork-backup.1776884019  genesis.json  node.json  node.log
+data.fork-backup.1776884019  data.forked.1776883860  genesis.json  node.json  validator.key
+📦 Chain tip (via RPC http://127.0.0.1:8545)
+   height       : 0  (0x0)
+   hash         : 0x0000000000000000000000000000000000000000000000000000000000000000
+   timestamp_ms : 0
+   proposer     : 0x0000000000000000000000000000000000000000
+📦 Chain tip (via RPC http://127.0.0.1:8546)
+   height       : 0  (0x0)
+   hash         : 0x0000000000000000000000000000000000000000000000000000000000000000
+   timestamp_ms : 0
+   proposer     : 0x0000000000000000000000000000000000000000
+Apr 22 18:53:48 srv1266996.hstgr.cloud zebvix-node[3539364]: 2026-04-22T18:53:48.227464Z  WARN zebvix_node::consensus: ⏰ propose timeout at h=1 r=0 → bumping to r=1
+Apr 22 18:53:48 srv1266996.hstgr.cloud zebvix-node[3539364]: 2026-04-22T18:53:48.227545Z  WARN zebvix_node::consensus: ⏸  h=1 r=1: no validators
+Apr 22 18:53:48 srv1266996.hstgr.cloud zebvix-node[3539364]: 2026-04-22T18:53:48.727972Z  WARN zebvix_node::consensus: ⏸  h=1 r=1: no validators
+Apr 22 18:53:49 srv1266996.hstgr.cloud zebvix-node[3539364]: 2026-04-22T18:53:49.227703Z  WARN zebvix_node::consensus: ⏸  h=1 r=1: no validators
+Apr 22 18:53:49 srv1266996.hstgr.cloud zebvix-node[3539364]: 2026-04-22T18:53:49.728425Z  WARN zebvix_node::consensus: ⏸  h=1 r=1: no validators
+Apr 22 18:51:00 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 22 18:53:37 srv1266996.hstgr.cloud systemd[1]: Stopping zebvix2.service - Zebvix L1 Blockchain Node-2...
+Apr 22 18:53:37 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Deactivated successfully.
+Apr 22 18:53:37 srv1266996.hstgr.cloud systemd[1]: Stopped zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 22 18:53:39 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+root@srv1266996:/home/zebvix-chain# 
