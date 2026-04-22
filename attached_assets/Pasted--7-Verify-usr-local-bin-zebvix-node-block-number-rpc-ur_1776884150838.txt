@@ -1,0 +1,37 @@
+ 7. Verify
+/usr/local/bin/zebvix-node block-number --rpc-url http://127.0.0.1:8545
+/usr/local/bin/zebvix-node block-number --rpc-url http://127.0.0.1:8546
+/usr/local/bin/zebvix-node validator-list --rpc-url http://127.0.0.1:8545
+
+# 8. Logs me alternation dekho
+journalctl -u zebvix.service -n 5 --no-pager | grep "block #"
+journalctl -u zebvix2.service -n 5 --no-pager | grep "block #"
+Error: No such file or directory (os error 2)
+data  data.fork-backup.1776884019  genesis.json.bak.1776884120  node.json  node.log
+ℹ️  No founder pre-mine — admin earns ZBX only via block rewards & swap fees.
+ℹ️  Genesis validator (founder, deterministic): 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc (power=1)
+ℹ️  Local validator key 0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48 is NOT the founder — it must be added post-genesis via `validator-add` tx (admin-signed).
+✅ Initialized Zebvix chain at /home/zebvix-chain/.zebvix2
+   chain_id          : 7878
+   validator address : 0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48
+   genesis           : /home/zebvix-chain/.zebvix2/genesis.json
+   data dir          : /home/zebvix-chain/.zebvix2/data
+data  data.fork-backup.1776884019  data.forked.1776883860  genesis.json  genesis.json.bak.1776884120  node.json  validator.key
+sha256sum: /root/.zebvix/genesis.json: No such file or directory
+9b27a2e744386fa5ae9d1f45c5c8c9bf679358701f77e0438527a2b1ee5e4613  /home/zebvix-chain/.zebvix2/genesis.json
+📦 Chain tip (via RPC http://127.0.0.1:8545)
+   height       : 0  (0x0)
+   hash         : 0x0000000000000000000000000000000000000000000000000000000000000000
+   timestamp_ms : 0
+   proposer     : 0x0000000000000000000000000000000000000000
+📦 Chain tip (via RPC http://127.0.0.1:8546)
+   height       : 0  (0x0)
+   hash         : 0x0000000000000000000000000000000000000000000000000000000000000000
+   timestamp_ms : 0
+   proposer     : 0x0000000000000000000000000000000000000000
+🛡  Active validators: 0 (via RPC http://127.0.0.1:8545)
+   Total voting power : 0
+   Quorum (>2/3)      : 0
+
+   (no validators registered)
+root@srv1266996:/home/zebvix-chain# 
