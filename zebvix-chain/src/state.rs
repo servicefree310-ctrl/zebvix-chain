@@ -92,6 +92,13 @@ impl State {
 
     /// Apply a single transaction (no signature check — caller should verify first).
     pub fn apply_tx(&self, tx: &SignedTx) -> Result<()> {
+        // Enforce minimum gas fee (spam protection).
+        if tx.body.fee < crate::tokenomics::MIN_TX_FEE_WEI {
+            return Err(anyhow!(
+                "fee too low: {} wei < min {} wei (0.001 ZBX)",
+                tx.body.fee, crate::tokenomics::MIN_TX_FEE_WEI
+            ));
+        }
         let mut from = self.account(&tx.body.from);
         if from.nonce != tx.body.nonce {
             return Err(anyhow!("bad nonce: have {}, got {}", from.nonce, tx.body.nonce));

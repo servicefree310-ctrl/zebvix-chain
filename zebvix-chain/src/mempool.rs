@@ -2,6 +2,7 @@
 
 use crate::crypto::{tx_hash, verify_tx};
 use crate::state::State;
+use crate::tokenomics::MIN_TX_FEE_WEI;
 use crate::types::SignedTx;
 use anyhow::{anyhow, Result};
 use parking_lot::RwLock;
@@ -20,6 +21,12 @@ impl Mempool {
     }
 
     pub fn add(&self, tx: SignedTx) -> Result<[u8; 32]> {
+        if tx.body.fee < MIN_TX_FEE_WEI {
+            return Err(anyhow!(
+                "fee too low: {} wei < min {} wei (0.001 ZBX)",
+                tx.body.fee, MIN_TX_FEE_WEI
+            ));
+        }
         if !verify_tx(&tx) {
             return Err(anyhow!("invalid signature"));
         }

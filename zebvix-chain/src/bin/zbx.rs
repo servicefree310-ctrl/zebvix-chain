@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use zebvix_node::crypto::{address_from_pubkey, generate_keypair, keypair_from_secret, sign_tx};
-use zebvix_node::tokenomics::{CHAIN_ID, WEI_PER_ZBX};
+use zebvix_node::tokenomics::{CHAIN_ID, MIN_TX_FEE_WEI, STANDARD_TX_FEE_WEI, WEI_PER_ZBX};
 use zebvix_node::types::{Address, TxBody};
 
 const C_RESET: &str = "\x1b[0m";
@@ -79,9 +79,9 @@ enum Cmd {
         /// Amount in ZBX (decimals OK, e.g. 1.5).
         #[arg(long, short)]
         amount: String,
-        /// Optional fee in ZBX.
-        #[arg(long, default_value = "0")]
-        fee: String,
+        /// Gas fee in ZBX (default: 0.001 ZBX = minimum). Goes to block proposer.
+        #[arg(long)]
+        fee: Option<String>,
         /// Skip the confirmation prompt.
         #[arg(long, short)]
         yes: bool,
@@ -301,12 +301,24 @@ async fn cmd_nonce(rpc: &str, address: String, quiet: bool) -> Result<()> {
     Ok(())
 }
 
-async fn cmd_send(rpc: &str, from: PathBuf, to: String, amount: String, fee: String, yes: bool, quiet: bool) -> Result<()> {
+async fn cmd_send(rpc: &str, from: PathBuf, to: String, amount: String, fee: Option<String>, yes: bool, quiet: bool) -> Result<()> {
     let (sk, pk) = read_keyfile(&from)?;
     let from_addr = address_from_pubkey(&pk);
     let to_addr = Address::from_hex(&to)?;
     let amount_wei = parse_zbx_amount(&amount)?;
-    let fee_wei = parse_zbx_amount(&fee)?;
+    let fee_wei = match fee {
+        Some(s) => {
+            let f = parse_zbx_amount(&s)?;
+            if f < MIN_TX_FEE_WEI {
+                return Err(anyhow!(
+                    "fee {} ZBX is below network minimum 0.001 ZBX",
+                    format_zbx(f)
+                ));
+            }
+            f
+        }
+        None => STANDARD_TX_FEE_WEI,
+    };
 
     if !quiet {
         println!();
@@ -396,6 +408,7 @@ async fn cmd_info(rpc: &str, quiet: bool) -> Result<()> {
         println!("  {}Token      :{} {}ZBX{}", C_DIM, C_RESET, C_BOLD, C_RESET);
         println!("  {}Chain ID   :{} {}", C_DIM, C_RESET, chain_id);
         println!("  {}Block time :{} 5 sec", C_DIM, C_RESET);
+        println!("  {}Min fee    :{} {} ZBX", C_DIM, C_RESET, format_zbx(MIN_TX_FEE_WEI));
         println!("  {}Tip height :{} {}", C_DIM, C_RESET, height);
         println!("  {}RPC        :{} {}", C_DIM, C_RESET, rpc);
     }

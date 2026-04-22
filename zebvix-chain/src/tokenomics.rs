@@ -28,6 +28,14 @@ pub const BLOCK_TIME_SECS: u64 = 5;
 /// Chain ID for Zebvix mainnet.
 pub const CHAIN_ID: u64 = 7878;
 
+/// Minimum gas fee per transaction = 0.001 ZBX (10^15 wei).
+/// Required for spam protection. Fees go to the block proposer.
+pub const MIN_TX_FEE_WEI: u128 = 1_000_000_000_000_000u128;
+
+/// Recommended fee for a standard transfer = 0.001 ZBX.
+/// Same as min for v0.1; future versions will compute by gas usage.
+pub const STANDARD_TX_FEE_WEI: u128 = MIN_TX_FEE_WEI;
+
 /// Compute block reward at a given height (1-indexed). Returns 0 once reward halves to 0.
 pub fn reward_at_height(height: u64) -> u128 {
     if height == 0 {
