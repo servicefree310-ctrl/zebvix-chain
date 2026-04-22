@@ -195,6 +195,21 @@ enum Cmd {
         #[arg(long, default_value = "0.002")]
         fee: String,
     },
+    /// Show a single validator's details (address, pubkey, voting_power).
+    /// Queries the running node via RPC (`zbx_getValidator`).
+    ShowValidator {
+        /// Validator address (0x… 20-byte hex).
+        #[arg(long)]
+        address: String,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+    },
+    /// Show current chain tip (height, hash, timestamp, proposer).
+    /// Queries the running node via RPC (`zbx_blockNumber`).
+    BlockNumber {
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -785,6 +800,8 @@ async fn main() -> Result<()> {
         Cmd::AdminChangeAddress { home, signer_key, new_admin } => cmd_admin_change_address(home, signer_key, new_admin),
         Cmd::AdminInfo { home } => cmd_admin_info(home),
         Cmd::ValidatorList { rpc_url, offline, home } => cmd_validator_list(rpc_url, offline, home).await,
+        Cmd::ShowValidator { address, rpc_url } => cmd_show_validator(address, rpc_url).await,
+        Cmd::BlockNumber { rpc_url } => cmd_block_number(rpc_url).await,
         Cmd::ValidatorAdd { signer_key, pubkey, power, rpc_url, fee } =>
             cmd_validator_add(signer_key, pubkey, power, rpc_url, fee).await,
         Cmd::ValidatorRemove { signer_key, address, rpc_url, fee } =>
@@ -852,6 +869,54 @@ async fn cmd_validator_list(rpc_url: String, offline: bool, home: PathBuf) -> Re
         (addr, power, pk)
     });
     print_validators(&format!("via RPC {rpc_url}"), count, total, quorum, rows);
+    Ok(())
+}
+
+async fn cmd_show_validator(address: String, rpc_url: String) -> Result<()> {
+    let req = serde_json::json!({
+        "jsonrpc":"2.0","id":1,"method":"zbx_getValidator","params":[address.clone()]
+    });
+    let resp = http_post(&rpc_url, &req).await
+        .map_err(|e| anyhow!("RPC call failed ({rpc_url}): {e}"))?;
+    if let Some(err) = resp.get("error") {
+        return Err(anyhow!("RPC error: {}", err));
+    }
+    let result = resp.get("result").ok_or_else(|| anyhow!("missing 'result' in RPC response"))?;
+    if result.is_null() {
+        println!("❌ No validator registered at address {address}");
+        println!("   Tip: run `zebvix-node validator-list` to see all active validators.");
+        return Ok(());
+    }
+    let addr = result.get("address").and_then(|v| v.as_str()).unwrap_or("?");
+    let pk = result.get("pubkey").and_then(|v| v.as_str()).unwrap_or("?");
+    let power = result.get("voting_power").and_then(|v| v.as_u64()).unwrap_or(0);
+    println!("🛡  Validator details (via RPC {rpc_url})");
+    println!("   address      : {addr}");
+    println!("   pubkey       : {pk}");
+    println!("   voting_power : {power}");
+    Ok(())
+}
+
+async fn cmd_block_number(rpc_url: String) -> Result<()> {
+    let req = serde_json::json!({
+        "jsonrpc":"2.0","id":1,"method":"zbx_blockNumber","params":[]
+    });
+    let resp = http_post(&rpc_url, &req).await
+        .map_err(|e| anyhow!("RPC call failed ({rpc_url}): {e}"))?;
+    if let Some(err) = resp.get("error") {
+        return Err(anyhow!("RPC error: {}", err));
+    }
+    let result = resp.get("result").ok_or_else(|| anyhow!("missing 'result' in RPC response"))?;
+    let h = result.get("height").and_then(|v| v.as_u64()).unwrap_or(0);
+    let hex = result.get("hex").and_then(|v| v.as_str()).unwrap_or("?");
+    let hash = result.get("hash").and_then(|v| v.as_str()).unwrap_or("?");
+    let ts = result.get("timestamp_ms").and_then(|v| v.as_u64()).unwrap_or(0);
+    let prop = result.get("proposer").and_then(|v| v.as_str()).unwrap_or("?");
+    println!("📦 Chain tip (via RPC {rpc_url})");
+    println!("   height       : {h}  ({hex})");
+    println!("   hash         : {hash}");
+    println!("   timestamp_ms : {ts}");
+    println!("   proposer     : {prop}");
     Ok(())
 }
 

@@ -1,11 +1,13 @@
 //! Minimal JSON-RPC HTTP server. Methods (Ethereum-style naming):
 //!   - eth_chainId            -> "0x1ec6"  (7878)
-//!   - eth_blockNumber        -> "0x..."
+//!   - eth_blockNumber        -> "0x..."   (Ethereum-compatible hex)
+//!   - zbx_blockNumber        -> { height, hex, hash, timestamp_ms, proposer }
 //!   - eth_getBalance         -> "0x..."  (wei)
 //!   - zbx_getNonce           -> u64
 //!   - zbx_sendTransaction    -> tx hash (accepts JSON SignedTx)
 //!   - zbx_getBlockByNumber   -> Block JSON
 //!   - zbx_supply             -> { minted_wei, max_wei, current_reward_wei }
+//!   - zbx_getValidator       -> { address, pubkey, voting_power } | null
 
 use crate::mempool::Mempool;
 use crate::p2p::P2PMsg;
@@ -79,6 +81,22 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
         "eth_blockNumber" => {
             let (h, _) = ctx.state.tip();
             ok(id, json!(format!("0x{:x}", h)))
+        }
+        "zbx_blockNumber" => {
+            // Richer than eth_blockNumber: also returns hash, timestamp, proposer.
+            let (h, hash) = ctx.state.tip();
+            let block = ctx.state.block_at(h);
+            let (ts, prop) = match &block {
+                Some(b) => (b.header.timestamp_ms, b.header.proposer.to_hex()),
+                None    => (0, String::from("0x0000000000000000000000000000000000000000")),
+            };
+            ok(id, json!({
+                "height": h,
+                "hex": format!("0x{:x}", h),
+                "hash": hash.to_hex(),
+                "timestamp_ms": ts,
+                "proposer": prop,
+            }))
         }
         "eth_getBalance" | "zbx_getBalance" => {
             let addr = req.params.get(0).and_then(parse_address);
