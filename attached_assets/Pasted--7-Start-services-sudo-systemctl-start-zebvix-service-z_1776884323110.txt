@@ -1,0 +1,52 @@
+# 7. Start services
+sudo systemctl start zebvix.service zebvix2.service
+sleep 8
+
+# 8. Verify
+/usr/local/bin/zebvix-node validator-list --rpc-url http://127.0.0.1:8545
+total 28
+drwxr-xr-x  4 root root 4096 Apr 22 18:57 .
+drwx------ 23 root root 4096 Apr 22 17:59 ..
+drwxr-xr-x  2 root root 4096 Apr 22 18:57 data
+drwxr-xr-x  2 root root 4096 Apr 22 18:44 data.fork-backup.1776884019
+-rw-r--r--  1 root root  277 Apr 22 17:59 genesis.json.bak.1776884120
+-rw-r--r--  1 root root   62 Apr 22 17:59 node.json
+-rw-r--r--  1 root root  114 Apr 22 18:41 node.log
+data.fork-backup.1776884019  genesis.json.bak.1776884120  node.json  node.log
+data.fork-backup.1776884019  data.forked.1776883860  genesis.json.bak.1776884120  node.json  validator.key
+bash: ACTUAL_KEY_FILENAME: No such file or directory
+ℹ️  No founder pre-mine — admin earns ZBX only via block rewards & swap fees.
+ℹ️  Genesis validator (founder, deterministic): 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc (power=1)
+ℹ️  Local validator key 0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48 is NOT the founder — it must be added post-genesis via `validator-add` tx (admin-signed).
+✅ Initialized Zebvix chain at /home/zebvix-chain/.zebvix2
+   chain_id          : 7878
+   validator address : 0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48
+   genesis           : /home/zebvix-chain/.zebvix2/genesis.json
+   data dir          : /home/zebvix-chain/.zebvix2/data
+sha256sum: /root/.zebvix/genesis.json: No such file or directory
+046a70293bb94de7d4aee61c44227a1385f426060f7dc872ed04cfba3c0e708e  /home/zebvix-chain/.zebvix2/genesis.json
+ls: cannot access '/root/.zebvix/data/': No such file or directory
+/home/zebvix-chain/.zebvix2/data/:
+000004.log
+CURRENT
+IDENTITY
+LOCK
+LOG
+MANIFEST-000005
+OPTIONS-000007
+📦 Chain tip (via RPC http://127.0.0.1:8545)
+   height       : 0  (0x0)
+   hash         : 0x0000000000000000000000000000000000000000000000000000000000000000
+   timestamp_ms : 0
+   proposer     : 0x0000000000000000000000000000000000000000
+📦 Chain tip (via RPC http://127.0.0.1:8546)
+   height       : 0  (0x0)
+   hash         : 0x0000000000000000000000000000000000000000000000000000000000000000
+   timestamp_ms : 0
+   proposer     : 0x0000000000000000000000000000000000000000
+🛡  Active validators: 0 (via RPC http://127.0.0.1:8545)
+   Total voting power : 0
+   Quorum (>2/3)      : 0
+
+   (no validators registered)
+root@srv1266996:/home/zebvix-chain# 
