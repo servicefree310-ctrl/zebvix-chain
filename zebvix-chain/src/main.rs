@@ -323,8 +323,10 @@ async fn cmd_start(
             }
         }
 
-        let handle = zebvix_node::p2p::spawn_p2p(CHAIN_ID, p2p_port, bootstrap, no_mdns)
-            .map_err(|e| anyhow!("p2p init failed: {e}"))?;
+        let handle = zebvix_node::p2p::spawn_p2p(
+            CHAIN_ID, p2p_port, bootstrap, no_mdns, state.clone(),
+        )
+        .map_err(|e| anyhow!("p2p init failed: {e}"))?;
         tracing::info!("   p2p       : tcp/{p2p_port}  peer_id={}", handle.local_peer_id);
         if no_mdns { tracing::info!("   mdns      : DISABLED (--no-mdns)"); }
 
@@ -388,18 +390,20 @@ async fn cmd_start(
             }
         });
 
-        // Note: RPC-submitted txs aren't individually gossiped in Phase A —
-        // they propagate to peers when included in the next produced block.
-        // Individual tx gossip arrives in Phase A.5 (sync protocol).
-        let _ = out_tx; // keep the channel alive
-        producer
+        // Phase A.5: RPC-submitted txs are immediately gossiped to peers.
+        let rpc_out = Some(out_tx.clone());
+        // Spawn producer
+        tokio::spawn(producer.clone().run());
+        // RPC server with P2P tx gossip enabled.
+        let ctx = rpc::RpcCtx { state: state.clone(), mempool: mempool.clone(), p2p_out: rpc_out };
+        let app = rpc::router(ctx);
+        let listener = tokio::net::TcpListener::bind(&rpc_addr).await?;
+        return Ok(axum::serve(listener, app).await?);
     };
 
-    // Spawn producer
+    // ── Legacy --no-p2p path ──────────────────────────────────────────
     tokio::spawn(producer.clone().run());
-
-    // RPC server
-    let ctx = rpc::RpcCtx { state: state.clone(), mempool: mempool.clone() };
+    let ctx = rpc::RpcCtx { state: state.clone(), mempool: mempool.clone(), p2p_out: None };
     let app = rpc::router(ctx);
     let listener = tokio::net::TcpListener::bind(&rpc_addr).await?;
     axum::serve(listener, app).await?;

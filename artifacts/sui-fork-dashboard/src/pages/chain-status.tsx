@@ -325,18 +325,11 @@ const GROUPS: FeatureGroup[] = [
     icon: "🌐",
     features: [
       {
-        name: "P2P networking (libp2p) — Phase A",
-        desc: "Multi-node gossip + block propagation. Built on libp2p 0.54 with TCP+Noise+Yamux transport, gossipsub for tx/block topics (chain-id namespaced as `zebvix/<id>/blocks/v1`), and mDNS for LAN auto-discovery. Producer broadcasts every mined block via gossip; peers apply blocks if they extend tip by exactly 1 (out-of-order blocks deferred to Phase A.5 sync protocol). New CLI flags: `--p2p-port 30333 --peer /ip4/.../tcp/30333/p2p/12D3K... --no-mdns`.",
-        status: "wip",
-        version: "v0.2-alpha",
-        files: ["src/p2p.rs", "src/consensus.rs", "src/main.rs", "Cargo.toml"],
-      },
-      {
-        name: "Block sync protocol (catch-up) — Phase A.5",
-        desc: "When a node sees an out-of-order block (h > tip+1), it requests missing blocks from peers via libp2p request-response protocol. Required for new nodes joining late or recovering from downtime. Currently logs a warning + skips.",
-        status: "planned",
+        name: "P2P networking (libp2p) — Phase A complete",
+        desc: "Full multi-node networking. Built on libp2p 0.54 with TCP+Noise+Yamux transport. Three gossipsub topics (chain-id namespaced): `zebvix/<id>/blocks/v1`, `…/txs/v1`, `…/heartbeat/v1`. mDNS for LAN auto-discovery + bootstrap peers via `--peer <multiaddr>`. Producer auto-gossips every mined block; RPC `zbx_sendTransaction` immediately gossips the tx to all peers (no need to wait for next block). Block sync (catch-up) protocol via libp2p request-response (cbor codec, `/zebvix/sync/1.0.0`): when a peer announces tip > ours via heartbeat OR when out-of-order block arrives, we request the missing range [tip+1..=peer_tip] (capped at 256 blocks/request). Peer serves blocks from State, we apply in order. New nodes joining late, downtime recovery, and chain forks all converge to the canonical chain.",
+        status: "done",
         version: "v0.2",
-        files: ["src/p2p.rs"],
+        files: ["src/p2p.rs", "src/consensus.rs", "src/main.rs", "src/rpc.rs", "Cargo.toml"],
       },
       {
         name: "Multi-validator BFT consensus",

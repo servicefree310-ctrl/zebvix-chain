@@ -8,6 +8,7 @@
 //!   - zbx_supply             -> { minted_wei, max_wei, current_reward_wei }
 
 use crate::mempool::Mempool;
+use crate::p2p::P2PMsg;
 use crate::pool::dynamic_gas_price_wei;
 use crate::state::State;
 use crate::tokenomics::{
@@ -25,6 +26,8 @@ use tower_http::cors::{Any, CorsLayer};
 pub struct RpcCtx {
     pub state: Arc<State>,
     pub mempool: Arc<Mempool>,
+    /// When set (P2P enabled), RPC-submitted txs are immediately gossiped to peers.
+    pub p2p_out: Option<tokio::sync::mpsc::UnboundedSender<P2PMsg>>,
 }
 
 #[derive(Deserialize)]
@@ -91,10 +94,19 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
         "zbx_sendTransaction" => {
             let tx_v = req.params.get(0).cloned().unwrap_or(Value::Null);
             match serde_json::from_value::<SignedTx>(tx_v) {
-                Ok(tx) => match ctx.mempool.add(tx) {
-                    Ok(h) => ok(id, json!(format!("0x{}", hex::encode(h)))),
-                    Err(e) => err(id, -32000, format!("{e}")),
-                },
+                Ok(tx) => {
+                    // Try to also gossip the tx (best-effort; only if P2P is up).
+                    let gossip_bytes = bincode::serialize(&tx).ok();
+                    match ctx.mempool.add(tx) {
+                        Ok(h) => {
+                            if let (Some(out), Some(b)) = (&ctx.p2p_out, gossip_bytes) {
+                                let _ = out.send(P2PMsg::Tx(b));
+                            }
+                            ok(id, json!(format!("0x{}", hex::encode(h))))
+                        }
+                        Err(e) => err(id, -32000, format!("{e}")),
+                    }
+                }
                 Err(e) => err(id, -32602, format!("bad tx: {e}")),
             }
         }
