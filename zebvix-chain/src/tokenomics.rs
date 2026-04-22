@@ -6,13 +6,13 @@ pub const WEI_PER_ZBX: u128 = 1_000_000_000_000_000_000u128;
 
 /// Total max supply = 150,000,000 ZBX.
 /// Breakdown:
-///   - Founder pre-mine (genesis allocation): 2,000,000 ZBX
-///   - Block rewards over time:              148,000,000 ZBX
+///   - Founder pre-mine (genesis allocation):  10,000,000 ZBX
+///   - Block rewards over time:               140,000,000 ZBX
 pub const TOTAL_SUPPLY_ZBX: u128 = 150_000_000u128;
 pub const TOTAL_SUPPLY_WEI: u128 = TOTAL_SUPPLY_ZBX * WEI_PER_ZBX;
 
-/// Default founder pre-mine = 2,000,000 ZBX (allocated at genesis to validator address).
-pub const FOUNDER_PREMINE_ZBX: u128 = 2_000_000u128;
+/// Default founder pre-mine = 10,000,000 ZBX (allocated at genesis to validator address).
+pub const FOUNDER_PREMINE_ZBX: u128 = 10_000_000u128;
 pub const FOUNDER_PREMINE_WEI: u128 = FOUNDER_PREMINE_ZBX * WEI_PER_ZBX;
 
 /// Initial block reward = 3 ZBX.
