@@ -9,7 +9,7 @@ use zebvix_node::mempool::Mempool;
 use zebvix_node::rpc;
 use zebvix_node::state::State;
 use zebvix_node::tokenomics::{self, CHAIN_ID, FOUNDER_PREMINE_WEI, TOTAL_SUPPLY_WEI, WEI_PER_ZBX};
-use zebvix_node::types::{Address, TxBody};
+use zebvix_node::types::{Address, TxBody, Validator};
 
 #[derive(Parser)]
 #[command(name = "zebvix-node", version, about = "Zebvix L1 blockchain node (ZBX, EVM-style)")]
@@ -146,6 +146,37 @@ enum Cmd {
         #[arg(long, default_value = "./.zebvix")]
         home: PathBuf,
     },
+    // ─────────── Phase B.1 — Validator-set management ───────────
+    /// List all on-chain validators with voting power.
+    ValidatorList {
+        #[arg(long, default_value = "./.zebvix")]
+        home: PathBuf,
+    },
+    /// Admin: add or update a validator (node must be stopped).
+    /// Voting power must be > 0. To remove, use `validator-remove`.
+    ValidatorAdd {
+        #[arg(long, default_value = "./.zebvix")]
+        home: PathBuf,
+        /// Current admin's keyfile (authorization).
+        #[arg(long)]
+        signer_key: PathBuf,
+        /// Validator's ed25519 public key (0x… 32-byte hex).
+        #[arg(long)]
+        pubkey: String,
+        /// Voting power (positive integer; typical: 1 per validator for equal weight).
+        #[arg(long, default_value_t = 1)]
+        power: u64,
+    },
+    /// Admin: remove a validator (node must be stopped).
+    ValidatorRemove {
+        #[arg(long, default_value = "./.zebvix")]
+        home: PathBuf,
+        #[arg(long)]
+        signer_key: PathBuf,
+        /// Validator address (0x… 20-byte hex).
+        #[arg(long)]
+        address: String,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -259,6 +290,11 @@ fn cmd_init(home: PathBuf, validator_key: PathBuf, alloc: Vec<String>, no_defaul
     let state = State::open(&data_dir)?;
     if state.tip().0 == 0 {
         state.genesis_credit(&alloc_pairs)?;
+        // Phase B.1: seed the genesis validator set with the founder validator (power=1).
+        // Additional validators can be onboarded post-genesis via `validator-add`.
+        let genesis_val = Validator::new(pk, 1);
+        state.put_validator(&genesis_val)?;
+        println!("ℹ️  Genesis validator registered: {} (power=1)", validator_addr);
     }
 
     let genesis = GenesisFile {
@@ -611,6 +647,11 @@ async fn main() -> Result<()> {
         Cmd::PoolInfo { home } => cmd_pool_info(home),
         Cmd::AdminChangeAddress { home, signer_key, new_admin } => cmd_admin_change_address(home, signer_key, new_admin),
         Cmd::AdminInfo { home } => cmd_admin_info(home),
+        Cmd::ValidatorList { home } => cmd_validator_list(home),
+        Cmd::ValidatorAdd { home, signer_key, pubkey, power } =>
+            cmd_validator_add(home, signer_key, pubkey, power),
+        Cmd::ValidatorRemove { home, signer_key, address } =>
+            cmd_validator_remove(home, signer_key, address),
     }
 }
 
@@ -634,6 +675,88 @@ fn cmd_admin_change_address(home: PathBuf, signer_key: PathBuf, new_admin: Strin
     }
     println!();
     println!("   ℹ️  Future swap-fee payouts (50% after loan repaid) go to the new admin.");
+    Ok(())
+}
+
+// ─────────── Phase B.1 — Validator-set commands ───────────
+
+fn cmd_validator_list(home: PathBuf) -> Result<()> {
+    let state = State::open(&home.join("data"))?;
+    let vals = state.validators();
+    let total = state.total_voting_power();
+    let quorum = state.quorum_threshold();
+    println!("🛡  Active validators: {}", vals.len());
+    println!("   Total voting power : {}", total);
+    println!("   Quorum (>2/3)      : {}", quorum);
+    println!();
+    if vals.is_empty() {
+        println!("   (no validators registered)");
+    } else {
+        for (i, v) in vals.iter().enumerate() {
+            println!("   [{:>2}] {}  power={}  pubkey=0x{}",
+                i + 1, v.address, v.voting_power, hex::encode(v.pubkey));
+        }
+    }
+    Ok(())
+}
+
+fn parse_pubkey_hex(s: &str) -> Result<[u8; 32]> {
+    let s = s.strip_prefix("0x").unwrap_or(s);
+    let bytes = hex::decode(s)?;
+    if bytes.len() != 32 { return Err(anyhow!("pubkey must be 32 bytes")); }
+    let mut a = [0u8; 32];
+    a.copy_from_slice(&bytes);
+    Ok(a)
+}
+
+fn cmd_validator_add(home: PathBuf, signer_key: PathBuf, pubkey_hex: String, power: u64) -> Result<()> {
+    if power == 0 { return Err(anyhow!("voting power must be > 0")); }
+    let (_, signer_pk) = read_keyfile(&signer_key)?;
+    let signer = address_from_pubkey(&signer_pk);
+    let state = State::open(&home.join("data"))?;
+    let admin = state.current_admin();
+    if signer != admin {
+        return Err(anyhow!("only current admin {} can manage validators (got signer {})",
+            admin, signer));
+    }
+    let pk = parse_pubkey_hex(&pubkey_hex)?;
+    let v = Validator::new(pk, power);
+    let existed = state.get_validator(&v.address).is_some();
+    state.put_validator(&v)?;
+    let total = state.total_voting_power();
+    let quorum = state.quorum_threshold();
+    println!("✅ Validator {} (address={})", if existed { "updated" } else { "added" }, v.address);
+    println!("   voting power       : {}", v.voting_power);
+    println!("   total voting power : {}", total);
+    println!("   new quorum (>2/3)  : {}", quorum);
+    Ok(())
+}
+
+fn cmd_validator_remove(home: PathBuf, signer_key: PathBuf, address_hex: String) -> Result<()> {
+    let (_, signer_pk) = read_keyfile(&signer_key)?;
+    let signer = address_from_pubkey(&signer_pk);
+    let state = State::open(&home.join("data"))?;
+    let admin = state.current_admin();
+    if signer != admin {
+        return Err(anyhow!("only current admin {} can manage validators (got signer {})",
+            admin, signer));
+    }
+    let addr = Address::from_hex(&address_hex)?;
+    // Safety: never allow the validator set to be emptied — chain would halt.
+    let vals = state.validators();
+    if vals.len() <= 1 && vals.iter().any(|v| v.address == addr) {
+        return Err(anyhow!("refusing to remove the only validator (chain would halt)"));
+    }
+    let removed = state.remove_validator(&addr)?;
+    if !removed {
+        println!("⚠️  No validator found with address {} (no-op)", addr);
+    } else {
+        let total = state.total_voting_power();
+        let quorum = state.quorum_threshold();
+        println!("✅ Validator removed: {}", addr);
+        println!("   total voting power : {}", total);
+        println!("   new quorum (>2/3)  : {}", quorum);
+    }
     Ok(())
 }
 

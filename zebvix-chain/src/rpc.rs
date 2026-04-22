@@ -212,6 +212,37 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
             "decimals": 18,
             "block_time_secs": crate::tokenomics::BLOCK_TIME_SECS,
         })),
+        // Phase B.1: validator-set RPCs
+        "zbx_listValidators" => {
+            let vals = ctx.state.validators();
+            let total = ctx.state.total_voting_power();
+            let quorum = ctx.state.quorum_threshold();
+            let arr: Vec<Value> = vals.iter().map(|v| json!({
+                "address": v.address.to_hex(),
+                "pubkey": format!("0x{}", hex::encode(v.pubkey)),
+                "voting_power": v.voting_power,
+            })).collect();
+            ok(id, json!({
+                "count": arr.len(),
+                "total_voting_power": total,
+                "quorum_threshold": quorum,
+                "validators": arr,
+            }))
+        }
+        "zbx_getValidator" => {
+            let addr = req.params.get(0).and_then(parse_address);
+            match addr {
+                Some(a) => match ctx.state.get_validator(&a) {
+                    Some(v) => ok(id, json!({
+                        "address": v.address.to_hex(),
+                        "pubkey": format!("0x{}", hex::encode(v.pubkey)),
+                        "voting_power": v.voting_power,
+                    })),
+                    None => ok(id, Value::Null),
+                },
+                None => err(id, -32602, "invalid address"),
+            }
+        }
         m => err(id, -32601, format!("method not found: {m}")),
     };
     Json(resp)

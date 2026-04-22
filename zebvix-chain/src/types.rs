@@ -102,6 +102,28 @@ pub struct Block {
     pub signature: [u8; 64],
 }
 
+// ─────────────────────────────────────────────────────────────
+// Phase B.1 — Validator set on-chain (Tendermint BFT prep).
+// A Validator is a network participant authorized to propose blocks
+// and (in B.2+) cast Prevote/Precommit votes. Voting power is a positive
+// integer; consensus requires > 2/3 of total voting power to commit.
+// ─────────────────────────────────────────────────────────────
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Validator {
+    pub address: Address,
+    /// Ed25519 public key (32 bytes).
+    pub pubkey: [u8; 32],
+    /// Voting power. Must be > 0. Removed validators are deleted, not zeroed.
+    pub voting_power: u64,
+}
+
+impl Validator {
+    pub fn new(pubkey: [u8; 32], voting_power: u64) -> Self {
+        let address = crate::crypto::address_from_pubkey(&pubkey);
+        Self { address, pubkey, voting_power }
+    }
+}
+
 // ---------- hex serde helpers ----------
 mod hex_array_20 {
     use serde::{Deserialize, Deserializer, Serializer};

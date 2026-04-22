@@ -6,7 +6,7 @@ use crate::tokenomics::{
     reward_at_height, ADMIN_ADDRESS_HEX, GENESIS_POOL_ZBX_WEI, GENESIS_POOL_ZUSD_LOAN,
     MAX_ADMIN_CHANGES, POOL_ADDRESS_HEX,
 };
-use crate::types::{Address, Block, Hash, SignedTx};
+use crate::types::{Address, Block, Hash, SignedTx, Validator};
 use anyhow::{anyhow, Result};
 use parking_lot::RwLock;
 use rocksdb::{ColumnFamilyDescriptor, Options, DB};
@@ -23,6 +23,9 @@ const META_POOL: &[u8] = b"pool";
 const META_LP_PREFIX: &[u8] = b"lp/";
 const META_ADMIN: &[u8] = b"admin";              // 20-byte current admin address (override)
 const META_ADMIN_CHANGES: &[u8] = b"admin_changes"; // u8 count of rotations performed
+// Phase B.1: validator set storage. Each validator is keyed by `validator/<20-byte-addr>`
+// in CF_META and contains a bincode-serialized `Validator`.
+const META_VALIDATOR_PREFIX: &[u8] = b"validator/";
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Account {
@@ -277,6 +280,73 @@ impl State {
         self.db.put_cf(cf_m, META_LAST_HASH, bh.0)?;
         *self.tip.write() = (block.header.height, bh);
         Ok(())
+    }
+
+    // ───────── Phase B.1: Validator set on-chain ─────────
+    //
+    // The validator set is persisted in CF_META under the `validator/<addr>` prefix.
+    // Phase B.1 only provides storage + query + admin-gated mutation. The block
+    // producer still operates in single-validator PoA mode. Phase B.2 introduces
+    // vote messages; Phase B.3 wires Tendermint-style 2/3+ quorum into commit.
+
+    fn validator_key(addr: &Address) -> Vec<u8> {
+        let mut k = META_VALIDATOR_PREFIX.to_vec();
+        k.extend_from_slice(&addr.0);
+        k
+    }
+
+    /// Insert or overwrite a validator. `voting_power` must be > 0.
+    pub fn put_validator(&self, v: &Validator) -> Result<()> {
+        if v.voting_power == 0 {
+            return Err(anyhow!("voting_power must be > 0 (use remove_validator to delete)"));
+        }
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.put_cf(cf, Self::validator_key(&v.address), bincode::serialize(v)?)?;
+        Ok(())
+    }
+
+    /// Remove a validator from the set. Returns true if it existed.
+    pub fn remove_validator(&self, addr: &Address) -> Result<bool> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let key = Self::validator_key(addr);
+        let existed = self.db.get_cf(cf, &key)?.is_some();
+        self.db.delete_cf(cf, &key)?;
+        Ok(existed)
+    }
+
+    /// Look up a single validator by address.
+    pub fn get_validator(&self, addr: &Address) -> Option<Validator> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.get_cf(cf, Self::validator_key(addr)).ok().flatten()
+            .and_then(|b| bincode::deserialize(&b).ok())
+    }
+
+    /// Return the full active validator set, sorted by address (deterministic).
+    pub fn validators(&self) -> Vec<Validator> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let mut out = Vec::new();
+        let iter = self.db.prefix_iterator_cf(cf, META_VALIDATOR_PREFIX);
+        for item in iter {
+            let Ok((k, v)) = item else { continue };
+            // Defensive: prefix_iterator may overshoot the prefix; check bounds.
+            if !k.starts_with(META_VALIDATOR_PREFIX) { break; }
+            if let Ok(val) = bincode::deserialize::<Validator>(&v) {
+                out.push(val);
+            }
+        }
+        out.sort_by_key(|v| v.address.0);
+        out
+    }
+
+    /// Sum of all validator voting power. Used for 2/3+ quorum math.
+    pub fn total_voting_power(&self) -> u64 {
+        self.validators().iter().map(|v| v.voting_power).sum()
+    }
+
+    /// Quorum threshold: smallest N such that N > 2/3 * total. Returns 0 if no validators.
+    pub fn quorum_threshold(&self) -> u64 {
+        let total = self.total_voting_power();
+        if total == 0 { 0 } else { (total * 2) / 3 + 1 }
     }
 
     pub fn block_at(&self, height: u64) -> Option<Block> {

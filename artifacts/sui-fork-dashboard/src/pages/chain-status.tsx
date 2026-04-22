@@ -332,8 +332,21 @@ const GROUPS: FeatureGroup[] = [
         files: ["src/p2p.rs", "src/consensus.rs", "src/main.rs", "src/rpc.rs", "Cargo.toml"],
       },
       {
-        name: "Multi-validator BFT consensus",
-        desc: "Tendermint/HotStuff-style BFT for >1 validator",
+        name: "Validator set on-chain — Phase B.1 complete",
+        desc: "Persistent validator registry in state DB (CF_META `validator/<addr>` prefix). Each `Validator { address, pubkey: ed25519, voting_power: u64 }` is bincode-serialized and indexed by 20-byte address. Genesis seeds the founder validator with power=1. Admin-gated CLI: `validator-add --pubkey 0x… --power N` and `validator-remove --address 0x…` (signer must equal current admin; refuses to empty the set to prevent chain halt). State exposes `validators()`, `total_voting_power()`, and `quorum_threshold()` returning ⌊2N/3⌋+1 — used in B.3 for Tendermint commit. Two new RPCs: `zbx_listValidators` returns full set + totals + quorum; `zbx_getValidator(addr)` returns one. Producer/consensus untouched (still single-validator PoA); B.1 is foundation only.",
+        status: "done",
+        version: "v0.2",
+        files: ["src/types.rs", "src/state.rs", "src/main.rs", "src/rpc.rs"],
+      },
+      {
+        name: "Vote messages (Prevote/Precommit) — Phase B.2",
+        desc: "Signed vote types over P2P with vote pool keyed by (height, round)",
+        status: "planned",
+        version: "v0.2",
+      },
+      {
+        name: "Tendermint state machine — Phase B.3",
+        desc: "Propose → Prevote → Precommit → Commit rounds with timeouts, locking, and 2/3+ supermajority",
         status: "planned",
         version: "v0.2",
       },
