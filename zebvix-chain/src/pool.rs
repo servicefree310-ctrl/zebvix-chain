@@ -102,7 +102,10 @@ impl Pool {
         if zbx == 0 || zusd == 0 {
             return Err("zero liquidity");
         }
-        let k = isqrt_u128(zbx.saturating_mul(zusd));
+        // Use widening multiply to avoid u128 overflow on large genesis amounts
+        // (10M * 10^18) * (10M * 10^18) = 10^50 which exceeds u128::MAX (~3.4e38).
+        let prod = primitive_types::U256::from(zbx) * primitive_types::U256::from(zusd);
+        let k = isqrt_u256(prod);
         if k <= MIN_LIQUIDITY {
             return Err("initial liquidity too small");
         }
@@ -337,10 +340,29 @@ pub fn dynamic_gas_price_wei(
 
 fn isqrt_u128(n: u128) -> u128 {
     if n < 2 { return n; }
-    let mut x = n;
-    let mut y = (x + 1) / 2;
-    while y < x { x = y; y = (x + n / x) / 2; }
-    x
+    // Initial guess: 2^ceil(bit_length/2). Avoids the (n+1)/2 overflow
+    // when n is near u128::MAX.
+    let bits = 128 - n.leading_zeros() as u32;
+    let mut x: u128 = 1u128 << ((bits + 1) / 2);
+    loop {
+        let next = (x + n / x) / 2;
+        if next >= x { return x; }
+        x = next;
+    }
+}
+
+fn isqrt_u256(n: primitive_types::U256) -> u128 {
+    use primitive_types::U256;
+    if n < U256::from(2u8) { return n.as_u128(); }
+    // Initial guess: 2^ceil(bit_length/2).
+    let bits = 256 - n.leading_zeros();
+    let shift = (bits + 1) / 2;
+    let mut x: U256 = U256::one() << shift as usize;
+    loop {
+        let next = (x + n / x) >> 1;
+        if next >= x { return x.as_u128(); }
+        x = next;
+    }
 }
 
 #[cfg(test)]
