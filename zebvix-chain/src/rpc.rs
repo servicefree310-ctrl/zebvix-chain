@@ -16,6 +16,7 @@ use crate::tokenomics::{
     MAX_SWAP_ZBX_WEI, MAX_SWAP_ZUSD, MIN_GAS_UNITS, TARGET_FEE_USD_MICRO, TOTAL_SUPPLY_WEI,
 };
 use crate::types::{Address, SignedTx};
+use crate::vote::VotePool;
 use axum::{extract::State as AxState, routing::post, Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -28,6 +29,8 @@ pub struct RpcCtx {
     pub mempool: Arc<Mempool>,
     /// When set (P2P enabled), RPC-submitted txs are immediately gossiped to peers.
     pub p2p_out: Option<tokio::sync::mpsc::UnboundedSender<P2PMsg>>,
+    /// Phase B.2: shared in-memory vote pool. `None` only in legacy --no-p2p mode.
+    pub votes: Option<Arc<VotePool>>,
 }
 
 #[derive(Deserialize)]
@@ -228,6 +231,59 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 "quorum_threshold": quorum,
                 "validators": arr,
             }))
+        }
+        "zbx_voteStats" => {
+            // Params: [{ "height": u64 } | u64 | null]
+            let height = req.params.get(0).and_then(|v| {
+                if v.is_u64() { v.as_u64() }
+                else if let Some(o) = v.as_object() { o.get("height").and_then(|x| x.as_u64()) }
+                else { None }
+            }).unwrap_or_else(|| ctx.state.tip().0);
+            let validator_set = ctx.state.validators();
+            let total_power: u64 = validator_set.iter().map(|v| v.voting_power).sum();
+            let quorum = ctx.state.quorum_threshold();
+            match &ctx.votes {
+                None => ok(id, json!({
+                    "height": height,
+                    "total_voting_power": total_power,
+                    "quorum_threshold": quorum,
+                    "rounds": [],
+                    "note": "vote pool disabled (--no-p2p mode)",
+                })),
+                Some(pool) => {
+                    let snap = pool.snapshot_height(height);
+                    let rounds: Vec<Value> = snap.into_iter().map(|(round, vt, votes)| {
+                        // Group votes by target hash and sum power.
+                        let mut by_target: std::collections::BTreeMap<String, u64> = Default::default();
+                        for v in &votes {
+                            let target = v.data.block_hash.map(|h| h.to_hex())
+                                .unwrap_or_else(|| "nil".to_string());
+                            let power = validator_set.iter()
+                                .find(|x| x.address == v.validator_address)
+                                .map(|x| x.voting_power).unwrap_or(0);
+                            *by_target.entry(target).or_insert(0) += power;
+                        }
+                        let targets: Vec<Value> = by_target.iter().map(|(t, p)| json!({
+                            "block_hash": t,
+                            "power": p,
+                            "has_quorum": quorum > 0 && *p >= quorum,
+                        })).collect();
+                        json!({
+                            "round": round,
+                            "type": vt.as_str(),
+                            "vote_count": votes.len(),
+                            "targets": targets,
+                            "voters": votes.iter().map(|v| v.validator_address.to_hex()).collect::<Vec<_>>(),
+                        })
+                    }).collect();
+                    ok(id, json!({
+                        "height": height,
+                        "total_voting_power": total_power,
+                        "quorum_threshold": quorum,
+                        "rounds": rounds,
+                    }))
+                }
+            }
         }
         "zbx_getValidator" => {
             let addr = req.params.get(0).and_then(parse_address);

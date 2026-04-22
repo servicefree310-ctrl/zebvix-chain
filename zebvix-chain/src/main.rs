@@ -10,6 +10,7 @@ use zebvix_node::rpc;
 use zebvix_node::state::State;
 use zebvix_node::tokenomics::{self, CHAIN_ID, FOUNDER_PREMINE_WEI, TOTAL_SUPPLY_WEI, WEI_PER_ZBX};
 use zebvix_node::types::{Address, TxBody, Validator};
+use zebvix_node::vote::{sign_vote, AddVoteResult, Vote, VoteData, VotePool, VoteType};
 
 #[derive(Parser)]
 #[command(name = "zebvix-node", version, about = "Zebvix L1 blockchain node (ZBX, EVM-style)")]
@@ -390,9 +391,69 @@ async fn cmd_start(
             Producer::new(sk, state.clone(), mempool.clone()).with_broadcast(producer_send),
         );
 
-        // Spawn inbound consumer: route received blocks to state, txs to mempool.
+        // ── Phase B.2: shared vote pool + auto-emit votes after each new block ──
+        let vote_pool = Arc::new(VotePool::new(CHAIN_ID));
+
+        // Background task: poll the chain tip; whenever it advances, this node's
+        // validator (if registered) signs a Prevote AND a Precommit for the new
+        // tip and gossips both. Phase B.3 will drive votes from the actual
+        // Tendermint round state machine; here we just exercise the wire so
+        // votes are observable in `zbx_voteStats` and operators can see the
+        // pool filling. NOTE: a follower with no validator entry will skip.
+        let st_vote = state.clone();
+        let pool_vote = vote_pool.clone();
+        let out_vote = out_tx.clone();
+        let vote_secret = sk;
+        let vote_pubkey = pk;
+        let self_addr = proposer;
+        tokio::spawn(async move {
+            let mut last_emitted: u64 = st_vote.tip().0;
+            let mut tick = tokio::time::interval(tokio::time::Duration::from_millis(500));
+            loop {
+                tick.tick().await;
+                let (h, hash) = st_vote.tip();
+                if h <= last_emitted { continue; }
+                // Check this node is in the active validator set.
+                let vset = st_vote.validators();
+                if !vset.iter().any(|v| v.address == self_addr) {
+                    last_emitted = h;
+                    continue;
+                }
+                for vt in [VoteType::Prevote, VoteType::Precommit] {
+                    let data = VoteData {
+                        chain_id: CHAIN_ID, height: h, round: 0,
+                        vote_type: vt, block_hash: Some(hash),
+                    };
+                    let v = sign_vote(&vote_secret, vote_pubkey, data);
+                    // Add to local pool first (so it shows up immediately on this node).
+                    match pool_vote.add(v.clone(), &vset) {
+                        AddVoteResult::Inserted { reached_quorum } => {
+                            tracing::info!("🗳  emitted {} h={} block={}{}",
+                                vt.as_str(), h, hash,
+                                if reached_quorum { "  ✅ QUORUM" } else { "" });
+                        }
+                        other => tracing::debug!("local vote add: {:?}", other),
+                    }
+                    // Gossip to peers.
+                    if let Ok(bytes) = bincode::serialize(&v) {
+                        let _ = out_vote.send(zebvix_node::p2p::P2PMsg::Vote(bytes));
+                    }
+                }
+                // Periodic GC: keep last 50 heights.
+                if h > 50 {
+                    let dropped = pool_vote.gc_below(h - 50);
+                    if dropped > 0 {
+                        tracing::debug!("vote pool GC: dropped {dropped} stale slots below h={}", h - 50);
+                    }
+                }
+                last_emitted = h;
+            }
+        });
+
+        // Spawn inbound consumer: route received blocks to state, txs to mempool, votes to pool.
         let st = state.clone();
         let mp = mempool.clone();
+        let pool_in = vote_pool.clone();
         let mut inbound = handle.inbound_rx;
         tokio::spawn(async move {
             while let Some(msg) = inbound.recv().await {
@@ -430,6 +491,40 @@ async fn cmd_start(
                             Err(e) => tracing::warn!("p2p tx deserialize failed: {e}"),
                         }
                     }
+                    zebvix_node::p2p::P2PMsg::Vote(bytes) => {
+                        match bincode::deserialize::<Vote>(&bytes) {
+                            Ok(vote) => {
+                                let vset = st.validators();
+                                let h = vote.data.height;
+                                let r = vote.data.round;
+                                let vt = vote.data.vote_type;
+                                let voter = vote.validator_address;
+                                match pool_in.add(vote, &vset) {
+                                    AddVoteResult::Inserted { reached_quorum } => {
+                                        tracing::info!("🗳  vote {} h={} r={} from {}{}",
+                                            vt.as_str(), h, r, voter,
+                                            if reached_quorum { "  ✅ QUORUM" } else { "" });
+                                    }
+                                    AddVoteResult::Duplicate => {
+                                        tracing::debug!("vote dup from {voter}");
+                                    }
+                                    AddVoteResult::DoubleSign { .. } => {
+                                        tracing::warn!("⚠️  DOUBLE-SIGN by {voter} at h={h} r={r} {} (slashable in B.3+)", vt.as_str());
+                                    }
+                                    AddVoteResult::BadSignature => {
+                                        tracing::warn!("vote bad signature from {voter}");
+                                    }
+                                    AddVoteResult::UnknownValidator => {
+                                        tracing::debug!("vote from non-validator {voter} ignored");
+                                    }
+                                    AddVoteResult::WrongChain => {
+                                        tracing::debug!("vote wrong chain from {voter} ignored");
+                                    }
+                                }
+                            }
+                            Err(e) => tracing::warn!("p2p vote deserialize failed: {e}"),
+                        }
+                    }
                 }
             }
         });
@@ -442,8 +537,13 @@ async fn cmd_start(
         } else {
             tracing::warn!("follower mode: producer DISABLED, this node will only sync from peers");
         }
-        // RPC server with P2P tx gossip enabled.
-        let ctx = rpc::RpcCtx { state: state.clone(), mempool: mempool.clone(), p2p_out: rpc_out };
+        // RPC server with P2P tx gossip + vote pool enabled.
+        let ctx = rpc::RpcCtx {
+            state: state.clone(),
+            mempool: mempool.clone(),
+            p2p_out: rpc_out,
+            votes: Some(vote_pool.clone()),
+        };
         let app = rpc::router(ctx);
         let listener = tokio::net::TcpListener::bind(&rpc_addr).await?;
         return Ok(axum::serve(listener, app).await?);
@@ -453,7 +553,10 @@ async fn cmd_start(
     if !follower {
         tokio::spawn(producer.clone().run());
     }
-    let ctx = rpc::RpcCtx { state: state.clone(), mempool: mempool.clone(), p2p_out: None };
+    let ctx = rpc::RpcCtx {
+        state: state.clone(), mempool: mempool.clone(),
+        p2p_out: None, votes: None,
+    };
     let app = rpc::router(ctx);
     let listener = tokio::net::TcpListener::bind(&rpc_addr).await?;
     axum::serve(listener, app).await?;

@@ -47,6 +47,8 @@ pub enum P2PMsg {
     Block(Vec<u8>),
     /// Bincode-serialized `SignedTx`.
     Tx(Vec<u8>),
+    /// Phase B.2: bincode-serialized consensus `Vote`.
+    Vote(Vec<u8>),
 }
 
 /// Heartbeat announcement: tip height of the sender.
@@ -90,6 +92,10 @@ fn topic_txs(chain_id: u64) -> gossipsub::IdentTopic {
 }
 fn topic_heartbeat(chain_id: u64) -> gossipsub::IdentTopic {
     gossipsub::IdentTopic::new(format!("zebvix/{chain_id}/heartbeat/v1"))
+}
+/// Phase B.2: consensus vote topic.
+fn topic_votes(chain_id: u64) -> gossipsub::IdentTopic {
+    gossipsub::IdentTopic::new(format!("zebvix/{chain_id}/votes/v1"))
 }
 
 /// Spawn the P2P swarm in a background task and return a handle.
@@ -156,7 +162,8 @@ pub fn spawn_p2p(
     let blocks_topic = topic_blocks(chain_id);
     let txs_topic = topic_txs(chain_id);
     let hb_topic = topic_heartbeat(chain_id);
-    for t in [&blocks_topic, &txs_topic, &hb_topic] {
+    let votes_topic = topic_votes(chain_id);
+    for t in [&blocks_topic, &txs_topic, &hb_topic, &votes_topic] {
         swarm.behaviour_mut().gossipsub.subscribe(t)
             .map_err(|e| anyhow!("subscribe {}: {e}", t.hash()))?;
     }
@@ -180,6 +187,7 @@ pub fn spawn_p2p(
     let blocks_topic_h = blocks_topic.hash();
     let txs_topic_h = txs_topic.hash();
     let hb_topic_h = hb_topic.hash();
+    let votes_topic_h = votes_topic.hash();
 
     let st_for_task = state.clone();
 
@@ -207,6 +215,7 @@ pub fn spawn_p2p(
                     let (topic, kind, bytes) = match msg {
                         P2PMsg::Block(b) => (blocks_topic.clone(), "block", b),
                         P2PMsg::Tx(b)    => (txs_topic.clone(),    "tx",    b),
+                        P2PMsg::Vote(b)  => (votes_topic.clone(),  "vote",  b),
                     };
                     let len = bytes.len();
                     match swarm.behaviour_mut().gossipsub.publish(topic, bytes) {
@@ -220,7 +229,7 @@ pub fn spawn_p2p(
                         event,
                         &inbound_tx,
                         &mut swarm,
-                        &blocks_topic_h, &txs_topic_h, &hb_topic_h,
+                        &blocks_topic_h, &txs_topic_h, &hb_topic_h, &votes_topic_h,
                         disable_mdns,
                         &st_for_task,
                         &mut syncing_with,
@@ -249,6 +258,7 @@ async fn handle_event(
     blocks_topic_h: &gossipsub::TopicHash,
     txs_topic_h: &gossipsub::TopicHash,
     hb_topic_h: &gossipsub::TopicHash,
+    votes_topic_h: &gossipsub::TopicHash,
     disable_mdns: bool,
     state: &Arc<State>,
     syncing_with: &mut HashSet<PeerId>,
@@ -292,6 +302,9 @@ async fn handle_event(
             } else if topic == txs_topic_h {
                 tracing::debug!("📥 p2p tx from {peer} ({} bytes)", message.data.len());
                 let _ = inbound_tx.send(P2PMsg::Tx(message.data));
+            } else if topic == votes_topic_h {
+                tracing::debug!("📥 p2p vote from {peer} ({} bytes)", message.data.len());
+                let _ = inbound_tx.send(P2PMsg::Vote(message.data));
             } else if topic == hb_topic_h {
                 if let Some(hb) = parse_hb(&message.data) {
                     let (tip, _) = state.tip();

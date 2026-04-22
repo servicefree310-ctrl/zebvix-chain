@@ -8,3 +8,4 @@ pub mod rpc;
 pub mod state;
 pub mod tokenomics;
 pub mod types;
+pub mod vote;
