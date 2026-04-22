@@ -119,7 +119,9 @@ impl State {
 
         if tx.body.to == pool_addr && tx.body.amount > 0 {
             // ─── Pool intercept ───
-            self.put_account(&tx.body.from, &from)?; // commit fee+amount debit
+            // IMPORTANT: do NOT commit `from` yet. We try the pool op first; if it fails,
+            // we refund the `amount` (keep fee deducted) so users never lose principal on
+            // failed swaps — only gas. Standard EVM-style "revert with gas spent" UX.
             let mut pool = self.pool();
             if !pool.is_initialized() {
                 return Err(anyhow!("pool not yet initialized — cannot accept ZBX yet"));
@@ -127,26 +129,47 @@ impl State {
             let height = self.tip().0;
             if tx.body.from == admin {
                 // Admin single-sided liquidity: just grow ZBX reserve.
-                pool.admin_add_zbx(tx.body.amount, height)
-                    .map_err(|e| anyhow!("admin add zbx: {}", e))?;
-                self.put_pool(&pool)?;
+                match pool.admin_add_zbx(tx.body.amount, height) {
+                    Ok(()) => {
+                        self.put_pool(&pool)?;
+                        self.put_account(&tx.body.from, &from)?;
+                    }
+                    Err(e) => {
+                        // Refund amount, keep fee.
+                        from.balance = from.balance.saturating_add(tx.body.amount);
+                        self.put_account(&tx.body.from, &from)?;
+                        return Err(anyhow!("admin add zbx (refunded amount, fee kept): {}", e));
+                    }
+                }
             } else {
                 // Auto-swap ZBX → zUSD, credit back to sender.
-                let zusd_out = pool.swap_zbx_for_zusd(tx.body.amount, height)
-                    .map_err(|e| anyhow!("auto-swap: {}", e))?;
-                // Settle fees → may yield admin payout.
-                let (admin_zbx, admin_zusd) = pool.settle_fees();
-                self.put_pool(&pool)?;
-                // Credit zUSD to sender.
-                let mut sender = self.account(&tx.body.from);
-                sender.zusd = sender.zusd.saturating_add(zusd_out);
-                self.put_account(&tx.body.from, &sender)?;
-                // Credit any admin payout.
-                if admin_zbx > 0 || admin_zusd > 0 {
-                    let mut a = self.account(&admin);
-                    a.balance = a.balance.saturating_add(admin_zbx);
-                    a.zusd = a.zusd.saturating_add(admin_zusd);
-                    self.put_account(&admin, &a)?;
+                match pool.swap_zbx_for_zusd(tx.body.amount, height) {
+                    Ok(zusd_out) => {
+                        // Settle fees → may yield admin payout.
+                        let (admin_zbx, admin_zusd) = pool.settle_fees();
+                        self.put_pool(&pool)?;
+                        // Credit zUSD to sender, commit ZBX debit (fee+amount).
+                        from.zusd = from.zusd.saturating_add(zusd_out);
+                        self.put_account(&tx.body.from, &from)?;
+                        // Credit any admin payout.
+                        if admin_zbx > 0 || admin_zusd > 0 {
+                            let mut a = if admin == tx.body.from { from.clone() }
+                                        else { self.account(&admin) };
+                            // Re-read in case sender == admin (avoid stale).
+                            if admin == tx.body.from { a = self.account(&admin); }
+                            a.balance = a.balance.saturating_add(admin_zbx);
+                            a.zusd = a.zusd.saturating_add(admin_zusd);
+                            self.put_account(&admin, &a)?;
+                        }
+                    }
+                    Err(e) => {
+                        // Swap failed → refund principal, keep fee. Pool reserves untouched
+                        // (swap_zbx_for_zusd only mutates pool on Ok).
+                        from.balance = from.balance.saturating_add(tx.body.amount);
+                        self.put_account(&tx.body.from, &from)?;
+                        return Err(anyhow!("auto-swap failed (refunded {} wei, fee kept): {}",
+                            tx.body.amount, e));
+                    }
                 }
             }
         } else {
