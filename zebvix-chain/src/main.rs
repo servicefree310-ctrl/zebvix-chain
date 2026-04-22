@@ -40,12 +40,25 @@ enum Cmd {
         #[arg(long)]
         no_default_premine: bool,
     },
-    /// Start the node (block producer + JSON-RPC).
+    /// Start the node (block producer + JSON-RPC + P2P gossip).
     Start {
         #[arg(long, default_value = "./.zebvix")]
         home: PathBuf,
         #[arg(long, default_value = "0.0.0.0:8545")]
         rpc: String,
+        /// TCP port for libp2p (0 = OS-assigned). Set to e.g. 30333 for VPS.
+        #[arg(long, default_value_t = 30333)]
+        p2p_port: u16,
+        /// Bootstrap peer multiaddrs (repeatable).
+        /// Example: --peer /ip4/1.2.3.4/tcp/30333/p2p/12D3KooW...
+        #[arg(long = "peer")]
+        peers: Vec<String>,
+        /// Disable the P2P stack entirely (legacy single-node mode).
+        #[arg(long)]
+        no_p2p: bool,
+        /// Disable mDNS LAN discovery (recommended on production VPS).
+        #[arg(long)]
+        no_mdns: bool,
     },
     /// Build, sign, and submit a transfer to a running node's RPC.
     Send {
@@ -271,7 +284,14 @@ fn cmd_init(home: PathBuf, validator_key: PathBuf, alloc: Vec<String>, no_defaul
     Ok(())
 }
 
-async fn cmd_start(home: PathBuf, rpc_addr: String) -> Result<()> {
+async fn cmd_start(
+    home: PathBuf,
+    rpc_addr: String,
+    p2p_port: u16,
+    peer_strs: Vec<String>,
+    no_p2p: bool,
+    no_mdns: bool,
+) -> Result<()> {
     let cfg_path = home.join("node.json");
     let cfg: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&cfg_path)?)?;
     let key_path = PathBuf::from(
@@ -282,13 +302,98 @@ async fn cmd_start(home: PathBuf, rpc_addr: String) -> Result<()> {
 
     let state = Arc::new(State::open(&home.join("data"))?);
     let mempool = Arc::new(Mempool::new(state.clone(), 50_000));
-    let producer = Arc::new(Producer::new(sk, state.clone(), mempool.clone()));
 
     tracing::info!("🚀 Zebvix node starting");
     tracing::info!("   chain_id  : {}", CHAIN_ID);
     tracing::info!("   proposer  : {}", proposer);
     tracing::info!("   tip       : height={} hash={}", state.tip().0, state.tip().1);
     tracing::info!("   rpc       : http://{}", rpc_addr);
+
+    // ── Phase A: spawn P2P gossip layer ────────────────────────────────
+    let producer = if no_p2p {
+        tracing::warn!("   p2p       : DISABLED (--no-p2p)");
+        Arc::new(Producer::new(sk, state.clone(), mempool.clone()))
+    } else {
+        // Parse bootstrap peer multiaddrs
+        let mut bootstrap = Vec::new();
+        for p in &peer_strs {
+            match p.parse::<libp2p::Multiaddr>() {
+                Ok(ma) => bootstrap.push(ma),
+                Err(e) => tracing::warn!("ignoring bad --peer {p}: {e}"),
+            }
+        }
+
+        let handle = zebvix_node::p2p::spawn_p2p(CHAIN_ID, p2p_port, bootstrap, no_mdns)
+            .map_err(|e| anyhow!("p2p init failed: {e}"))?;
+        tracing::info!("   p2p       : tcp/{p2p_port}  peer_id={}", handle.local_peer_id);
+        if no_mdns { tracing::info!("   mdns      : DISABLED (--no-mdns)"); }
+
+        // Producer broadcasts every mined block.
+        let out_tx = handle.out_tx.clone();
+        let block_tx = out_tx.clone();
+        let producer_send: tokio::sync::mpsc::UnboundedSender<Vec<u8>> = {
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+            // Forward producer block bytes → P2P out channel.
+            tokio::spawn(async move {
+                while let Some(bytes) = rx.recv().await {
+                    let _ = block_tx.send(zebvix_node::p2p::P2PMsg::Block(bytes));
+                }
+            });
+            tx
+        };
+        let producer = Arc::new(
+            Producer::new(sk, state.clone(), mempool.clone()).with_broadcast(producer_send),
+        );
+
+        // Spawn inbound consumer: route received blocks to state, txs to mempool.
+        let st = state.clone();
+        let mp = mempool.clone();
+        let mut inbound = handle.inbound_rx;
+        tokio::spawn(async move {
+            while let Some(msg) = inbound.recv().await {
+                match msg {
+                    zebvix_node::p2p::P2PMsg::Block(bytes) => {
+                        match bincode::deserialize::<zebvix_node::types::Block>(&bytes) {
+                            Ok(block) => {
+                                let h = block.header.height;
+                                let (tip_h, _) = st.tip();
+                                if h <= tip_h {
+                                    tracing::debug!("p2p stale block #{h} (tip={tip_h}), skipped");
+                                    continue;
+                                }
+                                if h != tip_h + 1 {
+                                    tracing::warn!(
+                                        "p2p out-of-order block #{h} (tip={tip_h}); sync protocol arrives in Phase A.5"
+                                    );
+                                    continue;
+                                }
+                                match st.apply_block(&block) {
+                                    Ok(_)  => tracing::info!("📦 p2p applied block #{h} ({} txs)", block.txs.len()),
+                                    Err(e) => tracing::warn!("p2p apply_block #{h} failed: {e}"),
+                                }
+                            }
+                            Err(e) => tracing::warn!("p2p block deserialize failed: {e}"),
+                        }
+                    }
+                    zebvix_node::p2p::P2PMsg::Tx(bytes) => {
+                        match bincode::deserialize::<zebvix_node::types::SignedTx>(&bytes) {
+                            Ok(tx) => match mp.add(tx) {
+                                Ok(_)  => tracing::debug!("p2p added gossiped tx to mempool"),
+                                Err(e) => tracing::debug!("p2p tx rejected: {e}"),
+                            },
+                            Err(e) => tracing::warn!("p2p tx deserialize failed: {e}"),
+                        }
+                    }
+                }
+            }
+        });
+
+        // Note: RPC-submitted txs aren't individually gossiped in Phase A —
+        // they propagate to peers when included in the next produced block.
+        // Individual tx gossip arrives in Phase A.5 (sync protocol).
+        let _ = out_tx; // keep the channel alive
+        producer
+    };
 
     // Spawn producer
     tokio::spawn(producer.clone().run());
@@ -478,7 +583,8 @@ async fn main() -> Result<()> {
     match cli.cmd {
         Cmd::Keygen { out } => cmd_keygen(out),
         Cmd::Init { home, validator_key, alloc, no_default_premine } => cmd_init(home, validator_key, alloc, no_default_premine),
-        Cmd::Start { home, rpc } => cmd_start(home, rpc).await,
+        Cmd::Start { home, rpc, p2p_port, peers, no_p2p, no_mdns } =>
+            cmd_start(home, rpc, p2p_port, peers, no_p2p, no_mdns).await,
         Cmd::Send { from_key, to, amount, fee, rpc } => cmd_send(from_key, to, amount, fee, rpc).await,
         Cmd::AdminFaucet { home, to, amount } => cmd_admin_faucet(home, to, amount),
         Cmd::AdminPoolGenesis { home } => cmd_admin_pool_genesis(home),

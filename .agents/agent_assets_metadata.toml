@@ -24,3 +24,9 @@ id = "Tzb11uSYeVGUuPhv6D69g"
 uri = "file://zebvix-full-source.zip"
 type = "unspecified"
 title = "Zebvix Full Chain Source — zebvix-full-source.zip (87.5MB)"
+
+[[outputs]]
+id = "dpA0i0VVNrAX3e3mL4IMv"
+uri = "file://zebvix-chain-source.tar.gz"
+type = "unspecified"
+title = "zebvix-chain v0.2-alpha (Phase A: P2P)"

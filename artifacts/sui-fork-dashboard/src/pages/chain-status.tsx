@@ -325,10 +325,18 @@ const GROUPS: FeatureGroup[] = [
     icon: "🌐",
     features: [
       {
-        name: "P2P networking (libp2p)",
-        desc: "Multi-node gossip + block propagation",
+        name: "P2P networking (libp2p) — Phase A",
+        desc: "Multi-node gossip + block propagation. Built on libp2p 0.54 with TCP+Noise+Yamux transport, gossipsub for tx/block topics (chain-id namespaced as `zebvix/<id>/blocks/v1`), and mDNS for LAN auto-discovery. Producer broadcasts every mined block via gossip; peers apply blocks if they extend tip by exactly 1 (out-of-order blocks deferred to Phase A.5 sync protocol). New CLI flags: `--p2p-port 30333 --peer /ip4/.../tcp/30333/p2p/12D3K... --no-mdns`.",
+        status: "wip",
+        version: "v0.2-alpha",
+        files: ["src/p2p.rs", "src/consensus.rs", "src/main.rs", "Cargo.toml"],
+      },
+      {
+        name: "Block sync protocol (catch-up) — Phase A.5",
+        desc: "When a node sees an out-of-order block (h > tip+1), it requests missing blocks from peers via libp2p request-response protocol. Required for new nodes joining late or recovering from downtime. Currently logs a warning + skips.",
         status: "planned",
         version: "v0.2",
+        files: ["src/p2p.rs"],
       },
       {
         name: "Multi-validator BFT consensus",

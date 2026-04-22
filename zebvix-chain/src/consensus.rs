@@ -8,6 +8,7 @@ use crate::types::{Block, BlockHeader, Hash};
 use anyhow::Result;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::sync::mpsc::UnboundedSender;
 
 pub const MAX_TXS_PER_BLOCK: usize = 5_000;
 
@@ -15,11 +16,19 @@ pub struct Producer {
     secret: [u8; 32],
     state: Arc<State>,
     mempool: Arc<Mempool>,
+    /// Optional P2P broadcast channel: when set, every successfully-mined block
+    /// is bincode-serialized and pushed here for gossip propagation.
+    block_broadcast: Option<UnboundedSender<Vec<u8>>>,
 }
 
 impl Producer {
     pub fn new(secret: [u8; 32], state: Arc<State>, mempool: Arc<Mempool>) -> Self {
-        Self { secret, state, mempool }
+        Self { secret, state, mempool, block_broadcast: None }
+    }
+
+    pub fn with_broadcast(mut self, tx: UnboundedSender<Vec<u8>>) -> Self {
+        self.block_broadcast = Some(tx);
+        self
     }
 
     pub fn proposer_address(&self) -> crate::types::Address {
@@ -73,6 +82,13 @@ impl Producer {
                         tracing::error!("apply_block failed at h={height}: {e}");
                     } else {
                         tracing::info!("⛏  block #{height} produced  txs={txs}  hash={}", block_hash(&block.header));
+                        // Broadcast over P2P if hooked up.
+                        if let Some(tx) = &self.block_broadcast {
+                            match bincode::serialize(&block) {
+                                Ok(bytes) => { let _ = tx.send(bytes); }
+                                Err(e) => tracing::warn!("p2p block serialize failed: {e}"),
+                            }
+                        }
                     }
                 }
                 Err(e) => tracing::error!("build_block failed: {e}"),

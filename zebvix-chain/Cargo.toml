@@ -33,6 +33,8 @@ parking_lot = "0.12"
 once_cell = "1.19"
 serde-big-array = "0.5"
 rayon = "1.10"
+futures = "0.3"
+libp2p = { version = "0.54", features = ["tokio", "tcp", "noise", "yamux", "gossipsub", "mdns", "macros", "ping", "identify"] }
 
 [profile.release]
 opt-level = 3
