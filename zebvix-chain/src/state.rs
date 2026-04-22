@@ -1,6 +1,7 @@
 //! Persistent state: balances, nonces, blocks. Backed by RocksDB.
 
 use crate::crypto::{block_hash, tx_hash, verify_tx, verify_txs_batch};
+use crate::pool::Pool;
 use crate::tokenomics::reward_at_height;
 use crate::types::{Address, Block, Hash, SignedTx};
 use anyhow::{anyhow, Result};
@@ -15,11 +16,15 @@ const CF_META: &str = "meta";         // misc keys
 
 const META_HEIGHT: &[u8] = b"height";
 const META_LAST_HASH: &[u8] = b"last_hash";
+const META_POOL: &[u8] = b"pool";
+const META_LP_PREFIX: &[u8] = b"lp/"; // followed by 20-byte address → u128 LP balance
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Account {
-    pub balance: u128,
+    pub balance: u128,    // ZBX balance (wei)
     pub nonce: u64,
+    #[serde(default)]
+    pub zusd: u128,       // zUSD balance (18-decimals)
 }
 
 pub struct State {
@@ -170,5 +175,113 @@ impl State {
         let cf = self.db.cf_handle(CF_BLOCKS).unwrap();
         self.db.get_cf(cf, height.to_be_bytes()).ok().flatten()
             .and_then(|b| bincode::deserialize(&b).ok())
+    }
+
+    // ───────── zUSD + Pool operations ─────────
+
+    /// Read the singleton AMM pool. Returns default (uninitialized) if missing.
+    pub fn pool(&self) -> Pool {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.get_cf(cf, META_POOL).ok().flatten()
+            .and_then(|b| bincode::deserialize(&b).ok())
+            .unwrap_or_default()
+    }
+
+    fn put_pool(&self, p: &Pool) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.put_cf(cf, META_POOL, bincode::serialize(p)?)?;
+        Ok(())
+    }
+
+    /// LP token balance for an address.
+    pub fn lp_balance(&self, a: &Address) -> u128 {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let mut k = META_LP_PREFIX.to_vec();
+        k.extend_from_slice(&a.0);
+        self.db.get_cf(cf, &k).ok().flatten()
+            .and_then(|b| bincode::deserialize(&b).ok())
+            .unwrap_or(0u128)
+    }
+
+    fn put_lp(&self, a: &Address, bal: u128) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let mut k = META_LP_PREFIX.to_vec();
+        k.extend_from_slice(&a.0);
+        self.db.put_cf(cf, &k, bincode::serialize(&bal)?)?;
+        Ok(())
+    }
+
+    /// Founder/admin: mint zUSD to an address (testnet faucet, removed in v1.0).
+    pub fn faucet_mint_zusd(&self, to: &Address, amount: u128) -> Result<()> {
+        let mut acc = self.account(to);
+        acc.zusd = acc.zusd.saturating_add(amount);
+        self.put_account(to, &acc)?;
+        Ok(())
+    }
+
+    /// Initialize the pool with first liquidity (admin/founder action).
+    /// Debits ZBX + zUSD from `from`, credits LP tokens.
+    pub fn pool_init(&self, from: &Address, zbx: u128, zusd: u128) -> Result<u128> {
+        let mut p = self.pool();
+        if p.is_initialized() {
+            return Err(anyhow!("pool already initialized"));
+        }
+        let mut acc = self.account(from);
+        if acc.balance < zbx { return Err(anyhow!("insufficient ZBX")); }
+        if acc.zusd < zusd { return Err(anyhow!("insufficient zUSD")); }
+        let height = self.tip().0;
+        let lp = p.init_liquidity(zbx, zusd, height).map_err(|e| anyhow!(e))?;
+        acc.balance -= zbx;
+        acc.zusd -= zusd;
+        self.put_account(from, &acc)?;
+        self.put_lp(from, self.lp_balance(from).saturating_add(lp))?;
+        self.put_pool(&p)?;
+        Ok(lp)
+    }
+
+    /// Add liquidity proportionally to current ratio. Returns (zbx_used, zusd_used, lp_minted).
+    pub fn pool_add_liquidity(&self, from: &Address, zbx_max: u128, zusd_max: u128) -> Result<(u128, u128, u128)> {
+        let mut p = self.pool();
+        let mut acc = self.account(from);
+        if acc.balance < zbx_max { return Err(anyhow!("insufficient ZBX")); }
+        if acc.zusd < zusd_max { return Err(anyhow!("insufficient zUSD")); }
+        let height = self.tip().0;
+        let (zbx_in, zusd_in, lp) = p.add_liquidity(zbx_max, zusd_max, height).map_err(|e| anyhow!(e))?;
+        acc.balance -= zbx_in;
+        acc.zusd -= zusd_in;
+        self.put_account(from, &acc)?;
+        self.put_lp(from, self.lp_balance(from).saturating_add(lp))?;
+        self.put_pool(&p)?;
+        Ok((zbx_in, zusd_in, lp))
+    }
+
+    /// Swap ZBX → zUSD. Returns zUSD received.
+    pub fn pool_swap_zbx_to_zusd(&self, from: &Address, zbx_in: u128, min_out: u128) -> Result<u128> {
+        let mut p = self.pool();
+        let mut acc = self.account(from);
+        if acc.balance < zbx_in { return Err(anyhow!("insufficient ZBX")); }
+        let height = self.tip().0;
+        let out = p.swap_zbx_for_zusd(zbx_in, height).map_err(|e| anyhow!(e))?;
+        if out < min_out { return Err(anyhow!("slippage: got {} < min {}", out, min_out)); }
+        acc.balance -= zbx_in;
+        acc.zusd = acc.zusd.saturating_add(out);
+        self.put_account(from, &acc)?;
+        self.put_pool(&p)?;
+        Ok(out)
+    }
+
+    /// Swap zUSD → ZBX. Returns ZBX received.
+    pub fn pool_swap_zusd_to_zbx(&self, from: &Address, zusd_in: u128, min_out: u128) -> Result<u128> {
+        let mut p = self.pool();
+        let mut acc = self.account(from);
+        if acc.zusd < zusd_in { return Err(anyhow!("insufficient zUSD")); }
+        let height = self.tip().0;
+        let out = p.swap_zusd_for_zbx(zusd_in, height).map_err(|e| anyhow!(e))?;
+        if out < min_out { return Err(anyhow!("slippage: got {} < min {}", out, min_out)); }
+        acc.zusd -= zusd_in;
+        acc.balance = acc.balance.saturating_add(out);
+        self.put_account(from, &acc)?;
+        self.put_pool(&p)?;
+        Ok(out)
     }
 }

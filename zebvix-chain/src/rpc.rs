@@ -8,8 +8,12 @@
 //!   - zbx_supply             -> { minted_wei, max_wei, current_reward_wei }
 
 use crate::mempool::Mempool;
+use crate::pool::dynamic_gas_price_wei;
 use crate::state::State;
-use crate::tokenomics::{cumulative_supply, reward_at_height, CHAIN_ID, TOTAL_SUPPLY_WEI};
+use crate::tokenomics::{
+    cumulative_supply, reward_at_height, CHAIN_ID, DYNAMIC_GAS_CAP_GWEI, DYNAMIC_GAS_FLOOR_GWEI,
+    MIN_GAS_UNITS, TARGET_FEE_USD_MICRO, TOTAL_SUPPLY_WEI,
+};
 use crate::types::{Address, SignedTx};
 use axum::{extract::State as AxState, routing::post, Json, Router};
 use serde::{Deserialize, Serialize};
@@ -109,6 +113,60 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 "max_wei": TOTAL_SUPPLY_WEI.to_string(),
                 "current_block_reward_wei": reward_at_height(h + 1).to_string(),
             }))
+        }
+        "zbx_getPool" => {
+            let p = ctx.state.pool();
+            let price = p.spot_price_zusd_per_zbx();
+            ok(id, json!({
+                "initialized": p.is_initialized(),
+                "zbx_reserve_wei": p.zbx_reserve.to_string(),
+                "zusd_reserve": p.zusd_reserve.to_string(),
+                "lp_supply": p.lp_supply.to_string(),
+                "spot_price_zusd_per_zbx_q18": price.to_string(),
+                "spot_price_usd_per_zbx": format!("{:.6}", price as f64 / 1e18),
+                "init_height": p.init_height,
+                "last_update_height": p.last_update_height,
+                "fee_pct": "0.30",
+            }))
+        }
+        "zbx_getPriceUSD" => {
+            let p = ctx.state.pool();
+            let price = p.spot_price_zusd_per_zbx();
+            ok(id, json!({
+                "zbx_usd": format!("{:.6}", price as f64 / 1e18),
+                "source": if p.is_initialized() { "amm-pool-spot" } else { "uninitialized" },
+            }))
+        }
+        "zbx_estimateGas" => {
+            let p = ctx.state.pool();
+            let gp = dynamic_gas_price_wei(
+                &p, TARGET_FEE_USD_MICRO, MIN_GAS_UNITS,
+                DYNAMIC_GAS_FLOOR_GWEI, DYNAMIC_GAS_CAP_GWEI,
+            );
+            let fee_wei = gp.saturating_mul(MIN_GAS_UNITS as u128);
+            ok(id, json!({
+                "gas_units": MIN_GAS_UNITS,
+                "gas_price_wei": gp.to_string(),
+                "gas_price_gwei": format!("{:.4}", gp as f64 / 1e9),
+                "fee_wei": fee_wei.to_string(),
+                "fee_zbx": format!("{:.10}", fee_wei as f64 / 1e18),
+                "target_usd": format!("{:.6}", TARGET_FEE_USD_MICRO as f64 / 1e6),
+                "pool_initialized": p.is_initialized(),
+            }))
+        }
+        "zbx_getZusdBalance" => {
+            let addr = req.params.get(0).and_then(parse_address);
+            match addr {
+                Some(a) => ok(id, json!(ctx.state.account(&a).zusd.to_string())),
+                None => err(id, -32602, "invalid address"),
+            }
+        }
+        "zbx_getLpBalance" => {
+            let addr = req.params.get(0).and_then(parse_address);
+            match addr {
+                Some(a) => ok(id, json!(ctx.state.lp_balance(&a).to_string())),
+                None => err(id, -32602, "invalid address"),
+            }
         }
         "zbx_chainInfo" => ok(id, json!({
             "chain_id": CHAIN_ID,

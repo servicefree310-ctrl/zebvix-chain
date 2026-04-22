@@ -100,6 +100,20 @@ enum Cmd {
     Supply,
     /// Show node sync/peer status.
     Status,
+    /// Show on-chain AMM pool state (ZBX/zUSD reserves, price, fee).
+    Pool,
+    /// Show current ZBX/USD price (from on-chain pool oracle).
+    Price,
+    /// Show network's current dynamic gas price + fee per standard transfer.
+    Gas,
+    /// Show zUSD balance of an address.
+    Zusd {
+        address: String,
+    },
+    /// Show LP (liquidity-provider) token balance of an address.
+    Lp {
+        address: String,
+    },
     /// Faucet-style helper: print common testnet info.
     Help,
 }
@@ -530,7 +544,91 @@ async fn main() -> Result<()> {
         Cmd::Block { height } => cmd_block(&rpc, height, q).await?,
         Cmd::Supply => cmd_supply(&rpc, q).await?,
         Cmd::Status => cmd_status(&rpc, q).await?,
+        Cmd::Pool => cmd_pool(&rpc, q).await?,
+        Cmd::Price => cmd_price(&rpc, q).await?,
+        Cmd::Gas => cmd_gas(&rpc, q).await?,
+        Cmd::Zusd { address } => cmd_zusd(&rpc, address, q).await?,
+        Cmd::Lp { address } => cmd_lp(&rpc, address, q).await?,
         Cmd::Help => cmd_help_extra(),
+    }
+    Ok(())
+}
+
+async fn cmd_pool(rpc: &str, quiet: bool) -> Result<()> {
+    let r = rpc_call(rpc, "zbx_getPool", serde_json::json!([])).await?;
+    if quiet { println!("{}", r); return Ok(()); }
+    let init = r["initialized"].as_bool().unwrap_or(false);
+    if !init {
+        println!("  {}❌ Pool not initialized yet.{}", C_YELLOW, C_RESET);
+        println!("  Founder must run on the node:");
+        println!("    {}zebvix-node admin-pool-init --from <addr> --zbx <N> --zusd <N>{}", C_DIM, C_RESET);
+        return Ok(());
+    }
+    let zbx_r = r["zbx_reserve_wei"].as_str().unwrap_or("0").parse::<u128>().unwrap_or(0);
+    let zusd_r = r["zusd_reserve"].as_str().unwrap_or("0").parse::<u128>().unwrap_or(0);
+    let lp = r["lp_supply"].as_str().unwrap_or("0");
+    let price = r["spot_price_usd_per_zbx"].as_str().unwrap_or("?");
+    println!("  {}{}📊 zSwap AMM Pool — ZBX / zUSD{}", C_BOLD, C_MAGENTA, C_RESET);
+    println!("  {}ZBX reserve  :{} {}{} ZBX{}", C_DIM, C_RESET, C_BOLD, format_zbx(zbx_r), C_RESET);
+    println!("  {}zUSD reserve :{} {}{} zUSD{}", C_DIM, C_RESET, C_BOLD, format_zbx(zusd_r), C_RESET);
+    println!("  {}LP supply    :{} {}", C_DIM, C_RESET, lp);
+    println!("  {}Spot price   :{} {}1 ZBX = ${}{}", C_DIM, C_RESET, C_GREEN, price, C_RESET);
+    println!("  {}Pool fee     :{} 0.30% (Uniswap V2)", C_DIM, C_RESET);
+    println!("  {}Init height  :{} {}", C_DIM, C_RESET, r["init_height"]);
+    Ok(())
+}
+
+async fn cmd_price(rpc: &str, quiet: bool) -> Result<()> {
+    let r = rpc_call(rpc, "zbx_getPriceUSD", serde_json::json!([])).await?;
+    if quiet { println!("{}", r); return Ok(()); }
+    let p = r["zbx_usd"].as_str().unwrap_or("0");
+    let src = r["source"].as_str().unwrap_or("?");
+    println!("  {}{}💰 ZBX Price (on-chain oracle){}", C_BOLD, C_GREEN, C_RESET);
+    println!("  {}1 ZBX :{} {}${}{} USD", C_DIM, C_RESET, C_BOLD, p, C_RESET);
+    println!("  {}Source:{} {}", C_DIM, C_RESET, src);
+    Ok(())
+}
+
+async fn cmd_gas(rpc: &str, quiet: bool) -> Result<()> {
+    let r = rpc_call(rpc, "zbx_estimateGas", serde_json::json!([])).await?;
+    if quiet { println!("{}", r); return Ok(()); }
+    let units = r["gas_units"].as_u64().unwrap_or(0);
+    let gwei = r["gas_price_gwei"].as_str().unwrap_or("?");
+    let fee_zbx = r["fee_zbx"].as_str().unwrap_or("?");
+    let target_usd = r["target_usd"].as_str().unwrap_or("?");
+    let pool_ok = r["pool_initialized"].as_bool().unwrap_or(false);
+    println!("  {}{}⛽ Network Gas (dynamic){}", C_BOLD, C_CYAN, C_RESET);
+    println!("  {}Gas units    :{} {}", C_DIM, C_RESET, units);
+    println!("  {}Gas price    :{} {} gwei", C_DIM, C_RESET, gwei);
+    println!("  {}Fee per tx   :{} {}{} ZBX{}  (target: ${} USD)", C_DIM, C_RESET, C_BOLD, fee_zbx, C_RESET, target_usd);
+    if !pool_ok {
+        println!("  {}⚠ Pool not yet initialized — using floor (1 gwei).{}", C_YELLOW, C_RESET);
+    }
+    Ok(())
+}
+
+async fn cmd_zusd(rpc: &str, address: String, quiet: bool) -> Result<()> {
+    let addr = Address::from_hex(&address)?;
+    let r = rpc_call(rpc, "zbx_getZusdBalance", serde_json::json!([addr.to_hex()])).await?;
+    let bal: u128 = r.as_str().unwrap_or("0").parse().unwrap_or(0);
+    if quiet {
+        println!("{}", serde_json::json!({"address": addr.to_hex(), "zusd": format_zbx(bal), "raw": bal.to_string()}));
+    } else {
+        println!("  {}Address :{} {}", C_DIM, C_RESET, addr.to_hex());
+        println!("  {}zUSD    :{} {}{} zUSD{}  ($ {})", C_DIM, C_RESET, C_BOLD, format_zbx(bal), C_RESET, format_zbx(bal));
+    }
+    Ok(())
+}
+
+async fn cmd_lp(rpc: &str, address: String, quiet: bool) -> Result<()> {
+    let addr = Address::from_hex(&address)?;
+    let r = rpc_call(rpc, "zbx_getLpBalance", serde_json::json!([addr.to_hex()])).await?;
+    let bal: u128 = r.as_str().unwrap_or("0").parse().unwrap_or(0);
+    if quiet {
+        println!("{}", serde_json::json!({"address": addr.to_hex(), "lp": bal.to_string()}));
+    } else {
+        println!("  {}Address :{} {}", C_DIM, C_RESET, addr.to_hex());
+        println!("  {}LP tokens:{} {}{}{}", C_DIM, C_RESET, C_BOLD, bal, C_RESET);
     }
     Ok(())
 }

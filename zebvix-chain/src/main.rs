@@ -61,6 +61,62 @@ enum Cmd {
         #[arg(long, default_value = "http://127.0.0.1:8545")]
         rpc: String,
     },
+    /// Admin: testnet faucet — mint zUSD to an address (direct DB write; node must be stopped).
+    AdminFaucet {
+        #[arg(long, default_value = "./.zebvix")]
+        home: PathBuf,
+        #[arg(long)]
+        to: String,
+        /// Amount of zUSD (decimals allowed). 1 zUSD = $1.
+        #[arg(long)]
+        amount: String,
+    },
+    /// Admin: initialize the AMM pool with first liquidity (node must be stopped).
+    AdminPoolInit {
+        #[arg(long, default_value = "./.zebvix")]
+        home: PathBuf,
+        /// Address that provides the initial liquidity (gets LP tokens).
+        #[arg(long)]
+        from: String,
+        /// ZBX amount to seed (decimals allowed).
+        #[arg(long)]
+        zbx: String,
+        /// zUSD amount to seed. Sets initial price = zusd / zbx.
+        #[arg(long)]
+        zusd: String,
+    },
+    /// Admin: add liquidity to the pool (node must be stopped).
+    AdminPoolAdd {
+        #[arg(long, default_value = "./.zebvix")]
+        home: PathBuf,
+        #[arg(long)]
+        from: String,
+        #[arg(long)]
+        zbx: String,
+        #[arg(long)]
+        zusd: String,
+    },
+    /// Admin: swap ZBX→zUSD or zUSD→ZBX directly (node must be stopped).
+    AdminSwap {
+        #[arg(long, default_value = "./.zebvix")]
+        home: PathBuf,
+        #[arg(long)]
+        from: String,
+        /// "zbx" to sell ZBX for zUSD, or "zusd" to sell zUSD for ZBX.
+        #[arg(long)]
+        sell: String,
+        /// Input amount (in the token being sold).
+        #[arg(long)]
+        amount: String,
+        /// Slippage protection: minimum acceptable output.
+        #[arg(long, default_value = "0")]
+        min_out: String,
+    },
+    /// Print pool state (read-only; works while node is running).
+    PoolInfo {
+        #[arg(long, default_value = "./.zebvix")]
+        home: PathBuf,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -282,6 +338,99 @@ async fn reqwest_get_nonce(url: &str, addr: &Address) -> Result<u64> {
     Ok(resp["result"].as_u64().unwrap_or(0))
 }
 
+// ───────── Admin pool / faucet commands (Phase 1) ─────────
+//
+// These bypass the mempool and write directly to the on-disk state.
+// They MUST be run while the node binary is stopped to avoid RocksDB lock
+// conflicts. Phase 2 will replace these with proper signed transactions
+// flowing through consensus.
+
+fn fmt_zbx(wei: u128) -> String {
+    let whole = wei / WEI_PER_ZBX;
+    let frac = wei % WEI_PER_ZBX;
+    if frac == 0 { return format!("{}", whole); }
+    let frac_str = format!("{:018}", frac);
+    let trimmed = frac_str.trim_end_matches('0');
+    format!("{}.{}", whole, trimmed)
+}
+
+fn cmd_admin_faucet(home: PathBuf, to: String, amount: String) -> Result<()> {
+    let to_addr = Address::from_hex(&to)?;
+    let amt = parse_zbx_amount(&amount)?; // zUSD uses same 18-decimal scale
+    let state = State::open(&home.join("data"))?;
+    state.faucet_mint_zusd(&to_addr, amt)?;
+    let acc = state.account(&to_addr);
+    println!("✅ Minted {} zUSD → {}", fmt_zbx(amt), to_addr);
+    println!("   New zUSD balance: {} zUSD", fmt_zbx(acc.zusd));
+    Ok(())
+}
+
+fn cmd_admin_pool_init(home: PathBuf, from: String, zbx: String, zusd: String) -> Result<()> {
+    let from_addr = Address::from_hex(&from)?;
+    let zbx_w = parse_zbx_amount(&zbx)?;
+    let zusd_w = parse_zbx_amount(&zusd)?;
+    let state = State::open(&home.join("data"))?;
+    let lp = state.pool_init(&from_addr, zbx_w, zusd_w)?;
+    let p = state.pool();
+    println!("✅ Pool initialized!");
+    println!("   ZBX reserve : {} ZBX", fmt_zbx(p.zbx_reserve));
+    println!("   zUSD reserve: {} zUSD", fmt_zbx(p.zusd_reserve));
+    println!("   LP minted   : {} (to {})", lp, from_addr);
+    println!("   Spot price  : 1 ZBX = ${:.6}", p.spot_price_zusd_per_zbx() as f64 / 1e18);
+    Ok(())
+}
+
+fn cmd_admin_pool_add(home: PathBuf, from: String, zbx: String, zusd: String) -> Result<()> {
+    let from_addr = Address::from_hex(&from)?;
+    let zbx_w = parse_zbx_amount(&zbx)?;
+    let zusd_w = parse_zbx_amount(&zusd)?;
+    let state = State::open(&home.join("data"))?;
+    let (zbx_in, zusd_in, lp) = state.pool_add_liquidity(&from_addr, zbx_w, zusd_w)?;
+    let p = state.pool();
+    println!("✅ Liquidity added!");
+    println!("   Used ZBX  : {} ZBX", fmt_zbx(zbx_in));
+    println!("   Used zUSD : {} zUSD", fmt_zbx(zusd_in));
+    println!("   LP minted : {}", lp);
+    println!("   New reserves: {} ZBX / {} zUSD", fmt_zbx(p.zbx_reserve), fmt_zbx(p.zusd_reserve));
+    Ok(())
+}
+
+fn cmd_admin_swap(home: PathBuf, from: String, sell: String, amount: String, min_out: String) -> Result<()> {
+    let from_addr = Address::from_hex(&from)?;
+    let amt = parse_zbx_amount(&amount)?;
+    let min = parse_zbx_amount(&min_out)?;
+    let state = State::open(&home.join("data"))?;
+    let (out_token, out_amt) = match sell.to_lowercase().as_str() {
+        "zbx" => ("zUSD", state.pool_swap_zbx_to_zusd(&from_addr, amt, min)?),
+        "zusd" => ("ZBX", state.pool_swap_zusd_to_zbx(&from_addr, amt, min)?),
+        other => return Err(anyhow!("--sell must be 'zbx' or 'zusd', got '{}'", other)),
+    };
+    let p = state.pool();
+    println!("✅ Swap executed!");
+    println!("   Sold     : {} {}", fmt_zbx(amt), if sell.eq_ignore_ascii_case("zbx") {"ZBX"} else {"zUSD"});
+    println!("   Received : {} {}", fmt_zbx(out_amt), out_token);
+    println!("   New price: 1 ZBX = ${:.6}", p.spot_price_zusd_per_zbx() as f64 / 1e18);
+    Ok(())
+}
+
+fn cmd_pool_info(home: PathBuf) -> Result<()> {
+    let state = State::open(&home.join("data"))?;
+    let p = state.pool();
+    if !p.is_initialized() {
+        println!("Pool: ❌ Not initialized yet.");
+        println!("Run: zebvix-node admin-pool-init --from <addr> --zbx <N> --zusd <N>");
+        return Ok(());
+    }
+    println!("📊 zSwap AMM Pool (ZBX / zUSD)");
+    println!("   ZBX reserve   : {} ZBX", fmt_zbx(p.zbx_reserve));
+    println!("   zUSD reserve  : {} zUSD", fmt_zbx(p.zusd_reserve));
+    println!("   LP supply     : {}", p.lp_supply);
+    println!("   Spot price    : 1 ZBX = ${:.6}", p.spot_price_zusd_per_zbx() as f64 / 1e18);
+    println!("   Init height   : {}", p.init_height);
+    println!("   Pool fee      : 0.30%");
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -294,5 +443,10 @@ async fn main() -> Result<()> {
         Cmd::Init { home, validator_key, alloc, no_default_premine } => cmd_init(home, validator_key, alloc, no_default_premine),
         Cmd::Start { home, rpc } => cmd_start(home, rpc).await,
         Cmd::Send { from_key, to, amount, fee, rpc } => cmd_send(from_key, to, amount, fee, rpc).await,
+        Cmd::AdminFaucet { home, to, amount } => cmd_admin_faucet(home, to, amount),
+        Cmd::AdminPoolInit { home, from, zbx, zusd } => cmd_admin_pool_init(home, from, zbx, zusd),
+        Cmd::AdminPoolAdd { home, from, zbx, zusd } => cmd_admin_pool_add(home, from, zbx, zusd),
+        Cmd::AdminSwap { home, from, sell, amount, min_out } => cmd_admin_swap(home, from, sell, amount, min_out),
+        Cmd::PoolInfo { home } => cmd_pool_info(home),
     }
 }

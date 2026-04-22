@@ -43,6 +43,18 @@ pub const MIN_TX_FEE_WEI: u128 = MIN_GAS_UNITS as u128 * MIN_GAS_PRICE_WEI;
 /// Future versions will compute by actual gas usage (EVM ops).
 pub const STANDARD_TX_FEE_WEI: u128 = MIN_TX_FEE_WEI;
 
+// ───────── Dynamic gas pricing (Phase 1: read-only oracle) ─────────
+
+/// Target USD value per standard transfer, in micro-USD ($0.001 = 1000).
+/// User-friendly fee — auto-scales as ZBX price moves.
+pub const TARGET_FEE_USD_MICRO: u128 = 1_000;
+
+/// Floor gas price = 1 gwei (spam protection — fee never below 21k × 1 gwei).
+pub const DYNAMIC_GAS_FLOOR_GWEI: u128 = 1;
+
+/// Cap gas price = 10,000 gwei = 0.21 ZBX max fee per tx (price-crash safety).
+pub const DYNAMIC_GAS_CAP_GWEI: u128 = 10_000;
+
 /// Compute block reward at a given height (1-indexed). Returns 0 once reward halves to 0.
 pub fn reward_at_height(height: u64) -> u128 {
     if height == 0 {
