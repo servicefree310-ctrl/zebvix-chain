@@ -3,7 +3,9 @@ use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use zebvix_node::crypto::{address_from_pubkey, generate_keypair, keypair_from_secret, sign_tx};
-use zebvix_node::tokenomics::{CHAIN_ID, MIN_TX_FEE_WEI, STANDARD_TX_FEE_WEI, WEI_PER_ZBX};
+use zebvix_node::tokenomics::{
+    CHAIN_ID, MIN_GAS_PRICE_WEI, MIN_GAS_UNITS, MIN_TX_FEE_WEI, STANDARD_TX_FEE_WEI, WEI_PER_ZBX,
+};
 use zebvix_node::types::{Address, TxBody};
 
 const C_RESET: &str = "\x1b[0m";
@@ -408,6 +410,8 @@ async fn cmd_info(rpc: &str, quiet: bool) -> Result<()> {
         println!("  {}Token      :{} {}ZBX{}", C_DIM, C_RESET, C_BOLD, C_RESET);
         println!("  {}Chain ID   :{} {}", C_DIM, C_RESET, chain_id);
         println!("  {}Block time :{} 5 sec", C_DIM, C_RESET);
+        println!("  {}Gas units  :{} {} (per transfer, ETH-compatible)", C_DIM, C_RESET, MIN_GAS_UNITS);
+        println!("  {}Gas price  :{} {} gwei (min)", C_DIM, C_RESET, MIN_GAS_PRICE_WEI / 1_000_000_000);
         println!("  {}Min fee    :{} {} ZBX", C_DIM, C_RESET, format_zbx(MIN_TX_FEE_WEI));
         println!("  {}Tip height :{} {}", C_DIM, C_RESET, height);
         println!("  {}RPC        :{} {}", C_DIM, C_RESET, rpc);

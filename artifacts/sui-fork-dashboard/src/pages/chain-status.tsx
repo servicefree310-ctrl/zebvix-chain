@@ -92,8 +92,8 @@ const GROUPS: FeatureGroup[] = [
         version: "v0.1",
       },
       {
-        name: "Mandatory gas fees",
-        desc: "Min 0.001 ZBX per tx (spam protection). Fees go to block proposer along with mining reward. Enforced in mempool + state.",
+        name: "Mandatory gas fees (Ethereum-style)",
+        desc: "21,000 gas units per transfer (ETH-compatible) × 50 gwei min price = 0.00105 ZBX min fee. Spam protection. Fees → proposer along with mining reward.",
         status: "done",
         version: "v0.1.1",
         files: ["src/tokenomics.rs", "src/state.rs", "src/mempool.rs"],
