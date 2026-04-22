@@ -1,0 +1,36 @@
+# 5. Wait 30 more seconds (5-sec block time × 6 blocks) and re-check Node-2
+sleep 30
+echo "--- After 30s wait ---"
+zebvix-node validator-list --rpc-url http://127.0.0.1:8546
+Node-1: {'jsonrpc': '2.0', 'id': 1, 'result': {'block_time_secs': 5, 'chain_id': 7878, 'decimals': 18, 'name': 'Zebvix', 'token': 'ZBX'}}
+
+{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"method not found: zbx_blockNumber"}}
+{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"method not found: zbx_blockNumber"}}
+--- Node-2 last 25 lines ---
+nohup: ignoring input
+2026-04-22T17:53:02.341505Z  INFO zebvix_node: 🚀 Zebvix node starting
+2026-04-22T17:53:02.341538Z  INFO zebvix_node:    chain_id  : 7878
+2026-04-22T17:53:02.341543Z  INFO zebvix_node:    proposer  : 0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48
+2026-04-22T17:53:02.341570Z  INFO zebvix_node:    tip       : height=2212 hash=0x4705724d5127bf99d0d4210a0dbe6fe32cfd4a1369dbf6351816ea383822c517
+2026-04-22T17:53:02.341575Z  INFO zebvix_node:    rpc       : http://127.0.0.1:8546
+2026-04-22T17:53:02.341579Z  INFO zebvix_node:    mode      : FOLLOWER (block production DISABLED)
+2026-04-22T17:53:02.342097Z  INFO zebvix_node::p2p: 🔗 p2p dialing /ip4/127.0.0.1/tcp/30333
+2026-04-22T17:53:02.342121Z  INFO zebvix_node:    p2p       : tcp/30334  peer_id=12D3KooWFBQEs25sjXc6cbZUjnwQiQJarCTbFrnEp5bxxEeDFBgX
+2026-04-22T17:53:02.342129Z  INFO zebvix_node:    mdns      : DISABLED (--no-mdns)
+2026-04-22T17:53:02.342142Z  WARN zebvix_node: follower mode: producer DISABLED, this node will only sync from peers
+2026-04-22T17:53:02.343277Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/127.0.0.1/tcp/30334/p2p/12D3KooWFBQEs25sjXc6cbZUjnwQiQJarCTbFrnEp5bxxEeDFBgX
+2026-04-22T17:53:02.343293Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/93.127.213.192/tcp/30334/p2p/12D3KooWFBQEs25sjXc6cbZUjnwQiQJarCTbFrnEp5bxxEeDFBgX
+2026-04-22T17:53:02.344832Z  INFO zebvix_node::p2p: ✅ p2p connected: 12D3KooWJYTMXAeVXPoonXgRDccj97nmhb3BgizZER7BPrrq8hNU
+2026-04-22T17:53:10.345021Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWJYTMXAeVXPoonXgRDccj97nmhb3BgizZER7BPrrq8hNU: serving 256 blocks [267..=522]
+2026-04-22T17:54:14.345842Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWJYTMXAeVXPoonXgRDccj97nmhb3BgizZER7BPrrq8hNU: serving 256 blocks [280..=535]
+2026-04-22T17:55:18.346022Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWJYTMXAeVXPoonXgRDccj97nmhb3BgizZER7BPrrq8hNU: serving 256 blocks [292..=547]
+2026-04-22T17:56:22.345325Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWJYTMXAeVXPoonXgRDccj97nmhb3BgizZER7BPrrq8hNU: serving 256 blocks [305..=560]
+--- Founder applied? ---
+{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"method not found: zbx_getAccount"}}
+--- After 30s wait ---
+🛡  Active validators: 1 (via RPC http://127.0.0.1:8546)
+   Total voting power : 1
+   Quorum (>2/3)      : 1
+
+   [ 1] 0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  power=1  pubkey=0xde996e74285312a38885abd1da3aa27b9e7549f11dd67c485d1671b29832fe75
+root@srv1266996:/home/zebvix-chain# 
