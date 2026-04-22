@@ -1,0 +1,50 @@
+# 7. Add Node-2 via tx (now both on SAME chain, tx will reach both)
+zebvix-node validator-add \
+echo """jsonrpc":"2.0","id":1,"method":"zbx_voteStats","params":[]}'json" \f) \
+[1]+  Terminated              nohup zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer "/ip4/127.0.0.1/tcp/30333" --no-mdns --follower > /var/log/zebvix2.log 2>&1
+total 496K
+-rw-r--r-- 1 root root 156K Apr 22 17:59 preB315-node1-20260422_175935.tar.gz
+-rw-r--r-- 1 root root 340K Apr 22 17:59 preB315-node2-20260422_175935.tar.gz
+Cargo.lock                 Cargo.toml.bak.1776873051  README.md        node.log            src.bak.1776875799  src.old-cli2      zebvix-chain-source.tar.gz
+Cargo.lock.bak.1776875799  Cargo.toml.bak.1776874536  alice.key        src                 src.bak.1776876305  src.old-overflow
+Cargo.lock.bak.1776876305  Cargo.toml.bak.1776875799  data             src.bak.1776873051  src.broken-isqrt    target
+Cargo.toml                 Cargo.toml.bak.1776876305  newchain.tar.gz  src.bak.1776874536  src.old-cli         validator.key
+ℹ️  No founder pre-mine — admin earns ZBX only via block rewards & swap fees.
+ℹ️  Genesis validator (founder, deterministic): 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc (power=1)
+✅ Initialized Zebvix chain at /root/.zebvix
+   chain_id          : 7878
+   validator address : 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+   genesis           : /root/.zebvix/genesis.json
+   data dir          : /root/.zebvix/data
+Error: No such file or directory (os error 2)
+● zebvix.service - Zebvix L1 Blockchain Node
+     Loaded: loaded (/etc/systemd/system/zebvix.service; enabled; preset: enabled)
+     Active: active (running) since Wed 2026-04-22 17:59:37 UTC; 3s ago
+   Main PID: 3532817 (zebvix-node)
+      Tasks: 7 (limit: 9483)
+     Memory: 2.6M (peak: 3.3M)
+        CPU: 17ms
+     CGroup: /system.slice/zebvix.service
+🛡  Active validators: 1 (via RPC http://127.0.0.1:8545)
+   Total voting power : 1
+   Quorum (>2/3)      : 1
+
+   [ 1] 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  power=1  pubkey=0xaa9f6c1f047126b58bdfe62d7adc2ad04ec36d83b9391d313022fbd50cb5d097
+📝 Submitting validator-add tx for 0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48 (power=1)
+   signer (must be admin) : 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+   nonce / fee            : 0 / 2000000000000000 wei
+   ✓ tx hash              : 0xdf109d690749dd681e872e93312428c53ce1f42fc584fd2ee1e3d3981400770e
+
+✓ Tx accepted into mempool. Once next block is committed,
+  every node applies the change → registry converges chain-wide.
+[1] 3532893
+[1]+  Exit 1                  nohup zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer "/ip4/127.0.0.1/tcp/30333" --no-mdns --follower > /var/log/zebvix2.log 2>&1
+🛡  Active validators: 2 (via RPC http://127.0.0.1:8545)
+   Total voting power : 2
+   Quorum (>2/3)      : 2
+
+   [ 1] 0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  power=1  pubkey=0xde996e74285312a38885abd1da3aa27b9e7549f11dd67c485d1671b29832fe75
+   [ 2] 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  power=1  pubkey=0xaa9f6c1f047126b58bdfe62d7adc2ad04ec36d83b9391d313022fbd50cb5d097
+Error: RPC call failed (http://127.0.0.1:8546): Connection refused (os error 111). Tip: pass --offline to read DB directly when node is stopped.
+{"jsonrpc":"2.0","id":1,"result":{"height":3,"quorum_threshold":2,"rounds":[{"round":0,"targets":[{"block_hash":"0xebc1188066fca915f89a8273cdfd0ba6953edfc253fbeeadd5b96f3766065685","has_quorum":false,"power":1}],"type":"precommit","vote_count":1,"voters":["0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc"]},{"round":0,"targets":[{"block_hash":"0xebc1188066fca915f89a8273cdfd0ba6953edfc253fbeeadd5b96f3766065685","has_quorum":false,"power":1}],"type":"prevote","vote_count":1,"voters":["0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc"]}],"total_voting_power":2}}
+root@srv1266996:/home/zebvix-chain# 
