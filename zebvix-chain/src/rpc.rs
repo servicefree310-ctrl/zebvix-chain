@@ -12,7 +12,7 @@ use crate::pool::dynamic_gas_price_wei;
 use crate::state::State;
 use crate::tokenomics::{
     cumulative_supply, reward_at_height, CHAIN_ID, DYNAMIC_GAS_CAP_GWEI, DYNAMIC_GAS_FLOOR_GWEI,
-    MIN_GAS_UNITS, TARGET_FEE_USD_MICRO, TOTAL_SUPPLY_WEI,
+    MAX_SWAP_ZBX_WEI, MAX_SWAP_ZUSD, MIN_GAS_UNITS, TARGET_FEE_USD_MICRO, TOTAL_SUPPLY_WEI,
 };
 use crate::types::{Address, SignedTx};
 use axum::{extract::State as AxState, routing::post, Json, Router};
@@ -127,6 +127,10 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 "init_height": p.init_height,
                 "last_update_height": p.last_update_height,
                 "fee_pct": "0.30",
+                "max_swap_zbx_wei": MAX_SWAP_ZBX_WEI.to_string(),
+                "max_swap_zusd": MAX_SWAP_ZUSD.to_string(),
+                "max_swap_zbx": "100000",
+                "max_swap_zusd_display": "100000",
             }))
         }
         "zbx_getPriceUSD" => {

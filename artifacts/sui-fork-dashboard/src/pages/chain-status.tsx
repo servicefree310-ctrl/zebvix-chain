@@ -120,6 +120,13 @@ const GROUPS: FeatureGroup[] = [
         files: ["src/pool.rs", "src/tokenomics.rs", "src/rpc.rs"],
       },
       {
+        name: "Anti-whale swap limit (100,000 per tx)",
+        desc: "Single swap max = 100,000 ZBX or 100,000 zUSD. Bigger trades must split across multiple txs. Protects pool from whale dumps & flash-loan-style price manipulation. Enforced in pool.swap_zbx_for_zusd / swap_zusd_for_zbx (input + output cap).",
+        status: "done",
+        version: "v0.1.2",
+        files: ["src/pool.rs", "src/tokenomics.rs"],
+      },
+      {
         name: "Pool admin commands (faucet / pool-init / swap)",
         desc: "zebvix-node admin-faucet | admin-pool-init | admin-pool-add | admin-swap | pool-info — direct DB writes (Phase 1, node must be stopped). Phase 2 moves swap/liquidity ops to signed txs through mempool.",
         status: "done",

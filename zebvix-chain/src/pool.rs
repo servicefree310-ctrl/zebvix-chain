@@ -120,6 +120,9 @@ impl Pool {
     pub fn swap_zbx_for_zusd(&mut self, zbx_in: u128, height: u64) -> Result<u128, &'static str> {
         if !self.is_initialized() { return Err("pool not initialized"); }
         if zbx_in == 0 { return Err("zero input"); }
+        if zbx_in > crate::tokenomics::MAX_SWAP_ZBX_WEI {
+            return Err("amount exceeds max swap limit (100,000 ZBX per tx)");
+        }
         let amount_in_after_fee = zbx_in.saturating_mul(POOL_FEE_DEN - POOL_FEE_NUM);
         let numerator = amount_in_after_fee.saturating_mul(self.zusd_reserve);
         let denominator = self.zbx_reserve.saturating_mul(POOL_FEE_DEN).saturating_add(amount_in_after_fee);
@@ -136,11 +139,18 @@ impl Pool {
     pub fn swap_zusd_for_zbx(&mut self, zusd_in: u128, height: u64) -> Result<u128, &'static str> {
         if !self.is_initialized() { return Err("pool not initialized"); }
         if zusd_in == 0 { return Err("zero input"); }
+        if zusd_in > crate::tokenomics::MAX_SWAP_ZUSD {
+            return Err("amount exceeds max swap limit (100,000 zUSD per tx)");
+        }
+        // Also cap output to MAX_SWAP_ZBX (whale buy protection).
         let amount_in_after_fee = zusd_in.saturating_mul(POOL_FEE_DEN - POOL_FEE_NUM);
         let numerator = amount_in_after_fee.saturating_mul(self.zbx_reserve);
         let denominator = self.zusd_reserve.saturating_mul(POOL_FEE_DEN).saturating_add(amount_in_after_fee);
         let zbx_out = numerator.checked_div(denominator).ok_or("div by zero")?;
         if zbx_out == 0 || zbx_out >= self.zbx_reserve { return Err("insufficient liquidity"); }
+        if zbx_out > crate::tokenomics::MAX_SWAP_ZBX_WEI {
+            return Err("output exceeds max swap limit (100,000 ZBX per tx)");
+        }
 
         self.update_oracle(height);
         self.zusd_reserve = self.zusd_reserve.saturating_add(zusd_in);
@@ -237,6 +247,20 @@ mod tests {
         // Without fee, would get ~999 zUSD (slight slippage). With 0.3% fee: ~996 zUSD.
         assert!(out < 999 * scale);
         assert!(out > 990 * scale);
+    }
+
+    #[test]
+    fn whale_swap_rejected_above_limit() {
+        let mut p = Pool::default();
+        let scale = 1_000_000_000_000_000_000u128;
+        // Big pool so liquidity isn't the bottleneck.
+        p.init_liquidity(10_000_000 * scale, 10_000_000 * scale, 100).unwrap();
+        // 100,001 ZBX should fail (over 1 lakh limit).
+        let huge = 100_001 * scale;
+        assert!(p.swap_zbx_for_zusd(huge, 101).is_err());
+        // 100,000 ZBX exactly should succeed.
+        let max_ok = 100_000 * scale;
+        assert!(p.swap_zbx_for_zusd(max_ok, 101).is_ok());
     }
 
     #[test]

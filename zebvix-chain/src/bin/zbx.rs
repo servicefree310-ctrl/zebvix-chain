@@ -574,6 +574,10 @@ async fn cmd_pool(rpc: &str, quiet: bool) -> Result<()> {
     println!("  {}LP supply    :{} {}", C_DIM, C_RESET, lp);
     println!("  {}Spot price   :{} {}1 ZBX = ${}{}", C_DIM, C_RESET, C_GREEN, price, C_RESET);
     println!("  {}Pool fee     :{} 0.30% (Uniswap V2)", C_DIM, C_RESET);
+    println!("  {}Max per swap :{} {}{} ZBX{} or {}{} zUSD{}  {}(anti-whale){}",
+        C_DIM, C_RESET, C_BOLD, r["max_swap_zbx"].as_str().unwrap_or("?"), C_RESET,
+        C_BOLD, r["max_swap_zusd_display"].as_str().unwrap_or("?"), C_RESET,
+        C_DIM, C_RESET);
     println!("  {}Init height  :{} {}", C_DIM, C_RESET, r["init_height"]);
     Ok(())
 }

@@ -55,6 +55,17 @@ pub const DYNAMIC_GAS_FLOOR_GWEI: u128 = 1;
 /// Cap gas price = 10,000 gwei = 0.21 ZBX max fee per tx (price-crash safety).
 pub const DYNAMIC_GAS_CAP_GWEI: u128 = 10_000;
 
+// ───────── Anti-whale swap limits (per single transaction) ─────────
+
+/// Maximum ZBX per single swap = 100,000 ZBX (1 lakh).
+/// Protects pool from whale dumps & flash-loan-style price manipulation.
+/// Bigger trades must split into multiple txs.
+pub const MAX_SWAP_ZBX_WEI: u128 = 100_000u128 * WEI_PER_ZBX;
+
+/// Maximum zUSD per single swap = 100,000 zUSD ($100k).
+/// Same scale as ZBX (18 decimals).
+pub const MAX_SWAP_ZUSD: u128 = 100_000u128 * WEI_PER_ZBX;
+
 /// Compute block reward at a given height (1-indexed). Returns 0 once reward halves to 0.
 pub fn reward_at_height(height: u64) -> u128 {
     if height == 0 {
