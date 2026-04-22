@@ -1,0 +1,36 @@
+# 8. Restart Node-1ix-node ; sleep 3
+pkill -SIGTERM zebvix-node ; sleep 3tart --home /root/.zebvix \
+nohup ./target/release/zebvix-node start --home /root/.zebvix \
+  > /root/.zebvix/node.log 2>&1 &
+# 9. Test
+# 9. Test
+sleep 5t/release/zebvix-node block-number --rpc-url http://127.0.0.1:8545
+./target/release/zebvix-node block-number --rpc-url http://127.0.0.1:8545
+./target/release/zebvix-node show-validator \
+  --address 0xe381YOUR_FOUNDER_ADDRESS_HERE \
+  --rpc-url http://127.0.0.1:8545
+bash: cd: /home/zebvix-chain/zebvix-chain: No such file or directory
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100  220k  100  220k    0     0   221k      0 --:--:-- --:--:-- --:--:--  221k
+-rw-r--r-- 1 root root 220K Apr 22 18:40 /tmp/zebvix-src.tar
+/tmp/zebvix-src.tar: POSIX tar archive (GNU)
+   Compiling zebvix-node v0.1.0 (/home/zebvix-chain)
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:358:4
+    |
+358 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 1m 09s
+  show-validator        Show a single validator's details (address, pubkey, voting_power). Queries the running node via RPC (`zbx_getValidator`)
+  block-number          Show current chain tip (height, hash, timestamp, proposer). Queries the running node via RPC (`zbx_blockNumber`)
+[1]+  Terminated              nohup ./target/release/zebvix-node start --home /root/.zebvix > /root/.zebvix/node.log 2>&1
+[1] 3538410
+[1]+  Exit 1                  nohup ./target/release/zebvix-node start --home /root/.zebvix > /root/.zebvix/node.log 2>&1
+Error: RPC error: {"code":-32601,"message":"method not found: zbx_blockNumber"}
+Error: RPC error: {"code":-32602,"message":"invalid address"}
+root@srv1266996:/home/zebvix-chain# 
