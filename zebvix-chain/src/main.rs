@@ -169,8 +169,8 @@ enum Cmd {
         /// JSON-RPC endpoint of a running node.
         #[arg(long, default_value = "http://127.0.0.1:8545")]
         rpc_url: String,
-        /// Fee (in wei) — must be ≥ MIN_TX_FEE_WEI.
-        #[arg(long, default_value = "0.0001")]
+        /// Fee in ZBX (must be ≥ 0.00105). Default 0.002 stays safely above min.
+        #[arg(long, default_value = "0.002")]
         fee: String,
     },
     /// Admin: remove a validator via on-chain tx. Node must be running.
@@ -182,7 +182,7 @@ enum Cmd {
         address: String,
         #[arg(long, default_value = "http://127.0.0.1:8545")]
         rpc_url: String,
-        #[arg(long, default_value = "0.0001")]
+        #[arg(long, default_value = "0.002")]
         fee: String,
     },
 }
@@ -822,6 +822,22 @@ fn parse_pubkey_hex(s: &str) -> Result<[u8; 32]> {
     Ok(a)
 }
 
+/// Submit tx via RPC, return Ok(tx_hash) only on `result` field; return Err
+/// (with code+message) on `error` field. Avoids the previous bug where any
+/// HTTP-200 was treated as success even when the body carried a JSON-RPC error.
+async fn submit_tx_strict(rpc_url: &str, tx: &zebvix_node::types::SignedTx) -> Result<String> {
+    let req = serde_json::json!({
+        "jsonrpc":"2.0","id":1,"method":"zbx_sendTransaction","params":[tx]
+    });
+    let resp = http_post(rpc_url, &req).await?;
+    if let Some(err) = resp.get("error") {
+        let code = err.get("code").and_then(|c| c.as_i64()).unwrap_or(0);
+        let msg = err.get("message").and_then(|m| m.as_str()).unwrap_or("(no message)");
+        return Err(anyhow!("RPC error {code}: {msg}"));
+    }
+    Ok(resp.get("result").and_then(|r| r.as_str()).unwrap_or("?").to_string())
+}
+
 async fn cmd_validator_add(
     signer_key: PathBuf,
     pubkey_hex: String,
@@ -835,6 +851,12 @@ async fn cmd_validator_add(
     let val_pk = parse_pubkey_hex(&pubkey_hex)?;
     let val_addr = address_from_pubkey(&val_pk);
     let fee_wei = parse_zbx_amount(&fee)?;
+    if fee_wei < tokenomics::MIN_TX_FEE_WEI {
+        return Err(anyhow!(
+            "fee {} wei below MIN_TX_FEE_WEI {} wei (≈0.00105 ZBX) — pass --fee 0.002 or higher",
+            fee_wei, tokenomics::MIN_TX_FEE_WEI
+        ));
+    }
 
     let nonce = reqwest_get_nonce(&rpc_url, &from).await?;
     let body = TxBody {
@@ -843,17 +865,14 @@ async fn cmd_validator_add(
         kind: TxKind::ValidatorAdd { pubkey: val_pk, power },
     };
     let tx = sign_tx(&sk, body);
-    let req = serde_json::json!({
-        "jsonrpc":"2.0","id":1,"method":"zbx_sendTransaction","params":[tx]
-    });
-    let resp = http_post(&rpc_url, &req).await?;
-    println!("📝 Submitted validator-add tx for {} (power={})", val_addr, power);
+    println!("📝 Submitting validator-add tx for {} (power={})", val_addr, power);
     println!("   signer (must be admin) : {}", from);
     println!("   nonce / fee            : {} / {} wei", nonce, fee_wei);
-    println!("   RPC response           : {}", serde_json::to_string_pretty(&resp)?);
+    let tx_hash = submit_tx_strict(&rpc_url, &tx).await?;
+    println!("   ✓ tx hash              : {}", tx_hash);
     println!();
-    println!("✓ Tx in mempool. Once next block is committed, all nodes will apply the change.");
-    println!("  Verify after a few seconds: zebvix-node validator-list --home <each_node_home>");
+    println!("✓ Tx accepted into mempool. Once next block is committed,");
+    println!("  every node applies the change → registry converges chain-wide.");
     Ok(())
 }
 
@@ -867,6 +886,12 @@ async fn cmd_validator_remove(
     let from = address_from_pubkey(&pk);
     let target = Address::from_hex(&address_hex)?;
     let fee_wei = parse_zbx_amount(&fee)?;
+    if fee_wei < tokenomics::MIN_TX_FEE_WEI {
+        return Err(anyhow!(
+            "fee {} wei below MIN_TX_FEE_WEI {} wei (≈0.00105 ZBX) — pass --fee 0.002 or higher",
+            fee_wei, tokenomics::MIN_TX_FEE_WEI
+        ));
+    }
 
     let nonce = reqwest_get_nonce(&rpc_url, &from).await?;
     let body = TxBody {
@@ -875,13 +900,10 @@ async fn cmd_validator_remove(
         kind: TxKind::ValidatorRemove { address: target },
     };
     let tx = sign_tx(&sk, body);
-    let req = serde_json::json!({
-        "jsonrpc":"2.0","id":1,"method":"zbx_sendTransaction","params":[tx]
-    });
-    let resp = http_post(&rpc_url, &req).await?;
-    println!("📝 Submitted validator-remove tx for {}", target);
+    println!("📝 Submitting validator-remove tx for {}", target);
     println!("   signer (must be admin) : {}", from);
-    println!("   RPC response           : {}", serde_json::to_string_pretty(&resp)?);
+    let tx_hash = submit_tx_strict(&rpc_url, &tx).await?;
+    println!("   ✓ tx hash              : {}", tx_hash);
     Ok(())
 }
 
