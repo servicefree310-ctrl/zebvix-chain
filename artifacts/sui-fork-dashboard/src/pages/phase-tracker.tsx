@@ -498,6 +498,17 @@ const PHASES = [
     ],
   },
   {
+    id: "B325", title: "🐛 B.3.2.5 — Sync-vs-Produce Race Fix (FOUND Apr 22, 2026)",
+    color: "from-red-500 to-orange-600", lightColor: "text-red-400",
+    borderColor: "border-red-500/40", bgColor: "bg-red-500/5",
+    points: [
+      { id: "b325_1", text: "BUG: Producer state machine doesn't check sync-status. When restarted node catches up via p2p and reaches who_proposes(h+1)==self, it produces OWN block immediately instead of waiting for peer's already-existing block." },
+      { id: "b325_2", text: "REPRO: Wipe Node-2 data → systemd restart → Node-2 syncs to h=256 (Node-1 was at h=565) → Node-2 immediately produces own #257 → INSTANT FORK at catch-up boundary." },
+      { id: "b325_3", text: "FIX: Add is_syncing() check in Producer::run() — skip production if peer_tip > our_tip + SYNC_THRESHOLD (e.g., 3 blocks). Use p2p heartbeat data already collected." },
+      { id: "b325_4", text: "Estimated effort: ~50 LOC + unit tests. Will block on B.3.2.3 commit-gate to fully prevent forks at consensus level." },
+    ],
+  },
+  {
     id: "B324", title: "🔮 B.3.2.4 — LastCommit in BlockHeader (FUTURE)",
     color: "from-rose-500 to-pink-600", lightColor: "text-rose-400",
     borderColor: "border-rose-500/40", bgColor: "bg-rose-500/5",

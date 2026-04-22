@@ -1,0 +1,46 @@
+# 6. Verify both nodes same tip
+/usr/local/bin/zebvix-node block-number --rpc-url http://127.0.0.1:8545
+/usr/local/bin/zebvix-node block-number --rpc-url http://127.0.0.1:8546
+# Heights within 1-2 blocks AND hashes match karne chahiye agar same height pe hain
+data.forked.1776883860  genesis.json  node.json  validator.key
+error: unexpected argument '--force' found
+
+Usage: zebvix-node init --validator-key <VALIDATOR_KEY> --home <HOME>
+
+For more information, try '--help'.
+2026-04-22T18:51:04.921763Z  INFO zebvix_node: 📦 p2p applied block #249 (0 txs)
+2026-04-22T18:51:04.921790Z  INFO zebvix_node: 📦 p2p applied block #250 (0 txs)
+2026-04-22T18:51:04.921809Z  INFO zebvix_node: 📦 p2p applied block #251 (0 txs)
+2026-04-22T18:51:04.921827Z  INFO zebvix_node: 📦 p2p applied block #252 (0 txs)
+2026-04-22T18:51:04.921845Z  INFO zebvix_node: 📦 p2p applied block #253 (0 txs)
+2026-04-22T18:51:04.921863Z  INFO zebvix_node: 📦 p2p applied block #254 (0 txs)
+2026-04-22T18:51:04.921887Z  INFO zebvix_node: 📦 p2p applied block #255 (0 txs)
+2026-04-22T18:51:04.921911Z  INFO zebvix_node: 📦 p2p applied block #256 (0 txs)
+2026-04-22T18:51:05.368119Z  INFO zebvix_node: 🗳  emitted prevote h=256 block=0xc8bc53643366b58a49af65105dcc54ed0f5cb29f243a0fc73e01856c30dfea76  ✅ QUORUM
+2026-04-22T18:51:05.368261Z  INFO zebvix_node: 🗳  emitted precommit h=256 block=0xc8bc53643366b58a49af65105dcc54ed0f5cb29f243a0fc73e01856c30dfea76  ✅ QUORUM
+2026-04-22T18:51:10.368601Z  INFO zebvix_node::consensus: ⛏  block #257 produced  proposer=0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  round=0  txs=0  hash=0xeab629c40a781ce10d8284b7e5aa3f2a120ee88dc71aab180071a61dba49f767
+2026-04-22T18:51:10.869023Z  INFO zebvix_node: 🗳  emitted prevote h=257 block=0xeab629c40a781ce10d8284b7e5aa3f2a120ee88dc71aab180071a61dba49f767  ✅ QUORUM
+2026-04-22T18:51:10.869185Z  INFO zebvix_node: 🗳  emitted precommit h=257 block=0xeab629c40a781ce10d8284b7e5aa3f2a120ee88dc71aab180071a61dba49f767  ✅ QUORUM
+2026-04-22T18:51:10.910542Z  INFO zebvix_node::p2p: ⏬ p2p out-of-order block #583 (tip=257); requesting [258..=513] from 12D3KooWNbzXfUkuyTfwvccvtdGwWE47kFU13vVzzeonNFgc73hz
+2026-04-22T18:51:10.915799Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWNbzXfUkuyTfwvccvtdGwWE47kFU13vVzzeonNFgc73hz: 256 blocks
+2026-04-22T18:51:10.915864Z  WARN zebvix_node: p2p apply_block #258 failed: parent hash mismatch
+2026-04-22T18:51:12.909566Z  INFO zebvix_node::p2p: ⏬ heartbeat: 12D3KooWNbzXfUkuyTfwvccvtdGwWE47kFU13vVzzeonNFgc73hz tip=583 (we=257); requesting [258..=513]
+2026-04-22T18:51:12.913536Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWNbzXfUkuyTfwvccvtdGwWE47kFU13vVzzeonNFgc73hz: 256 blocks
+2026-04-22T18:51:12.913582Z  WARN zebvix_node: p2p apply_block #258 failed: parent hash mismatch
+2026-04-22T18:51:16.368283Z  INFO zebvix_node::consensus: ⛏  block #258 produced  proposer=0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  round=0  txs=0  hash=0xd70df2cad029c2167b6aa4927dafbb1ddc47b92029109c9cd8105319880ad377
+2026-04-22T18:51:16.868374Z  INFO zebvix_node: 🗳  emitted prevote h=258 block=0xd70df2cad029c2167b6aa4927dafbb1ddc47b92029109c9cd8105319880ad377  ✅ QUORUM
+2026-04-22T18:51:16.868521Z  INFO zebvix_node: 🗳  emitted precommit h=258 block=0xd70df2cad029c2167b6aa4927dafbb1ddc47b92029109c9cd8105319880ad377  ✅ QUORUM
+2026-04-22T18:51:19.910229Z  INFO zebvix_node::p2p: ⏬ p2p out-of-order block #584 (tip=258); requesting [259..=514] from 12D3KooWNbzXfUkuyTfwvccvtdGwWE47kFU13vVzzeonNFgc73hz
+2026-04-22T18:51:19.912764Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWNbzXfUkuyTfwvccvtdGwWE47kFU13vVzzeonNFgc73hz: 256 blocks
+2026-04-22T18:51:19.912805Z  WARN zebvix_node: p2p apply_block #259 failed: parent hash mismatch
+2026-04-22T18:51:20.910289Z  INFO zebvix_node::p2p: ⏬ heartbeat: 12D3KooWNbzXfUkuyTfwvccvtdGwWE47kFU13vVzzeonNFgc73hz tip=584 (we=258); requesting [259..=514]
+2026-04-22T18:51:20.912845Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWNbzXfUkuyTfwvccvtdGwWE47kFU13vVzzeonNFgc73hz: 256 blocks
+2026-04-22T18:51:20.912884Z  WARN zebvix_node: p2p apply_block #259 failed: parent hash mismatch
+2026-04-22T18:51:21.868914Z  INFO zebvix_node::consensus: ⛏  block #259 produced  proposer=0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  round=0  txs=0  hash=0x3fa86617f361e3233e13790dc4c946c8077166e83c5d4cfd6533792335180a6d
+2026-04-22T18:51:22.368791Z  INFO zebvix_node: 🗳  emitted prevote h=259 block=0x3fa86617f361e3233e13790dc4c946c8077166e83c5d4cfd6533792335180a6d  ✅ QUORUM
+2026-04-22T18:51:22.368981Z  INFO zebvix_node: 🗳  emitted precommit h=259 block=0x3fa86617f361e3233e13790dc4c946c8077166e83c5d4cfd6533792335180a6d  ✅ QUORUM
+2026-04-22T18:51:25.411148Z  INFO zebvix_node::p2p: ⏬ p2p out-of-order block #585 (tip=259); requesting [260..=515] from 12D3KooWNbzXfUkuyTfwvccvtdGwWE47kFU13vVzzeonNFgc73hz
+2026-04-22T18:51:25.413810Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWNbzXfUkuyTfwvccvtdGwWE47kFU13vVzzeonNFgc73hz: 256 blocks
+2026-04-22T18:51:25.413885Z  WARN zebvix_node: p2p apply_block #260 failed: parent hash mismatch
+2026-04-22T18:51:27.868823Z  INFO zebvix_node::consensus: ⛏  block #260 produced  proposer=0xbdfbec5d0fbed5fe902520fcca793c0157ea0d48  round=0  txs=0  hash=0x22657ce0dfa6f059cbe2decafff8d8d4a2b410f1f345a4a5a51f48277cb302f0
+2026-04-22T18:51:28.368897Z  INFO zebvix_node: 🗳  emitted prevote h=260 block=0x22657ce0dfa6f059cbe2decafff8d8d4a2b410f1f345a4a5a51f48277cb302f0  ✅ QUORUM
