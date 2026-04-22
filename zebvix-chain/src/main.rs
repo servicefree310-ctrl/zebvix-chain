@@ -149,7 +149,17 @@ enum Cmd {
     },
     // ─────────── Phase B.1 — Validator-set management ───────────
     /// List all on-chain validators with voting power.
+    ///
+    /// By default queries via RPC (no DB lock conflict with a running node).
+    /// Pass `--offline` to read RocksDB directly (only safe when node is stopped).
     ValidatorList {
+        /// RPC endpoint to query (ignored if `--offline` is set).
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+        /// Read directly from RocksDB at `--home` (requires node to be stopped).
+        #[arg(long, default_value_t = false)]
+        offline: bool,
+        /// Home dir (only used with `--offline`).
         #[arg(long, default_value = "./.zebvix")]
         home: PathBuf,
     },
@@ -298,11 +308,25 @@ fn cmd_init(home: PathBuf, validator_key: PathBuf, alloc: Vec<String>, no_defaul
     let state = State::open(&data_dir)?;
     if state.tip().0 == 0 {
         state.genesis_credit(&alloc_pairs)?;
-        // Phase B.1: seed the genesis validator set with the founder validator (power=1).
-        // Additional validators can be onboarded post-genesis via `validator-add`.
-        let genesis_val = Validator::new(pk, 1);
-        state.put_validator(&genesis_val)?;
-        println!("ℹ️  Genesis validator registered: {} (power=1)", validator_addr);
+        // Phase B.3.1.5: seed genesis validator set DETERMINISTICALLY with the
+        // hardcoded founder pubkey — every node, regardless of its own
+        // `--validator-key`, starts with the same {founder} validator set.
+        // This eliminates the prior "genesis validator divergence" bug where
+        // each node's genesis registry had its own local key.
+        // Post-genesis additions (e.g., Node-2's own key) come via
+        // `validator-add` txs, which replicate via block-apply (B.3.1).
+        let founder_pk = parse_pubkey_hex(tokenomics::FOUNDER_PUBKEY_HEX)
+            .expect("FOUNDER_PUBKEY_HEX must be valid 32-byte hex");
+        let founder_val = Validator::new(founder_pk, 1);
+        let founder_addr = founder_val.address;
+        state.put_validator(&founder_val)?;
+        println!("ℹ️  Genesis validator (founder, deterministic): {} (power=1)", founder_addr);
+        if pk != founder_pk {
+            println!(
+                "ℹ️  Local validator key {} is NOT the founder — it must be added post-genesis via `validator-add` tx (admin-signed).",
+                validator_addr
+            );
+        }
     }
 
     let genesis = GenesisFile {
@@ -760,7 +784,7 @@ async fn main() -> Result<()> {
         Cmd::PoolInfo { home } => cmd_pool_info(home),
         Cmd::AdminChangeAddress { home, signer_key, new_admin } => cmd_admin_change_address(home, signer_key, new_admin),
         Cmd::AdminInfo { home } => cmd_admin_info(home),
-        Cmd::ValidatorList { home } => cmd_validator_list(home),
+        Cmd::ValidatorList { rpc_url, offline, home } => cmd_validator_list(rpc_url, offline, home).await,
         Cmd::ValidatorAdd { signer_key, pubkey, power, rpc_url, fee } =>
             cmd_validator_add(signer_key, pubkey, power, rpc_url, fee).await,
         Cmd::ValidatorRemove { signer_key, address, rpc_url, fee } =>
@@ -793,24 +817,59 @@ fn cmd_admin_change_address(home: PathBuf, signer_key: PathBuf, new_admin: Strin
 
 // ─────────── Phase B.1 — Validator-set commands ───────────
 
-fn cmd_validator_list(home: PathBuf) -> Result<()> {
-    let state = State::open(&home.join("data"))?;
-    let vals = state.validators();
-    let total = state.total_voting_power();
-    let quorum = state.quorum_threshold();
-    println!("🛡  Active validators: {}", vals.len());
+async fn cmd_validator_list(rpc_url: String, offline: bool, home: PathBuf) -> Result<()> {
+    if offline {
+        // Direct DB read — only safe when no node holds the lock.
+        let state = State::open(&home.join("data"))?;
+        let vals = state.validators();
+        let total = state.total_voting_power();
+        let quorum = state.quorum_threshold();
+        print_validators("offline (RocksDB direct)", vals.len(), total, quorum,
+            vals.into_iter().map(|v| (v.address.to_hex(), v.voting_power, hex::encode(v.pubkey))));
+        return Ok(());
+    }
+
+    // Default path: query the running node via RPC. No DB lock contention.
+    let req = serde_json::json!({
+        "jsonrpc":"2.0","id":1,"method":"zbx_listValidators","params":[]
+    });
+    let resp = http_post(&rpc_url, &req).await
+        .map_err(|e| anyhow!("RPC call failed ({rpc_url}): {e}. Tip: pass --offline to read DB directly when node is stopped."))?;
+    if let Some(err) = resp.get("error") {
+        return Err(anyhow!("RPC error: {}", err));
+    }
+    let result = resp.get("result").ok_or_else(|| anyhow!("missing 'result' in RPC response"))?;
+    let count = result.get("count").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+    let total = result.get("total_voting_power").and_then(|v| v.as_u64()).unwrap_or(0);
+    let quorum = result.get("quorum_threshold").and_then(|v| v.as_u64()).unwrap_or(0);
+    let empty: Vec<serde_json::Value> = vec![];
+    let arr = result.get("validators").and_then(|v| v.as_array()).unwrap_or(&empty);
+    let rows = arr.iter().map(|v| {
+        let addr = v.get("address").and_then(|x| x.as_str()).unwrap_or("?").to_string();
+        let power = v.get("voting_power").and_then(|x| x.as_u64()).unwrap_or(0);
+        let pk = v.get("pubkey").and_then(|x| x.as_str()).unwrap_or("?")
+            .strip_prefix("0x").unwrap_or("?").to_string();
+        (addr, power, pk)
+    });
+    print_validators(&format!("via RPC {rpc_url}"), count, total, quorum, rows);
+    Ok(())
+}
+
+fn print_validators<I: Iterator<Item = (String, u64, String)>>(
+    source: &str, count: usize, total: u64, quorum: u64, rows: I,
+) {
+    println!("🛡  Active validators: {} ({})", count, source);
     println!("   Total voting power : {}", total);
     println!("   Quorum (>2/3)      : {}", quorum);
     println!();
-    if vals.is_empty() {
+    let collected: Vec<_> = rows.collect();
+    if collected.is_empty() {
         println!("   (no validators registered)");
     } else {
-        for (i, v) in vals.iter().enumerate() {
-            println!("   [{:>2}] {}  power={}  pubkey=0x{}",
-                i + 1, v.address, v.voting_power, hex::encode(v.pubkey));
+        for (i, (addr, power, pk)) in collected.iter().enumerate() {
+            println!("   [{:>2}] {}  power={}  pubkey=0x{}", i + 1, addr, power, pk);
         }
     }
-    Ok(())
 }
 
 fn parse_pubkey_hex(s: &str) -> Result<[u8; 32]> {

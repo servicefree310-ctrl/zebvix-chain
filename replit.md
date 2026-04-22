@@ -38,12 +38,12 @@ Standalone Rust crate building Zebvix L1 — token ZBX, chain-id 7878, EVM-style
 - **B.1 — Validator registry** ✅ — On-chain RocksDB-backed validator set, admin-gated CLI, RPCs.
 - **B.2 — Vote messages** ✅ — Domain-tagged Ed25519 votes, `VotePool` with double-sign detection, gossipsub `zebvix/7878/votes/v1` topic, `zbx_voteStats` RPC, **2/2 quorum on every block** verified on VPS.
 - **B.3.1 — On-chain validator updates** ✅ — `TxKind` enum (`Transfer` / `ValidatorAdd` / `ValidatorRemove`); admin-signed governance txs; CLI now submits via RPC; **verified on VPS** that both nodes log `validator-add applied` for the same tx → registry replicates without manual mirroring.
+- **B.3.1.5 — Genesis fix + RPC for validator-list** ✅ — Hardcoded `FOUNDER_PUBKEY_HEX` in `tokenomics.rs`; `cmd_init` now deterministically seeds genesis validator set with `{founder}` regardless of local `--validator-key`. CLI `validator-list` now defaults to RPC (`zbx_listValidators`) — no DB lock conflict; pass `--offline` only when node is stopped.
 - **B.3.2+ — Tendermint state machine** ⏳ next — replace single-validator PoA producer with vote-driven commit (round-robin proposer, propose/prevote/precommit/commit timeouts, 2/3+ commit gate, `LastCommit` in header).
 
 ### Known follow-ups
 
-- **Genesis validator divergence**: `cmd_init` seeds the local node's validator key into its own genesis registry. Multi-node setups end up with each node having a different genesis registry. Workaround today: the `validator-add` tx replicates correctly via apply, so the *post-genesis* set converges. Proper fix (queued): hardcode founder pubkey constant in `state.rs`, have `cmd_init` always seed founder regardless of `--validator-key` (which then only governs the local signing identity).
-- **CLI vs running-node lock**: `validator-list --home <path>` opens RocksDB read-write and conflicts with the running node. Use logs (`validator-add applied`) for verification, or add a future `zbx_validators` RPC method.
+- **VPS re-init required for B.3.1.5**: existing VPS chain was init'd with the OLD `cmd_init` (Node-1's local key in genesis). To get the deterministic genesis, both nodes' DBs must be wiped and re-init'd. Until then, the chain still works (Node-2 was added via tx) but genesis isn't deterministic. New deployments will be clean.
 
 ### VPS topology
 

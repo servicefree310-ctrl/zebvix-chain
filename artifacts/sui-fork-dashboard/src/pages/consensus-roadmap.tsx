@@ -128,8 +128,8 @@ const PHASES: Phase[] = [
       "2/2 quorum proven on every block (VPS)",
     ],
     challenges: [
-      "Genesis divergence: cmd_init seeds local key (workaround: tx replicates)",
-      "CLI vs running-node DB lock (workaround: use logs)",
+      "✅ Genesis divergence FIXED in B.3.1.5 (FOUNDER_PUBKEY_HEX hardcoded)",
+      "✅ CLI lock issue FIXED — validator-list ab RPC call karta hai by default",
       "Stake unbonding + slashing pushed to Phase D",
     ],
     subtasks: [

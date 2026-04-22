@@ -63,6 +63,14 @@ pub const DYNAMIC_GAS_CAP_GWEI: u128 = 10_000;
 /// genesis liquidity loan (10M zUSD) is repaid.
 pub const ADMIN_ADDRESS_HEX: &str = "0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc";
 
+/// Founder's Ed25519 public key (32 bytes, hex). This is the pubkey whose
+/// last-20-byte address equals `ADMIN_ADDRESS_HEX`. Used by `cmd_init` to seed
+/// the genesis validator set deterministically — every node, regardless of its
+/// local `--validator-key`, starts with exactly this one validator at genesis.
+/// Post-genesis additions go through `validator-add` txs (B.3.1).
+pub const FOUNDER_PUBKEY_HEX: &str =
+    "0xaa9f6c1f047126b58bdfe62d7adc2ad04ec36d83b9391d313022fbd50cb5d097";
+
 /// Maximum number of times the admin/founder address may be rotated.
 /// After 3 changes, the admin address is permanently locked. Each change must
 /// be signed by the current admin's key.
