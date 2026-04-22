@@ -53,6 +53,11 @@ enum Cmd {
         /// Path to keyfile.
         keyfile: PathBuf,
     },
+    /// Print just the address of a keyfile (alias of `show`, address only).
+    Address {
+        /// Path to keyfile.
+        keyfile: PathBuf,
+    },
     /// Import a wallet from a raw 64-char hex secret key.
     Import {
         /// 64-char hex secret key (with or without 0x prefix).
@@ -303,15 +308,23 @@ async fn cmd_balance(rpc: &str, address: String, quiet: bool) -> Result<()> {
     let result = rpc_call(rpc, "eth_getBalance", serde_json::json!([addr.to_hex(), "latest"])).await?;
     let hex_str = result.as_str().ok_or_else(|| anyhow!("expected hex string"))?;
     let wei = hex_to_u128(hex_str)?;
+    // zUSD balance (best-effort: older nodes may not expose this RPC)
+    let zusd_wei: u128 = match rpc_call(rpc, "zbx_getZusdBalance", serde_json::json!([addr.to_hex()])).await {
+        Ok(v) => v.as_str().unwrap_or("0").parse::<u128>().unwrap_or(0),
+        Err(_) => 0,
+    };
     if quiet {
         println!("{}", serde_json::json!({
             "address": addr.to_hex(),
             "wei": wei.to_string(),
             "zbx": format_zbx(wei),
+            "zusd_wei": zusd_wei.to_string(),
+            "zusd": format_zbx(zusd_wei),
         }));
     } else {
         println!("  {}Address :{} {}", C_DIM, C_RESET, addr.to_hex());
-        println!("  {}Balance :{} {}{} ZBX{}", C_DIM, C_RESET, C_BOLD, format_zbx(wei), C_RESET);
+        println!("  {}ZBX     :{} {}{} ZBX{}", C_DIM, C_RESET, C_BOLD, format_zbx(wei), C_RESET);
+        println!("  {}zUSD    :{} {}{} zUSD{}", C_DIM, C_RESET, C_BOLD, format_zbx(zusd_wei), C_RESET);
         println!("  {}Wei     :{} {}", C_DIM, C_RESET, wei);
     }
     Ok(())
@@ -340,8 +353,9 @@ async fn cmd_send(rpc: &str, from: PathBuf, to: String, amount: String, fee: Opt
             let f = parse_zbx_amount(&s)?;
             if f < MIN_TX_FEE_WEI {
                 return Err(anyhow!(
-                    "fee {} ZBX is below network minimum 0.001 ZBX",
-                    format_zbx(f)
+                    "fee {} ZBX is below network minimum {} ZBX (21000 gas × 50 gwei)",
+                    format_zbx(f),
+                    format_zbx(MIN_TX_FEE_WEI)
                 ));
             }
             f
@@ -548,6 +562,11 @@ async fn main() -> Result<()> {
     match cli.cmd {
         Cmd::New { out, force } => cmd_new(out, force, q).await?,
         Cmd::Show { keyfile } => cmd_show(keyfile, q)?,
+        Cmd::Address { keyfile } => {
+            let (_, pk) = read_keyfile(&keyfile)?;
+            let addr = address_from_pubkey(&pk);
+            println!("{}", addr.to_hex());
+        }
         Cmd::Import { secret_hex, out } => cmd_import(secret_hex, out, q)?,
         Cmd::Balance { address } => cmd_balance(&rpc, address, q).await?,
         Cmd::Nonce { address } => cmd_nonce(&rpc, address, q).await?,
