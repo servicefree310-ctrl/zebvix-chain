@@ -354,6 +354,10 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 "epoch_reward_wei": crate::staking::STAKING_EPOCH_REWARD_WEI.to_string(),
                 "unbonding_epochs": crate::staking::UNBONDING_EPOCHS,
                 "min_self_bond_wei": crate::staking::MIN_SELF_BOND_WEI.to_string(),
+                "min_self_bond_usd_micro": crate::staking::MIN_SELF_BOND_USD_MICRO,
+                "min_self_bond_dynamic_wei": crate::staking::dynamic_min_self_bond_wei(
+                    ctx.state.pool().spot_price_zusd_per_zbx()
+                ).to_string(),
                 "min_delegation_wei": crate::staking::MIN_DELEGATION_WEI.to_string(),
                 "max_commission_bps": crate::staking::MAX_COMMISSION_BPS,
                 "max_commission_delta_bps": crate::staking::MAX_COMMISSION_BPS_DELTA,

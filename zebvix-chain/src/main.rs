@@ -1262,7 +1262,10 @@ async fn cmd_staking_info(rpc_url: String) -> Result<()> {
     println!("   Epoch length          : {} blocks", r["epoch_blocks"].as_u64().unwrap_or(0));
     println!("   Epoch reward          : {} wei", r["epoch_reward_wei"].as_str().unwrap_or("0"));
     println!("   Unbonding epochs      : {}", r["unbonding_epochs"].as_u64().unwrap_or(0));
-    println!("   Min self-bond         : {} wei", r["min_self_bond_wei"].as_str().unwrap_or("0"));
+    println!("   Min self-bond (fallback): {} wei", r["min_self_bond_wei"].as_str().unwrap_or("0"));
+    println!("   Min self-bond (target USD): ${:.2}",
+        r["min_self_bond_usd_micro"].as_u64().unwrap_or(0) as f64 / 1e6);
+    println!("   Min self-bond (live $50≡): {} wei", r["min_self_bond_dynamic_wei"].as_str().unwrap_or("0"));
     println!("   Min delegation        : {} wei", r["min_delegation_wei"].as_str().unwrap_or("0"));
     println!("   Max commission        : {} bps", r["max_commission_bps"].as_u64().unwrap_or(0));
     println!("   Max commission Δ/epoch: {} bps", r["max_commission_delta_bps"].as_u64().unwrap_or(0));

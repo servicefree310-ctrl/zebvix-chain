@@ -40,8 +40,37 @@ pub const UNBONDING_EPOCHS: u64 = 7;
 /// Maximum size of the active validator set (top-N by total stake).
 pub const MAX_ACTIVE_VALIDATORS: usize = 100;
 
-/// Minimum self-bond required to register a validator (1,000 ZBX in wei).
+/// Fallback minimum self-bond in ZBX wei when the AMM pool is uninitialized
+/// (no spot price available). Used as the floor for tests and pre-pool bootstrap.
 pub const MIN_SELF_BOND_WEI: u128 = 1_000u128 * 1_000_000_000_000_000_000u128;
+
+/// Target USD value of the minimum self-bond, in micro-USD ($50 = 50_000_000).
+/// Once the pool is initialized, the actual on-chain minimum is derived
+/// dynamically from this constant + the pool's current spot price.
+pub const MIN_SELF_BOND_USD_MICRO: u128 = 50_000_000;
+
+/// Compute the dynamic minimum self-bond in ZBX wei required to be worth
+/// `MIN_SELF_BOND_USD_MICRO` at the given pool's spot price.
+///
+/// Returns `MIN_SELF_BOND_WEI` (the static fallback) when the pool isn't
+/// initialized — this lets the chain bootstrap before any AMM liquidity exists.
+///
+/// `spot_price_q18` is zUSD-wei per ZBX-wei × 10^18 (matches `Pool::spot_price_zusd_per_zbx`).
+/// `MIN_SELF_BOND_USD_MICRO` is dollars × 10^6, and 1 zUSD = 10^18 wei,
+/// so the target zUSD-wei value is `usd_micro * 10^12`.
+pub fn dynamic_min_self_bond_wei(spot_price_q18: u128) -> u128 {
+    if spot_price_q18 == 0 {
+        return MIN_SELF_BOND_WEI;
+    }
+    // required_zbx_wei = target_zusd_wei * 1e18 / spot_price_q18
+    //                  = (usd_micro * 1e12) * 1e18 / spot_price_q18
+    //                  = usd_micro * 1e30 / spot_price_q18
+    use primitive_types::U256;
+    let target_zusd_wei = U256::from(MIN_SELF_BOND_USD_MICRO) * U256::from(1_000_000_000_000u128);
+    let scaled = target_zusd_wei * U256::from(1_000_000_000_000_000_000u128);
+    let result = scaled / U256::from(spot_price_q18);
+    if result.bits() > 128 { u128::MAX } else { result.as_u128() }
+}
 
 /// Minimum delegation amount (1 ZBX). Prevents share-precision dust.
 pub const MIN_DELEGATION_WEI: u128 = 1_000_000_000_000_000_000u128;
@@ -220,11 +249,12 @@ impl StakingModule {
         pubkey: [u8; 32],
         commission_bps: u64,
         self_bond: u128,
+        min_self_bond_wei: u128,
     ) -> Result<(), StakingError> {
         if commission_bps > MAX_COMMISSION_BPS {
             return Err(StakingError::CommissionOutOfRange);
         }
-        if self_bond < MIN_SELF_BOND_WEI {
+        if self_bond < min_self_bond_wei {
             return Err(StakingError::SelfBondTooSmall);
         }
         let address = crate::crypto::address_from_pubkey(&pubkey);
@@ -578,7 +608,7 @@ mod tests {
 
     fn make_validator(s: &mut StakingModule, op: Address, seed: u8, bond: u128) -> Address {
         let pubkey = pk(seed);
-        s.create_validator(op, pubkey, 500, bond).unwrap();
+        s.create_validator(op, pubkey, 500, bond, MIN_SELF_BOND_WEI).unwrap();
         crate::crypto::address_from_pubkey(&pubkey)
     }
 
