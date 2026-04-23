@@ -60,6 +60,12 @@ enum Cmd {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Generate a fresh ZBX (Zebvix) wallet address with branded output.
+    GenerateAddress {
+        /// Optional file path to save the keypair (recommended).
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Initialize a new chain: writes genesis.json and creates data dir.
     Init {
         #[arg(long, default_value = "./.zebvix")]
@@ -489,6 +495,35 @@ fn cmd_keygen(out: Option<PathBuf>) -> Result<()> {
     } else {
         println!("Secret Key : 0x{}  (save this securely!)", hex::encode(sk));
     }
+    Ok(())
+}
+
+fn cmd_generate_address(out: Option<PathBuf>) -> Result<()> {
+    let (sk, pk) = generate_keypair();
+    let addr = address_from_pubkey(&pk);
+    println!();
+    println!("{C_CYAN_B}🪙  New Zebvix (ZBX) Wallet Generated{C_RESET}");
+    println!();
+    println!("   {C_GREEN}coin{C_RESET}        : Zebvix");
+    println!("   {C_GREEN}symbol{C_RESET}      : ZBX");
+    println!("   {C_GREEN}chain id{C_RESET}    : 7878");
+    println!("   {C_GREEN}network{C_RESET}     : Zebvix L1 (PoS)");
+    println!();
+    println!("   {C_YELLOW}address{C_RESET}     : {}", addr);
+    println!("   {C_DIM}public key  : 0x{}{C_RESET}", hex::encode(pk));
+    if let Some(p) = out {
+        write_keyfile(&p, &sk, &pk)?;
+        println!("   {C_GREEN}saved to{C_RESET}    : {}", p.display());
+        println!();
+        println!("   {C_DIM}Keep the key file safe — it controls this address forever.{C_RESET}");
+    } else {
+        println!();
+        println!("   {C_YELLOW}⚠️  SECRET KEY (save this now, it will NOT be shown again):{C_RESET}");
+        println!("   0x{}", hex::encode(sk));
+        println!();
+        println!("   {C_DIM}Tip: re-run with `--out wallet.key` to save it to a file.{C_RESET}");
+    }
+    println!();
     Ok(())
 }
 
@@ -997,6 +1032,7 @@ async fn main() -> Result<()> {
     }
     match cli.cmd {
         Cmd::Keygen { out } => cmd_keygen(out),
+        Cmd::GenerateAddress { out } => cmd_generate_address(out),
         Cmd::Init { home, validator_key, alloc, no_default_premine } => cmd_init(home, validator_key, alloc, no_default_premine),
         Cmd::Start { home, rpc, p2p_port, peers, no_p2p, no_mdns, follower } =>
             cmd_start(home, rpc, p2p_port, peers, no_p2p, no_mdns, follower).await,
