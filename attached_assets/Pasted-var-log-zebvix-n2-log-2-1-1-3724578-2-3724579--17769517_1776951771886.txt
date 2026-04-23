@@ -1,0 +1,48 @@
+var/log/zebvix-n2.log 2>&1
+[1] 3724578
+[2] 3724579
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+📊 Chain Status  (http://127.0.0.1:8545)
+
+   ● chain            : Zebvix (id=7878) · token=ZBX
+   ● height           : 0
+   ● block time       : 5s
+   ● supply.current_block_reward_wei : "3000000000000000000"
+   ● supply.height : 6104
+   ● supply.max_wei : "150000000000000000000000000"
+   ● supply.minted_wei : "18312000000000000000000"
+   🎁 rewards-pool    : 12
+   🔥 burned (total)  : 0
+   🥩 validators      : [{"address":"0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc","commission_bps":500,"commission_pool_wei":"0","jailed":false,"jailed_until_epoch":0,"last_commission_edit_epoch":0,"operator":"0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc","pubkey":"0xaa9f6c1f047126b58bdfe62d7adc2ad04ec36d83b9391d313022fbd50cb5d097","total_shares":"70000000000000000000","total_stake_wei":"70000000000000000000"}]
+
+   💡 zebvix-node rewards-pool   — pool inspector
+   💡 zebvix-node staking-info   — full staking module dump
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+🎁 Rewards Pool
+
+   pool address              : 0x7277647300000000000000000000000000000000
+   current balance           : 12 ZBX (12000000000000000000 wei)
+   chain height              : 0
+   distribution interval     : every 100 blocks
+   accumulated since last    : 0 block(s)
+   next distribution in    : 100 block(s) (~500s)
+   commission to founder     : 1000 bps (10%)
+
+   ℹ️  Per-block 3 ZBX mint flows here. Every 100 blocks the pool drains:
+        • 10% → founder LIQUID (commission)
+        • remainder → stake-prop (founder=liquid, others=locked)
+root@srv1266996:/home/zebvix-chain# Connection to 93.127.213.192:10000 closed.
