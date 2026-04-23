@@ -11,9 +11,14 @@ const app: Express = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const publicDir = path.resolve(__dirname, "../public");
-app.use("/downloads", express.static(path.join(publicDir, "downloads"), {
-  setHeaders: (res) => {
+// Mount under /api/downloads so it survives the path-based artifact proxy
+// (api-server's previewPath is /api).
+app.use("/api/downloads", express.static(path.join(publicDir, "downloads"), {
+  setHeaders: (res, filePath) => {
     res.setHeader("Cache-Control", "no-store");
+    if (filePath.endsWith(".sh")) {
+      res.setHeader("Content-Type", "text/x-shellscript; charset=utf-8");
+    }
   },
 }));
 

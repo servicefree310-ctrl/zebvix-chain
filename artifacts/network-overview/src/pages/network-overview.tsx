@@ -14,7 +14,7 @@ import {
   BookOpen, PlayCircle, TerminalSquare, FileJson, Users, Network, Settings, CheckSquare,
   Rocket, Wallet, Shield, AtSign, ListChecks, Calculator, Map as MapIcon, Paintbrush,
   Search, Droplets, ArrowLeftRight, TrendingUp, ArrowUpDown, Layers, FileCode2,
-  Code2, Sparkles, GitBranch, Download,
+  Code2, Sparkles, GitBranch, Download, Copy, Check, Cpu,
 } from "lucide-react";
 import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Area, AreaChart,
@@ -307,6 +307,9 @@ export default function NetworkOverview() {
           <DataCard title="Avg Block Time" value={`${avgBlockTimeS.toFixed(2)}s`} icon={Clock} />
           <DataCard title="Mempool Size" value={fmtNum(mempoolSize)} icon={Hash} />
         </div>
+
+        {/* VPS UPGRADE COMMAND */}
+        <VpsUpgradeCard />
 
         {/* TOKENOMICS SECTION */}
         <TokenomicsSection
@@ -788,6 +791,86 @@ function ZflTopTokens() {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VPS Upgrade Card — one-line installer for chain patches
+// ─────────────────────────────────────────────────────────────────────────────
+function VpsUpgradeCard() {
+  const installerUrl =
+    `${window.location.origin}/api/downloads/install-zbx-supply-v0.1.sh`;
+  const cmd = `curl -fsSL ${installerUrl} | sudo bash`;
+  const [copied, setCopied] = useState(false);
+
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(cmd);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  return (
+    <div className="bg-gradient-to-br from-indigo-500/10 via-fuchsia-500/5 to-neutral-950 border border-indigo-500/30 rounded-xl">
+      <div className="p-4 pb-2 flex items-center justify-between">
+        <h3 className="flex items-center gap-2 text-base font-semibold">
+          <Cpu className="w-4 h-4 text-indigo-400" />
+          VPS Node Upgrade — Supply RPC Patch
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono normal-case">
+            v0.1
+          </span>
+        </h3>
+        <a
+          href={installerUrl}
+          download
+          className="text-xs text-neutral-400 hover:text-neutral-200 flex items-center gap-1"
+        >
+          <Download className="w-3.5 h-3.5" /> raw script
+        </a>
+      </div>
+      <div className="px-4 pb-4 space-y-3">
+        <p className="text-xs text-neutral-400 leading-relaxed">
+          Apne Zebvix VPS node pe SSH karke ye <span className="text-indigo-300 font-mono">ek-line command</span> chalao.
+          Script khud hi backup, build, install aur restart kar dega — phir
+          dashboard automatically <span className="text-emerald-300 font-mono">circulating_wei</span>,{" "}
+          <span className="text-orange-300 font-mono">burned_wei</span>,{" "}
+          <span className="text-amber-300 font-mono">premine_wei</span> fields consume karne lagega.
+        </p>
+        <div className="relative">
+          <pre className="bg-neutral-950 border border-neutral-800 rounded-md p-3 pr-12 text-xs font-mono text-emerald-300 overflow-x-auto whitespace-pre">
+{cmd}
+          </pre>
+          <button
+            onClick={onCopy}
+            className="absolute top-2 right-2 inline-flex items-center gap-1 px-2 py-1 rounded bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-xs text-neutral-200"
+            title="Copy"
+          >
+            {copied ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-emerald-400" /> Copied
+              </>
+            ) : (
+              <>
+                <Copy className="w-3.5 h-3.5" /> Copy
+              </>
+            )}
+          </button>
+        </div>
+        <details className="text-xs text-neutral-400">
+          <summary className="cursor-pointer hover:text-neutral-200">
+            Custom paths (chain dir / service names alag hain?)
+          </summary>
+          <pre className="mt-2 bg-neutral-950 border border-neutral-800 rounded-md p-3 text-xs font-mono text-neutral-300 overflow-x-auto whitespace-pre">
+{`export CHAIN_DIR=/your/path/to/zebvix-chain
+export NODE_SVCS="your-svc-1 your-svc-2"
+curl -fsSL ${installerUrl} | sudo -E bash`}
+          </pre>
+        </details>
       </div>
     </div>
   );
