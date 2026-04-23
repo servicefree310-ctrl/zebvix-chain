@@ -1,0 +1,35 @@
+root@srv1266996:/home/zebvix-chain# # Systemd service check karo
+systemctl list-units --type=service --state=running | grep -i zebvix
+systemctl status zebvix 2>/dev/null
+systemctl status zebvix-node 2>/dev/null
+ls /etc/systemd/system/ | grep -i zebvix
+
+# Agar koi service mile, stop karo:
+sudo systemctl stop zebvix-node    # (jo bhi naam ho)
+sudo systemctl disable zebvix-node # (temporary disable)
+  zebvix.service              loaded active running Zebvix L1 Blockchain Node
+● zebvix.service - Zebvix L1 Blockchain Node
+     Loaded: loaded (/etc/systemd/system/zebvix.service; enabled; preset: enabled)
+     Active: active (running) since Thu 2026-04-23 14:30:49 UTC; 1min 12s ago
+   Main PID: 3742576 (zebvix-node)
+      Tasks: 7 (limit: 9483)
+     Memory: 3.5M (peak: 3.9M)
+        CPU: 130ms
+     CGroup: /system.slice/zebvix.service
+             └─3742576 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns
+
+Apr 23 14:31:53 srv1266996.hstgr.cloud zebvix-node[3742576]: 2026-04-23T14:31:53.411141Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWGYvdjiy4y9M497G1HPTKdwrtS2NatCVaiur55irbpqpE: serving 16 blocks [6611..=6626]
+Apr 23 14:31:54 srv1266996.hstgr.cloud zebvix-node[3742576]: 2026-04-23T14:31:54.338009Z  INFO zebvix_node: 🗳  vote precommit h=6611 r=0 from 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  ✅ QUORUM
+Apr 23 14:31:54 srv1266996.hstgr.cloud zebvix-node[3742576]: 2026-04-23T14:31:54.338397Z  INFO zebvix_node: 🗳  vote prevote h=6611 r=0 from 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  ✅ QUORUM
+Apr 23 14:31:57 srv1266996.hstgr.cloud zebvix-node[3742576]: 2026-04-23T14:31:57.410440Z  INFO zebvix_node::consensus: ⛏  block #6627 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0x27157e8d4cfe3eb15c2dad7551732cbfb5f5983d5aa74e11da26eaf6d1d67bc5
+Apr 23 14:31:57 srv1266996.hstgr.cloud zebvix-node[3742576]: 2026-04-23T14:31:57.411295Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWGYvdjiy4y9M497G1HPTKdwrtS2NatCVaiur55irbpqpE: serving 15 blocks [6612..=6626]
+Apr 23 14:31:57 srv1266996.hstgr.cloud zebvix-node[3742576]: 2026-04-23T14:31:57.910240Z  INFO zebvix_node: 🗳  emitted prevote h=6627 block=0x27157e8d4cfe3eb15c2dad7551732cbfb5f5983d5aa74e11da26eaf6d1d67bc5  ✅ QUORUM
+Apr 23 14:31:57 srv1266996.hstgr.cloud zebvix-node[3742576]: 2026-04-23T14:31:57.910356Z  INFO zebvix_node: 🗳  emitted precommit h=6627 block=0x27157e8d4cfe3eb15c2dad7551732cbfb5f5983d5aa74e11da26eaf6d1d67bc5  ✅ QUORUM
+Apr 23 14:32:00 srv1266996.hstgr.cloud zebvix-node[3742576]: 2026-04-23T14:32:00.335710Z  INFO zebvix_node: 🗳  vote prevote h=6612 r=0 from 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  ✅ QUORUM
+Apr 23 14:32:00 srv1266996.hstgr.cloud zebvix-node[3742576]: 2026-04-23T14:32:00.335785Z  INFO zebvix_node: 🗳  vote precommit h=6612 r=0 from 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  ✅ QUORUM
+Apr 23 14:32:01 srv1266996.hstgr.cloud zebvix-node[3742576]: 2026-04-23T14:32:01.412128Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWGYvdjiy4y9M497G1HPTKdwrtS2NatCVaiur55irbpqpE: serving 15 blocks [6613..=6627]
+zebvix.service
+zebvix2.service
+Failed to stop zebvix-node.service: Unit zebvix-node.service not loaded.
+Failed to disable unit: Unit file zebvix-node.service does not exist.
+root@srv1266996:/home/zebvix-chain# 
