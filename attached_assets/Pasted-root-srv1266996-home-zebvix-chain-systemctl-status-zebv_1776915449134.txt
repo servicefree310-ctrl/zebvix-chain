@@ -1,0 +1,68 @@
+root@srv1266996:/home/zebvix-chain# systemctl status zebvix --no-pager
+systemctl status zebvix2 --no-pager
+cat /etc/systemd/system/zebvix.service
+cat /etc/systemd/system/zebvix2.service
+● zebvix.service - Zebvix L1 Blockchain Node
+     Loaded: loaded (/etc/systemd/system/zebvix.service; enabled; preset: enabled)
+     Active: active (running) since Thu 2026-04-23 03:21:46 UTC; 15min ago
+   Main PID: 3569319 (zebvix-node)
+      Tasks: 7 (limit: 9483)
+     Memory: 3.6M (peak: 9.3M)
+        CPU: 925ms
+     CGroup: /system.slice/zebvix.service
+             └─3569319 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns
+
+Apr 23 03:36:47 srv1266996.hstgr.cloud zebvix-node[3569319]: 2026-04-23T03:36:47.104467Z  INFO zebvix_node: 🗳  emitted prevote h=5567 block=0x43edede67b0c5c985f…98751c0ed83
+Apr 23 03:36:47 srv1266996.hstgr.cloud zebvix-node[3569319]: 2026-04-23T03:36:47.104624Z  INFO zebvix_node: 🗳  emitted precommit h=5567 block=0x43edede67b0c5c98…98751c0ed83
+Apr 23 03:36:55 srv1266996.hstgr.cloud zebvix-node[3569319]: 2026-04-23T03:36:55.122194Z  WARN zebvix_node::consensus: ⏰ propose timeout at h=5568 r=0 → bumping to r=1
+Apr 23 03:36:55 srv1266996.hstgr.cloud zebvix-node[3569319]: 2026-04-23T03:36:55.122480Z  INFO zebvix_node::consensus: ⛏  block #5568 produced  proposer=0xe381e…3b2598dcbb1
+Apr 23 03:36:55 srv1266996.hstgr.cloud zebvix-node[3569319]: 2026-04-23T03:36:55.605771Z  INFO zebvix_node: 🗳  emitted prevote h=5568 block=0x9cce4ca4fdba6384f0…3b2598dcbb1
+Apr 23 03:36:55 srv1266996.hstgr.cloud zebvix-node[3569319]: 2026-04-23T03:36:55.605976Z  INFO zebvix_node: 🗳  emitted precommit h=5568 block=0x9cce4ca4fdba6384…3b2598dcbb1
+Apr 23 03:36:55 srv1266996.hstgr.cloud zebvix-node[3569319]: 2026-04-23T03:36:55.621474Z  INFO zebvix_node::consensus: ✓ height advanced to 5569 (recovered afte… at h=5568)
+Apr 23 03:37:00 srv1266996.hstgr.cloud zebvix-node[3569319]: 2026-04-23T03:37:00.621972Z  INFO zebvix_node::consensus: ⛏  block #5569 produced  proposer=0xe381e…018a29e7d2d
+Apr 23 03:37:01 srv1266996.hstgr.cloud zebvix-node[3569319]: 2026-04-23T03:37:01.105105Z  INFO zebvix_node: 🗳  emitted prevote h=5569 block=0x7fceb4117aeae60302…018a29e7d2d
+Apr 23 03:37:01 srv1266996.hstgr.cloud zebvix-node[3569319]: 2026-04-23T03:37:01.105232Z  INFO zebvix_node: 🗳  emitted precommit h=5569 block=0x7fceb4117aeae603…018a29e7d2d
+Hint: Some lines were ellipsized, use -l to show in full.
+○ zebvix2.service - Zebvix L1 Blockchain Node-2
+     Loaded: loaded (/etc/systemd/system/zebvix2.service; enabled; preset: enabled)
+     Active: inactive (dead) since Thu 2026-04-23 03:21:41 UTC; 15min ago
+   Duration: 8h 20min 216ms
+    Process: 3540464 ExecStart=/usr/local/bin/zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns (code=killed, signal=TERM)
+   Main PID: 3540464 (code=killed, signal=TERM)
+        CPU: 32.456s
+
+Apr 22 19:01:41 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 23 03:21:41 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Deactivated successfully.
+Apr 23 03:21:41 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Consumed 32.456s CPU time, 14.5M memory peak, 0B memory swap peak.
+[Unit]
+Description=Zebvix L1 Blockchain Node
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/zebvix-chain
+ExecStart=/usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+[Unit]
+Description=Zebvix L1 Blockchain Node-2
+After=network-online.target zebvix.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/var/log/zebvix2.log
+StandardError=append:/var/log/zebvix2.log
+
+[Install]
+WantedBy=multi-user.target
+root@srv1266996:/home/zebvix-chain# 
