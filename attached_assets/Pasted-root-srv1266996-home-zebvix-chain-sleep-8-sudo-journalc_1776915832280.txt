@@ -1,0 +1,40 @@
+root@srv1266996:/home/zebvix-chain# sleep 8 && sudo journalctl -u zebvix -n 15 --no-pager | grep -E "block #|height"
+
+# Node2 init (alag home, same validator key OK ya naya — same use karte hain peering ke liye simplicity)
+mkdir -p /home/zebvix-chain/.zebvix2
+cp /root/.zebvix/validator.key /home/zebvix-chain/.zebvix2/validator.key
+/usr/local/bin/zebvix-node init \
+  --home /home/zebvix-chain/.zebvix2 \
+  --validator-key /home/zebvix-chain/.zebvix2/validator.key
+
+sudo systemctl start zebvix2
+sleep 4
+sudo journalctl -u zebvix2 -n 15 --no-pager 2>/dev/null || tail -30 /var/log/zebvix2.log
+Apr 23 03:42:58 srv1266996.hstgr.cloud zebvix-node[3571553]: 2026-04-23T03:42:58.395488Z  INFO zebvix_node::consensus: ⛏  block #5 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0xfa0209af823c2e7d712b914c4fd2efa52bf048c48a62b44860b2e171dde8b00f
+Apr 23 03:43:04 srv1266996.hstgr.cloud zebvix-node[3571553]: 2026-04-23T03:43:04.394836Z  INFO zebvix_node::consensus: ⛏  block #6 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0x2f82eedd1482a75948a7a52b118614247ad4e523139cdfdc57b18277c2c37e31
+Apr 23 03:43:10 srv1266996.hstgr.cloud zebvix-node[3571553]: 2026-04-23T03:43:10.395553Z  INFO zebvix_node::consensus: ⛏  block #7 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0xe67202364a32f818dc2795925c82ecac0a86f3e1a33c2d2282026a8046126024
+Apr 23 03:43:15 srv1266996.hstgr.cloud zebvix-node[3571553]: 2026-04-23T03:43:15.895754Z  INFO zebvix_node::consensus: ⛏  block #8 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0x1d9c1a3ea41e370775ab32dd6b11ae8088a2b5a7270faf7b0f61745ff92bf283
+Apr 23 03:43:21 srv1266996.hstgr.cloud zebvix-node[3571553]: 2026-04-23T03:43:21.894622Z  INFO zebvix_node::consensus: ⛏  block #9 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0x8e75845de4e5dd13e1226e66123fcefc348309f07e6d1f04ca66eb342524d17b
+ℹ️  No founder pre-mine — admin earns ZBX only via block rewards & swap fees.
+ℹ️  Genesis validator (founder, deterministic): 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc (power=1)
+✅ Initialized Zebvix chain at /home/zebvix-chain/.zebvix2
+   chain_id          : 7878
+   validator address : 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+   genesis           : /home/zebvix-chain/.zebvix2/genesis.json
+   data dir          : /home/zebvix-chain/.zebvix2/data
+Apr 22 18:57:22 srv1266996.hstgr.cloud systemd[1]: Stopping zebvix2.service - Zebvix L1 Blockchain Node-2...
+Apr 22 18:57:22 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Deactivated successfully.
+Apr 22 18:57:22 srv1266996.hstgr.cloud systemd[1]: Stopped zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 22 18:57:24 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 22 18:58:08 srv1266996.hstgr.cloud systemd[1]: Stopping zebvix2.service - Zebvix L1 Blockchain Node-2...
+Apr 22 18:58:08 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Deactivated successfully.
+Apr 22 18:58:08 srv1266996.hstgr.cloud systemd[1]: Stopped zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 22 18:58:10 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 22 19:01:39 srv1266996.hstgr.cloud systemd[1]: Stopping zebvix2.service - Zebvix L1 Blockchain Node-2...
+Apr 22 19:01:39 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Deactivated successfully.
+Apr 22 19:01:39 srv1266996.hstgr.cloud systemd[1]: Stopped zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 22 19:01:41 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 23 03:21:41 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Deactivated successfully.
+Apr 23 03:21:41 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Consumed 32.456s CPU time, 14.5M memory peak, 0B memory swap peak.
+Apr 23 03:43:23 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+root@srv1266996:/home/zebvix-chain# 
