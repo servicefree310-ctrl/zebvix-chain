@@ -980,33 +980,203 @@ function Empty({ children }: { children: React.ReactNode }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AddressSearch — input bar, navigates to /balance-lookup?addr=X
+// Universal Search — supports block numbers, addresses, hashes
 // ─────────────────────────────────────────────────────────────────────────────
+type Classified =
+  | { kind: "block"; value: number }
+  | { kind: "address"; value: string }
+  | { kind: "hash"; value: string }
+  | { kind: "empty" }
+  | { kind: "invalid"; reason: string };
+
+export function classifyInput(raw: string): Classified {
+  const s = raw.trim();
+  if (!s) return { kind: "empty" };
+  // Pure number → block height
+  if (/^\d+$/.test(s)) {
+    const n = parseInt(s, 10);
+    if (!isFinite(n) || n < 0) return { kind: "invalid", reason: "block height must be a non-negative integer" };
+    if (n > 1e12) return { kind: "invalid", reason: "block height too large" };
+    return { kind: "block", value: n };
+  }
+  // Hex strings
+  if (/^0x[0-9a-fA-F]+$/.test(s)) {
+    const hex = s.slice(2);
+    if (hex.length === 40) return { kind: "address", value: s.toLowerCase() };
+    if (hex.length === 64) return { kind: "hash", value: s.toLowerCase() };
+    return { kind: "invalid", reason: `expected 40 hex chars (address) or 64 hex chars (hash) after 0x — got ${hex.length}` };
+  }
+  if (/^[0-9a-fA-F]{40}$/.test(s)) return { kind: "address", value: "0x" + s.toLowerCase() };
+  if (/^[0-9a-fA-F]{64}$/.test(s)) return { kind: "hash", value: "0x" + s.toLowerCase() };
+  return { kind: "invalid", reason: "not a block number, address (0x + 40 hex), or hash (0x + 64 hex)" };
+}
+
 function AddressSearch() {
   const [, setLoc] = useLocation();
   const [val, setVal] = useState("");
-  const submit = () => {
-    const a = val.trim();
-    if (!a) return;
-    setLoc(`/balance-lookup?addr=${encodeURIComponent(a)}`);
-  };
+  const [blockResult, setBlockResult] = useState<any | null>(null);
+  const [blockLoading, setBlockLoading] = useState(false);
+  const [blockErr, setBlockErr] = useState<string | null>(null);
+
+  const cls = classifyInput(val);
+  const isInvalid = cls.kind === "invalid";
+
+  async function submit() {
+    setBlockResult(null);
+    setBlockErr(null);
+    const c = classifyInput(val);
+    if (c.kind === "empty" || c.kind === "invalid") return;
+    if (c.kind === "address") {
+      setLoc(`/balance-lookup?addr=${encodeURIComponent(c.value)}`);
+      return;
+    }
+    if (c.kind === "block") {
+      setBlockLoading(true);
+      try {
+        const r = await rpc<any>("zbx_getBlockByNumber", [c.value]);
+        if (!r) setBlockErr(`block #${c.value} not found`);
+        else setBlockResult({ ...r, _height: c.value });
+      } catch (e) {
+        setBlockErr(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBlockLoading(false);
+      }
+      return;
+    }
+    if (c.kind === "hash") {
+      // Try as block hash by scanning recent
+      setBlockLoading(true);
+      setBlockErr(null);
+      try {
+        const tip = await rpc<{ height: number }>("zbx_blockNumber");
+        const W = 500;
+        let hit: any = null;
+        for (let i = 0; i < W && !hit; i += 16) {
+          const slice: number[] = [];
+          for (let j = 0; j < 16 && i + j < W; j++) slice.push(tip.height - (i + j));
+          const rs = await Promise.all(slice.map((h) => rpc<any>("zbx_getBlockByNumber", [h]).catch(() => null)));
+          for (const r of rs) {
+            if (!r) continue;
+            const h = r.hash ?? r.header?.hash;
+            if (h && h.toLowerCase() === c.value) { hit = r; break; }
+          }
+        }
+        if (hit) setBlockResult({ ...hit, _height: hit.header?.height ?? hit.height });
+        else setBlockErr(`hash ${shortAddr(c.value, 8, 6)} not found in last ${W} blocks. Try as address (must be 40 hex chars), or this may be a tx hash (tx lookup by hash not supported by RPC).`);
+      } catch (e) {
+        setBlockErr(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBlockLoading(false);
+      }
+    }
+  }
+
+  const hint = (() => {
+    switch (cls.kind) {
+      case "empty": return "";
+      case "block": return `Block #${cls.value}`;
+      case "address": return "Address";
+      case "hash": return "Hash (block / tx)";
+      case "invalid": return cls.reason;
+    }
+  })();
+  const hintTone = isInvalid ? "text-red-400" :
+    cls.kind === "block" ? "text-cyan-400" :
+    cls.kind === "address" ? "text-emerald-400" :
+    cls.kind === "hash" ? "text-violet-400" : "text-muted-foreground";
+
   return (
-    <div className="rounded-xl border border-border bg-gradient-to-r from-card via-card to-primary/5 p-3 flex items-center gap-2">
-      <Search className="h-4 w-4 text-primary shrink-0 ml-1" />
-      <input
-        value={val}
-        onChange={(e) => setVal(e.target.value)}
-        onKeyDown={(e) => e.key === "Enter" && submit()}
-        placeholder="Search any address (0x…) — see balance, stake, locked rewards, Pay-ID & related transactions"
-        className="flex-1 bg-transparent outline-none text-sm font-mono placeholder:text-muted-foreground/60"
-      />
-      <button
-        onClick={submit}
-        disabled={!val.trim()}
-        className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-semibold disabled:opacity-40 hover:bg-primary/90 transition flex items-center gap-1"
-      >
-        Lookup <ArrowUpRight className="h-3 w-3" />
-      </button>
+    <div className="space-y-2">
+      <div className={`rounded-xl border p-3 flex items-center gap-2 transition ${isInvalid ? "border-red-500/40 bg-red-500/5" : "border-border bg-gradient-to-r from-card via-card to-primary/5"}`}>
+        <Search className={`h-4 w-4 shrink-0 ml-1 ${isInvalid ? "text-red-400" : "text-primary"}`} />
+        <input
+          value={val}
+          onChange={(e) => setVal(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          placeholder="Search block number, address (0x + 40 hex), or hash (0x + 64 hex)"
+          className="flex-1 bg-transparent outline-none text-sm font-mono placeholder:text-muted-foreground/60"
+        />
+        {hint && (
+          <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded ${hintTone} ${isInvalid ? "bg-red-500/10" : "bg-muted/50"}`}>
+            {hint}
+          </span>
+        )}
+        <button
+          onClick={submit}
+          disabled={cls.kind === "empty" || isInvalid || blockLoading}
+          className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-semibold disabled:opacity-40 hover:bg-primary/90 transition flex items-center gap-1"
+        >
+          {blockLoading ? "…" : "Search"} <ArrowUpRight className="h-3 w-3" />
+        </button>
+      </div>
+
+      {blockErr && (
+        <div className="p-3 rounded-lg border border-red-500/40 bg-red-500/5 text-xs flex gap-2">
+          <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+          <span className="text-red-300">{blockErr}</span>
+        </div>
+      )}
+
+      {blockResult && <BlockResultCard block={blockResult} onClose={() => setBlockResult(null)} />}
+    </div>
+  );
+}
+
+function BlockResultCard({ block, onClose }: { block: any; onClose: () => void }) {
+  const hdr = block.header ?? block;
+  const height = hdr.height ?? block._height;
+  const hash = block.hash ?? hdr.hash ?? "";
+  const txs = Array.isArray(block.txs) ? block.txs : [];
+  return (
+    <div className="rounded-xl border border-cyan-500/40 bg-gradient-to-br from-cyan-500/10 to-transparent p-4 space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold flex items-center gap-2">
+          <Box className="h-4 w-4 text-cyan-400" />
+          Block #{height?.toLocaleString()}
+          <span className="text-[10px] font-normal text-muted-foreground">{txs.length} tx{txs.length === 1 ? "" : "s"}</span>
+        </h3>
+        <button onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground">✕ close</button>
+      </div>
+      <div className="grid md:grid-cols-2 gap-3 text-xs">
+        <KV k="Hash" v={hash} mono />
+        <KV k="Parent Hash" v={hdr.parent_hash ?? "—"} mono />
+        <KV k="Proposer" v={hdr.proposer ?? "—"} mono />
+        <KV k="Timestamp" v={hdr.timestamp_ms ? `${new Date(hdr.timestamp_ms).toISOString()} (${ageStr(hdr.timestamp_ms)})` : "—"} />
+        <KV k="State Root" v={hdr.state_root ?? "—"} mono />
+        <KV k="Tx Root" v={hdr.tx_root ?? "—"} mono />
+      </div>
+      {txs.length > 0 && (
+        <div className="rounded border border-border bg-card overflow-hidden">
+          <div className="p-2 bg-muted/30 text-xs font-semibold">Transactions ({txs.length})</div>
+          <table className="w-full text-xs">
+            <thead className="bg-muted/20 text-muted-foreground">
+              <tr>
+                <th className="text-left p-2 w-20 font-medium">Kind</th>
+                <th className="text-left p-2 font-medium">From</th>
+                <th className="text-left p-2 font-medium">To</th>
+                <th className="text-right p-2 font-medium">Amount</th>
+                <th className="text-right p-2 font-medium">Fee</th>
+              </tr>
+            </thead>
+            <tbody>
+              {txs.map((t: any, i: number) => {
+                const b = t.body ?? t;
+                return (
+                  <tr key={i} className="border-t border-border">
+                    <td className="p-2"><KindBadge kind={kindLabel(b.kind)} /></td>
+                    <td className="p-2 font-mono text-muted-foreground">{shortAddr(b.from ?? "", 6, 4)}</td>
+                    <td className="p-2 font-mono text-muted-foreground">{shortAddr(b.to ?? "", 6, 4)}</td>
+                    <td className="p-2 text-right font-mono">
+                      {b.amount ? `${weiHexToZbx(String(b.amount))} ZBX` : <span className="text-muted-foreground">—</span>}
+                    </td>
+                    <td className="p-2 text-right font-mono text-amber-400">{weiHexToZbx(String(b.fee ?? "0"))}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

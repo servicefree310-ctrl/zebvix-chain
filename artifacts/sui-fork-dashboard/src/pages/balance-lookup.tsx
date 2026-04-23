@@ -175,23 +175,49 @@ export default function BalanceLookup() {
         </p>
       </div>
 
-      <div className="flex gap-2">
-        <input
-          value={addr}
-          onChange={(e) => setAddr(e.target.value.trim())}
-          placeholder="0x... or paste any Zebvix address"
-          className="flex-1 px-3 py-2 rounded-md bg-background border border-border font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-          onKeyDown={(e) => { if (e.key === "Enter") { lookup(); scanTxs(500); } }}
-        />
-        <button
-          onClick={() => { lookup(); scanTxs(500); }}
-          disabled={loading || !addr}
-          className="px-4 py-2 rounded-md bg-primary text-primary-foreground font-medium text-sm disabled:opacity-50 hover:bg-primary/90 flex items-center gap-2"
-        >
-          <Search className="h-4 w-4" />
-          {loading ? "…" : "Lookup"}
-        </button>
-      </div>
+      {(() => {
+        const trimmed = addr.trim();
+        const validFmt = /^0x[0-9a-fA-F]{40}$/.test(trimmed);
+        const partial = trimmed.length > 0 && !validFmt;
+        let reason = "";
+        if (partial) {
+          if (!/^0x/i.test(trimmed)) reason = "address must start with 0x";
+          else if (!/^0x[0-9a-fA-F]*$/.test(trimmed)) reason = "address must be hex (0-9, a-f) only";
+          else reason = `address must be exactly 40 hex chars after 0x — got ${trimmed.slice(2).length}`;
+        }
+        return (
+          <div className="space-y-1">
+            <div className="flex gap-2">
+              <input
+                value={addr}
+                onChange={(e) => setAddr(e.target.value.trim())}
+                placeholder="0x... 40 hex chars (Zebvix address)"
+                className={`flex-1 px-3 py-2 rounded-md bg-background border font-mono text-sm focus:outline-none focus:ring-2 ${partial ? "border-red-500/50 focus:ring-red-500" : "border-border focus:ring-primary"}`}
+                onKeyDown={(e) => { if (e.key === "Enter" && validFmt) { lookup(); scanTxs(500); } }}
+              />
+              <button
+                onClick={() => { lookup(); scanTxs(500); }}
+                disabled={loading || !validFmt}
+                className="px-4 py-2 rounded-md bg-primary text-primary-foreground font-medium text-sm disabled:opacity-40 hover:bg-primary/90 flex items-center gap-2"
+                title={!validFmt && trimmed ? reason : ""}
+              >
+                <Search className="h-4 w-4" />
+                {loading ? "…" : "Lookup"}
+              </button>
+            </div>
+            {partial && (
+              <div className="text-xs text-red-400 flex items-center gap-1.5 pl-1">
+                <AlertCircle className="h-3 w-3" /> {reason}
+              </div>
+            )}
+            {validFmt && !loading && (
+              <div className="text-xs text-emerald-400/70 flex items-center gap-1.5 pl-1">
+                ✓ valid address format
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {err && (
         <div className="p-3 rounded-md border border-red-500/40 bg-red-500/5 text-sm flex gap-2">
