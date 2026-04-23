@@ -792,14 +792,18 @@ impl StakingModule {
     /// Returns `(commission_payouts, total_locked)` so the caller can credit
     /// liquid balances and emit telemetry. Calling with `pool_amount = 0` is
     /// a no-op.
+    /// Returns `(commission_payouts, liquid_payouts, total_locked)`.
+    /// `founder_addr`: addresses matching this receive their stake-share as
+    /// LIQUID instead of LOCKED (founder/treasury exemption).
     pub fn distribute_pool_rewards(
         &mut self,
         current_height: u64,
         pool_amount: u128,
         commission_bps: u64,
-    ) -> (Vec<(Address, u128)>, u128) {
+        founder_addr: Address,
+    ) -> (Vec<(Address, u128)>, Vec<(Address, u128)>, u128) {
         if pool_amount == 0 {
-            return (Vec::new(), 0);
+            return (Vec::new(), Vec::new(), 0);
         }
         let active_total: u128 = self
             .validators
@@ -808,7 +812,7 @@ impl StakingModule {
             .map(|v| v.total_stake)
             .sum();
         if active_total == 0 {
-            return (Vec::new(), 0);
+            return (Vec::new(), Vec::new(), 0);
         }
         let val_snapshot: Vec<(Address, u128, Address, Vec<(Address, u128)>)> = self
             .validators
@@ -826,6 +830,7 @@ impl StakingModule {
             .collect();
 
         let mut commissions: Vec<(Address, u128)> = Vec::new();
+        let mut liquid_credits: Vec<(Address, u128)> = Vec::new();
         let mut locked_credits: Vec<(Address, u128)> = Vec::new();
         for (_vaddr, vstake, voperator, dels) in val_snapshot {
             let v_share = mul_div(pool_amount, vstake, active_total);
@@ -842,7 +847,14 @@ impl StakingModule {
             if total_shares > 0 && bonded > 0 {
                 for (daddr, dshares) in dels {
                     let cut = mul_div(bonded, dshares, total_shares);
-                    if cut > 0 {
+                    if cut == 0 {
+                        continue;
+                    }
+                    // Founder exemption: self-bond + all founder-owned delegations
+                    // are paid out LIQUID (no lock). Everyone else → LOCKED bucket.
+                    if daddr == founder_addr {
+                        liquid_credits.push((daddr, cut));
+                    } else {
                         locked_credits.push((daddr, cut));
                     }
                 }
@@ -853,7 +865,7 @@ impl StakingModule {
             self.add_locked(addr, amt, current_height);
             total_locked = total_locked.saturating_add(amt);
         }
-        (commissions, total_locked)
+        (commissions, liquid_credits, total_locked)
     }
 
     pub fn end_epoch_locked(

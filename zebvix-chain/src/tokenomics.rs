@@ -128,7 +128,7 @@ pub const BULK_RELEASE_BPS: u64 = 2_500;
 /// Bytes spell "rwds" + 16 zero bytes.
 pub const REWARDS_POOL_ADDRESS_HEX: &str = "0x7277647300000000000000000000000000000000";
 pub const REWARDS_DISTRIBUTION_INTERVAL: u64 = 100;
-pub const REWARDS_COMMISSION_BPS: u64 = 500;
+pub const REWARDS_COMMISSION_BPS: u64 = 1_000;
 
 /// Day length in blocks at 5s block time (86,400 / 5).
 pub const BLOCKS_PER_DAY: u64 = 17_280;

@@ -601,11 +601,13 @@ impl State {
             if pool_amount > 0 {
                 pool.balance = 0;
                 self.put_account(&pool_addr, &pool)?;
+                let founder = treasury_address();
                 let mut sm = self.staking();
-                let (commissions, locked_total) = sm.distribute_pool_rewards(
+                let (commissions, liquid_credits, locked_total) = sm.distribute_pool_rewards(
                     block.header.height,
                     pool_amount,
                     crate::tokenomics::REWARDS_COMMISSION_BPS,
+                    founder,
                 );
                 self.put_staking(&sm)?;
                 let mut total_commission: u128 = 0;
@@ -615,9 +617,16 @@ impl State {
                     self.put_account(operator, &op)?;
                     total_commission = total_commission.saturating_add(*amt);
                 }
+                let mut founder_liquid: u128 = 0;
+                for (addr, amt) in &liquid_credits {
+                    let mut a = self.account(addr);
+                    a.balance = a.balance.saturating_add(*amt);
+                    self.put_account(addr, &a)?;
+                    founder_liquid = founder_liquid.saturating_add(*amt);
+                }
                 tracing::info!(
-                    "💰 dist-pool @h={} drained {} wei → commission {} wei to {} operators, locked {} wei",
-                    block.header.height, pool_amount, total_commission, commissions.len(), locked_total,
+                    "💰 dist-pool @h={} drained {} wei → commission {} wei ({} ops) | founder-liquid {} wei | locked {} wei",
+                    block.header.height, pool_amount, total_commission, commissions.len(), founder_liquid, locked_total,
                 );
             }
         }
