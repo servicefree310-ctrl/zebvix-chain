@@ -1,0 +1,60 @@
+  Current epoch         : 0
+   Epoch length          : 17280 blocks
+   Epoch reward          : 50000000000000000000 wei
+   Unbonding epochs      : 7
+   Min self-bond (fallback): 1000000000000000000000 wei
+   Min self-bond (target USD): $50.00
+   Min self-bond (live $50≡): 50000000000000000000 wei
+   Min delegation        : 1000000000000000000 wei
+   Max commission        : 5000 bps
+   Max commission Δ/epoch: 100 bps
+   Total slashed         : 0 wei
+
+   Validators            : 1
+   Delegations           : 1
+   Unbonding entries     : 0
+
+   • Validator 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+       operator       : 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+       total stake    : 50000000000000000000 wei
+       total shares   : 50000000000000000000
+       commission     : 500 bps
+       commission pool: 0 wei
+       jailed         : false
+📝 Stake 10000000000000000000 wei → 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc (signer: 0x57957a0f7e3cd660c3dd10b897d38f8122f78980, nonce: 1)
+   ✓ tx hash : 0x35cd9c7a793a4711dd2a5a35433e6ab55b3a4e9e3f9e5b8d7a3a7ce3aa1635fc
+🥩 Staking module state
+
+   Current epoch         : 0
+   Epoch length          : 17280 blocks
+   Epoch reward          : 50000000000000000000 wei
+   Unbonding epochs      : 7
+   Min self-bond (fallback): 1000000000000000000000 wei
+   Min self-bond (target USD): $50.00
+   Min self-bond (live $50≡): 50000000000000000000 wei
+   Min delegation        : 1000000000000000000 wei
+   Max commission        : 5000 bps
+   Max commission Δ/epoch: 100 bps
+   Total slashed         : 0 wei
+
+   Validators            : 1
+   Delegations           : 2
+   Unbonding entries     : 0
+
+   • Validator 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+       operator       : 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+       total stake    : 60000000000000000000 wei
+       total shares   : 60000000000000000000
+       commission     : 500 bps
+       commission pool: 0 wei
+       jailed         : false
+   total burned           : 0.000400 ZBX (400000000000000 wei)
+↑ baseline (should be 0 wei)
+error: unexpected argument '--signer-key' found
+
+Usage: zebvix-node send [OPTIONS] --from-key <FROM_KEY> --to <TO> --amount <AMOUNT>
+
+For more information, try '--help'.
+   total burned           : 0.000400 ZBX (400000000000000 wei)
+↑ should now show 0.000200 ZBX (10% of 0.002 fee = 200,000,000,000,000 wei)
+root@srv1266996:/home/zebvix-chain# 
