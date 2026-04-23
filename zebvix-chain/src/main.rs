@@ -222,6 +222,16 @@ enum Cmd {
         #[arg(long, default_value = "http://127.0.0.1:8545")]
         rpc_url: String,
     },
+    /// AMM pool inspector: reserves, spot price, fees, LP supply, loan status.
+    Pool {
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+    },
+    /// Live ZBX/USD price (from AMM pool spot).
+    Price {
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+    },
     /// Show ZBX (and zUSD if any) balance for any address.
     Balance {
         /// Address to query (0x… 20-byte hex).
@@ -1028,6 +1038,8 @@ async fn main() -> Result<()> {
             cmd_validator_remove(signer_key, address, rpc_url, fee).await,
         Cmd::RewardsPool { rpc_url } => cmd_rewards_pool(rpc_url).await,
         Cmd::Balance { address, rpc_url } => cmd_balance(address, rpc_url).await,
+        Cmd::Pool { rpc_url } => cmd_pool(rpc_url).await,
+        Cmd::Price { rpc_url } => cmd_price(rpc_url).await,
         Cmd::ChainStatus { rpc_url } => cmd_chain_status(rpc_url).await,
     }
 }
@@ -1084,6 +1096,47 @@ async fn cmd_balance(address: String, rpc_url: String) -> Result<()> {
     }
     println!("   {C_CYAN_B}TOTAL (liq+stk+lck){C_RESET}  : {} ZBX", fmt_zbx(total));
     println!("   nonce                : {nonce}");
+    Ok(())
+}
+
+async fn cmd_pool(rpc_url: String) -> Result<()> {
+    let v = rpc_get(&rpc_url, "zbx_getPool", serde_json::json!([])).await?;
+    let s = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let u = |k: &str| s(k).parse::<u128>().unwrap_or(0);
+    let init = v.get("initialized").and_then(|x| x.as_bool()).unwrap_or(false);
+
+    println!("{C_CYAN_B}🏦 AMM Pool{C_RESET}");
+    println!();
+    println!("   pool address          : {}", s("pool_address"));
+    println!("   admin                 : {}", s("admin_address"));
+    println!("   initialized           : {}", if init {"✅ yes"} else {"❌ no"});
+    println!("   {C_GREEN}ZBX reserve{C_RESET}           : {} ZBX  {C_DIM}({} wei){C_RESET}", fmt_zbx(u("zbx_reserve_wei")), s("zbx_reserve_wei"));
+    println!("   {C_YELLOW}zUSD reserve{C_RESET}          : {} zUSD {C_DIM}({} wei){C_RESET}", fmt_zbx(u("zusd_reserve")), s("zusd_reserve"));
+    println!("   {C_CYAN_B}spot price{C_RESET}            : {} USD/ZBX", s("spot_price_usd_per_zbx"));
+    println!("   LP supply             : {} {C_DIM}(locked to pool){C_RESET}", fmt_zbx(u("lp_supply")));
+    println!("   fee tier              : {}%", s("fee_pct"));
+    println!("   max swap (ZBX)        : {} ZBX", s("max_swap_zbx"));
+    println!("   max swap (zUSD)       : {} zUSD", s("max_swap_zusd_display"));
+    println!();
+    println!("   {C_DIM}── lifetime stats ──{C_RESET}");
+    println!("   total fees collected  : {} zUSD", fmt_zbx(u("lifetime_fees_zusd")));
+    println!("   admin paid (zUSD)     : {} zUSD", fmt_zbx(u("lifetime_admin_paid_zusd")));
+    println!("   reinvested (zUSD)     : {} zUSD", fmt_zbx(u("lifetime_reinvested_zusd")));
+    println!("   loan outstanding      : {} zUSD  (repaid: {})",
+        fmt_zbx(u("loan_outstanding_zusd")),
+        v.get("loan_repaid").and_then(|x| x.as_bool()).unwrap_or(false)
+    );
+    Ok(())
+}
+
+async fn cmd_price(rpc_url: String) -> Result<()> {
+    let v = rpc_get(&rpc_url, "zbx_getPriceUSD", serde_json::json!([])).await?;
+    let price = v.get("zbx_usd").and_then(|x| x.as_str()).unwrap_or("0").to_string();
+    let source = v.get("source").and_then(|x| x.as_str()).unwrap_or("unknown");
+    println!("{C_CYAN_B}💵 ZBX Price{C_RESET}");
+    println!();
+    println!("   {C_GREEN}1 ZBX = ${} USD{C_RESET}", price);
+    println!("   source : {}", source);
     Ok(())
 }
 
