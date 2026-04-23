@@ -155,6 +155,13 @@ const GROUPS: FeatureGroup[] = [
         files: ["src/rpc.rs", "src/main.rs"],
       },
       {
+        name: "🔐 Multisig wallets (M-of-N, full advanced) ✅",
+        desc: "Phase B.8 — full advanced multisig wallet support. New TxKind::Multisig with 5 ops (Create / Propose / Approve / Revoke / Execute), all consensus-enforced. Multisig accounts are chain-controlled addresses with NO private key — funds only move when ≥M of N owners approve. Address derivation is deterministic (keccak256 over sorted owners + threshold + salt + creator → last 20 bytes). Owners 2-10, threshold 1..=N, configurable per-proposal expiry (default 24h, max 58 days). Storage in CF_META: `ms/<addr>` for accounts, `mspr/<addr><id>` for proposals, `mso/<owner><addr>` for owner→multisig index. Five RPC endpoints (zbx_getMultisig, zbx_getMultisigProposal, zbx_getMultisigProposals, zbx_listMultisigsByOwner, zbx_multisigCount) plus 8 branded CLI commands (multisig-create, multisig-propose, multisig-approve, multisig-revoke, multisig-execute, multisig-info, multisig-proposals, multisig-list). Atomic execute path with refund-on-failure; balance debited from multisig only on Execute. All ops use --fee auto by default.",
+        status: "done",
+        version: "v0.1.7",
+        files: ["src/multisig.rs", "src/types.rs", "src/state.rs", "src/rpc.rs", "src/main.rs", "src/lib.rs"],
+      },
+      {
         name: "--fee auto rolled out to ALL CLI commands ✅",
         desc: "Every fee-paying CLI command (send, register-pay-id, validator-add/remove, governor-change, validator-create/edit-commission, stake, unstake, redelegate, claim-rewards) now defaults to --fee auto and routes through resolve_fee(). The legacy static check_fee() floor was removed — dynamic fee bounds are fully consensus-enforced in state::apply_tx. Users no longer need to know the current ZBX/USD rate to pay the right fee. Two-node cluster on VPS verified: Node-1 producer + Node-2 follower fully synced (heights match, zero double-sign).",
         status: "done",

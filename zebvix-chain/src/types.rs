@@ -97,6 +97,12 @@ pub enum TxKind {
     /// 1-50 char display label (mandatory). One Pay-ID per address; once set,
     /// it is **permanent** — cannot be edited or deleted.
     RegisterPayId { pay_id: String, name: String },
+    /// Phase B.8 — M-of-N multisig wallets. The inner [`MultisigOp`] selects
+    /// the action (Create / Propose / Approve / Revoke / Execute). Sender =
+    /// `body.from`. `body.amount` is always refunded; only `body.fee` is paid.
+    /// Multisig accounts hold their own balance separately and can be funded
+    /// like any normal address.
+    Multisig(crate::multisig::MultisigOp),
 }
 
 /// Transaction body (unsigned). Amount is in wei (1 ZBX = 10^18 wei).

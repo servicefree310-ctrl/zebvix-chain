@@ -255,6 +255,107 @@ enum Cmd {
         #[arg(long, default_value = "auto")]
         fee: String,
     },
+    // ───────────── Phase B.8 — Multisig wallets ─────────────
+    /// Create a new M-of-N multisig wallet. Owners 2-10, threshold 1..=N.
+    /// Address is deterministic from (sorted owners, threshold, salt, creator).
+    MultisigCreate {
+        #[arg(long)]
+        signer_key: PathBuf,
+        /// Comma-separated owner addresses (2-10): `0xaaa..,0xbbb..,0xccc..`.
+        #[arg(long)]
+        owners: String,
+        /// Threshold M (must be 1..=N).
+        #[arg(long)]
+        threshold: u8,
+        /// Random salt; change to derive a different multisig with same owners/threshold.
+        #[arg(long, default_value_t = 0u64)]
+        salt: u64,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+        #[arg(long, default_value = "auto")]
+        fee: String,
+    },
+    /// Propose a transfer FROM a multisig wallet. Caller must be an owner.
+    /// Auto-counts as the first approval. Returns the new proposal_id.
+    MultisigPropose {
+        #[arg(long)]
+        signer_key: PathBuf,
+        #[arg(long)]
+        multisig: String,
+        /// Recipient address.
+        #[arg(long)]
+        to: String,
+        /// Amount in ZBX (decimal).
+        #[arg(long)]
+        amount: f64,
+        /// Expiry window in blocks (default 17280 ≈ 24h @ 5s).
+        #[arg(long, default_value_t = 17280u64)]
+        expiry_blocks: u64,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+        #[arg(long, default_value = "auto")]
+        fee: String,
+    },
+    /// Approve a pending multisig proposal as one of the owners.
+    MultisigApprove {
+        #[arg(long)]
+        signer_key: PathBuf,
+        #[arg(long)]
+        multisig: String,
+        #[arg(long)]
+        proposal_id: u64,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+        #[arg(long, default_value = "auto")]
+        fee: String,
+    },
+    /// Revoke your own approval on a pending (un-executed) proposal.
+    MultisigRevoke {
+        #[arg(long)]
+        signer_key: PathBuf,
+        #[arg(long)]
+        multisig: String,
+        #[arg(long)]
+        proposal_id: u64,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+        #[arg(long, default_value = "auto")]
+        fee: String,
+    },
+    /// Execute a proposal once approvals ≥ threshold (and not expired).
+    MultisigExecute {
+        #[arg(long)]
+        signer_key: PathBuf,
+        #[arg(long)]
+        multisig: String,
+        #[arg(long)]
+        proposal_id: u64,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+        #[arg(long, default_value = "auto")]
+        fee: String,
+    },
+    /// Show details of a multisig wallet (owners, threshold, balance, proposal count).
+    MultisigInfo {
+        #[arg(long)]
+        address: String,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+    },
+    /// List all proposals (active + executed) for a multisig wallet.
+    MultisigProposals {
+        #[arg(long)]
+        address: String,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+    },
+    /// List all multisig wallets where the given address is an owner.
+    MultisigList {
+        #[arg(long)]
+        owner: String,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+    },
     /// Resolve a Pay-ID (`alice@zbx`) → address + name.
     LookupPayId {
         pay_id: String,
@@ -1134,6 +1235,19 @@ async fn main() -> Result<()> {
         Cmd::Price { rpc_url } => cmd_price(rpc_url).await,
         Cmd::RegisterPayId { signer_key, pay_id, name, rpc_url, fee } =>
             cmd_register_pay_id(signer_key, pay_id, name, rpc_url, fee).await,
+        Cmd::MultisigCreate { signer_key, owners, threshold, salt, rpc_url, fee } =>
+            cmd_multisig_create(signer_key, owners, threshold, salt, rpc_url, fee).await,
+        Cmd::MultisigPropose { signer_key, multisig, to, amount, expiry_blocks, rpc_url, fee } =>
+            cmd_multisig_propose(signer_key, multisig, to, amount, expiry_blocks, rpc_url, fee).await,
+        Cmd::MultisigApprove { signer_key, multisig, proposal_id, rpc_url, fee } =>
+            cmd_multisig_approve(signer_key, multisig, proposal_id, rpc_url, fee).await,
+        Cmd::MultisigRevoke { signer_key, multisig, proposal_id, rpc_url, fee } =>
+            cmd_multisig_revoke(signer_key, multisig, proposal_id, rpc_url, fee).await,
+        Cmd::MultisigExecute { signer_key, multisig, proposal_id, rpc_url, fee } =>
+            cmd_multisig_execute(signer_key, multisig, proposal_id, rpc_url, fee).await,
+        Cmd::MultisigInfo { address, rpc_url } => cmd_multisig_info(address, rpc_url).await,
+        Cmd::MultisigProposals { address, rpc_url } => cmd_multisig_proposals(address, rpc_url).await,
+        Cmd::MultisigList { owner, rpc_url } => cmd_multisig_list(owner, rpc_url).await,
         Cmd::LookupPayId { pay_id, rpc_url } => cmd_lookup_pay_id(pay_id, rpc_url).await,
         Cmd::Whois { address, rpc_url } => cmd_whois(address, rpc_url).await,
         Cmd::ChainStatus { rpc_url } => cmd_chain_status(rpc_url).await,
@@ -1229,6 +1343,259 @@ async fn cmd_register_pay_id(
     println!("{}", serde_json::to_string_pretty(&resp)?);
     println!();
     println!("   {C_YELLOW}⚠️  This Pay-ID is PERMANENT — it cannot be edited or deleted.{C_RESET}");
+    Ok(())
+}
+
+// ─────────── Phase B.8 — Multisig CLI helpers ───────────
+
+fn parse_addr_list(s: &str) -> Result<Vec<Address>> {
+    let mut out = Vec::new();
+    for chunk in s.split(',') {
+        let t = chunk.trim();
+        if t.is_empty() { continue; }
+        out.push(Address::from_hex(t)?);
+    }
+    Ok(out)
+}
+
+fn fmt_amount_zbx(amount: f64) -> u128 {
+    // ZBX → wei (1e18). Saturate on negative / NaN.
+    if !amount.is_finite() || amount < 0.0 { return 0; }
+    (amount * 1e18) as u128
+}
+
+async fn cmd_multisig_create(
+    signer_key: PathBuf,
+    owners: String,
+    threshold: u8,
+    salt: u64,
+    rpc_url: String,
+    fee: String,
+) -> Result<()> {
+    let (sk, pk) = read_keyfile(&signer_key)?;
+    let from = address_from_pubkey(&pk);
+    let owner_list = parse_addr_list(&owners)?;
+    let fee_wei = resolve_fee(&rpc_url, &fee).await?;
+    let nonce = reqwest_get_nonce(&rpc_url, &from).await?;
+
+    // Pre-compute the deterministic address (after sort+dedup) so we can
+    // print it before submission.
+    let mut sorted = owner_list.clone();
+    sorted.sort_by_key(|a| a.0);
+    sorted.dedup();
+    let predicted = zebvix_node::multisig::derive_multisig_address(&sorted, threshold, salt, &from);
+
+    let body = TxBody {
+        from, to: Address::ZERO, amount: 0, nonce, fee: fee_wei,
+        chain_id: CHAIN_ID,
+        kind: TxKind::Multisig(zebvix_node::multisig::MultisigOp::Create {
+            owners: owner_list.clone(), threshold, salt,
+        }),
+    };
+    let tx = sign_tx(&sk, body);
+    let req = serde_json::json!({
+        "jsonrpc":"2.0","id":1,"method":"zbx_sendTransaction","params":[tx]
+    });
+    let resp = http_post(&rpc_url, &req).await?;
+
+    println!("{C_CYAN_B}🔐 Multisig Create{C_RESET}");
+    println!();
+    println!("   creator       : {}", from);
+    println!("   owners ({})   : {:?}", owner_list.len(), owner_list);
+    println!("   threshold     : {} of {}", threshold, owner_list.len());
+    println!("   salt          : {}", salt);
+    println!("   {C_GREEN}derived addr{C_RESET}  : {}", predicted);
+    println!("   fee           : {} ZBX", format!("{:.10}", fee_wei as f64 / 1e18));
+    println!();
+    println!("   {C_DIM}submit response:{C_RESET}");
+    println!("{}", serde_json::to_string_pretty(&resp)?);
+    println!();
+    println!("   {C_YELLOW}💡 Fund this multisig by sending ZBX to {} like any normal address.{C_RESET}",
+        predicted);
+    Ok(())
+}
+
+async fn cmd_multisig_propose(
+    signer_key: PathBuf,
+    multisig: String,
+    to: String,
+    amount: f64,
+    expiry_blocks: u64,
+    rpc_url: String,
+    fee: String,
+) -> Result<()> {
+    let (sk, pk) = read_keyfile(&signer_key)?;
+    let from = address_from_pubkey(&pk);
+    let ms_addr = Address::from_hex(&multisig)?;
+    let to_addr = Address::from_hex(&to)?;
+    let amt_wei = fmt_amount_zbx(amount);
+    let fee_wei = resolve_fee(&rpc_url, &fee).await?;
+    let nonce = reqwest_get_nonce(&rpc_url, &from).await?;
+
+    let action = zebvix_node::multisig::MultisigAction::Transfer { to: to_addr, amount: amt_wei };
+    let body = TxBody {
+        from, to: Address::ZERO, amount: 0, nonce, fee: fee_wei,
+        chain_id: CHAIN_ID,
+        kind: TxKind::Multisig(zebvix_node::multisig::MultisigOp::Propose {
+            multisig: ms_addr, action, expiry_blocks,
+        }),
+    };
+    let tx = sign_tx(&sk, body);
+    let req = serde_json::json!({
+        "jsonrpc":"2.0","id":1,"method":"zbx_sendTransaction","params":[tx]
+    });
+    let resp = http_post(&rpc_url, &req).await?;
+
+    println!("{C_CYAN_B}📝 Multisig Propose{C_RESET}");
+    println!();
+    println!("   multisig       : {}", ms_addr);
+    println!("   proposer       : {}", from);
+    println!("   action         : transfer {} ZBX → {}", amount, to_addr);
+    println!("   expiry_blocks  : {} (≈ {}h @ 5s blocks)", expiry_blocks, expiry_blocks * 5 / 3600);
+    println!("   fee            : {} ZBX", format!("{:.10}", fee_wei as f64 / 1e18));
+    println!();
+    println!("   {C_DIM}submit response:{C_RESET}");
+    println!("{}", serde_json::to_string_pretty(&resp)?);
+    println!();
+    println!("   {C_YELLOW}💡 The proposer is auto-counted as 1st approval. Other owners must approve.{C_RESET}");
+    Ok(())
+}
+
+async fn cmd_multisig_action(
+    signer_key: PathBuf,
+    multisig: String,
+    proposal_id: u64,
+    rpc_url: String,
+    fee: String,
+    op: zebvix_node::multisig::MultisigOp,
+    label: &str,
+    icon: &str,
+) -> Result<()> {
+    let (sk, pk) = read_keyfile(&signer_key)?;
+    let from = address_from_pubkey(&pk);
+    let ms_addr = Address::from_hex(&multisig)?;
+    let fee_wei = resolve_fee(&rpc_url, &fee).await?;
+    let nonce = reqwest_get_nonce(&rpc_url, &from).await?;
+
+    let body = TxBody {
+        from, to: Address::ZERO, amount: 0, nonce, fee: fee_wei,
+        chain_id: CHAIN_ID, kind: TxKind::Multisig(op),
+    };
+    let tx = sign_tx(&sk, body);
+    let req = serde_json::json!({
+        "jsonrpc":"2.0","id":1,"method":"zbx_sendTransaction","params":[tx]
+    });
+    let resp = http_post(&rpc_url, &req).await?;
+
+    println!("{}{} Multisig {}{}", C_CYAN_B, icon, label, C_RESET);
+    println!();
+    println!("   multisig     : {}", ms_addr);
+    println!("   signer       : {}", from);
+    println!("   proposal_id  : #{}", proposal_id);
+    println!("   fee          : {} ZBX", format!("{:.10}", fee_wei as f64 / 1e18));
+    println!();
+    println!("   {C_DIM}submit response:{C_RESET}");
+    println!("{}", serde_json::to_string_pretty(&resp)?);
+    Ok(())
+}
+
+async fn cmd_multisig_approve(signer_key: PathBuf, multisig: String, proposal_id: u64, rpc_url: String, fee: String) -> Result<()> {
+    let ms_addr = Address::from_hex(&multisig)?;
+    cmd_multisig_action(signer_key, multisig.clone(), proposal_id, rpc_url, fee,
+        zebvix_node::multisig::MultisigOp::Approve { multisig: ms_addr, proposal_id },
+        "Approve", "✅").await
+}
+
+async fn cmd_multisig_revoke(signer_key: PathBuf, multisig: String, proposal_id: u64, rpc_url: String, fee: String) -> Result<()> {
+    let ms_addr = Address::from_hex(&multisig)?;
+    cmd_multisig_action(signer_key, multisig.clone(), proposal_id, rpc_url, fee,
+        zebvix_node::multisig::MultisigOp::Revoke { multisig: ms_addr, proposal_id },
+        "Revoke", "↩️").await
+}
+
+async fn cmd_multisig_execute(signer_key: PathBuf, multisig: String, proposal_id: u64, rpc_url: String, fee: String) -> Result<()> {
+    let ms_addr = Address::from_hex(&multisig)?;
+    cmd_multisig_action(signer_key, multisig.clone(), proposal_id, rpc_url, fee,
+        zebvix_node::multisig::MultisigOp::Execute { multisig: ms_addr, proposal_id },
+        "Execute", "🚀").await
+}
+
+async fn cmd_multisig_info(address: String, rpc_url: String) -> Result<()> {
+    let addr = Address::from_hex(&address)?;
+    let v = rpc_get(&rpc_url, "zbx_getMultisig", serde_json::json!([addr.to_hex()])).await?;
+    let bal_hex = rpc_get(&rpc_url, "zbx_getBalance", serde_json::json!([addr.to_hex()])).await?;
+    let bal = parse_hex_wei(bal_hex.as_str().unwrap_or("0x0"));
+
+    let threshold = v.get("threshold").and_then(|x| x.as_u64()).unwrap_or(0);
+    let owners = v.get("owners").and_then(|x| x.as_array()).cloned().unwrap_or_default();
+    let created = v.get("created_height").and_then(|x| x.as_u64()).unwrap_or(0);
+    let pseq = v.get("proposal_seq").and_then(|x| x.as_u64()).unwrap_or(0);
+
+    println!("{C_CYAN_B}🔐 Multisig Info{C_RESET}");
+    println!();
+    println!("   address         : {}", addr);
+    println!("   {C_GREEN}balance{C_RESET}         : {} ZBX  {C_DIM}({} wei){C_RESET}", fmt_zbx(bal), bal);
+    println!("   threshold       : {} of {}", threshold, owners.len());
+    println!("   created_height  : h={}", created);
+    println!("   total proposals : {}", pseq);
+    println!("   owners:");
+    for (i, o) in owners.iter().enumerate() {
+        println!("     {}. {}", i + 1, o.as_str().unwrap_or(""));
+    }
+    Ok(())
+}
+
+async fn cmd_multisig_proposals(address: String, rpc_url: String) -> Result<()> {
+    let addr = Address::from_hex(&address)?;
+    let v = rpc_get(&rpc_url, "zbx_getMultisigProposals", serde_json::json!([addr.to_hex()])).await?;
+    let arr = v.as_array().cloned().unwrap_or_default();
+
+    println!("{C_CYAN_B}📋 Multisig Proposals — {}{C_RESET}", addr);
+    println!();
+    if arr.is_empty() {
+        println!("   {C_DIM}(no proposals yet){C_RESET}");
+        return Ok(());
+    }
+    for p in &arr {
+        let id = p.get("id").and_then(|x| x.as_u64()).unwrap_or(0);
+        let proposer = p.get("proposer").and_then(|x| x.as_str()).unwrap_or("");
+        let action = p.get("action_human").and_then(|x| x.as_str()).unwrap_or("");
+        let approvals = p.get("approvals").and_then(|x| x.as_array()).cloned().unwrap_or_default();
+        let threshold = p.get("threshold").and_then(|x| x.as_u64()).unwrap_or(0);
+        let expiry = p.get("expiry_height").and_then(|x| x.as_u64()).unwrap_or(0);
+        let executed = p.get("executed").and_then(|x| x.as_bool()).unwrap_or(false);
+        let expired = p.get("expired").and_then(|x| x.as_bool()).unwrap_or(false);
+
+        let status = if executed { format!("{}✅ EXECUTED{}", C_GREEN, C_RESET) }
+                     else if expired { format!("{}⏰ EXPIRED{}", C_DIM, C_RESET) }
+                     else if (approvals.len() as u64) >= threshold { format!("{}🟢 READY{}", C_GREEN, C_RESET) }
+                     else { format!("{}🟡 PENDING{}", C_YELLOW, C_RESET) };
+
+        println!("   #{}  [{}]  {}", id, status, action);
+        println!("       proposer    : {}", proposer);
+        println!("       approvals   : {} / {}", approvals.len(), threshold);
+        for a in &approvals {
+            println!("         • {}", a.as_str().unwrap_or(""));
+        }
+        println!("       expires at  : h={}", expiry);
+        println!();
+    }
+    Ok(())
+}
+
+async fn cmd_multisig_list(owner: String, rpc_url: String) -> Result<()> {
+    let addr = Address::from_hex(&owner)?;
+    let v = rpc_get(&rpc_url, "zbx_listMultisigsByOwner", serde_json::json!([addr.to_hex()])).await?;
+    let arr = v.as_array().cloned().unwrap_or_default();
+
+    println!("{C_CYAN_B}🔐 Multisigs owned by {}{C_RESET}", addr);
+    println!();
+    if arr.is_empty() {
+        println!("   {C_DIM}(none){C_RESET}");
+    }
+    for m in &arr {
+        println!("   • {}", m.as_str().unwrap_or(""));
+    }
     Ok(())
 }
 

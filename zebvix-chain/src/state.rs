@@ -38,6 +38,13 @@ const META_STAKING: &[u8] = b"staking";
 // Reverse index: address → bincode (pay_id, name).
 const META_PAYID_PREFIX: &[u8] = b"payid/";
 const META_PAYID_ADDR_PREFIX: &[u8] = b"payid_addr/";
+// Phase B.8: multisig wallets.
+//   - `ms/<addr20>`              → bincode(MultisigAccount)
+//   - `mspr/<addr20><id_be8>`    → bincode(MultisigProposal)
+//   - `mso/<owner20><addr20>`    → 1-byte marker (owner→multisig index)
+const META_MS_PREFIX: &[u8] = b"ms/";
+const META_MS_PROPOSAL_PREFIX: &[u8] = b"mspr/";
+const META_MS_OWNER_PREFIX: &[u8] = b"mso/";
 
 /// Validate a Pay-ID string. Returns the lowercased canonical form.
 /// Rules: must end with `@zbx`; the handle (before `@zbx`) must be 3-25 chars,
@@ -566,6 +573,225 @@ impl State {
                 tracing::info!("🪪 pay-id registered: {} = {} (\"{}\")", canon, tx.body.from, nm);
                 return Ok(());
             }
+            crate::types::TxKind::Multisig(op) => {
+                // Phase B.8 — multisig dispatch. All ops refund `body.amount`;
+                // only the fee is consumed. The multisig account itself holds
+                // its own balance in CF_ACCOUNTS and is debited only on Execute.
+                use crate::multisig::{
+                    derive_multisig_address, normalize_owners, validate_threshold,
+                    MultisigAccount, MultisigAction, MultisigOp, MultisigProposal,
+                    PROPOSAL_MAX_EXPIRY_BLOCKS,
+                };
+
+                let current_height = self.tip().0;
+
+                let result: Result<()> = match op {
+                    MultisigOp::Create { owners, threshold, salt } => {
+                        let owners = match normalize_owners(owners) {
+                            Ok(o) => o,
+                            Err(e) => return refund(&mut from, format!("multisig-create: {}", e)),
+                        };
+                        if let Err(e) = validate_threshold(*threshold, owners.len()) {
+                            return refund(&mut from, format!("multisig-create: {}", e));
+                        }
+                        let addr = derive_multisig_address(&owners, *threshold, *salt, &tx.body.from);
+                        if self.get_multisig(&addr).is_some() {
+                            return refund(&mut from, format!(
+                                "multisig-create: address {} already exists (change salt)", addr
+                            ));
+                        }
+                        let acct = MultisigAccount {
+                            address: addr,
+                            owners,
+                            threshold: *threshold,
+                            created_height: current_height,
+                            proposal_seq: 0,
+                        };
+                        self.put_multisig(&acct)?;
+                        // Initialize the multisig account row in CF_ACCOUNTS so
+                        // anyone can fund it via Transfer immediately.
+                        let zero = self.account(&addr);
+                        self.put_account(&addr, &zero)?;
+                        tracing::info!(
+                            "🔐 multisig created: {} ({}-of-{}, owners={:?})",
+                            acct.address, acct.threshold, acct.owners.len(), acct.owners
+                        );
+                        Ok(())
+                    }
+                    MultisigOp::Propose { multisig, action, expiry_blocks } => {
+                        let mut ms = match self.get_multisig(multisig) {
+                            Some(m) => m,
+                            None => return refund(&mut from, format!(
+                                "multisig-propose: account {} not found", multisig)),
+                        };
+                        if !ms.is_owner(&tx.body.from) {
+                            return refund(&mut from, format!(
+                                "multisig-propose: {} is not an owner of {}", tx.body.from, multisig));
+                        }
+                        if *expiry_blocks == 0 || *expiry_blocks > PROPOSAL_MAX_EXPIRY_BLOCKS {
+                            return refund(&mut from, format!(
+                                "multisig-propose: expiry_blocks must be 1..={}", PROPOSAL_MAX_EXPIRY_BLOCKS));
+                        }
+                        // Sanity-check the action up front (cheap rejects).
+                        match action {
+                            MultisigAction::Transfer { amount, .. } => {
+                                if *amount == 0 {
+                                    return refund(&mut from,
+                                        "multisig-propose: transfer amount must be > 0".into());
+                                }
+                            }
+                        }
+                        let id = ms.proposal_seq;
+                        let mut p = MultisigProposal {
+                            multisig: *multisig,
+                            id,
+                            action: action.clone(),
+                            proposer: tx.body.from,
+                            approvals: Vec::new(),
+                            created_height: current_height,
+                            expiry_height: current_height.saturating_add(*expiry_blocks),
+                            executed: false,
+                        };
+                        // Auto-approve by proposer.
+                        p.add_approval(tx.body.from);
+                        ms.proposal_seq = ms.proposal_seq.saturating_add(1);
+                        self.put_multisig(&ms)?;
+                        self.put_ms_proposal(&p)?;
+                        tracing::info!(
+                            "📝 multisig proposal #{} created on {} by {} ({})",
+                            id, multisig, tx.body.from, p.action.human()
+                        );
+                        Ok(())
+                    }
+                    MultisigOp::Approve { multisig, proposal_id } => {
+                        let ms = match self.get_multisig(multisig) {
+                            Some(m) => m,
+                            None => return refund(&mut from, format!(
+                                "multisig-approve: account {} not found", multisig)),
+                        };
+                        if !ms.is_owner(&tx.body.from) {
+                            return refund(&mut from, format!(
+                                "multisig-approve: {} is not an owner", tx.body.from));
+                        }
+                        let mut p = match self.get_ms_proposal(multisig, *proposal_id) {
+                            Some(p) => p,
+                            None => return refund(&mut from, format!(
+                                "multisig-approve: proposal #{} not found", proposal_id)),
+                        };
+                        if p.executed {
+                            return refund(&mut from,
+                                format!("multisig-approve: proposal #{} already executed", proposal_id));
+                        }
+                        if current_height > p.expiry_height {
+                            return refund(&mut from,
+                                format!("multisig-approve: proposal #{} expired at h={}", proposal_id, p.expiry_height));
+                        }
+                        if !p.add_approval(tx.body.from) {
+                            return refund(&mut from,
+                                format!("multisig-approve: {} already approved #{}", tx.body.from, proposal_id));
+                        }
+                        self.put_ms_proposal(&p)?;
+                        tracing::info!(
+                            "✅ multisig approval added: #{} on {} by {} ({}/{})",
+                            proposal_id, multisig, tx.body.from, p.approvals.len(), ms.threshold
+                        );
+                        Ok(())
+                    }
+                    MultisigOp::Revoke { multisig, proposal_id } => {
+                        let ms = match self.get_multisig(multisig) {
+                            Some(m) => m,
+                            None => return refund(&mut from, format!(
+                                "multisig-revoke: account {} not found", multisig)),
+                        };
+                        if !ms.is_owner(&tx.body.from) {
+                            return refund(&mut from, format!(
+                                "multisig-revoke: {} is not an owner", tx.body.from));
+                        }
+                        let mut p = match self.get_ms_proposal(multisig, *proposal_id) {
+                            Some(p) => p,
+                            None => return refund(&mut from, format!(
+                                "multisig-revoke: proposal #{} not found", proposal_id)),
+                        };
+                        if p.executed {
+                            return refund(&mut from,
+                                format!("multisig-revoke: proposal #{} already executed", proposal_id));
+                        }
+                        if !p.remove_approval(&tx.body.from) {
+                            return refund(&mut from,
+                                format!("multisig-revoke: {} had no approval on #{}", tx.body.from, proposal_id));
+                        }
+                        self.put_ms_proposal(&p)?;
+                        tracing::info!(
+                            "↩️  multisig approval revoked: #{} on {} by {} ({}/{})",
+                            proposal_id, multisig, tx.body.from, p.approvals.len(), ms.threshold
+                        );
+                        Ok(())
+                    }
+                    MultisigOp::Execute { multisig, proposal_id } => {
+                        let ms = match self.get_multisig(multisig) {
+                            Some(m) => m,
+                            None => return refund(&mut from, format!(
+                                "multisig-execute: account {} not found", multisig)),
+                        };
+                        if !ms.is_owner(&tx.body.from) {
+                            return refund(&mut from, format!(
+                                "multisig-execute: {} is not an owner", tx.body.from));
+                        }
+                        let mut p = match self.get_ms_proposal(multisig, *proposal_id) {
+                            Some(p) => p,
+                            None => return refund(&mut from, format!(
+                                "multisig-execute: proposal #{} not found", proposal_id)),
+                        };
+                        if p.executed {
+                            return refund(&mut from,
+                                format!("multisig-execute: proposal #{} already executed", proposal_id));
+                        }
+                        if current_height > p.expiry_height {
+                            return refund(&mut from,
+                                format!("multisig-execute: proposal #{} expired at h={}", proposal_id, p.expiry_height));
+                        }
+                        if (p.approvals.len() as u8) < ms.threshold {
+                            return refund(&mut from, format!(
+                                "multisig-execute: only {}/{} approvals collected",
+                                p.approvals.len(), ms.threshold));
+                        }
+                        // Apply the action atomically. Refund on any failure
+                        // so the executor only loses gas, not principal.
+                        match &p.action {
+                            MultisigAction::Transfer { to, amount } => {
+                                let mut ms_acc = self.account(multisig);
+                                if ms_acc.balance < *amount {
+                                    return refund(&mut from, format!(
+                                        "multisig-execute: multisig balance {} < transfer amount {}",
+                                        ms_acc.balance, amount));
+                                }
+                                ms_acc.balance -= *amount;
+                                ms_acc.nonce = ms_acc.nonce.saturating_add(1);
+                                self.put_account(multisig, &ms_acc)?;
+                                let mut to_acc = self.account(to);
+                                to_acc.balance = to_acc.balance.saturating_add(*amount);
+                                self.put_account(to, &to_acc)?;
+                            }
+                        }
+                        p.executed = true;
+                        self.put_ms_proposal(&p)?;
+                        tracing::info!(
+                            "🚀 multisig executed: #{} on {} by {} ({})",
+                            proposal_id, multisig, tx.body.from, p.action.human()
+                        );
+                        Ok(())
+                    }
+                };
+
+                match result {
+                    Ok(()) => {
+                        from.balance = from.balance.saturating_add(tx.body.amount);
+                        self.put_account(&tx.body.from, &from)?;
+                        return Ok(());
+                    }
+                    Err(e) => return refund(&mut from, e.to_string()),
+                }
+            }
             crate::types::TxKind::Transfer => { /* fall through to legacy logic */ }
         }
 
@@ -883,6 +1109,99 @@ impl State {
             let Ok((k, _)) = item else { continue };
             if !k.starts_with(META_PAYID_PREFIX) { break; }
             n += 1;
+        }
+        n
+    }
+
+    // ───────────────────── Phase B.8 — Multisig wallets ─────────────────────
+
+    fn ms_key(addr: &Address) -> Vec<u8> {
+        let mut k = META_MS_PREFIX.to_vec();
+        k.extend_from_slice(&addr.0);
+        k
+    }
+    fn ms_proposal_key(multisig: &Address, id: u64) -> Vec<u8> {
+        let mut k = META_MS_PROPOSAL_PREFIX.to_vec();
+        k.extend_from_slice(&multisig.0);
+        k.extend_from_slice(&id.to_be_bytes());
+        k
+    }
+    fn ms_owner_key(owner: &Address, multisig: &Address) -> Vec<u8> {
+        let mut k = META_MS_OWNER_PREFIX.to_vec();
+        k.extend_from_slice(&owner.0);
+        k.extend_from_slice(&multisig.0);
+        k
+    }
+
+    pub fn put_multisig(&self, ms: &crate::multisig::MultisigAccount) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.put_cf(cf, Self::ms_key(&ms.address), bincode::serialize(ms)?)?;
+        for o in &ms.owners {
+            self.db.put_cf(cf, Self::ms_owner_key(o, &ms.address), [1u8])?;
+        }
+        Ok(())
+    }
+
+    pub fn get_multisig(&self, addr: &Address) -> Option<crate::multisig::MultisigAccount> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let raw = self.db.get_cf(cf, Self::ms_key(addr)).ok().flatten()?;
+        bincode::deserialize(&raw).ok()
+    }
+
+    pub fn put_ms_proposal(&self, p: &crate::multisig::MultisigProposal) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.put_cf(cf, Self::ms_proposal_key(&p.multisig, p.id), bincode::serialize(p)?)?;
+        Ok(())
+    }
+
+    pub fn get_ms_proposal(&self, multisig: &Address, id: u64) -> Option<crate::multisig::MultisigProposal> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let raw = self.db.get_cf(cf, Self::ms_proposal_key(multisig, id)).ok().flatten()?;
+        bincode::deserialize(&raw).ok()
+    }
+
+    /// List all proposals for a multisig (chronological by id).
+    pub fn list_ms_proposals(&self, multisig: &Address) -> Vec<crate::multisig::MultisigProposal> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let mut prefix = META_MS_PROPOSAL_PREFIX.to_vec();
+        prefix.extend_from_slice(&multisig.0);
+        let mut out = Vec::new();
+        for item in self.db.prefix_iterator_cf(cf, &prefix) {
+            let Ok((k, v)) = item else { continue };
+            if !k.starts_with(&prefix) { break; }
+            if let Ok(p) = bincode::deserialize::<crate::multisig::MultisigProposal>(&v) {
+                out.push(p);
+            }
+        }
+        out.sort_by_key(|p| p.id);
+        out
+    }
+
+    /// List multisig addresses an owner is a member of.
+    pub fn list_ms_by_owner(&self, owner: &Address) -> Vec<Address> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let mut prefix = META_MS_OWNER_PREFIX.to_vec();
+        prefix.extend_from_slice(&owner.0);
+        let mut out = Vec::new();
+        for item in self.db.prefix_iterator_cf(cf, &prefix) {
+            let Ok((k, _)) = item else { continue };
+            if !k.starts_with(&prefix) { break; }
+            if k.len() == prefix.len() + 20 {
+                let mut a = [0u8; 20];
+                a.copy_from_slice(&k[prefix.len()..]);
+                out.push(Address(a));
+            }
+        }
+        out
+    }
+
+    pub fn multisig_count(&self) -> usize {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let mut n = 0usize;
+        for item in self.db.prefix_iterator_cf(cf, META_MS_PREFIX) {
+            let Ok((k, _)) = item else { continue };
+            if !k.starts_with(META_MS_PREFIX) { break; }
+            if k.len() == META_MS_PREFIX.len() + 20 { n += 1; }
         }
         n
     }

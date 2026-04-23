@@ -560,6 +560,96 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
             }
         }
         "zbx_payIdCount" => ok(id, json!({ "total": ctx.state.pay_id_count() })),
+        // ───────── Phase B.8 — Multisig wallets ─────────
+        "zbx_getMultisig" => {
+            let addr = req.params.get(0).and_then(parse_address);
+            match addr {
+                Some(a) => match ctx.state.get_multisig(&a) {
+                    Some(ms) => ok(id, json!({
+                        "address": ms.address.to_hex(),
+                        "owners": ms.owners.iter().map(|o| o.to_hex()).collect::<Vec<_>>(),
+                        "threshold": ms.threshold,
+                        "created_height": ms.created_height,
+                        "proposal_seq": ms.proposal_seq,
+                    })),
+                    None => err(id, -32004, format!("multisig {} not found", a)),
+                },
+                None => err(id, -32602, "invalid address"),
+            }
+        }
+        "zbx_getMultisigProposal" => {
+            let addr = req.params.get(0).and_then(parse_address);
+            let pid = req.params.get(1).and_then(|v| v.as_u64());
+            match (addr, pid) {
+                (Some(a), Some(pid)) => {
+                    let ms = ctx.state.get_multisig(&a);
+                    match ctx.state.get_ms_proposal(&a, pid) {
+                        Some(p) => {
+                            let threshold = ms.as_ref().map(|m| m.threshold).unwrap_or(0);
+                            let current_h = ctx.state.tip().0;
+                            let expired = current_h > p.expiry_height;
+                            ok(id, json!({
+                                "multisig": p.multisig.to_hex(),
+                                "id": p.id,
+                                "proposer": p.proposer.to_hex(),
+                                "approvals": p.approvals.iter().map(|x| x.to_hex()).collect::<Vec<_>>(),
+                                "threshold": threshold,
+                                "created_height": p.created_height,
+                                "expiry_height": p.expiry_height,
+                                "executed": p.executed,
+                                "expired": expired && !p.executed,
+                                "action_human": p.action.human(),
+                                "action": match &p.action {
+                                    crate::multisig::MultisigAction::Transfer { to, amount } =>
+                                        json!({ "kind": "Transfer", "to": to.to_hex(), "amount_wei": amount.to_string() }),
+                                },
+                            }))
+                        }
+                        None => err(id, -32004, format!("proposal #{} not found on {}", pid, a)),
+                    }
+                }
+                _ => err(id, -32602, "invalid params: expect [address, proposal_id]"),
+            }
+        }
+        "zbx_getMultisigProposals" => {
+            let addr = req.params.get(0).and_then(parse_address);
+            match addr {
+                Some(a) => {
+                    let ms = ctx.state.get_multisig(&a);
+                    let threshold = ms.as_ref().map(|m| m.threshold).unwrap_or(0);
+                    let current_h = ctx.state.tip().0;
+                    let arr: Vec<Value> = ctx.state.list_ms_proposals(&a).into_iter().map(|p| {
+                        let expired = current_h > p.expiry_height;
+                        json!({
+                            "multisig": p.multisig.to_hex(),
+                            "id": p.id,
+                            "proposer": p.proposer.to_hex(),
+                            "approvals": p.approvals.iter().map(|x| x.to_hex()).collect::<Vec<_>>(),
+                            "threshold": threshold,
+                            "created_height": p.created_height,
+                            "expiry_height": p.expiry_height,
+                            "executed": p.executed,
+                            "expired": expired && !p.executed,
+                            "action_human": p.action.human(),
+                        })
+                    }).collect();
+                    ok(id, json!(arr))
+                }
+                None => err(id, -32602, "invalid address"),
+            }
+        }
+        "zbx_listMultisigsByOwner" => {
+            let addr = req.params.get(0).and_then(parse_address);
+            match addr {
+                Some(a) => {
+                    let arr: Vec<Value> = ctx.state.list_ms_by_owner(&a).into_iter()
+                        .map(|m| json!(m.to_hex())).collect();
+                    ok(id, json!(arr))
+                }
+                None => err(id, -32602, "invalid address"),
+            }
+        }
+        "zbx_multisigCount" => ok(id, json!({ "total": ctx.state.multisig_count() })),
         m => err(id, -32601, format!("method not found: {m}")),
     };
     Json(resp)
