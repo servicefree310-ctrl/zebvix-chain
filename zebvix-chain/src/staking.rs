@@ -832,7 +832,7 @@ impl StakingModule {
         let mut commissions: Vec<(Address, u128)> = Vec::new();
         let mut liquid_credits: Vec<(Address, u128)> = Vec::new();
         let mut locked_credits: Vec<(Address, u128)> = Vec::new();
-        for (_vaddr, vstake, voperator, dels) in val_snapshot {
+        for (_vaddr, vstake, _voperator, dels) in val_snapshot {
             let v_share = mul_div(pool_amount, vstake, active_total);
             if v_share == 0 {
                 continue;
@@ -840,8 +840,10 @@ impl StakingModule {
             let commission =
                 mul_div(v_share, commission_bps as u128, COMMISSION_BPS_DEN as u128);
             let bonded = v_share.saturating_sub(commission);
+            // Commission across ALL validators is paid only to the founder
+            // (treasury), never to other operators.
             if commission > 0 {
-                commissions.push((voperator, commission));
+                commissions.push((founder_addr, commission));
             }
             let total_shares: u128 = dels.iter().map(|(_, s)| *s).sum();
             if total_shares > 0 && bonded > 0 {
