@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState, useMemo } from "react";
+import { useLocation } from "wouter";
 import { rpc, weiHexToZbx, shortAddr, weiToUsd, fmtUsd } from "@/lib/zbx-rpc";
 import {
   Activity, Box, Users, Zap, AlertCircle, TrendingUp, Coins,
   ArrowLeftRight, Gauge, Timer, Flame, Layers, Wifi, ShieldCheck,
   Hash, Clock, Cpu, Droplet, ArrowUpRight, ChevronDown, ChevronUp,
-  Sparkles, BarChart3,
+  Sparkles, BarChart3, Search, Inbox,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -211,6 +212,9 @@ export default function LiveChain() {
         priceHist={priceHist}
         validatorCount={vals?.validators?.length ?? 0}
       />
+
+      {/* ADDRESS SEARCH BAR */}
+      <AddressSearch />
 
       {err && (
         <div className="p-4 rounded-xl border border-red-500/40 bg-red-500/5 text-sm flex gap-2 backdrop-blur">
@@ -446,6 +450,9 @@ function OverviewTab({
           ) : <Empty>no vote data</Empty>}
         </Panel>
       </div>
+
+      {/* Recent Transactions (scans wider window) */}
+      <RecentTxsPanel tipHeight={recent[0]?.height ?? 0} />
 
       {/* Supply ring */}
       {supply && <SupplyOverview supply={supply} />}
@@ -970,6 +977,222 @@ function ProposerAvatar({ addr, size = 18 }: { addr: string; size?: number }) {
 
 function Empty({ children }: { children: React.ReactNode }) {
   return <div className="text-xs text-muted-foreground py-2">{children}</div>;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AddressSearch — input bar, navigates to /balance-lookup?addr=X
+// ─────────────────────────────────────────────────────────────────────────────
+function AddressSearch() {
+  const [, setLoc] = useLocation();
+  const [val, setVal] = useState("");
+  const submit = () => {
+    const a = val.trim();
+    if (!a) return;
+    setLoc(`/balance-lookup?addr=${encodeURIComponent(a)}`);
+  };
+  return (
+    <div className="rounded-xl border border-border bg-gradient-to-r from-card via-card to-primary/5 p-3 flex items-center gap-2">
+      <Search className="h-4 w-4 text-primary shrink-0 ml-1" />
+      <input
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && submit()}
+        placeholder="Search any address (0x…) — see balance, stake, locked rewards, Pay-ID & related transactions"
+        className="flex-1 bg-transparent outline-none text-sm font-mono placeholder:text-muted-foreground/60"
+      />
+      <button
+        onClick={submit}
+        disabled={!val.trim()}
+        className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-semibold disabled:opacity-40 hover:bg-primary/90 transition flex items-center gap-1"
+      >
+        Lookup <ArrowUpRight className="h-3 w-3" />
+      </button>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RecentTxsPanel — scans last N blocks for any non-empty txs and lists them
+// ─────────────────────────────────────────────────────────────────────────────
+interface OnchainTx {
+  height: number;
+  ts: number;
+  from: string;
+  to: string;
+  amount_wei: string;
+  fee_wei: string;
+  kind: string;
+}
+
+function RecentTxsPanel({ tipHeight }: { tipHeight: number }) {
+  const [scanning, setScanning] = useState(false);
+  const [scannedRange, setScannedRange] = useState(0);
+  const [txs, setTxs] = useState<OnchainTx[]>([]);
+  const [err, setErr] = useState<string | null>(null);
+  const [autoScanned, setAutoScanned] = useState(false);
+
+  async function scan(window: number) {
+    if (!tipHeight || scanning) return;
+    setScanning(true);
+    setErr(null);
+    try {
+      const heights: number[] = [];
+      for (let i = 0; i < window; i++) {
+        const h = tipHeight - i;
+        if (h >= 0) heights.push(h);
+      }
+      // Parallel with concurrency cap
+      const CONC = 12;
+      const found: OnchainTx[] = [];
+      for (let i = 0; i < heights.length; i += CONC) {
+        const slice = heights.slice(i, i + CONC);
+        const results = await Promise.all(
+          slice.map(async (h) => {
+            try {
+              const r = await rpc<any>("zbx_getBlockByNumber", [h]);
+              if (!r) return null;
+              const hdr = r.header ?? r;
+              const txs = Array.isArray(r.txs) ? r.txs : [];
+              return { h, ts: hdr.timestamp_ms ?? 0, txs };
+            } catch { return null; }
+          }),
+        );
+        for (const x of results) {
+          if (!x || !x.txs.length) continue;
+          for (const t of x.txs) {
+            const body = t.body ?? t;
+            found.push({
+              height: x.h,
+              ts: x.ts,
+              from: body.from ?? "",
+              to: body.to ?? "",
+              amount_wei: typeof body.amount === "number" ? body.amount.toString() : String(body.amount ?? "0"),
+              fee_wei: typeof body.fee === "number" ? body.fee.toString() : String(body.fee ?? "0"),
+              kind: kindLabel(body.kind),
+            });
+          }
+        }
+        // early exit if we already have 30+
+        if (found.length >= 30) break;
+      }
+      found.sort((a, b) => b.height - a.height);
+      setTxs(found.slice(0, 30));
+      setScannedRange(window);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  useEffect(() => {
+    if (tipHeight && !autoScanned) {
+      setAutoScanned(true);
+      scan(200);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tipHeight]);
+
+  return (
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="p-3 border-b border-border bg-muted/30 flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold flex items-center gap-2">
+          <ArrowLeftRight className="h-4 w-4 text-primary" />
+          Recent Transactions
+          {scannedRange > 0 && (
+            <span className="text-[10px] font-normal text-muted-foreground">
+              (scanned last {scannedRange.toLocaleString()} blocks)
+            </span>
+          )}
+        </h2>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => scan(200)}
+            disabled={scanning}
+            className="text-[11px] px-2 py-1 rounded bg-muted hover:bg-muted/70 disabled:opacity-40"
+          >
+            {scanning ? "scanning…" : "scan 200"}
+          </button>
+          <button
+            onClick={() => scan(1000)}
+            disabled={scanning}
+            className="text-[11px] px-2 py-1 rounded bg-primary/20 text-primary hover:bg-primary/30 disabled:opacity-40"
+          >
+            {scanning ? "…" : "scan 1000"}
+          </button>
+        </div>
+      </div>
+      {err && <div className="p-3 text-xs text-red-400">{err}</div>}
+      {txs.length === 0 ? (
+        <div className="p-8 text-center">
+          <Inbox className="h-10 w-10 text-muted-foreground/30 mx-auto mb-2" />
+          <div className="text-xs text-muted-foreground">
+            {scanning
+              ? "scanning blocks for transactions…"
+              : scannedRange > 0
+              ? `no transactions in last ${scannedRange.toLocaleString()} blocks — chain is currently idle. Try scanning a wider range.`
+              : "ready to scan…"}
+          </div>
+        </div>
+      ) : (
+        <table className="w-full text-xs">
+          <thead className="bg-muted/20 text-muted-foreground">
+            <tr>
+              <th className="text-left p-2 font-medium w-20">Block</th>
+              <th className="text-left p-2 font-medium w-20">Kind</th>
+              <th className="text-left p-2 font-medium">From</th>
+              <th className="text-left p-2 font-medium">To</th>
+              <th className="text-right p-2 font-medium">Amount</th>
+              <th className="text-right p-2 font-medium">Fee</th>
+              <th className="text-right p-2 font-medium w-20">Age</th>
+            </tr>
+          </thead>
+          <tbody>
+            {txs.map((t, i) => (
+              <tr key={`${t.height}-${i}`} className="border-t border-border hover:bg-muted/20">
+                <td className="p-2 font-mono text-primary">#{t.height}</td>
+                <td className="p-2"><KindBadge kind={t.kind} /></td>
+                <td className="p-2 font-mono text-muted-foreground">{shortAddr(t.from, 6, 4)}</td>
+                <td className="p-2 font-mono text-muted-foreground">{shortAddr(t.to, 6, 4)}</td>
+                <td className="p-2 text-right font-mono">
+                  {t.amount_wei !== "0" ? `${weiHexToZbx(t.amount_wei)} ZBX` : <span className="text-muted-foreground">—</span>}
+                </td>
+                <td className="p-2 text-right font-mono text-amber-400">{weiHexToZbx(t.fee_wei)}</td>
+                <td className="p-2 text-right text-muted-foreground tabular-nums">{ageStr(t.ts)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function kindLabel(kind: any): string {
+  if (!kind) return "Tx";
+  if (typeof kind === "string") return kind;
+  if (typeof kind === "object") {
+    const key = Object.keys(kind)[0];
+    if (!key) return "Tx";
+    const inner = kind[key];
+    if (inner && typeof inner === "object") {
+      const sub = Object.keys(inner)[0];
+      return sub ? `${key}.${sub}` : key;
+    }
+    return key;
+  }
+  return "Tx";
+}
+
+function KindBadge({ kind }: { kind: string }) {
+  const tone =
+    kind.startsWith("Transfer") ? "bg-emerald-500/15 text-emerald-400" :
+    kind.startsWith("Multisig") ? "bg-violet-500/15 text-violet-400" :
+    kind.startsWith("Stake") || kind.startsWith("Delegate") ? "bg-cyan-500/15 text-cyan-400" :
+    kind.startsWith("Swap") ? "bg-amber-500/15 text-amber-400" :
+    kind.startsWith("PayId") ? "bg-pink-500/15 text-pink-400" :
+    "bg-muted text-muted-foreground";
+  return <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${tone}`}>{kind}</span>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
