@@ -1,0 +1,83 @@
+sudo systemctl start zebvix.service zebvix2.service
+sleep 8
+
+# TEST 1: Live fee bounds (NEW RPC)
+curl -s -X POST http://127.0.0.1:8545 \
+  -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"zbx_feeBounds","params":[]}' | jq .
+
+# TEST 2: Auto-fee Pay-ID register
+zebvix-node register-pay-id \
+  --signer-key /tmp/del.key \
+  --pay-id ali@zbx \
+  --name "Ali Delegator"
+
+# TEST 3: Negative — too-high fee should be REJECTED
+zebvix-node register-pay-id \
+  --signer-key /tmp/del.key \
+  --pay-id over@zbx \
+  --name "Test" \
+  --fee 0.5
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "max_fee_wei": "10000000000000000",
+    "max_fee_zbx": "0.0100000000",
+    "max_usd": "0.010000",
+    "min_fee_wei": "1000000000000000",
+    "min_fee_zbx": "0.0010000000",
+    "min_usd": "0.001000",
+    "pool_initialized": true,
+    "recommended_fee_wei": "2000000000000000",
+    "recommended_fee_zbx": "0.0020000000",
+    "source": "amm-pool-spot"
+  }
+}
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+🪪 Register Pay-ID
+
+   address  : 0x57957a0f7e3cd660c3dd10b897d38f8122f78980
+   pay-id   : ali@zbx
+   name     : Ali Delegator
+   fee      : 0.0020000000 ZBX  (auto from zbx_feeBounds)
+
+   submit response:
+{
+  "id": 1,
+  "jsonrpc": "2.0",
+  "result": "0x8042f38eaed3056504febd9121ac3ff85e699daf34a6121cdea369711603354d"
+}
+
+   ⚠️  This Pay-ID is PERMANENT — it cannot be edited or deleted.
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+🪪 Register Pay-ID
+
+   address  : 0x57957a0f7e3cd660c3dd10b897d38f8122f78980
+   pay-id   : over@zbx
+   name     : Test
+   fee      : 0.5000000000 ZBX
+
+   submit response:
+{
+  "id": 1,
+  "jsonrpc": "2.0",
+  "result": "0x4ab07c4422b5cfae6f0c67f3564041b7ee9f45e8546ffcf6db64ead142f0ecb2"
+}
+
+   ⚠️  This Pay-ID is PERMANENT — it cannot be edited or deleted.
+root@srv1266996:/home/zebvix-chain# 
