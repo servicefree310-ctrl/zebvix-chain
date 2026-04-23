@@ -1,0 +1,48 @@
+root@srv1266996:/home/zebvix-chain# # Mempool size aur recent sendTransaction activity
+sudo journalctl -u zebvix.service -n 500 --no-pager | grep -iE "sendtransaction|mempool|reject|apply_tx|invalid|fee too" | tail -30
+
+# Naye tx submit + immediate logs capture
+zebvix-node register-pay-id \
+  --signer-key /tmp/del.key \
+  --pay-id ali@zbx \
+  --name "Ali Delegator"
+
+# 3 sec wait, fir node-1 ke logs
+sleep 3
+sudo journalctl -u zebvix.service -n 30 --no-pager --since "10 seconds ago"
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+🪪 Register Pay-ID
+
+   address  : 0x57957a0f7e3cd660c3dd10b897d38f8122f78980
+   pay-id   : ali@zbx
+   name     : Ali Delegator
+   fee      : 0.0020000000 ZBX  (auto from zbx_feeBounds)
+
+   submit response:
+{
+  "id": 1,
+  "jsonrpc": "2.0",
+  "result": "0x8042f38eaed3056504febd9121ac3ff85e699daf34a6121cdea369711603354d"
+}
+
+   ⚠️  This Pay-ID is PERMANENT — it cannot be edited or deleted.
+Apr 23 16:25:52 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:25:52.483329Z  INFO zebvix_node::consensus: ⛏  block #7767 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0x4d17828e940b545fe66174ca16184e97ea64ffb664ed78f4ef70386b62783bd2
+Apr 23 16:25:52 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:25:52.484225Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWLqLxRxaRDv4h2ZGm7UgyzNNwjdxVsSUoavkdsjYWpMJU: serving 15 blocks [7752..=7766]
+Apr 23 16:25:52 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:25:52.947754Z  INFO zebvix_node: 🗳  emitted prevote h=7767 block=0x4d17828e940b545fe66174ca16184e97ea64ffb664ed78f4ef70386b62783bd2  ✅ QUORUM
+Apr 23 16:25:52 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:25:52.947948Z  INFO zebvix_node: 🗳  emitted precommit h=7767 block=0x4d17828e940b545fe66174ca16184e97ea64ffb664ed78f4ef70386b62783bd2  ✅ QUORUM
+Apr 23 16:25:55 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:25:55.453473Z  WARN zebvix_node: ⚠️  DOUBLE-SIGN by 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc at h=7752 r=0 prevote (slashable in B.3+)
+Apr 23 16:25:55 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:25:55.454372Z  WARN zebvix_node: ⚠️  DOUBLE-SIGN by 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc at h=7752 r=0 precommit (slashable in B.3+)
+Apr 23 16:25:55 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:25:55.983363Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWLqLxRxaRDv4h2ZGm7UgyzNNwjdxVsSUoavkdsjYWpMJU: serving 15 blocks [7753..=7767]
+Apr 23 16:25:58 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:25:58.482925Z  INFO zebvix_node::state: 🪪 pay-id registered: ali@zbx = 0x57957a0f7e3cd660c3dd10b897d38f8122f78980 ("Ali Delegator")
+Apr 23 16:25:58 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:25:58.483112Z  INFO zebvix_node::consensus: ⛏  block #7768 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=1  hash=0xada5b880212e70020d6c13e052f617f9e8f84849dcdd3ad633fda1070785572f
+Apr 23 16:25:58 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:25:58.484042Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWLqLxRxaRDv4h2ZGm7UgyzNNwjdxVsSUoavkdsjYWpMJU: serving 15 blocks [7753..=7767]
+Apr 23 16:25:58 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:25:58.947745Z  INFO zebvix_node: 🗳  emitted prevote h=7768 block=0xada5b880212e70020d6c13e052f617f9e8f84849dcdd3ad633fda1070785572f  ✅ QUORUM
+Apr 23 16:25:58 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:25:58.947872Z  INFO zebvix_node: 🗳  emitted precommit h=7768 block=0xada5b880212e70020d6c13e052f617f9e8f84849dcdd3ad633fda1070785572f  ✅ QUORUM
+root@srv1266996:/home/zebvix-chain# 
