@@ -1,0 +1,102 @@
+zebvix-node locked-rewards --address 0x57957a0f7e3cd660c3dd10b897d38f8122f78980
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100 76810  100 76810    0     0  97847      0 --:--:-- --:--:-- --:--:-- 97847
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:358:4
+    |
+358 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+   Compiling zebvix-node v0.1.0 (/home/zebvix-chain)
+error[E0428]: the name `fmt_zbx` is defined multiple times
+    --> src/main.rs:1051:1
+     |
+ 863 | fn fmt_zbx(wei: u128) -> String {
+     | ------------------------------- previous definition of the value `fmt_zbx` here
+...
+1051 | fn fmt_zbx(wei: u128) -> String {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `fmt_zbx` redefined here
+     |
+     = note: `fmt_zbx` must be defined only once in the value namespace of this module
+
+error[E0428]: the name `rpc_call` is defined multiple times
+    --> src/main.rs:1391:1
+     |
+1028 | async fn rpc_call(rpc_url: &str, method: &str, params: serde_json::Value) -> Result<serde_json::Value> {
+     | ------------------------------------------------------------------------------------------------------ previous definition of the value `rpc_call` here
+...
+1391 | async fn rpc_call(rpc_url: &str, method: &str, params: serde_json::Value) -> Result<serde_json::Value> {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `rpc_call` redefined here
+     |
+     = note: `rpc_call` must be defined only once in the value namespace of this module
+
+error[E0433]: cannot find module or crate `reqwest` in this scope
+    --> src/main.rs:1035:18
+     |
+1035 |     let client = reqwest::Client::new();
+     |                  ^^^^^^^ use of unresolved module or unlinked crate `reqwest`
+     |
+     = help: if you wanted to use a crate named `reqwest`, use `cargo add reqwest` to add it to your `Cargo.toml`
+
+Some errors have detailed explanations: E0428, E0433.
+For more information about an error, try `rustc --explain E0428`.
+error: could not compile `zebvix-node` (bin "zebvix-node") due to 3 previous errors
+[1]-  Killed                  nohup zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns > /var/log/zebvix-n1.log 2>&1
+[2]+  Killed                  nohup zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns > /var/log/zebvix-n2.log 2>&1
+cp: cannot create regular file '/usr/local/bin/zebvix-node': Text file busy
+[1] 3723416
+[2] 3723417
+[1]-  Exit 1                  nohup zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns > /var/log/zebvix-n1.log 2>&1
+error: unrecognized subcommand 'chain-status'
+
+  tip: a similar subcommand exists: 'admin-swap'
+
+Usage: zebvix-node <COMMAND>
+
+For more information, try '--help'.
+error: unrecognized subcommand 'rewards-pool'
+
+Usage: zebvix-node <COMMAND>
+
+For more information, try '--help'.
+🥩 Staking module state
+
+   Current epoch         : 0
+   Epoch length          : 17280 blocks
+   Epoch reward          : 50000000000000000000 wei
+   Unbonding epochs      : 7
+   Min self-bond (fallback): 1000000000000000000000 wei
+   Min self-bond (target USD): $50.00
+   Min self-bond (live $50≡): 50000000000000000000 wei
+   Min delegation        : 1000000000000000000 wei
+   Max commission        : 5000 bps
+   Max commission Δ/epoch: 100 bps
+   Total slashed         : 0 wei
+
+   Validators            : 1
+   Delegations           : 2
+   Unbonding entries     : 0
+
+   • Validator 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+       operator       : 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+       total stake    : 70000000000000000000 wei
+       total shares   : 70000000000000000000
+       commission     : 500 bps
+       commission pool: 0 wei
+       jailed         : false
+🔒 Locked Rewards
+   address                : 0x57957a0f7e3cd660c3dd10b897d38f8122f78980
+   current stake          : 20.000000 ZBX (20000000000000000000 wei)
+   currently locked       : 117.257143 ZBX (117257142857142857142 wei)
+   claimable now (drip+b) : 0.001007 ZBX (1006944444444444 wei)
+   locked after claim     : 117.256136 ZBX (117256135912698412698 wei)
+   daily drip rate        : 0.100000 ZBX (100000000000000000 wei) (0.5%/day of stake)
+   next bulk unlock       : in 4999826 blocks (~~9mo 19d) — releases 25% of locked
+   total released ever    : 0.000000 ZBX (0 wei)
+
+   💡 To claim: zebvix-node claim-rewards --signer-key <key> --validator <addr>
+root@srv1266996:/home/zebvix-chain# 

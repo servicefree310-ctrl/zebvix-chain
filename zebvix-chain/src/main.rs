@@ -1025,38 +1025,16 @@ async fn main() -> Result<()> {
 
 // ─────────── Phase B.6 — pool & status inspectors ───────────
 
-async fn rpc_call(rpc_url: &str, method: &str, params: serde_json::Value) -> Result<serde_json::Value> {
-    let body = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": method,
-        "params": params,
-    });
-    let client = reqwest::Client::new();
-    let resp: serde_json::Value =
-        client.post(rpc_url).json(&body).send().await?.json().await?;
-    if let Some(err) = resp.get("error") {
-        return Err(anyhow!("rpc {method} error: {err}"));
-    }
-    resp.get("result")
-        .cloned()
-        .ok_or_else(|| anyhow!("rpc {method}: no result field"))
-}
-
 fn parse_hex_wei(s: &str) -> u128 {
     let s = s.trim_start_matches("0x");
     u128::from_str_radix(s, 16).unwrap_or(0)
 }
 
-fn fmt_zbx(wei: u128) -> String {
-    format!("{:.6} ZBX", wei as f64 / WEI_PER_ZBX as f64)
-}
-
 async fn cmd_rewards_pool(rpc_url: String) -> Result<()> {
     let pool_addr = tokenomics::REWARDS_POOL_ADDRESS_HEX;
-    let bal_hex = rpc_call(&rpc_url, "zbx_getBalance", serde_json::json!([pool_addr])).await?;
+    let bal_hex = rpc_get(&rpc_url, "zbx_getBalance", serde_json::json!([pool_addr])).await?;
     let bal = parse_hex_wei(bal_hex.as_str().unwrap_or("0x0"));
-    let h_hex = rpc_call(&rpc_url, "zbx_blockNumber", serde_json::json!([])).await?;
+    let h_hex = rpc_get(&rpc_url, "zbx_blockNumber", serde_json::json!([])).await?;
     let height = parse_hex_wei(h_hex.as_str().unwrap_or("0x0")) as u64;
     let interval = tokenomics::REWARDS_DISTRIBUTION_INTERVAL;
     let blocks_in = if interval == 0 { 0 } else { height % interval };
@@ -1065,7 +1043,7 @@ async fn cmd_rewards_pool(rpc_url: String) -> Result<()> {
     println!("{C_CYAN_B}🎁 Rewards Pool{C_RESET}");
     println!();
     println!("   pool address              : {pool_addr}");
-    println!("   current balance           : {} {C_DIM}({} wei){C_RESET}", fmt_zbx(bal), bal);
+    println!("   current balance           : {} ZBX {C_DIM}({} wei){C_RESET}", fmt_zbx(bal), bal);
     println!("   chain height              : {height}");
     println!("   distribution interval     : every {interval} blocks");
     println!("   accumulated since last    : {blocks_in} block(s)");
@@ -1084,18 +1062,18 @@ async fn cmd_rewards_pool(rpc_url: String) -> Result<()> {
 async fn cmd_chain_status(rpc_url: String) -> Result<()> {
     println!("{C_CYAN_B}📊 Chain Status{C_RESET}  {C_DIM}({rpc_url}){C_RESET}");
     println!();
-    let info = rpc_call(&rpc_url, "zbx_chainInfo", serde_json::json!([])).await?;
-    let h_hex = rpc_call(&rpc_url, "zbx_blockNumber", serde_json::json!([])).await?;
+    let info = rpc_get(&rpc_url, "zbx_chainInfo", serde_json::json!([])).await?;
+    let h_hex = rpc_get(&rpc_url, "zbx_blockNumber", serde_json::json!([])).await?;
     let height = parse_hex_wei(h_hex.as_str().unwrap_or("0x0")) as u64;
-    let supply = rpc_call(&rpc_url, "zbx_supply", serde_json::json!([])).await
+    let supply = rpc_get(&rpc_url, "zbx_supply", serde_json::json!([])).await
         .unwrap_or(serde_json::json!({}));
-    let pool_bal_hex = rpc_call(&rpc_url, "zbx_getBalance",
+    let pool_bal_hex = rpc_get(&rpc_url, "zbx_getBalance",
         serde_json::json!([tokenomics::REWARDS_POOL_ADDRESS_HEX])).await
         .unwrap_or(serde_json::json!("0x0"));
     let burn_addr = format!("0x{}", "0".repeat(40));
-    let burn_bal_hex = rpc_call(&rpc_url, "zbx_getBalance", serde_json::json!([burn_addr])).await
+    let burn_bal_hex = rpc_get(&rpc_url, "zbx_getBalance", serde_json::json!([burn_addr])).await
         .unwrap_or(serde_json::json!("0x0"));
-    let staking = rpc_call(&rpc_url, "zbx_getStaking", serde_json::json!([])).await
+    let staking = rpc_get(&rpc_url, "zbx_getStaking", serde_json::json!([])).await
         .unwrap_or(serde_json::json!({}));
 
     println!("   {C_GREEN}● chain{C_RESET}            : {} (id={}) · token={}",
@@ -1388,7 +1366,7 @@ fn check_fee(fee_wei: u128) -> Result<()> {
     Ok(())
 }
 
-async fn rpc_call(rpc_url: &str, method: &str, params: serde_json::Value) -> Result<serde_json::Value> {
+async fn rpc_get(rpc_url: &str, method: &str, params: serde_json::Value) -> Result<serde_json::Value> {
     let req = serde_json::json!({ "jsonrpc":"2.0","id":1,"method":method,"params":params });
     let resp = http_post(rpc_url, &req).await?;
     if let Some(e) = resp.get("error") {
@@ -1398,7 +1376,7 @@ async fn rpc_call(rpc_url: &str, method: &str, params: serde_json::Value) -> Res
 }
 
 async fn cmd_governor_info(rpc_url: String) -> Result<()> {
-    let r = rpc_call(&rpc_url, "zbx_getGovernor", serde_json::json!([])).await?;
+    let r = rpc_get(&rpc_url, "zbx_getGovernor", serde_json::json!([])).await?;
     println!("🏛️  Governor (validator-set authority) info");
     println!();
     println!("   Current governor : {}", r["current_governor"].as_str().unwrap_or("?"));
@@ -1431,7 +1409,7 @@ async fn cmd_governor_change(signer_key: PathBuf, new_governor: String, rpc_url:
 }
 
 async fn cmd_staking_info(rpc_url: String) -> Result<()> {
-    let r = rpc_call(&rpc_url, "zbx_getStaking", serde_json::json!([])).await?;
+    let r = rpc_get(&rpc_url, "zbx_getStaking", serde_json::json!([])).await?;
     println!("🥩 Staking module state");
     println!();
     println!("   Current epoch         : {}", r["current_epoch"].as_u64().unwrap_or(0));
@@ -1479,7 +1457,7 @@ async fn cmd_staking_info(rpc_url: String) -> Result<()> {
 }
 
 async fn cmd_staking_validator(address: String, rpc_url: String) -> Result<()> {
-    let r = rpc_call(&rpc_url, "zbx_getStakingValidator", serde_json::json!([address])).await?;
+    let r = rpc_get(&rpc_url, "zbx_getStakingValidator", serde_json::json!([address])).await?;
     if r.is_null() {
         println!("(no staking validator at {})", address);
         return Ok(());
@@ -1499,7 +1477,7 @@ async fn cmd_staking_validator(address: String, rpc_url: String) -> Result<()> {
 }
 
 async fn cmd_delegation(delegator: String, validator: String, rpc_url: String) -> Result<()> {
-    let r = rpc_call(&rpc_url, "zbx_getDelegation", serde_json::json!([delegator, validator])).await?;
+    let r = rpc_get(&rpc_url, "zbx_getDelegation", serde_json::json!([delegator, validator])).await?;
     println!("🤝 Delegation");
     println!("   delegator : {}", r["delegator"].as_str().unwrap_or("?"));
     println!("   validator : {}", r["validator"].as_str().unwrap_or("?"));
@@ -1622,7 +1600,7 @@ fn fmt_blocks_to_time(blocks: u64) -> String {
 }
 
 async fn cmd_locked_rewards(address: String, rpc_url: String) -> Result<()> {
-    let res = rpc_call(&rpc_url, "zbx_getLockedRewards", serde_json::json!([address])).await?;
+    let res = rpc_get(&rpc_url, "zbx_getLockedRewards", serde_json::json!([address])).await?;
     let stake = res["stake_wei"].as_str().unwrap_or("0");
     let locked = res["locked_balance_wei"].as_str().unwrap_or("0");
     let claimable = res["claimable_now_wei"].as_str().unwrap_or("0");
@@ -1646,7 +1624,7 @@ async fn cmd_locked_rewards(address: String, rpc_url: String) -> Result<()> {
 }
 
 async fn cmd_burn_stats(rpc_url: String) -> Result<()> {
-    let res = rpc_call(&rpc_url, "zbx_getBurnStats", serde_json::json!([])).await?;
+    let res = rpc_get(&rpc_url, "zbx_getBurnStats", serde_json::json!([])).await?;
     let burned = res["total_burned_wei"].as_str().unwrap_or("0");
     let cap = res["burn_cap_wei"].as_str().unwrap_or("0");
     let phase = res["phase"].as_str().unwrap_or("?");
