@@ -1,0 +1,51 @@
+# Verify
+sudo ls -la /home/zebvix-chain/.zebvix2/
+sudo sha256sum /root/.zebvix/genesis.json /home/zebvix-chain/.zebvix2/genesis.json
+
+# Unmask + start
+sudo systemctl unmask zebvix2.service
+sudo systemctl reset-failed zebvix2.service
+sudo systemctl start zebvix2.service
+sleep 25
+
+# Sync progress
+sudo journalctl -u zebvix.service --since "30 seconds ago" --no-pager | grep -c "DOUBLE-SIGN"t, hash}'
+Failed to mask unit: File /etc/systemd/system/zebvix2.service already exists.
+○ zebvix2.service - Zebvix L1 Blockchain Node-2
+     Loaded: loaded (/etc/systemd/system/zebvix2.service; enabled; preset: enabled)
+     Active: inactive (dead) since Thu 2026-04-23 16:54:24 UTC; 2min 25s ago
+total 20
+drwxr-xr-x  2 root   root   4096 Apr 23 16:56 .
+drwxr-xr-x 22 ubuntu ubuntu 4096 Apr 23 16:11 ..
+-rw-r--r--  1 root   root    277 Apr 23 16:56 genesis.json
+-rw-r--r--  1 root   root     72 Apr 23 16:56 node.json
+-rw-r--r--  1 root   root    229 Apr 23 16:52 validator.key
+f0f9f026b017c5c0f310592267a8af04d38157f7888f79ba875628ce62be4b61  /root/.zebvix/genesis.json
+f0f9f026b017c5c0f310592267a8af04d38157f7888f79ba875628ce62be4b61  /home/zebvix-chain/.zebvix2/genesis.json
+Apr 23 16:51:50 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Failed with result 'exit-code'.
+Apr 23 16:51:55 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Scheduled restart job, restart counter is at 40.
+Apr 23 16:51:55 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 23 16:51:55 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Main process exited, code=exited, status=1/FAILURE
+Apr 23 16:51:55 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Failed with result 'exit-code'.
+Apr 23 16:52:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Scheduled restart job, restart counter is at 41.
+Apr 23 16:52:00 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 23 16:52:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Main process exited, code=exited, status=1/FAILURE
+Apr 23 16:52:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Failed with result 'exit-code'.
+Apr 23 16:52:05 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Scheduled restart job, restart counter is at 1.
+Apr 23 16:52:05 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 23 16:54:24 srv1266996.hstgr.cloud systemd[1]: Stopping zebvix2.service - Zebvix L1 Blockchain Node-2...
+Apr 23 16:54:24 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Deactivated successfully.
+Apr 23 16:54:24 srv1266996.hstgr.cloud systemd[1]: Stopped zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 23 16:56:50 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+=== Heights ===
+{
+  "height": 8097,
+  "hash": "0x6e23bb08e98b0f605f5bbc1d3f28ba80db449792880daf91fff19e757ee5e3e8"
+}
+{
+  "height": 380,
+  "hash": "0xdc253e829e4bc18bed5898392ae81f5bf826cfcd02adea7219f070b8bdb398cf"
+}
+=== Double-sign last 30s (should be 0) ===
+0
+root@srv1266996:/home/zebvix-chain# 
