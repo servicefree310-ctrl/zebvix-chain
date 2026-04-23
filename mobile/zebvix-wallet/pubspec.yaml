@@ -1,0 +1,46 @@
+name: zebvix_wallet
+description: Zebvix Mobile Wallet — non-custodial wallet for the Zebvix (ZBX) L1 chain.
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # State
+  provider: ^6.1.2
+
+  # Network
+  http: ^1.2.2
+
+  # Crypto
+  bip39: ^1.0.6
+  pointycastle: ^3.9.1
+  convert: ^3.1.1
+  crypto: ^3.0.3
+
+  # Secure storage
+  flutter_secure_storage: ^9.2.2
+  shared_preferences: ^2.3.3
+  local_auth: ^2.3.0
+
+  # QR / Camera
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^5.2.3
+
+  # Utils
+  intl: ^0.19.0
+  google_fonts: ^6.2.1
+
+dev_dependencies:
+  flutter_lints: ^4.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true

@@ -30,7 +30,8 @@ import {
   GitBranch,
   Activity,
   Shield,
-  AtSign
+  AtSign,
+  Smartphone
 } from "lucide-react";
 import { useChecklist } from "@/hooks/useChecklist";
 import { Progress } from "@/components/ui/progress";
@@ -55,6 +56,7 @@ const LIVE_NAV = [
   { href: "/balance-lookup", label: "Balance Lookup", icon: Wallet },
   { href: "/multisig-explorer", label: "Multisig Explorer", icon: Shield },
   { href: "/payid-resolver", label: "Pay-ID Resolver", icon: AtSign },
+  { href: "/connect-wallet", label: "Connect Mobile Wallet", icon: Smartphone },
 ];
 
 const ADDON_NAV = [

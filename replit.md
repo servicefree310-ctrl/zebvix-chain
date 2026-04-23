@@ -63,3 +63,31 @@ Standalone Rust crate building Zebvix L1 — token ZBX, chain-id 7878, EVM-style
 - Node-2 pubkey: `0xde996e74285312a38885abd1da3aa27b9e7549f11dd67c485d1671b29832fe75`
 - `MIN_TX_FEE_WEI` ≈ 0.00105 ZBX. Validator-tx default fee is `0.002` (above min).
 - Deploy flow: build tar in `artifacts/sui-fork-dashboard/public/zebvix-chain-source.tar.gz`, `wget` from public Replit URL, `cargo build --release`, `cp` binary to `/usr/local/bin/`, `systemctl restart zebvix`.
+
+### Mobile wallet + QR pairing (Apr 23, 2026) ✅
+
+- **Pairing relay** — `artifacts/api-server/src/routes/pair.ts` — store-and-forward
+  `/api/pair/{init,state,connect,request,poll,respond,result,disconnect}` with
+  in-memory sessions + 15min TTL. No keys ever touch the relay.
+- **Dashboard page** — `/connect-wallet` (sidebar: *Connect Mobile Wallet*) —
+  generates ephemeral session, renders QR (`zbxconnect:` + base64url JSON),
+  polls connection state, lets the user push **transfer / swap / multisig_approve / message**
+  sign requests to the paired phone and shows the returned tx hash + signature.
+- **Flutter wallet** — `mobile/zebvix-wallet/` — full app:
+  - Onboarding: BIP39 mnemonic create / import, encrypted at rest via
+    `flutter_secure_storage`.
+  - Wallet tab: balance hero (liquid + staked + locked + zUSD), send / receive
+    with QR.
+  - Swap tab: ZBX ↔ zUSD via on-chain AMM pool tx.
+  - Multisig tab: M-of-N create, lookup existing, approve pending proposals.
+  - Connect tab: scans the dashboard QR, listens for sign requests, shows an
+    approval bottom-sheet, signs (secp256k1 ECDSA over keccak256 of canonical
+    JSON) and sends the result back via the relay.
+  - Settings: RPC endpoint switcher (default `https://93.127.213.192:8545`),
+    relay base URL, biometric toggle, sign-out.
+- **Build flow** (Replit cannot render Flutter): user runs
+  `flutter create --project-name zebvix_wallet --platforms=android,ios,web .`
+  inside `mobile/zebvix-wallet/` then `flutter pub get && flutter run`.
+- **Pending**: real BLS / chain-spec verification of the canonical-json signing
+  format vs `zebvix-chain` `tx.rs`; fiat on-ramp (Buy/Sell currently routes
+  through swap pool only).
