@@ -1,0 +1,31 @@
+root@srv1266996:/home/zebvix-chain# sudo systemctl stop zebvix2.service
+sleep 2
+
+# Manually run with same args as service, stderr capture
+sudo /usr/local/bin/zebvix-node start \
+  --home /home/zebvix-chain/.zebvix2 \
+  --rpc 127.0.0.1:8546 \
+  --p2p-port 30334 \
+  --peer /ip4/127.0.0.1/tcp/30333 \
+  --no-mdns \
+  --follower 2>&1 | head -30
+2026-04-23T16:54:26.175013Z  INFO zebvix_node: 🚀 Zebvix node starting
+2026-04-23T16:54:26.175043Z  INFO zebvix_node:    chain_id  : 7878
+2026-04-23T16:54:26.175047Z  INFO zebvix_node:    proposer  : 0x359941f37f5d46b9db8e7cdd61663fecaeb8e67d
+2026-04-23T16:54:26.175077Z  INFO zebvix_node:    tip       : height=380 hash=0xdc253e829e4bc18bed5898392ae81f5bf826cfcd02adea7219f070b8bdb398cf
+2026-04-23T16:54:26.175081Z  INFO zebvix_node:    rpc       : http://127.0.0.1:8546
+2026-04-23T16:54:26.175084Z  INFO zebvix_node:    mode      : FOLLOWER (block production DISABLED)
+2026-04-23T16:54:26.175633Z  INFO zebvix_node::p2p: 🔗 p2p dialing /ip4/127.0.0.1/tcp/30333
+2026-04-23T16:54:26.175660Z  INFO zebvix_node:    p2p       : tcp/30334  peer_id=12D3KooWBvaVQFvYafHMhmjZFDa71ZNFPLuvYquKhSfPZb9ezAqw
+2026-04-23T16:54:26.175668Z  INFO zebvix_node:    mdns      : DISABLED (--no-mdns)
+2026-04-23T16:54:26.175682Z  WARN zebvix_node: follower mode: producer DISABLED, this node will only sync from peers
+2026-04-23T16:54:26.176114Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/127.0.0.1/tcp/30334/p2p/12D3KooWBvaVQFvYafHMhmjZFDa71ZNFPLuvYquKhSfPZb9ezAqw
+2026-04-23T16:54:26.176135Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/93.127.213.192/tcp/30334/p2p/12D3KooWBvaVQFvYafHMhmjZFDa71ZNFPLuvYquKhSfPZb9ezAqw
+2026-04-23T16:54:26.177193Z  INFO zebvix_node::p2p: ✅ p2p connected: 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg
+2026-04-23T16:54:27.983626Z  INFO zebvix_node::p2p: ⏬ heartbeat: 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg tip=8067 (we=380); requesting [381..=636]
+2026-04-23T16:54:27.987450Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T16:54:27.987592Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T16:54:28.632036Z  INFO zebvix_node::p2p: ⏬ p2p out-of-order block #8068 (tip=380); requesting [381..=636] from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg
+2026-04-23T16:54:28.635073Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T16:54:28.635206Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T16:54:34.631861Z  INFO zebvix_node::p2p: ⏬ p2p out-of-order block #8069 (tip=380); requesting [381..=636] from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzY
