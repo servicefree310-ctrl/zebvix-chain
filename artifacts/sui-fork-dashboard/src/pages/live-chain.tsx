@@ -9,6 +9,9 @@ import {
   AlertCircle,
   TrendingUp,
   Coins,
+  ArrowLeftRight,
+  Gauge,
+  Timer,
 } from "lucide-react";
 
 interface BlockInfo {
@@ -16,6 +19,16 @@ interface BlockInfo {
   height: number;
   proposer: string;
   timestamp_ms: number;
+  tx_count: number;
+}
+
+interface ChainStats {
+  totalTxsWindow: number;
+  windowSize: number;
+  avgBlockTimeS: number;
+  avgTps: number;
+  currentTps: number;
+  estimatedTotalTxs: number;
 }
 
 interface FeeBounds {
@@ -70,6 +83,7 @@ export default function LiveChain() {
   const [price, setPrice] = useState<PriceInfo | null>(null);
   const [supply, setSupply] = useState<SupplyInfo | null>(null);
   const [pool, setPool] = useState<PoolInfo | null>(null);
+  const [stats, setStats] = useState<ChainStats | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -88,32 +102,7 @@ export default function LiveChain() {
         if (feeRes) setFee(feeRes);
         setErr(null);
 
-        // Fetch last 10 blocks
-        const heights: number[] = [];
-        for (let i = 0; i < 10; i++) {
-          const h = tipRes.height - i;
-          if (h >= 0) heights.push(h);
-        }
-        const blocks = await Promise.all(
-          heights.map(async (h) => {
-            try {
-              const r = await rpc<any>("zbx_getBlockByNumber", [h]);
-              if (!r) return null;
-              const hdr = r.header ?? r;
-              return {
-                hash: r.hash ?? hdr.hash ?? `h${h}`,
-                height: hdr.height ?? h,
-                proposer: hdr.proposer ?? "",
-                timestamp_ms: hdr.timestamp_ms ?? 0,
-              } as BlockInfo;
-            } catch {
-              return null;
-            }
-          }),
-        );
-        if (mounted) setRecent(blocks.filter((b): b is BlockInfo => !!b));
-
-        // Less critical, parallel
+        // Kick off secondary parallel fetches FIRST so they don't queue behind 15 block fetches
         Promise.all([
           rpc<VoteStats>("zbx_voteStats").catch(() => null),
           rpc<ValidatorInfo>("zbx_listValidators").catch(() => null),
@@ -132,6 +121,68 @@ export default function LiveChain() {
           if (sup) setSupply(sup);
           if (po) setPool(po);
         });
+
+        // Fetch last 15 blocks (for stats), but only display 10 in the table
+        const WINDOW = 15;
+        const heights: number[] = [];
+        for (let i = 0; i < WINDOW; i++) {
+          const h = tipRes.height - i;
+          if (h >= 0) heights.push(h);
+        }
+        const blocks = await Promise.all(
+          heights.map(async (h) => {
+            try {
+              const r = await rpc<any>("zbx_getBlockByNumber", [h]);
+              if (!r) return null;
+              const hdr = r.header ?? r;
+              const txs = Array.isArray(r.txs) ? r.txs : [];
+              return {
+                hash: r.hash ?? hdr.hash ?? `h${h}`,
+                height: hdr.height ?? h,
+                proposer: hdr.proposer ?? "",
+                timestamp_ms: hdr.timestamp_ms ?? 0,
+                tx_count: txs.length,
+              } as BlockInfo;
+            } catch {
+              return null;
+            }
+          }),
+        );
+        const validBlocks = blocks.filter((b): b is BlockInfo => !!b);
+        if (mounted) setRecent(validBlocks.slice(0, 10));
+
+        // Compute chain stats from window
+        if (validBlocks.length >= 2) {
+          const sorted = [...validBlocks].sort((a, b) => a.height - b.height);
+          const totalTxs = sorted.reduce((s, b) => s + b.tx_count, 0);
+          const oldest = sorted[0];
+          const newest = sorted[sorted.length - 1];
+          const spanS = Math.max(1, (newest.timestamp_ms - oldest.timestamp_ms) / 1000);
+          const numBlocks = sorted.length;
+          const avgBlockTimeS = spanS / Math.max(1, numBlocks - 1);
+          const avgTps = totalTxs / spanS;
+
+          // Current TPS = latest block txs / time-since-prev
+          const last = sorted[sorted.length - 1];
+          const prev = sorted[sorted.length - 2];
+          const lastDtS = Math.max(0.001, (last.timestamp_ms - prev.timestamp_ms) / 1000);
+          const currentTps = last.tx_count / lastDtS;
+
+          // Rough estimate of lifetime txs = avgTps * (chain age)
+          // Chain age = current_height * avgBlockTimeS
+          const estimatedTotalTxs = Math.round(avgTps * tipRes.height * avgBlockTimeS);
+
+          if (mounted)
+            setStats({
+              totalTxsWindow: totalTxs,
+              windowSize: numBlocks,
+              avgBlockTimeS,
+              avgTps,
+              currentTps,
+              estimatedTotalTxs,
+            });
+        }
+
       } catch (e) {
         if (mounted) setErr(e instanceof Error ? e.message : String(e));
       } finally {
@@ -221,6 +272,44 @@ export default function LiveChain() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Stat
+          icon={Gauge}
+          label="Avg TPS"
+          value={stats ? stats.avgTps.toFixed(2) : "—"}
+          sub={stats ? `over last ${stats.windowSize} blocks` : undefined}
+          highlight
+        />
+        <Stat
+          icon={Activity}
+          label="Current TPS"
+          value={stats ? stats.currentTps.toFixed(2) : "—"}
+          sub={stats ? `latest block` : undefined}
+        />
+        <Stat
+          icon={Timer}
+          label="Avg Block Time"
+          value={stats ? `${stats.avgBlockTimeS.toFixed(2)}s` : "—"}
+          sub={stats ? `${(60 / stats.avgBlockTimeS).toFixed(1)} blocks/min` : undefined}
+        />
+        <Stat
+          icon={ArrowLeftRight}
+          label="Total Transactions"
+          value={
+            stats
+              ? stats.estimatedTotalTxs > 0
+                ? stats.estimatedTotalTxs.toLocaleString()
+                : "0"
+              : "—"
+          }
+          sub={
+            stats
+              ? `${stats.totalTxsWindow} in last ${stats.windowSize} blocks`
+              : undefined
+          }
+        />
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Stat
           icon={Users}
           label="Validators"
           value={vals?.validators?.length ?? "—"}
@@ -286,18 +375,20 @@ export default function LiveChain() {
               <th className="text-left p-2 font-medium">Height</th>
               <th className="text-left p-2 font-medium">Proposer</th>
               <th className="text-left p-2 font-medium">Hash</th>
+              <th className="text-right p-2 font-medium">Txs</th>
               <th className="text-right p-2 font-medium">Age</th>
             </tr>
           </thead>
           <tbody>
             {recent.length === 0 && (
-              <tr><td colSpan={4} className="p-4 text-center text-muted-foreground">loading…</td></tr>
+              <tr><td colSpan={5} className="p-4 text-center text-muted-foreground">loading…</td></tr>
             )}
             {recent.map((b) => (
               <tr key={b.hash} className="border-t border-border hover:bg-muted/20">
                 <td className="p-2 font-mono text-primary">#{b.height}</td>
                 <td className="p-2 font-mono text-muted-foreground">{shortAddr(b.proposer)}</td>
                 <td className="p-2 font-mono text-muted-foreground">{shortAddr(b.hash, 8, 6)}</td>
+                <td className={`p-2 text-right font-mono ${b.tx_count > 0 ? "text-green-400 font-semibold" : "text-muted-foreground"}`}>{b.tx_count}</td>
                 <td className="p-2 text-right text-muted-foreground">{ageStr(b.timestamp_ms)}</td>
               </tr>
             ))}
