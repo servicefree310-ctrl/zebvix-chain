@@ -317,6 +317,125 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 None => err(id, -32602, "invalid address"),
             }
         }
+        // ───────── Phase B.3.2 — Governor ─────────
+        "zbx_getGovernor" => ok(id, json!({
+            "current_governor": ctx.state.current_governor().to_hex(),
+            "genesis_governor": crate::state::governor_address().to_hex(),
+            "changes_used": ctx.state.governor_change_count(),
+            "max_changes": crate::tokenomics::MAX_GOVERNOR_CHANGES,
+            "changes_remaining": ctx.state.governor_changes_remaining(),
+            "locked": ctx.state.governor_changes_remaining() == 0,
+        })),
+        // ───────── Phase B.4 — Staking ─────────
+        "zbx_getStaking" => {
+            let sm = ctx.state.staking();
+            let validators: Vec<Value> = sm.validators.values().map(|v| json!({
+                "address": v.address.to_hex(),
+                "operator": v.operator.to_hex(),
+                "pubkey": format!("0x{}", hex::encode(v.pubkey)),
+                "total_stake_wei": v.total_stake.to_string(),
+                "total_shares": v.total_shares.to_string(),
+                "commission_bps": v.commission_bps,
+                "commission_pool_wei": v.commission_pool.to_string(),
+                "jailed": v.jailed,
+                "jailed_until_epoch": v.jailed_until,
+                "last_commission_edit_epoch": v.last_commission_edit_epoch,
+            })).collect();
+            let unbonding: Vec<Value> = sm.unbonding_queue.iter().map(|u| json!({
+                "delegator": u.delegator.to_hex(),
+                "validator": u.validator.to_hex(),
+                "amount_wei": u.amount.to_string(),
+                "mature_at_epoch": u.mature_at_epoch,
+            })).collect();
+            let active = sm.active_set();
+            ok(id, json!({
+                "current_epoch": sm.current_epoch,
+                "epoch_blocks": crate::staking::EPOCH_BLOCKS,
+                "epoch_reward_wei": crate::staking::STAKING_EPOCH_REWARD_WEI.to_string(),
+                "unbonding_epochs": crate::staking::UNBONDING_EPOCHS,
+                "min_self_bond_wei": crate::staking::MIN_SELF_BOND_WEI.to_string(),
+                "min_delegation_wei": crate::staking::MIN_DELEGATION_WEI.to_string(),
+                "max_commission_bps": crate::staking::MAX_COMMISSION_BPS,
+                "max_commission_delta_bps": crate::staking::MAX_COMMISSION_BPS_DELTA,
+                "total_slashed_wei": sm.total_slashed.to_string(),
+                "validator_count": validators.len(),
+                "delegation_count": sm.delegations.len(),
+                "unbonding_count": unbonding.len(),
+                "validators": validators,
+                "unbonding_queue": unbonding,
+                "active_set": active.iter().map(|v| json!({
+                    "address": v.address.to_hex(),
+                    "voting_power": v.voting_power,
+                })).collect::<Vec<_>>(),
+            }))
+        }
+        "zbx_getStakingValidator" => {
+            let addr = req.params.get(0).and_then(parse_address);
+            match addr {
+                Some(a) => {
+                    let sm = ctx.state.staking();
+                    match sm.validators.get(&a) {
+                        Some(v) => ok(id, json!({
+                            "address": v.address.to_hex(),
+                            "operator": v.operator.to_hex(),
+                            "pubkey": format!("0x{}", hex::encode(v.pubkey)),
+                            "total_stake_wei": v.total_stake.to_string(),
+                            "total_shares": v.total_shares.to_string(),
+                            "commission_bps": v.commission_bps,
+                            "commission_pool_wei": v.commission_pool.to_string(),
+                            "jailed": v.jailed,
+                            "jailed_until_epoch": v.jailed_until,
+                        })),
+                        None => ok(id, Value::Null),
+                    }
+                }
+                None => err(id, -32602, "invalid validator address"),
+            }
+        }
+        "zbx_getDelegation" => {
+            let delegator = req.params.get(0).and_then(parse_address);
+            let validator = req.params.get(1).and_then(parse_address);
+            match (delegator, validator) {
+                (Some(d), Some(v)) => {
+                    let sm = ctx.state.staking();
+                    let shares = sm.delegations.get(&(d, v)).copied().unwrap_or(0);
+                    let value = sm.delegation_value(d, v);
+                    ok(id, json!({
+                        "delegator": d.to_hex(),
+                        "validator": v.to_hex(),
+                        "shares": shares.to_string(),
+                        "value_wei": value.to_string(),
+                    }))
+                }
+                _ => err(id, -32602, "params: [delegator_address, validator_address]"),
+            }
+        }
+        "zbx_getDelegationsByDelegator" => {
+            let addr = req.params.get(0).and_then(parse_address);
+            match addr {
+                Some(d) => {
+                    let sm = ctx.state.staking();
+                    let mut entries: Vec<Value> = Vec::new();
+                    let mut total: u128 = 0;
+                    for ((deleg, val), shares) in sm.delegations.iter() {
+                        if *deleg != d { continue; }
+                        let value = sm.delegation_value(*deleg, *val);
+                        total = total.saturating_add(value);
+                        entries.push(json!({
+                            "validator": val.to_hex(),
+                            "shares": shares.to_string(),
+                            "value_wei": value.to_string(),
+                        }));
+                    }
+                    ok(id, json!({
+                        "delegator": d.to_hex(),
+                        "total_value_wei": total.to_string(),
+                        "delegations": entries,
+                    }))
+                }
+                None => err(id, -32602, "invalid delegator address"),
+            }
+        }
         m => err(id, -32601, format!("method not found: {m}")),
     };
     Json(resp)

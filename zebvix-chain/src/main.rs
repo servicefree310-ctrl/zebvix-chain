@@ -210,6 +210,133 @@ enum Cmd {
         #[arg(long, default_value = "http://127.0.0.1:8545")]
         rpc_url: String,
     },
+
+    // ─────────── Phase B.3.2 — Governor (validator-set authority) ───────────
+    /// Show current governor (validator-set authority), distinct from economic admin.
+    GovernorInfo {
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+    },
+    /// Rotate governor address (max 3 times). Signer must be CURRENT governor.
+    GovernorChange {
+        #[arg(long)]
+        signer_key: PathBuf,
+        #[arg(long)]
+        new_governor: String,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+        #[arg(long, default_value = "0.002")]
+        fee: String,
+    },
+
+    // ─────────── Phase B.4 — Sui-style PoS Staking ───────────
+    /// Show full staking module state (validators, epoch, rewards, unbonding queue).
+    StakingInfo {
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+    },
+    /// Show one staking validator (PoS — distinct from B.1 validator-set entry).
+    StakingValidator {
+        #[arg(long)]
+        address: String,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+    },
+    /// Show a single delegation: shares + current ZBX value.
+    Delegation {
+        #[arg(long)]
+        delegator: String,
+        #[arg(long)]
+        validator: String,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+    },
+    /// Register a new staking validator (self-bonds + sets commission).
+    /// Signer becomes the operator and earns commission on delegator rewards.
+    ValidatorCreate {
+        #[arg(long)]
+        signer_key: PathBuf,
+        /// Validator's ed25519 public key (0x… 32-byte hex).
+        #[arg(long)]
+        pubkey: String,
+        /// Commission in basis points (100 = 1%, max 10000 = 100%).
+        #[arg(long)]
+        commission_bps: u64,
+        /// Self-bond amount in ZBX (must meet MIN_SELF_BOND).
+        #[arg(long)]
+        self_bond: String,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+        #[arg(long, default_value = "0.002")]
+        fee: String,
+    },
+    /// Edit commission for a validator you operate (capped 1% delta per epoch).
+    ValidatorEditCommission {
+        #[arg(long)]
+        signer_key: PathBuf,
+        #[arg(long)]
+        validator: String,
+        #[arg(long)]
+        new_commission_bps: u64,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+        #[arg(long, default_value = "0.002")]
+        fee: String,
+    },
+    /// Delegate ZBX to a validator. Mints delegation shares.
+    Stake {
+        #[arg(long)]
+        signer_key: PathBuf,
+        #[arg(long)]
+        validator: String,
+        /// Amount in ZBX (must meet MIN_DELEGATION).
+        #[arg(long)]
+        amount: String,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+        #[arg(long, default_value = "0.002")]
+        fee: String,
+    },
+    /// Unstake by burning shares. Funds mature after UNBONDING_EPOCHS.
+    Unstake {
+        #[arg(long)]
+        signer_key: PathBuf,
+        #[arg(long)]
+        validator: String,
+        /// Number of shares to unbond.
+        #[arg(long)]
+        shares: String,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+        #[arg(long, default_value = "0.002")]
+        fee: String,
+    },
+    /// Atomically move stake from one validator to another (no cooldown).
+    Redelegate {
+        #[arg(long)]
+        signer_key: PathBuf,
+        #[arg(long)]
+        from: String,
+        #[arg(long)]
+        to: String,
+        #[arg(long)]
+        shares: String,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+        #[arg(long, default_value = "0.002")]
+        fee: String,
+    },
+    /// Operator: claim accumulated commission from your validator's pool.
+    ClaimRewards {
+        #[arg(long)]
+        signer_key: PathBuf,
+        #[arg(long)]
+        validator: String,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+        #[arg(long, default_value = "0.002")]
+        fee: String,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -804,6 +931,25 @@ async fn main() -> Result<()> {
         Cmd::BlockNumber { rpc_url } => cmd_block_number(rpc_url).await,
         Cmd::ValidatorAdd { signer_key, pubkey, power, rpc_url, fee } =>
             cmd_validator_add(signer_key, pubkey, power, rpc_url, fee).await,
+        Cmd::GovernorInfo { rpc_url } => cmd_governor_info(rpc_url).await,
+        Cmd::GovernorChange { signer_key, new_governor, rpc_url, fee } =>
+            cmd_governor_change(signer_key, new_governor, rpc_url, fee).await,
+        Cmd::StakingInfo { rpc_url } => cmd_staking_info(rpc_url).await,
+        Cmd::StakingValidator { address, rpc_url } => cmd_staking_validator(address, rpc_url).await,
+        Cmd::Delegation { delegator, validator, rpc_url } =>
+            cmd_delegation(delegator, validator, rpc_url).await,
+        Cmd::ValidatorCreate { signer_key, pubkey, commission_bps, self_bond, rpc_url, fee } =>
+            cmd_validator_create(signer_key, pubkey, commission_bps, self_bond, rpc_url, fee).await,
+        Cmd::ValidatorEditCommission { signer_key, validator, new_commission_bps, rpc_url, fee } =>
+            cmd_validator_edit_commission(signer_key, validator, new_commission_bps, rpc_url, fee).await,
+        Cmd::Stake { signer_key, validator, amount, rpc_url, fee } =>
+            cmd_stake(signer_key, validator, amount, rpc_url, fee).await,
+        Cmd::Unstake { signer_key, validator, shares, rpc_url, fee } =>
+            cmd_unstake(signer_key, validator, shares, rpc_url, fee).await,
+        Cmd::Redelegate { signer_key, from, to, shares, rpc_url, fee } =>
+            cmd_redelegate(signer_key, from, to, shares, rpc_url, fee).await,
+        Cmd::ClaimRewards { signer_key, validator, rpc_url, fee } =>
+            cmd_claim_rewards(signer_key, validator, rpc_url, fee).await,
         Cmd::ValidatorRemove { signer_key, address, rpc_url, fee } =>
             cmd_validator_remove(signer_key, address, rpc_url, fee).await,
     }
@@ -1050,4 +1196,226 @@ fn cmd_admin_info(home: PathBuf) -> Result<()> {
         println!("   Status           : ✅ rotatable ({} remaining)", remaining);
     }
     Ok(())
+}
+
+// ─────────────────────── Phase B.3.2 / B.4 — Governor + Staking CLI ───────────────────────
+
+fn parse_u128_amount(s: &str) -> Result<u128> { parse_zbx_amount(s) }
+
+fn check_fee(fee_wei: u128) -> Result<()> {
+    if fee_wei < tokenomics::MIN_TX_FEE_WEI {
+        return Err(anyhow!(
+            "fee {} wei below MIN_TX_FEE_WEI {} wei (≈0.00105 ZBX) — pass --fee 0.002 or higher",
+            fee_wei, tokenomics::MIN_TX_FEE_WEI
+        ));
+    }
+    Ok(())
+}
+
+async fn rpc_call(rpc_url: &str, method: &str, params: serde_json::Value) -> Result<serde_json::Value> {
+    let req = serde_json::json!({ "jsonrpc":"2.0","id":1,"method":method,"params":params });
+    let resp = http_post(rpc_url, &req).await?;
+    if let Some(e) = resp.get("error") {
+        return Err(anyhow!("RPC error: {}", e));
+    }
+    Ok(resp.get("result").cloned().unwrap_or(serde_json::Value::Null))
+}
+
+async fn cmd_governor_info(rpc_url: String) -> Result<()> {
+    let r = rpc_call(&rpc_url, "zbx_getGovernor", serde_json::json!([])).await?;
+    println!("🏛️  Governor (validator-set authority) info");
+    println!();
+    println!("   Current governor : {}", r["current_governor"].as_str().unwrap_or("?"));
+    println!("   Genesis governor : {}", r["genesis_governor"].as_str().unwrap_or("?"));
+    println!("   Rotations used   : {} of {}",
+        r["changes_used"].as_u64().unwrap_or(0),
+        r["max_changes"].as_u64().unwrap_or(0));
+    println!("   Rotations left   : {}", r["changes_remaining"].as_u64().unwrap_or(0));
+    println!("   Status           : {}", if r["locked"].as_bool().unwrap_or(false) { "🔒 LOCKED" } else { "✅ rotatable" });
+    Ok(())
+}
+
+async fn cmd_governor_change(signer_key: PathBuf, new_governor: String, rpc_url: String, fee: String) -> Result<()> {
+    let (sk, pk) = read_keyfile(&signer_key)?;
+    let from = address_from_pubkey(&pk);
+    let new_gov = Address::from_hex(&new_governor)?;
+    let fee_wei = parse_zbx_amount(&fee)?;
+    check_fee(fee_wei)?;
+    let nonce = reqwest_get_nonce(&rpc_url, &from).await?;
+    let body = TxBody {
+        from, to: Address::ZERO, amount: 0, nonce, fee: fee_wei,
+        chain_id: CHAIN_ID,
+        kind: TxKind::GovernorChange { new_governor: new_gov },
+    };
+    let tx = sign_tx(&sk, body);
+    println!("📝 Governor change → {} (signer: {})", new_gov, from);
+    let h = submit_tx_strict(&rpc_url, &tx).await?;
+    println!("   ✓ tx hash : {}", h);
+    Ok(())
+}
+
+async fn cmd_staking_info(rpc_url: String) -> Result<()> {
+    let r = rpc_call(&rpc_url, "zbx_getStaking", serde_json::json!([])).await?;
+    println!("🥩 Staking module state");
+    println!();
+    println!("   Current epoch         : {}", r["current_epoch"].as_u64().unwrap_or(0));
+    println!("   Epoch length          : {} blocks", r["epoch_blocks"].as_u64().unwrap_or(0));
+    println!("   Epoch reward          : {} wei", r["epoch_reward_wei"].as_str().unwrap_or("0"));
+    println!("   Unbonding epochs      : {}", r["unbonding_epochs"].as_u64().unwrap_or(0));
+    println!("   Min self-bond         : {} wei", r["min_self_bond_wei"].as_str().unwrap_or("0"));
+    println!("   Min delegation        : {} wei", r["min_delegation_wei"].as_str().unwrap_or("0"));
+    println!("   Max commission        : {} bps", r["max_commission_bps"].as_u64().unwrap_or(0));
+    println!("   Max commission Δ/epoch: {} bps", r["max_commission_delta_bps"].as_u64().unwrap_or(0));
+    println!("   Total slashed         : {} wei", r["total_slashed_wei"].as_str().unwrap_or("0"));
+    println!();
+    println!("   Validators            : {}", r["validator_count"].as_u64().unwrap_or(0));
+    println!("   Delegations           : {}", r["delegation_count"].as_u64().unwrap_or(0));
+    println!("   Unbonding entries     : {}", r["unbonding_count"].as_u64().unwrap_or(0));
+    if let Some(arr) = r["validators"].as_array() {
+        for v in arr {
+            println!();
+            println!("   • Validator {}", v["address"].as_str().unwrap_or("?"));
+            println!("       operator       : {}", v["operator"].as_str().unwrap_or("?"));
+            println!("       total stake    : {} wei", v["total_stake_wei"].as_str().unwrap_or("0"));
+            println!("       total shares   : {}", v["total_shares"].as_str().unwrap_or("0"));
+            println!("       commission     : {} bps", v["commission_bps"].as_u64().unwrap_or(0));
+            println!("       commission pool: {} wei", v["commission_pool_wei"].as_str().unwrap_or("0"));
+            println!("       jailed         : {}", v["jailed"].as_bool().unwrap_or(false));
+        }
+    }
+    if let Some(arr) = r["unbonding_queue"].as_array() {
+        if !arr.is_empty() {
+            println!();
+            println!("   Unbonding queue:");
+            for u in arr {
+                println!("     - {} → {}: {} wei (matures epoch {})",
+                    u["delegator"].as_str().unwrap_or("?"),
+                    u["validator"].as_str().unwrap_or("?"),
+                    u["amount_wei"].as_str().unwrap_or("0"),
+                    u["mature_at_epoch"].as_u64().unwrap_or(0));
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn cmd_staking_validator(address: String, rpc_url: String) -> Result<()> {
+    let r = rpc_call(&rpc_url, "zbx_getStakingValidator", serde_json::json!([address])).await?;
+    if r.is_null() {
+        println!("(no staking validator at {})", address);
+        return Ok(());
+    }
+    println!("🥩 Staking validator");
+    println!("   address        : {}", r["address"].as_str().unwrap_or("?"));
+    println!("   operator       : {}", r["operator"].as_str().unwrap_or("?"));
+    println!("   pubkey         : {}", r["pubkey"].as_str().unwrap_or("?"));
+    println!("   total stake    : {} wei", r["total_stake_wei"].as_str().unwrap_or("0"));
+    println!("   total shares   : {}", r["total_shares"].as_str().unwrap_or("0"));
+    println!("   commission     : {} bps", r["commission_bps"].as_u64().unwrap_or(0));
+    println!("   commission pool: {} wei", r["commission_pool_wei"].as_str().unwrap_or("0"));
+    println!("   jailed         : {} (until epoch {})",
+        r["jailed"].as_bool().unwrap_or(false),
+        r["jailed_until_epoch"].as_u64().unwrap_or(0));
+    Ok(())
+}
+
+async fn cmd_delegation(delegator: String, validator: String, rpc_url: String) -> Result<()> {
+    let r = rpc_call(&rpc_url, "zbx_getDelegation", serde_json::json!([delegator, validator])).await?;
+    println!("🤝 Delegation");
+    println!("   delegator : {}", r["delegator"].as_str().unwrap_or("?"));
+    println!("   validator : {}", r["validator"].as_str().unwrap_or("?"));
+    println!("   shares    : {}", r["shares"].as_str().unwrap_or("0"));
+    println!("   value     : {} wei", r["value_wei"].as_str().unwrap_or("0"));
+    Ok(())
+}
+
+fn parse_u128_raw(s: &str) -> Result<u128> {
+    s.trim().parse::<u128>().map_err(|e| anyhow!("invalid integer: {e}"))
+}
+
+async fn submit_staking(
+    signer_key: &PathBuf,
+    rpc_url: &str,
+    fee_str: &str,
+    op: zebvix_node::staking::StakeOp,
+    label: &str,
+) -> Result<()> {
+    let (sk, pk) = read_keyfile(signer_key)?;
+    let from = address_from_pubkey(&pk);
+    let fee_wei = parse_zbx_amount(fee_str)?;
+    check_fee(fee_wei)?;
+    let nonce = reqwest_get_nonce(rpc_url, &from).await?;
+    let body = TxBody {
+        from, to: Address::ZERO, amount: 0, nonce, fee: fee_wei,
+        chain_id: CHAIN_ID, kind: TxKind::Staking(op),
+    };
+    let tx = sign_tx(&sk, body);
+    println!("📝 {} (signer: {}, nonce: {})", label, from, nonce);
+    let h = submit_tx_strict(rpc_url, &tx).await?;
+    println!("   ✓ tx hash : {}", h);
+    Ok(())
+}
+
+async fn cmd_validator_create(
+    signer_key: PathBuf, pubkey: String, commission_bps: u64,
+    self_bond: String, rpc_url: String, fee: String,
+) -> Result<()> {
+    let pk = parse_pubkey_hex(&pubkey)?;
+    let bond = parse_u128_amount(&self_bond)?;
+    submit_staking(&signer_key, &rpc_url, &fee,
+        zebvix_node::staking::StakeOp::CreateValidator { pubkey: pk, commission_bps, self_bond: bond },
+        &format!("CreateValidator (commission={}bps, self_bond={} wei)", commission_bps, bond)).await
+}
+
+async fn cmd_validator_edit_commission(
+    signer_key: PathBuf, validator: String, new_commission_bps: u64,
+    rpc_url: String, fee: String,
+) -> Result<()> {
+    let v = Address::from_hex(&validator)?;
+    submit_staking(&signer_key, &rpc_url, &fee,
+        zebvix_node::staking::StakeOp::EditValidator { validator: v, new_commission_bps: Some(new_commission_bps) },
+        &format!("EditValidator(commission={}bps) for {}", new_commission_bps, v)).await
+}
+
+async fn cmd_stake(
+    signer_key: PathBuf, validator: String, amount: String,
+    rpc_url: String, fee: String,
+) -> Result<()> {
+    let v = Address::from_hex(&validator)?;
+    let amt = parse_u128_amount(&amount)?;
+    submit_staking(&signer_key, &rpc_url, &fee,
+        zebvix_node::staking::StakeOp::Stake { validator: v, amount: amt },
+        &format!("Stake {} wei → {}", amt, v)).await
+}
+
+async fn cmd_unstake(
+    signer_key: PathBuf, validator: String, shares: String,
+    rpc_url: String, fee: String,
+) -> Result<()> {
+    let v = Address::from_hex(&validator)?;
+    let s = parse_u128_raw(&shares)?;
+    submit_staking(&signer_key, &rpc_url, &fee,
+        zebvix_node::staking::StakeOp::Unstake { validator: v, shares: s },
+        &format!("Unstake {} shares from {}", s, v)).await
+}
+
+async fn cmd_redelegate(
+    signer_key: PathBuf, from: String, to: String, shares: String,
+    rpc_url: String, fee: String,
+) -> Result<()> {
+    let f = Address::from_hex(&from)?;
+    let t = Address::from_hex(&to)?;
+    let s = parse_u128_raw(&shares)?;
+    submit_staking(&signer_key, &rpc_url, &fee,
+        zebvix_node::staking::StakeOp::Redelegate { from: f, to: t, shares: s },
+        &format!("Redelegate {} shares: {} → {}", s, f, t)).await
+}
+
+async fn cmd_claim_rewards(
+    signer_key: PathBuf, validator: String, rpc_url: String, fee: String,
+) -> Result<()> {
+    let v = Address::from_hex(&validator)?;
+    submit_staking(&signer_key, &rpc_url, &fee,
+        zebvix_node::staking::StakeOp::ClaimRewards { validator: v },
+        &format!("ClaimRewards from {}", v)).await
 }
