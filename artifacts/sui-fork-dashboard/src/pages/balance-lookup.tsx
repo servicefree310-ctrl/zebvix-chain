@@ -2,9 +2,16 @@ import React, { useState } from "react";
 import { rpc, weiHexToZbx } from "@/lib/zbx-rpc";
 import { Search, Wallet, Lock, TrendingUp, AlertCircle } from "lucide-react";
 
-interface DripInfo {
-  daily_drip_wei?: string;
-  released_total_wei?: string;
+interface DelegationsRes {
+  total_value_wei?: string;
+  delegations?: Array<{ validator: string; value_wei: string; shares: string }>;
+}
+
+interface LockedRes {
+  locked_wei?: string;
+  released_wei?: string;
+  unlock_per_block_wei?: string;
+  unlock_at_height?: number;
 }
 
 export default function BalanceLookup() {
@@ -13,11 +20,11 @@ export default function BalanceLookup() {
   const [err, setErr] = useState<string | null>(null);
   const [data, setData] = useState<{
     liquid: string;
-    staked: string;
-    locked: string;
-    drip: DripInfo | null;
+    delegations: DelegationsRes | null;
+    locked: LockedRes | null;
     nonce: string;
     payId: string | null;
+    zusd: string;
   } | null>(null);
 
   async function lookup() {
@@ -25,17 +32,17 @@ export default function BalanceLookup() {
     setErr(null);
     setData(null);
     try {
-      const [bal, staked, locked, drip, nonce, payId] = await Promise.all([
+      const [bal, delegations, locked, nonce, payId, zusd] = await Promise.all([
         rpc<string>("zbx_getBalance", [addr]).catch(() => "0x0"),
-        rpc<string>("zbx_getStaked", [addr]).catch(() => "0x0"),
-        rpc<string>("zbx_getLockedRewards", [addr]).catch(() => "0x0"),
-        rpc<DripInfo>("zbx_getDailyDrip", [addr]).catch(() => null),
+        rpc<DelegationsRes>("zbx_getDelegationsByDelegator", [addr]).catch(() => null),
+        rpc<LockedRes>("zbx_getLockedRewards", [addr]).catch(() => null),
         rpc<string>("zbx_getNonce", [addr]).catch(() => "0x0"),
         rpc<{ pay_id?: string; name?: string }>("zbx_getPayIdOf", [addr])
           .then((r) => r?.pay_id ?? null)
           .catch(() => null),
+        rpc<string>("zbx_getZusdBalance", [addr]).catch(() => "0x0"),
       ]);
-      setData({ liquid: bal, staked, locked, drip, nonce, payId });
+      setData({ liquid: bal, delegations, locked, nonce, payId, zusd });
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -46,8 +53,12 @@ export default function BalanceLookup() {
   function totalZbx(): string {
     if (!data) return "0";
     try {
-      const t = BigInt(data.liquid) + BigInt(data.staked) + BigInt(data.locked);
-      return weiHexToZbx(t);
+      const liquid = BigInt(data.liquid);
+      const staked = data.delegations?.total_value_wei
+        ? BigInt(data.delegations.total_value_wei)
+        : 0n;
+      const locked = data.locked?.locked_wei ? BigInt(data.locked.locked_wei) : 0n;
+      return weiHexToZbx(liquid + staked + locked);
     } catch {
       return "—";
     }
@@ -105,26 +116,67 @@ export default function BalanceLookup() {
             </div>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-3">
-            <BalCard icon={Wallet} label="Liquid" wei={data.liquid} color="text-blue-400" />
-            <BalCard icon={TrendingUp} label="Staked" wei={data.staked} color="text-green-400" />
-            <BalCard icon={Lock} label="Locked Rewards" wei={data.locked} color="text-yellow-400" />
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3">
+            <BalCard icon={Wallet} label="Liquid ZBX" wei={data.liquid} color="text-blue-400" />
+            <BalCard
+              icon={TrendingUp}
+              label="Staked"
+              wei={data.delegations?.total_value_wei ?? "0"}
+              color="text-green-400"
+            />
+            <BalCard
+              icon={Lock}
+              label="Locked Rewards"
+              wei={data.locked?.locked_wei ?? "0"}
+              color="text-yellow-400"
+            />
+            <BalCard icon={Wallet} label="zUSD" wei={data.zusd} color="text-purple-400" />
           </div>
 
-          {data.drip && (data.drip.daily_drip_wei || data.drip.released_total_wei) && (
+          {data.delegations?.delegations && data.delegations.delegations.length > 0 && (
+            <div className="rounded-lg border border-border bg-card overflow-hidden">
+              <div className="p-3 border-b border-border bg-muted/30 text-sm font-semibold">
+                Delegations ({data.delegations.delegations.length})
+              </div>
+              <table className="w-full text-xs">
+                <thead className="bg-muted/20 text-muted-foreground">
+                  <tr>
+                    <th className="text-left p-2 font-medium">Validator</th>
+                    <th className="text-right p-2 font-medium">Value (ZBX)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.delegations.delegations.map((d) => (
+                    <tr key={d.validator} className="border-t border-border">
+                      <td className="p-2 font-mono">{d.validator}</td>
+                      <td className="p-2 text-right font-mono text-green-400">{weiHexToZbx(d.value_wei)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {data.locked && (data.locked.released_wei || data.locked.unlock_per_block_wei) && (
             <div className="p-4 rounded-lg border border-border bg-card">
-              <h3 className="text-sm font-semibold mb-3">Reward Drip</h3>
+              <h3 className="text-sm font-semibold mb-3">Reward Drip Info</h3>
               <div className="grid grid-cols-2 gap-3 text-sm">
-                {data.drip.daily_drip_wei && (
+                {data.locked.unlock_per_block_wei && (
                   <div>
-                    <div className="text-xs text-muted-foreground">Daily drip</div>
-                    <div className="font-mono text-primary">{weiHexToZbx(data.drip.daily_drip_wei)} ZBX/day</div>
+                    <div className="text-xs text-muted-foreground">Per-block unlock</div>
+                    <div className="font-mono text-primary">{weiHexToZbx(data.locked.unlock_per_block_wei)} ZBX</div>
                   </div>
                 )}
-                {data.drip.released_total_wei && (
+                {data.locked.released_wei && (
                   <div>
                     <div className="text-xs text-muted-foreground">Released so far</div>
-                    <div className="font-mono">{weiHexToZbx(data.drip.released_total_wei)} ZBX</div>
+                    <div className="font-mono">{weiHexToZbx(data.locked.released_wei)} ZBX</div>
+                  </div>
+                )}
+                {data.locked.unlock_at_height !== undefined && (
+                  <div>
+                    <div className="text-xs text-muted-foreground">Fully unlocked at</div>
+                    <div className="font-mono">#{data.locked.unlock_at_height}</div>
                   </div>
                 )}
               </div>

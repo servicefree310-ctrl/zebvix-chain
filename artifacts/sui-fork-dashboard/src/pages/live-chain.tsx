@@ -64,9 +64,21 @@ export default function LiveChain() {
           if (h >= 0) heights.push(h);
         }
         const blocks = await Promise.all(
-          heights.map((h) =>
-            rpc<BlockInfo>("zbx_getBlockByHeight", [h]).catch(() => null),
-          ),
+          heights.map(async (h) => {
+            try {
+              const r = await rpc<any>("zbx_getBlockByNumber", [h]);
+              if (!r) return null;
+              const hdr = r.header ?? r;
+              return {
+                hash: r.hash ?? hdr.hash ?? `h${h}`,
+                height: hdr.height ?? h,
+                proposer: hdr.proposer ?? "",
+                timestamp_ms: hdr.timestamp_ms ?? 0,
+              } as BlockInfo;
+            } catch {
+              return null;
+            }
+          }),
         );
         if (mounted) setRecent(blocks.filter((b): b is BlockInfo => !!b));
 

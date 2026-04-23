@@ -1,0 +1,34 @@
+# 2) Reload systemd + restart node════════════════════════
+# ════════════════════════════════════════════════════════════════ystem/zebvix.service
+systemctl daemon-reload
+systemctl restart zebvix.service
+sleep 3ecStart /etc/systemd/system/zebvix.service
+systemctl is-active zebvix.service
+ss -ltnp | grep 8545══════════════════════════════════════
+# Expected: LISTEN 0 ... *:8545 ... (asterisk = all interfaces)
+══════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════
+# 3) Firewall kholdobvix.service
+# ════════════════════════════════════════════════════════════════
+ufw allow 8545/tcp comment 'Zebvix RPC public'
+ufw status grep 8545
+# Expected: LISTEN 0 ... *:8545 ... (asterisk = all interfaces)
+# ════════════════════════════════════════════════════════════════
+# 4) Final verify (apne VPS se public IP pe hit karke)════
+# ════════════════════════════════════════════════════════════════
+curl -s --max-time 5 -X POST -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"zbx_blockNumber","params":[]}' \
+echotp://93.127.213.192:8545
+ExecStart=/usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333 --no-mdns
+active════════════════════════════════════════════════════
+LISTEN 0      128                             0.0.0.0:8545       0.0.0.0:*    users:(("zebvix-node",pid=3805598,fd=58))                                               
+Command 'ufw' not found, but can be installed with:═══════
+snap install ufw  # version 0.36.2, ornt-type: application/json' \
+apt  install ufw  # version 0.36.2-1d":"zbx_blockNumber","params":[]}' \
+See 'snap info ufw' for additional versions.
+Command 'ufw' not found, but can be installed with:
+snap install ufw  # version 0.36.2, or
+apt  install ufw  # version 0.36.2-1
+See 'snap info ufw' for additional versions.
+{"jsonrpc":"2.0","id":1,"result":{"hash":"0x0a85717fbab1e31fe58cda96c7b5b3414def51e6cce202a43e0d23a8041d8657","height":9179,"hex":"0x23db","proposer":"0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc","timestamp_ms":1776969647491}}
+root@srv1266996:/home/zebvix-chain# 

@@ -8,22 +8,26 @@ const VPS_RPC_URL =
 const ALLOWED_METHODS = new Set<string>([
   "zbx_chainInfo",
   "zbx_blockNumber",
-  "zbx_getBlock",
-  "zbx_getBlockByHeight",
+  "zbx_getBlockByNumber",
   "zbx_getBalance",
   "zbx_getNonce",
-  "zbx_getTransaction",
-  "zbx_getTransactionReceipt",
   "zbx_feeBounds",
   "zbx_voteStats",
   "zbx_listValidators",
   "zbx_getValidator",
-  "zbx_getStaked",
+  "zbx_getStaking",
+  "zbx_getStakingValidator",
+  "zbx_getDelegation",
+  "zbx_getDelegationsByDelegator",
   "zbx_getLockedRewards",
-  "zbx_getDailyDrip",
+  "zbx_getBurnStats",
   "zbx_getAdmin",
+  "zbx_getGovernor",
   "zbx_getPool",
-  "zbx_getZUsdBalance",
+  "zbx_getPriceUSD",
+  "zbx_supply",
+  "zbx_estimateGas",
+  "zbx_getZusdBalance",
   "zbx_getLpBalance",
   "zbx_lookupPayId",
   "zbx_getPayIdOf",
@@ -46,7 +50,7 @@ interface RateBucket {
 }
 const rateMap = new Map<string, RateBucket>();
 const RATE_WINDOW_MS = 60_000;
-const RATE_MAX_REQS = 120;
+const RATE_MAX_REQS = 600;
 
 function rateLimit(ip: string): boolean {
   const now = Date.now();
@@ -74,7 +78,7 @@ rpcRouter.post("/rpc", async (req, res) => {
     res.status(429).json({
       jsonrpc: "2.0",
       id: req.body?.id ?? null,
-      error: { code: -32005, message: "rate limit exceeded (120 req/min)" },
+      error: { code: -32005, message: "rate limit exceeded (600 req/min)" },
     });
     return;
   }
