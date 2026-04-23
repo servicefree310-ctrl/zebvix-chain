@@ -30,7 +30,16 @@ export async function rpc<T = unknown>(
   return json.result as T;
 }
 
+// Add thousand separators to an integer string (handles leading minus)
+function withCommas(intStr: string): string {
+  const neg = intStr.startsWith("-");
+  const s = neg ? intStr.slice(1) : intStr;
+  const out = s.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return neg ? `-${out}` : out;
+}
+
 // Convert hex wei string ("0x...") to ZBX decimal string with up to 6 places
+// and thousand separators on the integer part (e.g. "10,027,885.951666")
 export function weiHexToZbx(hex: string | number | bigint): string {
   let n: bigint;
   try {
@@ -41,10 +50,11 @@ export function weiHexToZbx(hex: string | number | bigint): string {
   const denom = 10n ** 18n;
   const whole = n / denom;
   const frac = n % denom;
-  if (frac === 0n) return whole.toString();
+  const wholeStr = withCommas(whole.toString());
+  if (frac === 0n) return wholeStr;
   const fracStr = frac.toString().padStart(18, "0").slice(0, 6);
   const trimmed = fracStr.replace(/0+$/, "");
-  return trimmed.length ? `${whole}.${trimmed}` : whole.toString();
+  return trimmed.length ? `${wholeStr}.${trimmed}` : wholeStr;
 }
 
 export function shortAddr(a: string, head = 6, tail = 4): string {
