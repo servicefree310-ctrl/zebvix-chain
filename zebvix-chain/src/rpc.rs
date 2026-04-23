@@ -6,7 +6,9 @@
 //!   - zbx_getNonce           -> u64
 //!   - zbx_sendTransaction    -> tx hash (accepts JSON SignedTx)
 //!   - zbx_getBlockByNumber   -> Block JSON
-//!   - zbx_supply             -> { minted_wei, max_wei, current_reward_wei }
+//!   - zbx_supply             -> { minted_wei, premine_wei, burned_wei,
+//!                                  circulating_wei, max_wei,
+//!                                  current_block_reward_wei, height }
 //!   - zbx_getValidator       -> { address, pubkey, voting_power } | null
 
 use crate::mempool::Mempool;
@@ -141,9 +143,25 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
         }
         "zbx_supply" => {
             let (h, _) = ctx.state.tip();
+            let minted = cumulative_supply(h);
+            let premine = crate::tokenomics::FOUNDER_PREMINE_WEI;
+            let burn_addr = crate::state::burn_address();
+            let burned = ctx.state.account(&burn_addr).balance;
+            // Circulating = all ZBX that has ever existed (minted by block rewards
+            // + genesis premine), MINUS any ZBX permanently sent to the burn
+            // address. ZBX held by validators, LPs, the AMM pool reserve, the
+            // reward-lock vault, and the treasury all count as circulating
+            // because they remain redeemable / spendable on-chain. Only `burned`
+            // is removed forever.
+            let circulating = minted
+                .saturating_add(premine)
+                .saturating_sub(burned);
             ok(id, json!({
                 "height": h,
-                "minted_wei": cumulative_supply(h).to_string(),
+                "minted_wei": minted.to_string(),
+                "premine_wei": premine.to_string(),
+                "burned_wei": burned.to_string(),
+                "circulating_wei": circulating.to_string(),
                 "max_wei": TOTAL_SUPPLY_WEI.to_string(),
                 "current_block_reward_wei": reward_at_height(h + 1).to_string(),
             }))

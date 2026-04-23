@@ -44,6 +44,8 @@ interface SupplyInfo {
   max_wei: string;
   current_block_reward_wei: string;
   burned_wei?: string;
+  premine_wei?: string;
+  circulating_wei?: string;
 }
 interface ValidatorInfo {
   validators?: Array<{ address: string; voting_power: number }>;
@@ -209,6 +211,12 @@ export default function NetworkOverview() {
   const minted = supply ? weiHexToZbxNum(supply.minted_wei) : 0;
   const maxSupply = supply ? weiHexToZbxNum(supply.max_wei) : 150_000_000;
   const burned = supply?.burned_wei ? weiHexToZbxNum(supply.burned_wei) : 0;
+  const premine = supply?.premine_wei ? weiHexToZbxNum(supply.premine_wei) : 0;
+  // Prefer chain-computed circulating; fall back to (minted + premine - burned)
+  // for older nodes that don't expose `circulating_wei` yet.
+  const circulating = supply?.circulating_wei
+    ? weiHexToZbxNum(supply.circulating_wei)
+    : Math.max(0, minted + premine - burned);
   const blockReward = supply ? weiHexToZbxNum(supply.current_block_reward_wei) : 3;
   const supplyPercentMined = maxSupply > 0 ? (minted / maxSupply) * 100 : 0;
   const remainingSupply = Math.max(0, maxSupply - minted);
@@ -289,7 +297,7 @@ export default function NetworkOverview() {
               <span className="text-sm text-neutral-500 ml-2 font-sans font-normal">per ZBX</span>
             </div>
             <div className="text-xs text-neutral-400 mt-1 font-mono">
-              Market Cap (circulating): {fmtUsd(minted * price)}
+              Market Cap (circulating): {fmtUsd(circulating * price)}
             </div>
           </div>
           <DataCard title="Current TPS" value={currentTps.toFixed(2)} icon={Activity} subValue={`Peak: ${peakTps.toFixed(2)}`} pulse />
@@ -306,6 +314,8 @@ export default function NetworkOverview() {
           maxSupply={maxSupply}
           remainingSupply={remainingSupply}
           supplyPercentMined={supplyPercentMined}
+          circulating={circulating}
+          premine={premine}
           burned={burned}
           maxBurnSupply={maxBurnSupply}
           burnPercentOfMax={burnPercentOfMax}
@@ -587,6 +597,7 @@ function Row({ label, value, bold }: { label: string; value: string; bold?: bool
 
 interface TokenomicsProps {
   minted: number; maxSupply: number; remainingSupply: number; supplyPercentMined: number;
+  circulating: number; premine: number;
   burned: number; maxBurnSupply: number; burnPercentOfMax: number;
   blockReward: number; halvingEra: number; nextHalvingAt: number; nextHalvingReward: number;
   zbxUntilNextHalving: number; daysUntilNextHalving: number; yearsUntilFullSupply: number;
@@ -628,7 +639,10 @@ function TokenomicsSection(s: TokenomicsProps) {
             </div>
             <div className="pt-2 border-t border-neutral-800 space-y-1">
               <Row label="Total Supply" value={`${fmtZbx(s.maxSupply)} ZBX`} bold />
-              <Row label="Circulating" value={`${fmtZbx(s.minted)} ZBX`} />
+              <Row label="Mined (block rewards)" value={`${fmtZbx(s.minted)} ZBX`} />
+              {s.premine > 0 && <Row label="Genesis Premine" value={`${fmtZbx(s.premine)} ZBX`} />}
+              {s.burned > 0 && <Row label="Burned" value={`-${fmtZbx(s.burned)} ZBX`} />}
+              <Row label="Circulating" value={`${fmtZbx(s.circulating)} ZBX`} bold />
               <Row label="Remaining to Mine" value={`${fmtZbx(s.remainingSupply)} ZBX`} />
             </div>
           </div>
