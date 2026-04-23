@@ -33,6 +33,10 @@ import Downloads from "@/pages/downloads";
 import ChainCode from "@/pages/chain-code";
 import ChainStatus from "@/pages/chain-status";
 import ConsensusRoadmap from "@/pages/consensus-roadmap";
+import LiveChain from "@/pages/live-chain";
+import BalanceLookup from "@/pages/balance-lookup";
+import MultisigExplorer from "@/pages/multisig-explorer";
+import PayIdResolver from "@/pages/payid-resolver";
 
 const queryClient = new QueryClient();
 
@@ -67,6 +71,10 @@ function Router() {
         <Route path="/chain-code" component={ChainCode} />
         <Route path="/chain-status" component={ChainStatus} />
         <Route path="/consensus-roadmap" component={ConsensusRoadmap} />
+        <Route path="/live-chain" component={LiveChain} />
+        <Route path="/balance-lookup" component={BalanceLookup} />
+        <Route path="/multisig-explorer" component={MultisigExplorer} />
+        <Route path="/payid-resolver" component={PayIdResolver} />
         <Route component={NotFound} />
       </Switch>
     </Shell>

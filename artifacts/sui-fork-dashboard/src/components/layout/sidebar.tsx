@@ -27,7 +27,10 @@ import {
   Download,
   Code2,
   Sparkles,
-  GitBranch
+  GitBranch,
+  Activity,
+  Shield,
+  AtSign
 } from "lucide-react";
 import { useChecklist } from "@/hooks/useChecklist";
 import { Progress } from "@/components/ui/progress";
@@ -45,6 +48,13 @@ const CORE_NAV = [
   { href: "/customization", label: "Customization", icon: Settings },
   { href: "/checklist", label: "Launch Checklist", icon: CheckSquare },
   { href: "/production", label: "Production Chain", icon: Rocket },
+];
+
+const LIVE_NAV = [
+  { href: "/live-chain", label: "Live Chain Status", icon: Activity },
+  { href: "/balance-lookup", label: "Balance Lookup", icon: Wallet },
+  { href: "/multisig-explorer", label: "Multisig Explorer", icon: Shield },
+  { href: "/payid-resolver", label: "Pay-ID Resolver", icon: AtSign },
 ];
 
 const ADDON_NAV = [
@@ -87,6 +97,10 @@ export function Sidebar() {
   const NavLinks = () => (
     <nav className="space-y-0.5">
       {CORE_NAV.map((item) => <NavItem key={item.href} {...item} />)}
+      <div className="pt-3 pb-1 px-3">
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-green-500/80">● Live (VPS RPC)</span>
+      </div>
+      {LIVE_NAV.map((item) => <NavItem key={item.href} {...item} />)}
       <div className="pt-3 pb-1 px-3">
         <span className="text-[10px] font-semibold uppercase tracking-widest text-primary/60">Addons</span>
       </div>
