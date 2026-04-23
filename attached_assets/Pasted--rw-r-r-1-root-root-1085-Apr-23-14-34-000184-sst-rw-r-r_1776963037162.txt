@@ -1,0 +1,93 @@
+-rw-r--r-- 1 root root    1085 Apr 23 14:34 000184.sst
+-rw-r--r-- 1 root root    1263 Apr 23 14:34 000189.sst
+-rw-r--r-- 1 root root    1094 Apr 23 16:17 000196.sst
+-rw-r--r-- 1 root root  389609 Apr 23 16:17 000197.sst
+-rw-r--r-- 1 root root    1169 Apr 23 16:17 000198.sst
+-rw-r--r-- 1 root root  186038 Apr 23 16:48 000199.log
+-rw-r--r-- 1 root root      16 Apr 23 16:17 CURRENT
+-rw-r--r-- 1 root root      36 Apr 23 03:52 IDENTITY
+-rw-r--r-- 1 root root       0 Apr 23 03:52 LOCK
+-rw-r--r-- 1 root root   93453 Apr 23 16:47 LOG
+-rw-r--r-- 1 root root   49586 Apr 23 03:52 LOG.old.1776916378682776
+-rw-r--r-- 1 root root   62435 Apr 23 03:53 LOG.old.1776916898262895
+-rw-r--r-- 1 root root   77939 Apr 23 04:11 LOG.old.1776917897938828
+-rw-r--r-- 1 root root   77984 Apr 23 04:28 LOG.old.1776918689443893
+-rw-r--r-- 1 root root   94905 Apr 23 04:51 LOG.old.1776920112178853
+-rw-r--r-- 1 root root   68433 Apr 23 04:55 LOG.old.1776920266699612
+-rw-r--r-- 1 root root   97317 Apr 23 06:17 LOG.old.1776925148762668
+-rw-r--r-- 1 root root   67610 Apr 23 06:19 LOG.old.1776925426839624
+-rw-r--r-- 1 root root  174139 Apr 23 13:13 LOG.old.1776950175720001
+-rw-r--r-- 1 root root   98150 Apr 23 13:36 LOG.old.1776951474096400
+-rw-r--r-- 1 root root   68292 Apr 23 13:37 LOG.old.1776951652145840
+-rw-r--r-- 1 root root   66964 Apr 23 13:40 LOG.old.1776952021391350
+-rw-r--r-- 1 root root   72180 Apr 23 13:47 LOG.old.1776952110888851
+-rw-r--r-- 1 root root   72203 Apr 23 13:48 LOG.old.1776952442544865
+-rw-r--r-- 1 root root   68177 Apr 23 13:54 LOG.old.1776952685404761
+-rw-r--r-- 1 root root   66983 Apr 23 13:58 LOG.old.1776952754803130
+-rw-r--r-- 1 root root   72195 Apr 23 13:59 LOG.old.1776953066171151
+-rw-r--r-- 1 root root   72227 Apr 23 14:04 LOG.old.1776953297750300
+-rw-r--r-- 1 root root   92645 Apr 23 14:28 LOG.old.1776954552530737
+-rw-r--r-- 1 root root   66989 Apr 23 14:29 LOG.old.1776954652310789
+-rw-r--r-- 1 root root   72197 Apr 23 14:30 LOG.old.1776954783783619
+-rw-r--r-- 1 root root    9384 Apr 23 14:33 LOG.old.1776954788872827
+-rw-r--r-- 1 root root    9384 Apr 23 14:33 LOG.old.1776954794130479
+-rw-r--r-- 1 root root    9384 Apr 23 14:33 LOG.old.1776954799253641
+-rw-r--r-- 1 root root    9384 Apr 23 14:33 LOG.old.1776954804377788
+-rw-r--r-- 1 root root    9384 Apr 23 14:33 LOG.old.1776954809633715
+-rw-r--r-- 1 root root    9384 Apr 23 14:33 LOG.old.1776954814885156
+-rw-r--r-- 1 root root    9384 Apr 23 14:33 LOG.old.1776954820126703
+-rw-r--r-- 1 root root    9384 Apr 23 14:33 LOG.old.1776954825379719
+-rw-r--r-- 1 root root    9384 Apr 23 14:33 LOG.old.1776954830633111
+-rw-r--r-- 1 root root    9384 Apr 23 14:33 LOG.old.1776954835876135
+-rw-r--r-- 1 root root    9384 Apr 23 14:33 LOG.old.1776954841132511
+-rw-r--r-- 1 root root    9384 Apr 23 14:34 LOG.old.1776954846389374
+-rw-r--r-- 1 root root    9384 Apr 23 14:34 LOG.old.1776954851622812
+-rw-r--r-- 1 root root    9384 Apr 23 14:34 LOG.old.1776954856877820
+-rw-r--r-- 1 root root    9384 Apr 23 14:34 LOG.old.1776954862126755
+-rw-r--r-- 1 root root   72223 Apr 23 14:34 LOG.old.1776954863278334
+-rw-r--r-- 1 root root   90042 Apr 23 16:04 LOG.old.1776961067913489
+-rw-r--r-- 1 root root    3380 Apr 23 16:17 MANIFEST-000200
+-rw-r--r-- 1 root root   20788 Apr 23 14:34 OPTIONS-000195
+-rw-r--r-- 1 root root   20788 Apr 23 16:17 OPTIONS-000202
+total 20
+drwxr-xr-x  2 root   root   4096 Apr 23 16:50 .
+drwxr-xr-x 22 ubuntu ubuntu 4096 Apr 23 16:11 ..
+-rw-r--r--  1 root   root    277 Apr 23 16:48 genesis.json
+-rw-r--r--  1 root   root     71 Apr 23 03:52 node.json
+-rw-r--r--  1 root   root    229 Apr 23 03:52 validator.key.DUP_BACKUP
+ls: cannot access '/home/zebvix-chain/.zebvix2/validator.key': No such file or directory
+● zebvix2.service - Zebvix L1 Blockchain Node-2
+     Loaded: loaded (/etc/systemd/system/zebvix2.service; enabled; preset: enabled)
+     Active: activating (auto-restart) (Result: exit-code) since Thu 2026-04-23 16:50:15 UTC; 4s ago
+    Process: 3777667 ExecStart=/usr/local/bin/zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns (code=exited, status=1/FAILURE)
+   Main PID: 3777667 (code=exited, status=1/FAILURE)
+        CPU: 9ms
+
+Apr 23 16:50:15 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Failed with result 'exit-code'.
+Apr 23 16:49:43 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Failed with result 'exit-code'.
+Apr 23 16:49:48 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Scheduled restart job, restart counter is at 17.
+Apr 23 16:49:48 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 23 16:49:48 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Main process exited, code=exited, status=1/FAILURE
+Apr 23 16:49:48 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Failed with result 'exit-code'.
+Apr 23 16:49:54 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Scheduled restart job, restart counter is at 18.
+Apr 23 16:49:54 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 23 16:49:54 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Main process exited, code=exited, status=1/FAILURE
+Apr 23 16:49:54 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Failed with result 'exit-code'.
+Apr 23 16:49:59 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Scheduled restart job, restart counter is at 19.
+Apr 23 16:49:59 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 23 16:49:59 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Main process exited, code=exited, status=1/FAILURE
+Apr 23 16:49:59 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Failed with result 'exit-code'.
+Apr 23 16:50:01 srv1266996.hstgr.cloud systemd[1]: Stopped zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 23 16:50:05 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 23 16:50:05 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Main process exited, code=exited, status=1/FAILURE
+Apr 23 16:50:05 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Failed with result 'exit-code'.
+Apr 23 16:50:10 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Scheduled restart job, restart counter is at 20.
+Apr 23 16:50:10 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 23 16:50:10 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Main process exited, code=exited, status=1/FAILURE
+Apr 23 16:50:10 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Failed with result 'exit-code'.
+Apr 23 16:50:15 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Scheduled restart job, restart counter is at 21.
+Apr 23 16:50:15 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 23 16:50:15 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Main process exited, code=exited, status=1/FAILURE
+Apr 23 16:50:15 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Failed with result 'exit-code'.
+0
+root@srv1266996:/home/zebvix-chain# 
