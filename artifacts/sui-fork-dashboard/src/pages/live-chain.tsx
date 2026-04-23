@@ -1,6 +1,15 @@
 import React, { useEffect, useState } from "react";
-import { rpc, weiHexToZbx, shortAddr } from "@/lib/zbx-rpc";
-import { Activity, Box, Users, DollarSign, Zap, AlertCircle } from "lucide-react";
+import { rpc, weiHexToZbx, shortAddr, weiToUsd, fmtUsd } from "@/lib/zbx-rpc";
+import {
+  Activity,
+  Box,
+  Users,
+  DollarSign,
+  Zap,
+  AlertCircle,
+  TrendingUp,
+  Coins,
+} from "lucide-react";
 
 interface BlockInfo {
   hash: string;
@@ -31,6 +40,18 @@ interface ValidatorInfo {
   quorum?: number;
 }
 
+interface PriceInfo {
+  zbx_usd: string;
+  source: string;
+}
+
+interface SupplyInfo {
+  height: number;
+  minted_wei: string;
+  max_wei: string;
+  current_block_reward_wei: string;
+}
+
 export default function LiveChain() {
   const [tip, setTip] = useState<BlockInfo | null>(null);
   const [recent, setRecent] = useState<BlockInfo[]>([]);
@@ -39,6 +60,8 @@ export default function LiveChain() {
   const [vals, setVals] = useState<ValidatorInfo | null>(null);
   const [msCount, setMsCount] = useState<number | null>(null);
   const [payIdCount, setPayIdCount] = useState<number | null>(null);
+  const [price, setPrice] = useState<PriceInfo | null>(null);
+  const [supply, setSupply] = useState<SupplyInfo | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -88,12 +111,16 @@ export default function LiveChain() {
           rpc<ValidatorInfo>("zbx_listValidators").catch(() => null),
           rpc<{ total: number }>("zbx_multisigCount").catch(() => null),
           rpc<{ total: number }>("zbx_payIdCount").catch(() => null),
-        ]).then(([v, va, ms, pid]) => {
+          rpc<PriceInfo>("zbx_getPriceUSD").catch(() => null),
+          rpc<SupplyInfo>("zbx_supply").catch(() => null),
+        ]).then(([v, va, ms, pid, pr, sup]) => {
           if (!mounted) return;
           if (v) setVotes(v);
           if (va) setVals(va);
           if (ms) setMsCount(ms.total);
           if (pid) setPayIdCount(pid.total);
+          if (pr) setPrice(pr);
+          if (sup) setSupply(sup);
         });
       } catch (e) {
         if (mounted) setErr(e instanceof Error ? e.message : String(e));
@@ -141,10 +168,55 @@ export default function LiveChain() {
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Stat
+          icon={TrendingUp}
+          label="ZBX Price"
+          value={price ? `$${parseFloat(price.zbx_usd).toFixed(6).replace(/0+$/, "").replace(/\.$/, "")}` : "—"}
+          sub={price?.source}
+          highlight
+        />
+        <Stat
+          icon={Coins}
+          label="Market Cap"
+          value={
+            price && supply
+              ? fmtUsd(weiToUsd(supply.minted_wei, parseFloat(price.zbx_usd)))
+              : "—"
+          }
+          sub={supply ? `${weiHexToZbx(supply.minted_wei)} ZBX minted` : undefined}
+        />
+        <Stat
+          icon={Coins}
+          label="Fully Diluted Cap"
+          value={
+            price && supply
+              ? fmtUsd(weiToUsd(supply.max_wei, parseFloat(price.zbx_usd)))
+              : "—"
+          }
+          sub={supply ? `max ${weiHexToZbx(supply.max_wei)} ZBX` : undefined}
+        />
         <Stat icon={Box} label="Block Height" value={tip ? `#${tip.height.toLocaleString()}` : "—"} />
-        <Stat icon={Users} label="Validators" value={vals?.validators?.length ?? "—"} sub={vals?.quorum ? `quorum ${vals.quorum}` : undefined} />
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Stat
+          icon={Users}
+          label="Validators"
+          value={vals?.validators?.length ?? "—"}
+          sub={vals?.quorum ? `quorum ${vals.quorum}` : undefined}
+        />
         <Stat icon={Zap} label="Multisig Wallets" value={msCount ?? "—"} />
         <Stat icon={DollarSign} label="Pay-IDs" value={payIdCount ?? "—"} />
+        <Stat
+          icon={Coins}
+          label="Block Reward"
+          value={supply ? `${weiHexToZbx(supply.current_block_reward_wei)} ZBX` : "—"}
+          sub={
+            price && supply
+              ? `${fmtUsd(weiToUsd(supply.current_block_reward_wei, parseFloat(price.zbx_usd)))} per block`
+              : undefined
+          }
+        />
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
@@ -241,15 +313,15 @@ export default function LiveChain() {
   );
 }
 
-function Stat({ icon: Icon, label, value, sub }: { icon: React.ElementType; label: string; value: React.ReactNode; sub?: string }) {
+function Stat({ icon: Icon, label, value, sub, highlight }: { icon: React.ElementType; label: string; value: React.ReactNode; sub?: string; highlight?: boolean }) {
   return (
-    <div className="p-4 rounded-lg border border-border bg-card">
+    <div className={`p-4 rounded-lg border bg-card ${highlight ? "border-primary/40 bg-primary/5" : "border-border"}`}>
       <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-        <Icon className="h-3.5 w-3.5" />
+        <Icon className={`h-3.5 w-3.5 ${highlight ? "text-primary" : ""}`} />
         {label}
       </div>
-      <div className="text-2xl font-bold text-foreground tabular-nums">{value}</div>
-      {sub && <div className="text-xs text-muted-foreground mt-0.5">{sub}</div>}
+      <div className={`text-2xl font-bold tabular-nums ${highlight ? "text-primary" : "text-foreground"}`}>{value}</div>
+      {sub && <div className="text-xs text-muted-foreground mt-0.5 truncate">{sub}</div>}
     </div>
   );
 }

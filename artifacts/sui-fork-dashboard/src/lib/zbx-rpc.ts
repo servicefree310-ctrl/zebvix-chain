@@ -51,3 +51,30 @@ export function shortAddr(a: string, head = 6, tail = 4): string {
   if (!a || a.length < head + tail + 2) return a;
   return `${a.slice(0, 2 + head)}…${a.slice(-tail)}`;
 }
+
+// Convert wei (hex/string/bigint) to USD using a price-per-ZBX (number)
+export function weiToUsd(
+  wei: string | number | bigint,
+  pricePerZbx: number,
+): number {
+  let n: bigint;
+  try {
+    n = typeof wei === "bigint" ? wei : BigInt(wei);
+  } catch {
+    return 0;
+  }
+  // Use string conversion to keep precision for large numbers
+  const denom = 10n ** 18n;
+  const whole = Number(n / denom);
+  const frac = Number(n % denom) / Number(denom);
+  return (whole + frac) * pricePerZbx;
+}
+
+export function fmtUsd(n: number): string {
+  if (!isFinite(n)) return "$0.00";
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+  if (n >= 1e3) return `$${(n / 1e3).toFixed(2)}K`;
+  if (n >= 1) return `$${n.toFixed(2)}`;
+  return `$${n.toFixed(6).replace(/0+$/, "").replace(/\.$/, "")}`;
+}

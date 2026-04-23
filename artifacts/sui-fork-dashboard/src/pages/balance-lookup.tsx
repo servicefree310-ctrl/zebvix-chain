@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { rpc, weiHexToZbx } from "@/lib/zbx-rpc";
+import React, { useEffect, useState } from "react";
+import { rpc, weiHexToZbx, weiToUsd, fmtUsd } from "@/lib/zbx-rpc";
 import { Search, Wallet, Lock, TrendingUp, AlertCircle } from "lucide-react";
 
 interface DelegationsRes {
@@ -25,6 +25,7 @@ export default function BalanceLookup() {
     nonce: string;
     payId: string | null;
     zusd: string;
+    priceUsd: number;
   } | null>(null);
 
   async function lookup() {
@@ -32,7 +33,7 @@ export default function BalanceLookup() {
     setErr(null);
     setData(null);
     try {
-      const [bal, delegations, locked, nonce, payId, zusd] = await Promise.all([
+      const [bal, delegations, locked, nonce, payId, zusd, price] = await Promise.all([
         rpc<string>("zbx_getBalance", [addr]).catch(() => "0x0"),
         rpc<DelegationsRes>("zbx_getDelegationsByDelegator", [addr]).catch(() => null),
         rpc<LockedRes>("zbx_getLockedRewards", [addr]).catch(() => null),
@@ -41,8 +42,11 @@ export default function BalanceLookup() {
           .then((r) => r?.pay_id ?? null)
           .catch(() => null),
         rpc<string>("zbx_getZusdBalance", [addr]).catch(() => "0x0"),
+        rpc<{ zbx_usd: string }>("zbx_getPriceUSD")
+          .then((r) => parseFloat(r?.zbx_usd ?? "0"))
+          .catch(() => 0),
       ]);
-      setData({ liquid: bal, delegations, locked, nonce, payId, zusd });
+      setData({ liquid: bal, delegations, locked, nonce, payId, zusd, priceUsd: price });
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -50,18 +54,31 @@ export default function BalanceLookup() {
     }
   }
 
-  function totalZbx(): string {
-    if (!data) return "0";
+  // Auto-lookup on first mount with default address
+  useEffect(() => {
+    lookup();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function totalWei(): bigint {
+    if (!data) return 0n;
     try {
       const liquid = BigInt(data.liquid);
       const staked = data.delegations?.total_value_wei
         ? BigInt(data.delegations.total_value_wei)
         : 0n;
       const locked = data.locked?.locked_wei ? BigInt(data.locked.locked_wei) : 0n;
-      return weiHexToZbx(liquid + staked + locked);
+      return liquid + staked + locked;
     } catch {
-      return "—";
+      return 0n;
     }
+  }
+  function totalZbx(): string {
+    return weiHexToZbx(totalWei());
+  }
+  function totalUsd(): number {
+    if (!data) return 0;
+    return weiToUsd(totalWei(), data.priceUsd);
   }
 
   return (
@@ -104,10 +121,20 @@ export default function BalanceLookup() {
       {data && (
         <>
           <div className="p-5 rounded-lg border-2 border-primary/30 bg-primary/5">
-            <div className="text-xs text-muted-foreground mb-1">GRAND TOTAL</div>
-            <div className="text-4xl font-bold text-primary tabular-nums">{totalZbx()} <span className="text-lg text-muted-foreground">ZBX</span></div>
+            <div className="flex items-baseline justify-between flex-wrap gap-2 mb-1">
+              <div className="text-xs text-muted-foreground">GRAND TOTAL</div>
+              <div className="text-xs text-muted-foreground">
+                ZBX price: <span className="font-mono text-primary">${data.priceUsd.toFixed(6).replace(/0+$/, "").replace(/\.$/, "")}</span>
+              </div>
+            </div>
+            <div className="text-4xl font-bold text-primary tabular-nums">
+              {totalZbx()} <span className="text-lg text-muted-foreground">ZBX</span>
+            </div>
+            <div className="text-2xl font-semibold text-green-400 tabular-nums mt-1">
+              ≈ {fmtUsd(totalUsd())}
+            </div>
             {data.payId && (
-              <div className="mt-2 text-sm">
+              <div className="mt-3 text-sm">
                 Pay-ID: <code className="text-primary font-semibold">{data.payId}</code>
               </div>
             )}
@@ -117,20 +144,22 @@ export default function BalanceLookup() {
           </div>
 
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3">
-            <BalCard icon={Wallet} label="Liquid ZBX" wei={data.liquid} color="text-blue-400" />
+            <BalCard icon={Wallet} label="Liquid ZBX" wei={data.liquid} color="text-blue-400" priceUsd={data.priceUsd} />
             <BalCard
               icon={TrendingUp}
               label="Staked"
               wei={data.delegations?.total_value_wei ?? "0"}
               color="text-green-400"
+              priceUsd={data.priceUsd}
             />
             <BalCard
               icon={Lock}
               label="Locked Rewards"
               wei={data.locked?.locked_wei ?? "0"}
               color="text-yellow-400"
+              priceUsd={data.priceUsd}
             />
-            <BalCard icon={Wallet} label="zUSD" wei={data.zusd} color="text-purple-400" />
+            <BalCard icon={Wallet} label="zUSD" wei={data.zusd} color="text-purple-400" priceUsd={1} unit="zUSD" />
           </div>
 
           {data.delegations?.delegations && data.delegations.delegations.length > 0 && (
@@ -188,7 +217,7 @@ export default function BalanceLookup() {
   );
 }
 
-function BalCard({ icon: Icon, label, wei, color }: { icon: React.ElementType; label: string; wei: string; color: string }) {
+function BalCard({ icon: Icon, label, wei, color, priceUsd, unit = "ZBX" }: { icon: React.ElementType; label: string; wei: string; color: string; priceUsd: number; unit?: string }) {
   return (
     <div className="p-4 rounded-lg border border-border bg-card">
       <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
@@ -196,7 +225,10 @@ function BalCard({ icon: Icon, label, wei, color }: { icon: React.ElementType; l
         {label}
       </div>
       <div className={`text-2xl font-bold tabular-nums ${color}`}>{weiHexToZbx(wei)}</div>
-      <div className="text-xs text-muted-foreground mt-0.5">ZBX</div>
+      <div className="text-xs text-muted-foreground mt-0.5 flex justify-between">
+        <span>{unit}</span>
+        <span className="font-mono">≈ {fmtUsd(weiToUsd(wei, priceUsd))}</span>
+      </div>
     </div>
   );
 }
