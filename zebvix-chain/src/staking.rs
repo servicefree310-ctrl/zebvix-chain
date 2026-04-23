@@ -40,8 +40,8 @@ pub const UNBONDING_EPOCHS: u64 = 7;
 /// Maximum size of the active validator set (top-N by total stake).
 pub const MAX_ACTIVE_VALIDATORS: usize = 100;
 
-/// Minimum self-bond required to register a validator (100 ZBX in wei — devnet-friendly).
-pub const MIN_SELF_BOND_WEI: u128 = 100u128 * 1_000_000_000_000_000_000u128;
+/// Minimum self-bond required to register a validator (1,000 ZBX in wei).
+pub const MIN_SELF_BOND_WEI: u128 = 1_000u128 * 1_000_000_000_000_000_000u128;
 
 /// Minimum delegation amount (1 ZBX). Prevents share-precision dust.
 pub const MIN_DELEGATION_WEI: u128 = 1_000_000_000_000_000_000u128;
