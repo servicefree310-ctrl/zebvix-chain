@@ -118,6 +118,18 @@ pub const DRIP_BPS_PER_DAY: u64 = 50;
 pub const BULK_INTERVAL_BLOCKS: u64 = 5_000_000;
 pub const BULK_RELEASE_BPS: u64 = 2_500;
 
+/// ── Block-mint pool & periodic distribution ──
+/// Per-block 3 ZBX mint flows into a holding address (REWARDS_POOL) instead of
+/// going to the proposer. Every `REWARDS_DISTRIBUTION_INTERVAL` blocks, the
+/// entire pool balance is drained and split:
+///   * `REWARDS_COMMISSION_BPS` → operator of each validator (LIQUID, instant)
+///   * remainder                → stake-proportional, into stakers' LOCKED bucket
+/// Locked balances unlock via daily 0.5%-of-stake drip + 5M-block 25% bulk.
+/// Bytes spell "rwds" + 16 zero bytes.
+pub const REWARDS_POOL_ADDRESS_HEX: &str = "0x7277647300000000000000000000000000000000";
+pub const REWARDS_DISTRIBUTION_INTERVAL: u64 = 100;
+pub const REWARDS_COMMISSION_BPS: u64 = 500;
+
 /// Day length in blocks at 5s block time (86,400 / 5).
 pub const BLOCKS_PER_DAY: u64 = 17_280;
 

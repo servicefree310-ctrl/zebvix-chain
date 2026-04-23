@@ -783,6 +783,79 @@ impl StakingModule {
     ///     rest split among that validator's delegators (share-proportional)
     ///     into their locked buckets.
     /// Also matures the unbonding queue (returned as `unbonding_payout`).
+    /// Drain the per-block REWARDS_POOL and distribute it across all active
+    /// validators stake-proportionally:
+    ///   * `commission_bps` (5%) of each validator's share → operator LIQUID
+    ///   * remaining 95% → that validator's stakers (self-bond + delegations)
+    ///                     stake-proportionally into their LOCKED buckets.
+    ///
+    /// Returns `(commission_payouts, total_locked)` so the caller can credit
+    /// liquid balances and emit telemetry. Calling with `pool_amount = 0` is
+    /// a no-op.
+    pub fn distribute_pool_rewards(
+        &mut self,
+        current_height: u64,
+        pool_amount: u128,
+        commission_bps: u64,
+    ) -> (Vec<(Address, u128)>, u128) {
+        if pool_amount == 0 {
+            return (Vec::new(), 0);
+        }
+        let active_total: u128 = self
+            .validators
+            .values()
+            .filter(|v| !v.jailed)
+            .map(|v| v.total_stake)
+            .sum();
+        if active_total == 0 {
+            return (Vec::new(), 0);
+        }
+        let val_snapshot: Vec<(Address, u128, Address, Vec<(Address, u128)>)> = self
+            .validators
+            .iter()
+            .filter(|(_, v)| !v.jailed)
+            .map(|(addr, v)| {
+                let dels: Vec<(Address, u128)> = self
+                    .delegations
+                    .iter()
+                    .filter(|((_, va), _)| va == addr)
+                    .map(|((d, _), s)| (*d, *s))
+                    .collect();
+                (*addr, v.total_stake, v.operator, dels)
+            })
+            .collect();
+
+        let mut commissions: Vec<(Address, u128)> = Vec::new();
+        let mut locked_credits: Vec<(Address, u128)> = Vec::new();
+        for (_vaddr, vstake, voperator, dels) in val_snapshot {
+            let v_share = mul_div(pool_amount, vstake, active_total);
+            if v_share == 0 {
+                continue;
+            }
+            let commission =
+                mul_div(v_share, commission_bps as u128, COMMISSION_BPS_DEN as u128);
+            let bonded = v_share.saturating_sub(commission);
+            if commission > 0 {
+                commissions.push((voperator, commission));
+            }
+            let total_shares: u128 = dels.iter().map(|(_, s)| *s).sum();
+            if total_shares > 0 && bonded > 0 {
+                for (daddr, dshares) in dels {
+                    let cut = mul_div(bonded, dshares, total_shares);
+                    if cut > 0 {
+                        locked_credits.push((daddr, cut));
+                    }
+                }
+            }
+        }
+        let mut total_locked: u128 = 0;
+        for (addr, amt) in locked_credits {
+            self.add_locked(addr, amt, current_height);
+            total_locked = total_locked.saturating_add(amt);
+        }
+        (commissions, total_locked)
+    }
+
     pub fn end_epoch_locked(
         &mut self,
         current_height: u64,

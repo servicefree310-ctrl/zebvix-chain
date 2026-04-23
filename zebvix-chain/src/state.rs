@@ -76,6 +76,13 @@ pub fn treasury_address() -> Address {
     Address::from_hex(TREASURY_ADDRESS_HEX).expect("TREASURY_ADDRESS_HEX is valid")
 }
 
+/// Phase B.6 — magic holding address that accumulates per-block mint reward
+/// between distribution events. No private key exists.
+pub fn rewards_pool_address() -> Address {
+    Address::from_hex(crate::tokenomics::REWARDS_POOL_ADDRESS_HEX)
+        .expect("REWARDS_POOL_ADDRESS_HEX is valid")
+}
+
 impl State {
     pub fn open(path: &Path) -> Result<Self> {
         let mut opts = Options::default();
@@ -566,15 +573,53 @@ impl State {
             self.apply_tx(tx)?;
             total_fees = total_fees.saturating_add(tx.body.fee);
         }
+        // ── Phase B.6: per-block mint accumulates in REWARDS_POOL ──
+        // The 3 ZBX (or current halving value) flows into a holding address
+        // instead of going straight to the proposer. Every
+        // REWARDS_DISTRIBUTION_INTERVAL blocks the pool is drained and split
+        // (5% commission liquid + 95% locked stake-prop) by the staking module.
         let reward = reward_at_height(block.header.height);
-        // Per-block proposer reward (halving schedule) — keep flowing to proposer liquid.
-        let mut prop = self.account(&block.header.proposer);
-        prop.balance = prop.balance.saturating_add(reward);
-        self.put_account(&block.header.proposer, &prop)?;
+        if reward > 0 {
+            let pool_addr = rewards_pool_address();
+            let mut pool = self.account(&pool_addr);
+            pool.balance = pool.balance.saturating_add(reward);
+            self.put_account(&pool_addr, &pool)?;
+        }
 
         // ── Phase B.5: redistribute aggregated gas fees (50/20/20/10) ─────────
         if total_fees > 0 {
             self.redistribute_gas_fees(&block.header.proposer, total_fees)?;
+        }
+
+        // ── Phase B.6: distribute REWARDS_POOL every 100 blocks ──
+        if block.header.height > 0
+            && block.header.height % crate::tokenomics::REWARDS_DISTRIBUTION_INTERVAL == 0
+        {
+            let pool_addr = rewards_pool_address();
+            let mut pool = self.account(&pool_addr);
+            let pool_amount = pool.balance;
+            if pool_amount > 0 {
+                pool.balance = 0;
+                self.put_account(&pool_addr, &pool)?;
+                let mut sm = self.staking();
+                let (commissions, locked_total) = sm.distribute_pool_rewards(
+                    block.header.height,
+                    pool_amount,
+                    crate::tokenomics::REWARDS_COMMISSION_BPS,
+                );
+                self.put_staking(&sm)?;
+                let mut total_commission: u128 = 0;
+                for (operator, amt) in &commissions {
+                    let mut op = self.account(operator);
+                    op.balance = op.balance.saturating_add(*amt);
+                    self.put_account(operator, &op)?;
+                    total_commission = total_commission.saturating_add(*amt);
+                }
+                tracing::info!(
+                    "💰 dist-pool @h={} drained {} wei → commission {} wei to {} operators, locked {} wei",
+                    block.header.height, pool_amount, total_commission, commissions.len(), locked_total,
+                );
+            }
         }
 
         // ── Phase B.5: epoch boundary — locked-rewards distribution + matured unbondings ──
@@ -593,11 +638,11 @@ impl State {
             } else {
                 TREASURY_CUT_BPS_PHASE_A
             };
-            let result = sm.end_epoch_locked(
-                block.header.height,
-                crate::staking::STAKING_EPOCH_REWARD_WEI,
-                cut_bps,
-            );
+            // Phase B.6: epoch reward is 0 — all mint flows via REWARDS_POOL
+            // (distributed every 100 blocks). Epoch boundary is still used to
+            // mature the unbonding queue.
+            let _ = cut_bps; // silence unused (kept for future Phase B re-enable)
+            let result = sm.end_epoch_locked(block.header.height, 0, 0);
             // Credit liquid: matured unbondings.
             let mut total_unbond_paid: u128 = 0;
             let unbond_count = result.unbonding_payout.len();
