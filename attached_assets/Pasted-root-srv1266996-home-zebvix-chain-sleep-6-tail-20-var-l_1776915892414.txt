@@ -1,0 +1,24 @@
+root@srv1266996:/home/zebvix-chain# sleep 6 && tail -20 /var/log/zebvix2.log
+curl -s http://127.0.0.1:8545 -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"zbx_blockNumber","params":[]}'
+curl -s http://127.0.0.1:8546 -H 'content-type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"zbx_blockNumber","params":[]}'
+2026-04-23T03:43:55.895823Z  INFO zebvix_node: 🗳  vote prevote h=15 r=0 from 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  ✅ QUORUM
+2026-04-23T03:44:00.895706Z  INFO zebvix_node: 📦 p2p applied block #16 (0 txs)
+2026-04-23T03:44:01.256589Z  INFO zebvix_node: 🗳  emitted prevote h=16 block=0xe4fb7e7850421fc203357a7d2789e31a2c76b93b07508a451e6b8189c14286c8  ✅ QUORUM
+2026-04-23T03:44:01.256738Z  INFO zebvix_node: 🗳  emitted precommit h=16 block=0xe4fb7e7850421fc203357a7d2789e31a2c76b93b07508a451e6b8189c14286c8  ✅ QUORUM
+2026-04-23T03:44:06.257510Z  INFO zebvix_node::consensus: ⛏  block #17 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0xaefc5511b030e1aac32efbcb4a248d2fed7ad7e5178678db456b6531f4b5fcc9
+2026-04-23T03:44:06.396377Z  INFO zebvix_node: 🗳  vote precommit h=17 r=0 from 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  ✅ QUORUM
+2026-04-23T03:44:06.396473Z  INFO zebvix_node: 🗳  vote prevote h=17 r=0 from 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  ✅ QUORUM
+2026-04-23T03:44:11.757111Z  INFO zebvix_node::consensus: ⛏  block #18 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0xdcd8af740d4a0701081c735aa744455b485b3abb2a547933ba92b1517522bfb8
+2026-04-23T03:44:11.757516Z  INFO zebvix_node: 🗳  emitted prevote h=18 block=0xdcd8af740d4a0701081c735aa744455b485b3abb2a547933ba92b1517522bfb8  ✅ QUORUM
+2026-04-23T03:44:11.757629Z  INFO zebvix_node: 🗳  emitted precommit h=18 block=0xdcd8af740d4a0701081c735aa744455b485b3abb2a547933ba92b1517522bfb8  ✅ QUORUM
+2026-04-23T03:44:11.759243Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWHM9Fc7gKoHKFacKZRCSGAjq3GDPd5m6ZmYx6xsTeCDYX: serving 1 blocks [18..=18]
+2026-04-23T03:44:17.257416Z  INFO zebvix_node::consensus: ⛏  block #19 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0x38220325d8af6b97c280392f840235889758d38398fea22e6537a67a0ec843ee
+2026-04-23T03:44:17.396127Z  INFO zebvix_node: 🗳  vote precommit h=19 r=0 from 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  ✅ QUORUM
+2026-04-23T03:44:17.396214Z  INFO zebvix_node: 🗳  vote prevote h=19 r=0 from 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  ✅ QUORUM
+2026-04-23T03:44:22.895553Z  INFO zebvix_node: 📦 p2p applied block #20 (0 txs)
+2026-04-23T03:44:23.257354Z  INFO zebvix_node: 🗳  emitted prevote h=20 block=0x392b11e59dda7c7d7be4d99c7a34d5b2619ca838e11a00c9527c298e56d3c783  ✅ QUORUM
+2026-04-23T03:44:23.257498Z  INFO zebvix_node: 🗳  emitted precommit h=20 block=0x392b11e59dda7c7d7be4d99c7a34d5b2619ca838e11a00c9527c298e56d3c783  ✅ QUORUM
+2026-04-23T03:44:28.257430Z  INFO zebvix_node::consensus: ⛏  block #21 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0x9ef7c6424a857babc3d5e118914ee4d230f33dee691528276219cd9cb8ca610a
+2026-04-23T03:44:28.396128Z  INFO zebvix_node: 🗳  vote prevote h=21 r=0 from 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  ✅ QUORUM
+2026-04-23T03:44:28.396203Z  INFO zebvix_node: 🗳  vote precommit h=21 r=0 from 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  ✅ QUORUM
+{"jsonrpc":"2.0","id":1,"result":{"hash":"0x9ef7c6424a857babc3d5e118914ee4d230f33dee691528276219cd9cb8ca610a","height":21,"hex":"0x15","proposer":"0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc","timestamp_ms":1776915868257}}{"jsonrpc":"2.0","id":1,"result":{"hash":"0x9ef7c6424a857babc3d5e118914ee4d230f33dee691528276219cd9cb8ca610a","height":21,"hex":"0x15","proposer":"0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc","timestamp_ms":1776915868257}}root@srv1266996:/home/zebvix-chain# 
