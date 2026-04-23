@@ -1,0 +1,43 @@
+root@srv1266996:/home/zebvix-chain# echo "=== Node-1 (8545, founder/proposer) ==="
+curl -s -X POST http://127.0.0.1:8545 \
+  -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"zbx_blockNumber","params":[]}' | jq .result
+
+echo ""
+echo "=== Node-2 (8546, peer) ==="
+curl -s -X POST http://127.0.0.1:8546 \
+  -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"zbx_blockNumber","params":[]}' | jq .result
+
+echo ""
+echo "=== Node-2 logs (block production) ==="
+sudo journalctl -u zebvix2.service -n 20 --no-pager | grep -iE "block|proposer|sync" | tail -10
+=== Node-1 (8545, founder/proposer) ===
+{
+  "hash": "0x1d3f52096e15d7445fc4f661213c0322193e6b63404edf2ef126ba6d60016625",
+  "height": 7806,
+  "hex": "0x1e7e",
+  "proposer": "0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc",
+  "timestamp_ms": 1776961775491
+}
+
+=== Node-2 (8546, peer) ===
+{
+  "hash": "0x724447b3562012e51cfd9f2582b1a4f6648e932b0d7988578b1b69a1d594782f",
+  "height": 7790,
+  "hex": "0x1e6e",
+  "proposer": "0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc",
+  "timestamp_ms": 1776961773991
+}
+
+=== Node-2 logs (block production) ===
+Apr 23 14:34:11 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 23 14:34:16 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 23 14:34:22 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 23 14:34:23 srv1266996.hstgr.cloud systemd[1]: Stopping zebvix2.service - Zebvix L1 Blockchain Node-2...
+Apr 23 14:34:23 srv1266996.hstgr.cloud systemd[1]: Stopped zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 23 14:34:23 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 23 16:11:56 srv1266996.hstgr.cloud systemd[1]: Stopping zebvix2.service - Zebvix L1 Blockchain Node-2...
+Apr 23 16:11:56 srv1266996.hstgr.cloud systemd[1]: Stopped zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 23 16:17:47 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+root@srv1266996:/home/zebvix-chain# 
