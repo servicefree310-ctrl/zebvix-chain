@@ -1,0 +1,83 @@
+sudo journalctl -u zebvix.service --since "1 minute ago" --no-pager | grep -
+total 24
+drwxr-xr-x  3 root   root   4096 Apr 23 16:48 .
+drwxr-xr-x 22 ubuntu ubuntu 4096 Apr 23 16:11 ..
+drwxr-xr-x  2 root   root   4096 Apr 23 16:17 data
+-rw-r--r--  1 root   root    277 Apr 23 03:52 genesis.json
+-rw-r--r--  1 root   root     71 Apr 23 03:52 node.json
+-rw-r--r--  1 root   root    229 Apr 23 03:52 validator.key.DUP_BACKUP
+=== Node-1 height ===
+{
+  "height": 8005,
+  "hash": "0x2b8faa9bb560af478d10ab91a7493d1772226de9e57c2853501c528b540c7960"
+}
+=== Node-2 height ===
+=== Same block hash check (h=Node-2 height) ===
+Comparing block #:
+{
+  "height": null,
+  "parent_hash": null,
+  "timestamp_ms": null
+}
+=== Double-sign warnings (should be ZERO new ones) ===
+Apr 23 16:47:36 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:36.953025Z  WARN zebvix_node: ⚠️  DOUBLE-SIGN by 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc at h=7982 r=0 precommit (slashable in B.3+)
+Apr 23 16:47:36 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:36.953123Z  WARN zebvix_node: ⚠️  DOUBLE-SIGN by 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc at h=7982 r=0 prevote (slashable in B.3+)
+Apr 23 16:47:39 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:39.131319Z  INFO zebvix_node::consensus: ⛏  block #7996 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0xa10382c641d0014b35d0146e54629b1747391df272bb93109262b428261d23fe
+Apr 23 16:47:39 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:39.132135Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWLqLxRxaRDv4h2ZGm7UgyzNNwjdxVsSUoavkdsjYWpMJU: serving 13 blocks [7983..=7995]
+Apr 23 16:47:39 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:39.447869Z  INFO zebvix_node: 🗳  emitted prevote h=7996 block=0xa10382c641d0014b35d0146e54629b1747391df272bb93109262b428261d23fe  ✅ QUORUM
+Apr 23 16:47:39 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:39.448569Z  INFO zebvix_node: 🗳  emitted precommit h=7996 block=0xa10382c641d0014b35d0146e54629b1747391df272bb93109262b428261d23fe  ✅ QUORUM
+Apr 23 16:47:39 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:39.983775Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWLqLxRxaRDv4h2ZGm7UgyzNNwjdxVsSUoavkdsjYWpMJU: serving 14 blocks [7983..=7996]
+Apr 23 16:47:42 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:42.952836Z  WARN zebvix_node: ⚠️  DOUBLE-SIGN by 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc at h=7983 r=0 prevote (slashable in B.3+)
+Apr 23 16:47:42 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:42.952916Z  WARN zebvix_node: ⚠️  DOUBLE-SIGN by 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc at h=7983 r=0 precommit (slashable in B.3+)
+Apr 23 16:47:45 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:45.131259Z  INFO zebvix_node::consensus: ⛏  block #7997 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0xe9ff6ea5a1b7a3ed7102d3644c4579fac7627331d0294c3325b3331af3465141
+Apr 23 16:47:45 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:45.132292Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWLqLxRxaRDv4h2ZGm7UgyzNNwjdxVsSUoavkdsjYWpMJU: serving 13 blocks [7984..=7996]
+Apr 23 16:47:45 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:45.448908Z  INFO zebvix_node: 🗳  emitted prevote h=7997 block=0xe9ff6ea5a1b7a3ed7102d3644c4579fac7627331d0294c3325b3331af3465141  ✅ QUORUM
+Apr 23 16:47:45 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:45.449668Z  INFO zebvix_node: 🗳  emitted precommit h=7997 block=0xe9ff6ea5a1b7a3ed7102d3644c4579fac7627331d0294c3325b3331af3465141  ✅ QUORUM
+Apr 23 16:47:47 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:47.984258Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWLqLxRxaRDv4h2ZGm7UgyzNNwjdxVsSUoavkdsjYWpMJU: serving 14 blocks [7984..=7997]
+Apr 23 16:47:48 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:48.452417Z  WARN zebvix_node: ⚠️  DOUBLE-SIGN by 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc at h=7984 r=0 prevote (slashable in B.3+)
+Apr 23 16:47:48 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:48.452518Z  WARN zebvix_node: ⚠️  DOUBLE-SIGN by 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc at h=7984 r=0 precommit (slashable in B.3+)
+Apr 23 16:47:51 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:51.131290Z  INFO zebvix_node::consensus: ⛏  block #7998 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0xfe41d2e4fc054b387ffc223166ac87f9f76c89080e73c2cf80047afedaec2a82
+Apr 23 16:47:51 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:51.132166Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWLqLxRxaRDv4h2ZGm7UgyzNNwjdxVsSUoavkdsjYWpMJU: serving 13 blocks [7985..=7997]
+Apr 23 16:47:51 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:51.447966Z  INFO zebvix_node: 🗳  emitted prevote h=7998 block=0xfe41d2e4fc054b387ffc223166ac87f9f76c89080e73c2cf80047afedaec2a82  ✅ QUORUM
+Apr 23 16:47:51 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:51.448112Z  INFO zebvix_node: 🗳  emitted precommit h=7998 block=0xfe41d2e4fc054b387ffc223166ac87f9f76c89080e73c2cf80047afedaec2a82  ✅ QUORUM
+Apr 23 16:47:53 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:53.952697Z  WARN zebvix_node: ⚠️  DOUBLE-SIGN by 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc at h=7985 r=0 precommit (slashable in B.3+)
+Apr 23 16:47:53 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:53.952800Z  WARN zebvix_node: ⚠️  DOUBLE-SIGN by 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc at h=7985 r=0 prevote (slashable in B.3+)
+Apr 23 16:47:55 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:55.983466Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWLqLxRxaRDv4h2ZGm7UgyzNNwjdxVsSUoavkdsjYWpMJU: serving 13 blocks [7986..=7998]
+Apr 23 16:47:57 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:57.131355Z  INFO zebvix_node::consensus: ⛏  block #7999 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0x85f8c27d075d0be90732154b8c1a46f0dd9d6a81159cb48875d7f05c14840668
+Apr 23 16:47:57 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:57.132418Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWLqLxRxaRDv4h2ZGm7UgyzNNwjdxVsSUoavkdsjYWpMJU: serving 13 blocks [7986..=7998]
+Apr 23 16:47:57 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:57.447883Z  INFO zebvix_node: 🗳  emitted prevote h=7999 block=0x85f8c27d075d0be90732154b8c1a46f0dd9d6a81159cb48875d7f05c14840668  ✅ QUORUM
+Apr 23 16:47:57 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:57.448092Z  INFO zebvix_node: 🗳  emitted precommit h=7999 block=0x85f8c27d075d0be90732154b8c1a46f0dd9d6a81159cb48875d7f05c14840668  ✅ QUORUM
+Apr 23 16:47:59 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:59.453071Z  WARN zebvix_node: ⚠️  DOUBLE-SIGN by 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc at h=7986 r=0 prevote (slashable in B.3+)
+Apr 23 16:47:59 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:47:59.453141Z  WARN zebvix_node: ⚠️  DOUBLE-SIGN by 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc at h=7986 r=0 precommit (slashable in B.3+)
+Apr 23 16:48:03 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:03.131161Z  INFO zebvix_node::state: 💰 dist-pool @h=8000 drained 300000000000000000000 wei → commission 30000000000000000000 wei (1 ops) | founder-liquid 192857142857142857142 wei | locked 77142857142857142857 wei
+Apr 23 16:48:03 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:03.131224Z  INFO zebvix_node::consensus: ⛏  block #8000 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0xbe9455e25b2f391e80b8ea0068662cbf5f174e7ae0da3829366d46a4df5e3af0
+Apr 23 16:48:03 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:03.132985Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWLqLxRxaRDv4h2ZGm7UgyzNNwjdxVsSUoavkdsjYWpMJU: serving 13 blocks [7987..=7999]
+Apr 23 16:48:03 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:03.448394Z  INFO zebvix_node: 🗳  emitted prevote h=8000 block=0xbe9455e25b2f391e80b8ea0068662cbf5f174e7ae0da3829366d46a4df5e3af0  ✅ QUORUM
+Apr 23 16:48:03 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:03.448610Z  INFO zebvix_node: 🗳  emitted precommit h=8000 block=0xbe9455e25b2f391e80b8ea0068662cbf5f174e7ae0da3829366d46a4df5e3af0  ✅ QUORUM
+Apr 23 16:48:03 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:03.983803Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWLqLxRxaRDv4h2ZGm7UgyzNNwjdxVsSUoavkdsjYWpMJU: serving 14 blocks [7987..=8000]
+Apr 23 16:48:05 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:05.454631Z  WARN zebvix_node: ⚠️  DOUBLE-SIGN by 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc at h=7987 r=0 precommit (slashable in B.3+)
+Apr 23 16:48:05 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:05.454715Z  WARN zebvix_node: ⚠️  DOUBLE-SIGN by 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc at h=7987 r=0 prevote (slashable in B.3+)
+Apr 23 16:48:08 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:08.631423Z  INFO zebvix_node::consensus: ⛏  block #8001 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0x77677474b758cee2933d431dea414c8b643ae9959539fc30860337955a3378f9
+Apr 23 16:48:08 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:08.632317Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWLqLxRxaRDv4h2ZGm7UgyzNNwjdxVsSUoavkdsjYWpMJU: serving 13 blocks [7988..=8000]
+Apr 23 16:48:08 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:08.948067Z  INFO zebvix_node: 🗳  emitted prevote h=8001 block=0x77677474b758cee2933d431dea414c8b643ae9959539fc30860337955a3378f9  ✅ QUORUM
+Apr 23 16:48:08 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:08.948778Z  INFO zebvix_node: 🗳  emitted precommit h=8001 block=0x77677474b758cee2933d431dea414c8b643ae9959539fc30860337955a3378f9  ✅ QUORUM
+Apr 23 16:48:11 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:11.453328Z  WARN zebvix_node: ⚠️  DOUBLE-SIGN by 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc at h=7988 r=0 prevote (slashable in B.3+)
+Apr 23 16:48:11 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:11.453419Z  WARN zebvix_node: ⚠️  DOUBLE-SIGN by 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc at h=7988 r=0 precommit (slashable in B.3+)
+Apr 23 16:48:11 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:11.984069Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWLqLxRxaRDv4h2ZGm7UgyzNNwjdxVsSUoavkdsjYWpMJU: serving 13 blocks [7989..=8001]
+Apr 23 16:48:14 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:14.131092Z  INFO zebvix_node::consensus: ⛏  block #8002 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0x9ae68bfe018dd6b91031c0fbe3701ed2011ed603f0f958fc9e4d5edc2efe0bf3
+Apr 23 16:48:14 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:14.132047Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWLqLxRxaRDv4h2ZGm7UgyzNNwjdxVsSUoavkdsjYWpMJU: serving 13 blocks [7989..=8001]
+Apr 23 16:48:14 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:14.447759Z  INFO zebvix_node: 🗳  emitted prevote h=8002 block=0x9ae68bfe018dd6b91031c0fbe3701ed2011ed603f0f958fc9e4d5edc2efe0bf3  ✅ QUORUM
+Apr 23 16:48:14 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:14.447887Z  INFO zebvix_node: 🗳  emitted precommit h=8002 block=0x9ae68bfe018dd6b91031c0fbe3701ed2011ed603f0f958fc9e4d5edc2efe0bf3  ✅ QUORUM
+Apr 23 16:48:17 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:17.452460Z  WARN zebvix_node: ⚠️  DOUBLE-SIGN by 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc at h=7989 r=0 prevote (slashable in B.3+)
+Apr 23 16:48:17 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:17.452550Z  WARN zebvix_node: ⚠️  DOUBLE-SIGN by 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc at h=7989 r=0 precommit (slashable in B.3+)
+Apr 23 16:48:19 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:19.630776Z  INFO zebvix_node::consensus: ⛏  block #8003 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0xa25838c2c10d5471c198606d6d1fc202639fc326fd35a267f3fd2dc9d8968f95
+Apr 23 16:48:19 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:19.631623Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWLqLxRxaRDv4h2ZGm7UgyzNNwjdxVsSUoavkdsjYWpMJU: serving 13 blocks [7990..=8002]
+Apr 23 16:48:19 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:19.947635Z  INFO zebvix_node: 🗳  emitted prevote h=8003 block=0xa25838c2c10d5471c198606d6d1fc202639fc326fd35a267f3fd2dc9d8968f95  ✅ QUORUM
+Apr 23 16:48:19 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:19.947771Z  INFO zebvix_node: 🗳  emitted precommit h=8003 block=0xa25838c2c10d5471c198606d6d1fc202639fc326fd35a267f3fd2dc9d8968f95  ✅ QUORUM
+Apr 23 16:48:25 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:25.131651Z  INFO zebvix_node::consensus: ⛏  block #8004 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0xc137a4f15493bc935ee36fbd681f229d49bdd0189097b7bb6286fd861790ae4d
+Apr 23 16:48:25 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:25.448465Z  INFO zebvix_node: 🗳  emitted prevote h=8004 block=0xc137a4f15493bc935ee36fbd681f229d49bdd0189097b7bb6286fd861790ae4d  ✅ QUORUM
+Apr 23 16:48:25 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:25.448603Z  INFO zebvix_node: 🗳  emitted precommit h=8004 block=0xc137a4f15493bc935ee36fbd681f229d49bdd0189097b7bb6286fd861790ae4d  ✅ QUORUM
+Apr 23 16:48:30 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:30.631367Z  INFO zebvix_node::consensus: ⛏  block #8005 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0x2b8faa9bb560af478d10ab91a7493d1772226de9e57c2853501c528b540c7960
+Apr 23 16:48:30 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:30.947902Z  INFO zebvix_node: 🗳  emitted prevote h=8005 block=0x2b8faa9bb560af478d10ab91a7493d1772226de9e57c2853501c528b540c7960  ✅ QUORUM
+Apr 23 16:48:30 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:48:30.948084Z  INFO zebvix_node: 🗳  emitted precommit h=8005 block=0x2b8faa9bb560af478d10ab91a7493d1772226de9e57c2853501c528b540c7960  ✅ QUORUM
+root@srv1266996:/home/zebvix-chain# 
