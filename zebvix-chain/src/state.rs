@@ -34,6 +34,45 @@ const META_GOVERNOR_CHANGES: &[u8] = b"governor_changes"; // u8 rotation counter
 const META_VALIDATOR_PREFIX: &[u8] = b"validator/";
 // Phase B.4: staking module — single bincode blob (entire StakingModule).
 const META_STAKING: &[u8] = b"staking";
+// Phase B.7: Pay-ID registry. Forward index: payid → 20-byte address.
+// Reverse index: address → bincode (pay_id, name).
+const META_PAYID_PREFIX: &[u8] = b"payid/";
+const META_PAYID_ADDR_PREFIX: &[u8] = b"payid_addr/";
+
+/// Validate a Pay-ID string. Returns the lowercased canonical form.
+/// Rules: must end with `@zbx`; the handle (before `@zbx`) must be 3-25 chars,
+/// `[a-z0-9_]` only.
+pub fn validate_payid(raw: &str) -> Result<String> {
+    let lc = raw.trim().to_lowercase();
+    if !lc.ends_with("@zbx") {
+        return Err(anyhow!("pay-id must end with '@zbx'"));
+    }
+    let handle = &lc[..lc.len() - 4];
+    let n = handle.chars().count();
+    if n < 3 || n > 25 {
+        return Err(anyhow!("pay-id handle length must be 3-25 chars (got {})", n));
+    }
+    if !handle.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') {
+        return Err(anyhow!("pay-id handle may only contain a-z, 0-9, underscore"));
+    }
+    Ok(lc)
+}
+
+/// Validate the display name. Required, 1-50 chars, no control chars.
+pub fn validate_payid_name(raw: &str) -> Result<String> {
+    let s = raw.trim().to_string();
+    if s.is_empty() {
+        return Err(anyhow!("name is mandatory"));
+    }
+    let n = s.chars().count();
+    if n > 50 {
+        return Err(anyhow!("name too long (max 50 chars, got {})", n));
+    }
+    if s.chars().any(|c| c.is_control()) {
+        return Err(anyhow!("name must not contain control characters"));
+    }
+    Ok(s)
+}
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Account {
@@ -480,6 +519,31 @@ impl State {
                     Err(e) => return refund(&mut from, e.to_string()),
                 }
             }
+            crate::types::TxKind::RegisterPayId { pay_id, name } => {
+                // Validate format
+                let canon = match validate_payid(pay_id) {
+                    Ok(c) => c,
+                    Err(e) => return refund(&mut from, format!("register-pay-id: {}", e)),
+                };
+                let nm = match validate_payid_name(name) {
+                    Ok(n) => n,
+                    Err(e) => return refund(&mut from, format!("register-pay-id: {}", e)),
+                };
+                // 1 address = 1 pay-id (immutable).
+                if self.get_payid_by_address(&tx.body.from).is_some() {
+                    return refund(&mut from,
+                        format!("register-pay-id: address {} already has a Pay-ID (immutable)", tx.body.from));
+                }
+                // Pay-ID must be globally unique.
+                if self.get_address_by_payid(&canon).is_some() {
+                    return refund(&mut from, format!("register-pay-id: '{}' already taken", canon));
+                }
+                self.put_pay_id(&tx.body.from, &canon, &nm)?;
+                from.balance = from.balance.saturating_add(tx.body.amount);
+                self.put_account(&tx.body.from, &from)?;
+                tracing::info!("🪪 pay-id registered: {} = {} (\"{}\")", canon, tx.body.from, nm);
+                return Ok(());
+            }
             crate::types::TxKind::Transfer => { /* fall through to legacy logic */ }
         }
 
@@ -746,6 +810,59 @@ impl State {
         }
         out.sort_by_key(|v| v.address.0);
         out
+    }
+
+    // ───────────────────── Phase B.7 — Pay-ID registry ─────────────────────
+
+    fn payid_key(canon: &str) -> Vec<u8> {
+        let mut k = META_PAYID_PREFIX.to_vec();
+        k.extend_from_slice(canon.as_bytes());
+        k
+    }
+
+    fn payid_addr_key(addr: &Address) -> Vec<u8> {
+        let mut k = META_PAYID_ADDR_PREFIX.to_vec();
+        k.extend_from_slice(&addr.0);
+        k
+    }
+
+    /// Atomically write both the forward (payid → addr) and reverse
+    /// (addr → (payid, name)) indices. Caller must check uniqueness first.
+    pub fn put_pay_id(&self, addr: &Address, canon: &str, name: &str) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.put_cf(cf, Self::payid_key(canon), addr.0)?;
+        let payload = bincode::serialize(&(canon.to_string(), name.to_string()))?;
+        self.db.put_cf(cf, Self::payid_addr_key(addr), payload)?;
+        Ok(())
+    }
+
+    /// Resolve `alice@zbx` → 20-byte address. None if not registered.
+    pub fn get_address_by_payid(&self, canon: &str) -> Option<Address> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let raw = self.db.get_cf(cf, Self::payid_key(canon)).ok().flatten()?;
+        if raw.len() != 20 { return None; }
+        let mut a = [0u8; 20];
+        a.copy_from_slice(&raw);
+        Some(Address(a))
+    }
+
+    /// Reverse lookup: address → (pay_id, display_name). None if not registered.
+    pub fn get_payid_by_address(&self, addr: &Address) -> Option<(String, String)> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let raw = self.db.get_cf(cf, Self::payid_addr_key(addr)).ok().flatten()?;
+        bincode::deserialize::<(String, String)>(&raw).ok()
+    }
+
+    /// Total registered Pay-IDs (for stats/dashboards).
+    pub fn pay_id_count(&self) -> usize {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let mut n = 0usize;
+        for item in self.db.prefix_iterator_cf(cf, META_PAYID_PREFIX) {
+            let Ok((k, _)) = item else { continue };
+            if !k.starts_with(META_PAYID_PREFIX) { break; }
+            n += 1;
+        }
+        n
     }
 
     /// Sum of all validator voting power. Used for 2/3+ quorum math.

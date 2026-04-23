@@ -229,6 +229,35 @@ enum Cmd {
         #[arg(long, default_value = "http://127.0.0.1:8545")]
         rpc_url: String,
     },
+    /// Register a permanent Pay-ID (e.g. `alice@zbx`) for the signer's address.
+    /// Handle 3-25 chars `[a-z0-9_]`, name mandatory. ONE per address. CANNOT be
+    /// edited or deleted afterwards.
+    RegisterPayId {
+        #[arg(long)]
+        signer_key: PathBuf,
+        /// Full Pay-ID, e.g. `alice@zbx` (must end with `@zbx`).
+        #[arg(long)]
+        pay_id: String,
+        /// Display name (mandatory, 1-50 chars).
+        #[arg(long)]
+        name: String,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+        #[arg(long, default_value = "0.002")]
+        fee: String,
+    },
+    /// Resolve a Pay-ID (`alice@zbx`) → address + name.
+    LookupPayId {
+        pay_id: String,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+    },
+    /// Reverse lookup: address → Pay-ID + name (if registered).
+    Whois {
+        address: String,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+    },
     /// AMM pool inspector: reserves, spot price, fees, LP supply, loan status.
     Pool {
         #[arg(long, default_value = "http://127.0.0.1:8545")]
@@ -1077,6 +1106,10 @@ async fn main() -> Result<()> {
         Cmd::Balance { address, rpc_url } => cmd_balance(address, rpc_url).await,
         Cmd::Pool { rpc_url } => cmd_pool(rpc_url).await,
         Cmd::Price { rpc_url } => cmd_price(rpc_url).await,
+        Cmd::RegisterPayId { signer_key, pay_id, name, rpc_url, fee } =>
+            cmd_register_pay_id(signer_key, pay_id, name, rpc_url, fee).await,
+        Cmd::LookupPayId { pay_id, rpc_url } => cmd_lookup_pay_id(pay_id, rpc_url).await,
+        Cmd::Whois { address, rpc_url } => cmd_whois(address, rpc_url).await,
         Cmd::ChainStatus { rpc_url } => cmd_chain_status(rpc_url).await,
     }
 }
@@ -1133,6 +1166,64 @@ async fn cmd_balance(address: String, rpc_url: String) -> Result<()> {
     }
     println!("   {C_CYAN_B}TOTAL (liq+stk+lck){C_RESET}  : {} ZBX", fmt_zbx(total));
     println!("   nonce                : {nonce}");
+    Ok(())
+}
+
+async fn cmd_register_pay_id(
+    signer_key: PathBuf,
+    pay_id: String,
+    name: String,
+    rpc_url: String,
+    fee: String,
+) -> Result<()> {
+    let (sk, pk) = read_keyfile(&signer_key)?;
+    let from = address_from_pubkey(&pk);
+    let fee_wei = parse_zbx_amount(&fee)?;
+    let nonce = reqwest_get_nonce(&rpc_url, &from).await?;
+    let body = TxBody {
+        from, to: Address::ZERO, amount: 0, nonce, fee: fee_wei,
+        chain_id: CHAIN_ID,
+        kind: TxKind::RegisterPayId { pay_id: pay_id.clone(), name: name.clone() },
+    };
+    let tx = sign_tx(&sk, body);
+    let req = serde_json::json!({
+        "jsonrpc":"2.0","id":1,"method":"zbx_sendTransaction","params":[tx]
+    });
+    let resp = http_post(&rpc_url, &req).await?;
+    println!("{C_CYAN_B}🪪 Register Pay-ID{C_RESET}");
+    println!();
+    println!("   address  : {}", from);
+    println!("   pay-id   : {}", pay_id);
+    println!("   name     : {}", name);
+    println!("   fee      : {} ZBX", fee);
+    println!();
+    println!("   {C_DIM}submit response:{C_RESET}");
+    println!("{}", serde_json::to_string_pretty(&resp)?);
+    println!();
+    println!("   {C_YELLOW}⚠️  This Pay-ID is PERMANENT — it cannot be edited or deleted.{C_RESET}");
+    Ok(())
+}
+
+async fn cmd_lookup_pay_id(pay_id: String, rpc_url: String) -> Result<()> {
+    let v = rpc_get(&rpc_url, "zbx_lookupPayId", serde_json::json!([pay_id])).await?;
+    let s = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    println!("{C_CYAN_B}🔍 Pay-ID Lookup{C_RESET}");
+    println!();
+    println!("   {C_GREEN}pay-id{C_RESET}   : {}", s("pay_id"));
+    println!("   {C_GREEN}name{C_RESET}     : {}", s("name"));
+    println!("   {C_GREEN}address{C_RESET}  : {}", s("address"));
+    Ok(())
+}
+
+async fn cmd_whois(address: String, rpc_url: String) -> Result<()> {
+    let addr = Address::from_hex(&address)?;
+    let v = rpc_get(&rpc_url, "zbx_getPayIdOf", serde_json::json!([addr.to_hex()])).await?;
+    let s = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    println!("{C_CYAN_B}👤 Whois{C_RESET}");
+    println!();
+    println!("   {C_GREEN}address{C_RESET}  : {}", s("address"));
+    println!("   {C_GREEN}pay-id{C_RESET}   : {}", s("pay_id"));
+    println!("   {C_GREEN}name{C_RESET}     : {}", s("name"));
     Ok(())
 }
 

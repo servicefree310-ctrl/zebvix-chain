@@ -92,6 +92,11 @@ pub enum TxKind {
     /// (and credited back for matured `Unstake` / `ClaimRewards` payouts at
     /// epoch end). All other ops use `body.amount = 0`.
     Staking(crate::staking::StakeOp),
+    /// Phase B.7 — register a human-readable Pay-ID for the sender's address.
+    /// Format: `<handle>@zbx`, handle is 3-25 chars `[a-z0-9_]`. `name` is a
+    /// 1-50 char display label (mandatory). One Pay-ID per address; once set,
+    /// it is **permanent** — cannot be edited or deleted.
+    RegisterPayId { pay_id: String, name: String },
 }
 
 /// Transaction body (unsigned). Amount is in wei (1 ZBX = 10^18 wei).

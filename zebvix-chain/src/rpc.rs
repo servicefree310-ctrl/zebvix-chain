@@ -501,6 +501,40 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 },
             }))
         }
+        // ───────── Phase B.7 — Pay-ID registry ─────────
+        "zbx_lookupPayId" => {
+            let raw = req.params.get(0).and_then(|v| v.as_str()).unwrap_or("");
+            match crate::state::validate_payid(raw) {
+                Ok(canon) => match ctx.state.get_address_by_payid(&canon) {
+                    Some(a) => {
+                        let (_pid, name) = ctx.state.get_payid_by_address(&a)
+                            .unwrap_or((canon.clone(), String::new()));
+                        ok(id, json!({
+                            "pay_id": canon,
+                            "address": a.to_hex(),
+                            "name": name,
+                        }))
+                    }
+                    None => err(id, -32004, format!("pay-id '{}' not registered", canon)),
+                },
+                Err(e) => err(id, -32602, e.to_string()),
+            }
+        }
+        "zbx_getPayIdOf" => {
+            let addr = req.params.get(0).and_then(parse_address);
+            match addr {
+                Some(a) => match ctx.state.get_payid_by_address(&a) {
+                    Some((pid, name)) => ok(id, json!({
+                        "address": a.to_hex(),
+                        "pay_id": pid,
+                        "name": name,
+                    })),
+                    None => err(id, -32004, format!("address {} has no Pay-ID", a)),
+                },
+                None => err(id, -32602, "invalid address"),
+            }
+        }
+        "zbx_payIdCount" => ok(id, json!({ "total": ctx.state.pay_id_count() })),
         m => err(id, -32601, format!("method not found: {m}")),
     };
     Json(resp)
