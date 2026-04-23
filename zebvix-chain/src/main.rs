@@ -12,6 +12,40 @@ use zebvix_node::tokenomics::{self, CHAIN_ID, FOUNDER_PREMINE_WEI, TOTAL_SUPPLY_
 use zebvix_node::types::{Address, TxBody, TxKind, Validator};
 use zebvix_node::vote::{sign_vote, AddVoteResult, Vote, VoteData, VotePool, VoteType};
 
+// ─────────────────────── CLI cosmetics ───────────────────────
+// ANSI colour helpers — terminals without colour see a slightly noisier
+// banner but no broken layout.
+const C_RESET: &str = "\x1b[0m";
+const C_CYAN_B: &str = "\x1b[1;36m";
+const C_YELLOW: &str = "\x1b[33m";
+const C_GREEN: &str = "\x1b[32m";
+const C_DIM: &str = "\x1b[2m";
+
+/// Print the project banner. Shown once at the top of every CLI invocation
+/// (except `start`, which has its own boot log) so users always know which
+/// chain they're talking to and which version the binary is.
+fn print_banner() {
+    let v = env!("CARGO_PKG_VERSION");
+    let title = "WELCOME TO ZEBVIX CHAIN";
+    let sub = format!("L1 PoS · ZBX · chain_id={CHAIN_ID} · v{v}");
+    let inner_w: usize = 56;
+    let pad = |s: &str| {
+        let space = inner_w.saturating_sub(s.chars().count());
+        let l = space / 2;
+        let r = space - l;
+        format!("{}{}{}", " ".repeat(l), s, " ".repeat(r))
+    };
+    let bar = "═".repeat(inner_w);
+    eprintln!();
+    eprintln!("{C_CYAN_B}╔{bar}╗{C_RESET}");
+    eprintln!("{C_CYAN_B}║{}║{C_RESET}", pad(""));
+    eprintln!("{C_CYAN_B}║{C_YELLOW}{}{C_CYAN_B}║{C_RESET}", pad(title));
+    eprintln!("{C_CYAN_B}║{C_DIM}{}{C_RESET}{C_CYAN_B}║{C_RESET}", pad(&sub));
+    eprintln!("{C_CYAN_B}║{}║{C_RESET}", pad(""));
+    eprintln!("{C_CYAN_B}╚{bar}╝{C_RESET}");
+    eprintln!();
+}
+
 #[derive(Parser)]
 #[command(name = "zebvix-node", version, about = "Zebvix L1 blockchain node (ZBX, EVM-style)")]
 struct Cli {
@@ -182,6 +216,17 @@ enum Cmd {
         /// Fee in ZBX (must be ≥ 0.00105). Default 0.002 stays safely above min.
         #[arg(long, default_value = "0.002")]
         fee: String,
+    },
+    /// Inspect the per-block REWARDS_POOL: current balance + blocks-until-next-distribution.
+    RewardsPool {
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+    },
+    /// One-shot dashboard: chain info + height + supply + pool + staking + burn.
+    /// Great for a quick "is everything healthy?" glance.
+    ChainStatus {
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
     },
     /// Admin: remove a validator via on-chain tx. Node must be running.
     ValidatorRemove {
@@ -928,6 +973,10 @@ async fn main() -> Result<()> {
             .unwrap_or_else(|_| "zebvix_node=info".into()))
         .init();
     let cli = Cli::parse();
+    // Show banner for everything except `start` (which has its own boot log).
+    if !matches!(cli.cmd, Cmd::Start { .. }) {
+        print_banner();
+    }
     match cli.cmd {
         Cmd::Keygen { out } => cmd_keygen(out),
         Cmd::Init { home, validator_key, alloc, no_default_premine } => cmd_init(home, validator_key, alloc, no_default_premine),
@@ -969,7 +1018,117 @@ async fn main() -> Result<()> {
             cmd_claim_rewards(signer_key, validator, rpc_url, fee).await,
         Cmd::ValidatorRemove { signer_key, address, rpc_url, fee } =>
             cmd_validator_remove(signer_key, address, rpc_url, fee).await,
+        Cmd::RewardsPool { rpc_url } => cmd_rewards_pool(rpc_url).await,
+        Cmd::ChainStatus { rpc_url } => cmd_chain_status(rpc_url).await,
     }
+}
+
+// ─────────── Phase B.6 — pool & status inspectors ───────────
+
+async fn rpc_call(rpc_url: &str, method: &str, params: serde_json::Value) -> Result<serde_json::Value> {
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": method,
+        "params": params,
+    });
+    let client = reqwest::Client::new();
+    let resp: serde_json::Value =
+        client.post(rpc_url).json(&body).send().await?.json().await?;
+    if let Some(err) = resp.get("error") {
+        return Err(anyhow!("rpc {method} error: {err}"));
+    }
+    resp.get("result")
+        .cloned()
+        .ok_or_else(|| anyhow!("rpc {method}: no result field"))
+}
+
+fn parse_hex_wei(s: &str) -> u128 {
+    let s = s.trim_start_matches("0x");
+    u128::from_str_radix(s, 16).unwrap_or(0)
+}
+
+fn fmt_zbx(wei: u128) -> String {
+    format!("{:.6} ZBX", wei as f64 / WEI_PER_ZBX as f64)
+}
+
+async fn cmd_rewards_pool(rpc_url: String) -> Result<()> {
+    let pool_addr = tokenomics::REWARDS_POOL_ADDRESS_HEX;
+    let bal_hex = rpc_call(&rpc_url, "zbx_getBalance", serde_json::json!([pool_addr])).await?;
+    let bal = parse_hex_wei(bal_hex.as_str().unwrap_or("0x0"));
+    let h_hex = rpc_call(&rpc_url, "zbx_blockNumber", serde_json::json!([])).await?;
+    let height = parse_hex_wei(h_hex.as_str().unwrap_or("0x0")) as u64;
+    let interval = tokenomics::REWARDS_DISTRIBUTION_INTERVAL;
+    let blocks_in = if interval == 0 { 0 } else { height % interval };
+    let blocks_to_next = if interval == 0 { 0 } else { interval - blocks_in };
+    let secs_to_next = blocks_to_next * tokenomics::BLOCK_TIME_SECS;
+    println!("{C_CYAN_B}🎁 Rewards Pool{C_RESET}");
+    println!();
+    println!("   pool address              : {pool_addr}");
+    println!("   current balance           : {} {C_DIM}({} wei){C_RESET}", fmt_zbx(bal), bal);
+    println!("   chain height              : {height}");
+    println!("   distribution interval     : every {interval} blocks");
+    println!("   accumulated since last    : {blocks_in} block(s)");
+    println!("   {C_GREEN}next distribution in    : {blocks_to_next} block(s) (~{secs_to_next}s){C_RESET}");
+    println!("   commission to founder     : {} bps ({}%)",
+        tokenomics::REWARDS_COMMISSION_BPS,
+        tokenomics::REWARDS_COMMISSION_BPS as f64 / 100.0);
+    println!();
+    println!("   {C_DIM}ℹ️  Per-block 3 ZBX mint flows here. Every {} blocks the pool drains:{C_RESET}", interval);
+    println!("   {C_DIM}     • {}% → founder LIQUID (commission){C_RESET}",
+        tokenomics::REWARDS_COMMISSION_BPS as f64 / 100.0);
+    println!("   {C_DIM}     • remainder → stake-prop (founder=liquid, others=locked){C_RESET}");
+    Ok(())
+}
+
+async fn cmd_chain_status(rpc_url: String) -> Result<()> {
+    println!("{C_CYAN_B}📊 Chain Status{C_RESET}  {C_DIM}({rpc_url}){C_RESET}");
+    println!();
+    let info = rpc_call(&rpc_url, "zbx_chainInfo", serde_json::json!([])).await?;
+    let h_hex = rpc_call(&rpc_url, "zbx_blockNumber", serde_json::json!([])).await?;
+    let height = parse_hex_wei(h_hex.as_str().unwrap_or("0x0")) as u64;
+    let supply = rpc_call(&rpc_url, "zbx_supply", serde_json::json!([])).await
+        .unwrap_or(serde_json::json!({}));
+    let pool_bal_hex = rpc_call(&rpc_url, "zbx_getBalance",
+        serde_json::json!([tokenomics::REWARDS_POOL_ADDRESS_HEX])).await
+        .unwrap_or(serde_json::json!("0x0"));
+    let burn_addr = format!("0x{}", "0".repeat(40));
+    let burn_bal_hex = rpc_call(&rpc_url, "zbx_getBalance", serde_json::json!([burn_addr])).await
+        .unwrap_or(serde_json::json!("0x0"));
+    let staking = rpc_call(&rpc_url, "zbx_getStaking", serde_json::json!([])).await
+        .unwrap_or(serde_json::json!({}));
+
+    println!("   {C_GREEN}● chain{C_RESET}            : {} (id={}) · token={}",
+        info["name"].as_str().unwrap_or("?"),
+        info["chain_id"].as_u64().unwrap_or(0),
+        info["token"].as_str().unwrap_or("?"));
+    println!("   {C_GREEN}● height{C_RESET}           : {height}");
+    println!("   {C_GREEN}● block time{C_RESET}       : {}s",
+        info["block_time_secs"].as_u64().unwrap_or(0));
+    if let Some(s) = supply.as_object() {
+        for (k, v) in s.iter().take(4) {
+            println!("   {C_GREEN}● supply.{k}{C_RESET} : {v}");
+        }
+    }
+    let pool_bal = parse_hex_wei(pool_bal_hex.as_str().unwrap_or("0x0"));
+    let burn_bal = parse_hex_wei(burn_bal_hex.as_str().unwrap_or("0x0"));
+    println!("   {C_YELLOW}🎁 rewards-pool{C_RESET}    : {}", fmt_zbx(pool_bal));
+    println!("   {C_YELLOW}🔥 burned (total){C_RESET}  : {}", fmt_zbx(burn_bal));
+    if let Some(st) = staking.as_object() {
+        if let Some(v) = st.get("validators") {
+            println!("   {C_YELLOW}🥩 validators{C_RESET}      : {v}");
+        }
+        if let Some(d) = st.get("delegations") {
+            println!("   {C_YELLOW}🥩 delegations{C_RESET}     : {d}");
+        }
+        if let Some(t) = st.get("total_stake_wei").or_else(|| st.get("total_stake")) {
+            println!("   {C_YELLOW}🥩 total stake{C_RESET}     : {t}");
+        }
+    }
+    println!();
+    println!("   {C_DIM}💡 zebvix-node rewards-pool   — pool inspector{C_RESET}");
+    println!("   {C_DIM}💡 zebvix-node staking-info   — full staking module dump{C_RESET}");
+    Ok(())
 }
 
 fn cmd_admin_change_address(home: PathBuf, signer_key: PathBuf, new_admin: String) -> Result<()> {
