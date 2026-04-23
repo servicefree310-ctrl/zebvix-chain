@@ -1,0 +1,43 @@
+✅ Initialized Zebvix chain at /root/.zebvix
+   chain_id          : 7878
+   validator address : 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+   genesis           : /root/.zebvix/genesis.json
+   data dir          : /root/.zebvix/data
+total 24
+drwxr-xr-x  3 root root 4096 Apr 23 03:42 .
+drwx------ 24 root root 4096 Apr 23 03:42 ..
+drwxr-xr-x  2 root root 4096 Apr 23 03:42 data
+-rw-r--r--  1 root root  277 Apr 23 03:42 genesis.json
+-rw-r--r--  1 root root   57 Apr 23 03:42 node.json
+-rw-r--r--  1 root root  229 Apr 23 03:42 validator.key
+{
+  "chain_id": 7878,
+  "chain_name": "Zebvix",
+  "token_symbol": "ZBX",
+  "decimals": 18,
+  "max_supply_wei": "150000000000000000000000000",
+  "block_time_secs": 5,
+  "validator_address": "0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc",
+  "alloc": [],
+  "timestamp": 1776915747
+}Apr 23 03:42:19 srv1266996.hstgr.cloud zebvix-node[3571511]: Error: No such file or directory (os error 2)
+Apr 23 03:42:19 srv1266996.hstgr.cloud systemd[1]: zebvix.service: Main process exited, code=exited, status=1/FAILURE
+Apr 23 03:42:19 srv1266996.hstgr.cloud systemd[1]: zebvix.service: Failed with result 'exit-code'.
+Apr 23 03:42:24 srv1266996.hstgr.cloud systemd[1]: zebvix.service: Scheduled restart job, restart counter is at 37.
+Apr 23 03:42:24 srv1266996.hstgr.cloud systemd[1]: Started zebvix.service - Zebvix L1 Blockchain Node.
+Apr 23 03:42:24 srv1266996.hstgr.cloud zebvix-node[3571516]: Error: No such file or directory (os error 2)
+Apr 23 03:42:24 srv1266996.hstgr.cloud systemd[1]: zebvix.service: Main process exited, code=exited, status=1/FAILURE
+Apr 23 03:42:24 srv1266996.hstgr.cloud systemd[1]: zebvix.service: Failed with result 'exit-code'.
+Apr 23 03:42:29 srv1266996.hstgr.cloud systemd[1]: zebvix.service: Scheduled restart job, restart counter is at 38.
+Apr 23 03:42:29 srv1266996.hstgr.cloud systemd[1]: Started zebvix.service - Zebvix L1 Blockchain Node.
+Apr 23 03:42:29 srv1266996.hstgr.cloud zebvix-node[3571553]: 2026-04-23T03:42:29.892684Z  INFO zebvix_node: 🚀 Zebvix node starting
+Apr 23 03:42:29 srv1266996.hstgr.cloud zebvix-node[3571553]: 2026-04-23T03:42:29.893229Z  INFO zebvix_node:    chain_id  : 7878
+Apr 23 03:42:29 srv1266996.hstgr.cloud zebvix-node[3571553]: 2026-04-23T03:42:29.893243Z  INFO zebvix_node:    proposer  : 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+Apr 23 03:42:29 srv1266996.hstgr.cloud zebvix-node[3571553]: 2026-04-23T03:42:29.893272Z  INFO zebvix_node:    tip       : height=0 hash=0x0000000000000000000000000000000000000000000000000000000000000000
+Apr 23 03:42:29 srv1266996.hstgr.cloud zebvix-node[3571553]: 2026-04-23T03:42:29.893277Z  INFO zebvix_node:    rpc       : http://127.0.0.1:8545
+Apr 23 03:42:29 srv1266996.hstgr.cloud zebvix-node[3571553]: 2026-04-23T03:42:29.893713Z  INFO zebvix_node:    p2p       : tcp/30333  peer_id=12D3KooWHM9Fc7gKoHKFacKZRCSGAjq3GDPd5m6ZmYx6xsTeCDYX
+Apr 23 03:42:29 srv1266996.hstgr.cloud zebvix-node[3571553]: 2026-04-23T03:42:29.893724Z  INFO zebvix_node:    mdns      : DISABLED (--no-mdns)
+Apr 23 03:42:29 srv1266996.hstgr.cloud zebvix-node[3571553]: 2026-04-23T03:42:29.893882Z  INFO zebvix_node::consensus: ⛏  producer started: my_address=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc, mode=ROUND_ROBIN+TIMEOUTS (B.3.2.2) pacing=5s propose_timeout=8s tick=500ms
+Apr 23 03:42:29 srv1266996.hstgr.cloud zebvix-node[3571553]: 2026-04-23T03:42:29.894454Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWHM9Fc7gKoHKFacKZRCSGAjq3GDPd5m6ZmYx6xsTeCDYX
+Apr 23 03:42:29 srv1266996.hstgr.cloud zebvix-node[3571553]: 2026-04-23T03:42:29.894480Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/93.127.213.192/tcp/30333/p2p/12D3KooWHM9Fc7gKoHKFacKZRCSGAjq3GDPd5m6ZmYx6xsTeCDYX
+root@srv1266996:/home/zebvix-chain# 
