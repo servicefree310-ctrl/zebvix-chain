@@ -36,3 +36,9 @@ id = "ACWFnW7iOmEDfj594MlsV"
 uri = "file://zebvix-chain-updated.tar.gz"
 type = "unspecified"
 title = "zebvix-chain (updated with staking + governor)"
+
+[[outputs]]
+id = "NcxLkoZlaNL9GwGP1A05c"
+uri = "file://attached_assets/downloads/zbx-supply-fix.tar.gz"
+type = "unspecified"
+title = "zbx-supply-fix.tar.gz (patched rpc.rs + auto-deploy script)"
