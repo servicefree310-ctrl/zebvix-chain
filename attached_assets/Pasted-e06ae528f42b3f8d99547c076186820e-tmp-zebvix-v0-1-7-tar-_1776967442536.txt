@@ -1,0 +1,31 @@
+e06ae528f42b3f8d99547c076186820e  /tmp/zebvix-v0.1.7.tar.gz
+src/
+src/block_stm.rs
+src/bin/
+src/bin/zbx.rs
+src/mempool.rs
+tar: stdout: write error
+-rw-r--r-- 1 ubuntu ubuntu 5.8K Apr 23 17:24 src/multisig.rs
+   Compiling zebvix-node v0.1.0 (/home/zebvix-chain)
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:393:4
+    |
+393 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 1m 32s
+  multisig-create            Create a new M-of-N multisig wallet. Owners 2-10, threshold 1..=N. Address is deterministic from (sorted owners, threshold, salt, creator)
+  multisig-propose           Propose a transfer FROM a multisig wallet. Caller must be an owner. Auto-counts as the first approval. Returns the new proposal_id
+  multisig-approve           Approve a pending multisig proposal as one of the owners
+  multisig-revoke            Revoke your own approval on a pending (un-executed) proposal
+  multisig-execute           Execute a proposal once approvals ≥ threshold (and not expired)
+  multisig-info              Show details of a multisig wallet (owners, threshold, balance, proposal count)
+  multisig-proposals         List all proposals (active + executed) for a multisig wallet
+  multisig-list              List all multisig wallets where the given address is an owner
+Failed to start zebvix-node1.service: Unit zebvix-node1.service not found.
+Failed to start zebvix-node2.service: Unit zebvix-node2.service not found.
+{"jsonrpc":"2.0","id":1,"result":{"hash":"0x901c415617e66ece93b465690f13f8eb8ed0d26e1d4fe5513017ef1837d84a08","height":8770,"hex":"0x2242","proposer":"0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc","timestamp_ms":1776967296864}}{"jsonrpc":"2.0","id":1,"result":{"hash":"0x901c415617e66ece93b465690f13f8eb8ed0d26e1d4fe5513017ef1837d84a08","height":8770,"hex":"0x2242","proposer":"0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc","timestamp_ms":1776967296864}}{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"method not found: zbx_multisigCount"}}-- No entries --
+root@srv1266996:/home/zebvix-chain# 
