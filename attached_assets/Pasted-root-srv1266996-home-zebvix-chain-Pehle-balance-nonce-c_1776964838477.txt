@@ -1,0 +1,82 @@
+root@srv1266996:/home/zebvix-chain# # Pehle balance + nonce check
+curl -s -X POST http://127.0.0.1:8545 -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"zbx_getBalance","params":["0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc"]}' | jq
+
+# Live fee bounds dekho — stake tx isi recommended se pay karega
+curl -s -X POST http://127.0.0.1:8545 -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"zbx_feeBounds","params":[]}' | jq
+
+# Stake tx — --fee auto live USD-pegged value use karega
+zebvix-node stake \
+  --signer-key /root/.zebvix/validator.key \
+  --validator 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc \
+  --amount 10 \
+  --fee auto \
+  --rpc-url http://127.0.0.1:8545
+
+# 6 sec wait, fir staking-info pe new delegation dikhna chahiye
+sleep 8
+zebvix-node staking-info --rpc-url http://127.0.0.1:8545 | grep -A2 "Delegations\|total stake"
+
+# Heights ab bhi sync hain (Node-2 ne bhi tx apply ki)
+echo "=== Sync check after stake tx ==="
+curl -s -X POST http://127.0.0.1:8545 -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"zbx_blockNumber","params":[]}' | jq '.result | {height, hash}'
+curl -s -X POST http://127.0.0.1:8546 -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"zbx_blockNumber","params":[]}' | jq '.result | {height, hash}'
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": "0x4d71aeab2f1a936aa98"
+}
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "max_fee_wei": "10000000000000000",
+    "max_fee_zbx": "0.0100000000",
+    "max_usd": "0.010000",
+    "min_fee_wei": "1000000000000000",
+    "min_fee_zbx": "0.0010000000",
+    "min_usd": "0.001000",
+    "pool_initialized": true,
+    "recommended_fee_wei": "2000000000000000",
+    "recommended_fee_zbx": "0.0020000000",
+    "source": "amm-pool-spot"
+  }
+}
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+📝 Stake 10000000000000000000 wei → 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc (signer: 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc, nonce: 9)
+   ✓ tx hash : 0x82022d9a62717f23436944a837a7d5e22de2ddd5eb1be825b6b217a9f540d8b5
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+   Delegations           : 2
+   Unbonding entries     : 0
+
+--
+       total stake    : 80000000000000000000 wei
+       total shares   : 80000000000000000000
+       commission     : 500 bps
+=== Sync check after stake tx ===
+{
+  "height": 8337,
+  "hash": "0x0c3a39c5f77e4e9e761300796c3b694d5efaf70ab78331dbad86d29127ce4dbd"
+}
+{
+  "height": 8337,
+  "hash": "0x0c3a39c5f77e4e9e761300796c3b694d5efaf70ab78331dbad86d29127ce4dbd"
+}
+root@srv1266996:/home/zebvix-chain# 
