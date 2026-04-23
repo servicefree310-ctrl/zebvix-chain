@@ -1,0 +1,78 @@
+nohup zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns > /var/log/zebvix-n2.log 2>&1 &
+sleep 8
+
+# Try karein
+zebvix-node generate-address
+zebvix-node generate-address --out /tmp/my-zbx-wallet.key
+zebvix-node price
+zebvix-node pool
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100 78115  100 78115    0     0  99996      0 --:--:-- --:--:-- --:--:--   97k
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:358:4
+    |
+358 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+   Compiling zebvix-node v0.1.0 (/home/zebvix-chain)
+    Finished `release` profile [optimized] target(s) in 50.56s
+[1]-  Killed                  nohup zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns > /var/log/zebvix-n1.log 2>&1
+[2]+  Killed                  nohup zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns > /var/log/zebvix-n2.log 2>&1
+root     3732819  1.4  0.2 536156 18776 ?        Ssl  14:04   0:00 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns
+cp: cannot create regular file '/usr/local/bin/zebvix-node': Text file busy
+[1] 3732898
+[2] 3732899
+[1]-  Exit 1                  nohup zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns > /var/log/zebvix-n1.log 2>&1
+error: unrecognized subcommand 'generate-address'
+
+Usage: zebvix-node <COMMAND>
+
+For more information, try '--help'.
+error: unrecognized subcommand 'generate-address'
+
+Usage: zebvix-node <COMMAND>
+
+For more information, try '--help'.
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+💵 ZBX Price
+
+   1 ZBX = $1.000000 USD
+   source : amm-pool-spot
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+🏦 AMM Pool
+
+   pool address          : 0x7a73776170000000000000000000000000000000
+   admin                 : 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+   initialized           : ✅ yes
+   ZBX reserve           : 10000000 ZBX  (10000000000000000000000000 wei)
+   zUSD reserve          : 10000000 zUSD (10000000000000000000000000 wei)
+   spot price            : 1.000000 USD/ZBX
+   LP supply             : 10000000 (locked to pool)
+   fee tier              : 0.30%
+   max swap (ZBX)        : 100000 ZBX
+   max swap (zUSD)       : 100000 zUSD
+
+   ── lifetime stats ──
+   total fees collected  : 0 zUSD
+   admin paid (zUSD)     : 0 zUSD
+   reinvested (zUSD)     : 0 zUSD
+   loan outstanding      : 10000000 zUSD  (repaid: false)
+root@srv1266996:/home/zebvix-chain# 

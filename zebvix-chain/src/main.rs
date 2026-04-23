@@ -61,7 +61,8 @@ enum Cmd {
         out: Option<PathBuf>,
     },
     /// Generate a fresh ZBX (Zebvix) wallet address with branded output.
-    GenerateAddress {
+    #[command(alias = "generate-address")]
+    ZbxAddress {
         /// Optional file path to save the keypair (recommended).
         #[arg(long)]
         out: Option<PathBuf>,
@@ -1032,7 +1033,7 @@ async fn main() -> Result<()> {
     }
     match cli.cmd {
         Cmd::Keygen { out } => cmd_keygen(out),
-        Cmd::GenerateAddress { out } => cmd_generate_address(out),
+        Cmd::ZbxAddress { out } => cmd_generate_address(out),
         Cmd::Init { home, validator_key, alloc, no_default_premine } => cmd_init(home, validator_key, alloc, no_default_premine),
         Cmd::Start { home, rpc, p2p_port, peers, no_p2p, no_mdns, follower } =>
             cmd_start(home, rpc, p2p_port, peers, no_p2p, no_mdns, follower).await,
