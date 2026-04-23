@@ -1,0 +1,40 @@
+sleep 5
+ps aux | grep zebvix-node | grep -v grep   # 2 process dikhne chahiye
+
+# 5. Ab Phase B.5 RPCs test karein
+zebvix-node burn-stats
+zebvix-node locked-rewards --address 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+
+# 6. Ek tx bhejke gas fee redistribution check
+zebvix-node staking-info        # purana data load hua hai verify
+zebvix-node burn-stats          # baseline burn note kar lijiye
+# fir koi small tx bhejein, fir wapas burn-stats — burn balance badhna chahiye
+[1]+  Exit 2                  nohup zebvix-node node --data-dir /root/.zebvix > /var/log/zebvix.log 2>&1
+  claim-rewards              Claim accumulated rewards (operator commission + Phase B.5 locked-rewards drip + bulk). Anyone with locked rewards can call — operator additionally drains commission_pool
+  locked-rewards             Show locked-rewards bucket for an address: balance, claimable now, next unlocks
+  burn-stats                 Show burn-pool progress (gas fee 10% slice → burn until 75M cap → AMM liquidity)
+[1] 3587710
+[2] 3587711
+root     3587710  0.3  0.2 601660 19124 pts/4    Sl   06:19   0:00 zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns
+root     3587711  0.3  0.2 1060412 19068 pts/4   Sl   06:19   0:00 zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns
+Error: no result
+Error: no result
+🥩 Staking module state
+
+   Current epoch         : 0
+   Epoch length          : 17280 blocks
+   Epoch reward          : 50000000000000000000 wei
+   Unbonding epochs      : 7
+   Min self-bond (fallback): 1000000000000000000000 wei
+   Min self-bond (target USD): $50.00
+   Min self-bond (live $50≡): 50000000000000000000 wei
+   Min delegation        : 1000000000000000000 wei
+   Max commission        : 5000 bps
+   Max commission Δ/epoch: 100 bps
+   Total slashed         : 0 wei
+
+   Validators            : 0
+   Delegations           : 0
+   Unbonding entries     : 0
+Error: no result
+root@srv1266996:/home/zebvix-chain# 
