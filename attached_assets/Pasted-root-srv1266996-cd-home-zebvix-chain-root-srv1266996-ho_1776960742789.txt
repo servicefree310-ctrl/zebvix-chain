@@ -1,0 +1,56 @@
+root@srv1266996:~# cd /home/zebvix-chain
+root@srv1266996:/home/zebvix-chain# wget -O zebvix-chain-updated.tar.gz \
+>   https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/zebvix-chain-updated.tar.gz
+--2026-04-23 16:11:55--  https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/zebvix-chain-updated.tar.gz
+Resolving 7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev (7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev)... 34.75.151.117
+Connecting to 7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev (7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev)|34.75.151.117|:443... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 82136 (80K) []
+Saving to: 'zebvix-chain-updated.tar.gz'
+
+zebvix-chain-updated.tar.gz                100%[========================================================================================>]  80.21K   335KB/s    in 0.2s    
+
+2026-04-23 16:11:56 (335 KB/s) - 'zebvix-chain-updated.tar.gz' saved [82136/82136]
+
+root@srv1266996:/home/zebvix-chain# tar xzf zebvix-chain-updated.tar.gz
+root@srv1266996:/home/zebvix-chain# 
+root@srv1266996:/home/zebvix-chain# # 2) Build
+root@srv1266996:/home/zebvix-chain# cargo build --release 2>&1 | tail -5
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 0.31s
+root@srv1266996:/home/zebvix-chain# 
+root@srv1266996:/home/zebvix-chain# # 3) Stop services + atomic binary swap
+root@srv1266996:/home/zebvix-chain# sudo systemctl stop zebvix.service zebvix2.service
+sleep 5
+sudo cp target/release/zebvix-node /usr/local/bin/zebvix-node.new
+sudo mv -f /usr/local/bin/zebvix-node.new /usr/local/bin/zebvix-node
+
+# 4) Verify naye RPC + flag
+zebvix-node --help | grep -A 3 "register-pay-id"
+
+# 5) Restart
+sudo systemctl start zebvix.service zebvix2.service
+sleep 8
+
+# 6) TEST: live fee bounds
+curl -s -X POST http://127.0.0.1:8545 \
+  -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"zbx_feeBounds","params":[]}' | jq .
+
+# 7) TEST: auto-fee Pay-ID register (delegator key)
+zebvix-node register-pay-id \
+  --signer-key /tmp/del.key \
+  --pay-id ali@zbx \
+  --name "Ali Delegator"
+# (no --fee flag = uses 'auto' = fetches from zbx_feeBounds)
+
+# 8) Negative test: too-high fee should be rejected
+zebvix-node register-pay-id \
+  --signer-key /tmp/del.key \
+  --pay-id over@zbx \
+  --name "Test" \
+  --fee 0.5
+# expected: ❌ "fee too high: ... > dynamic max ..."root@srv1266996:/home/zebvix-chain# 
