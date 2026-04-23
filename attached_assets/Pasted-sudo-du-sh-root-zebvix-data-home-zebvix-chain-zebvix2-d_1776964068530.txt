@@ -1,0 +1,57 @@
+sudo du -sh /root/.zebvix/data /home/zebvix-chain/.zebvix2/data
+
+# 4) Pehle Node-1 start (proposer)
+sudo systemctl start zebvix.service
+sleep 10
+
+# 5) Phir Node-2 (follower)
+sudo systemctl start zebvix2.service
+sleep 20
+
+# 6) Verify — heights ab match honi chahiye (Node-2 thoda peeche, ~5-15 blocks)
+echo "=== Heights ==="
+curl -s -X POST http://127.0.0.1:8545 -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"zbx_blockNumber","params":[]}' | jq '.result | {height, hash}'
+curl -s -X POST http://127.0.0.1:8546 -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"zbx_blockNumber","params":[]}' | jq '.result | {height, hash}'
+
+echo "=== Node-2 sync logs ==="
+sudo tail -20 /var/log/zebvix2.log
+
+echo "=== Double-sign last 30s (should be 0) ==="
+sudo journalctl -u zebvix.service --since "30 seconds ago" --no-pager | grep -c "DOUBLE-SIGN"
+17M     /root/.zebvix/data
+17M     /home/zebvix-chain/.zebvix2/data
+=== Heights ===
+{
+  "height": 8200,
+  "hash": "0x78fa2e50b707fdf148f97d4704bb948193ae1b4c58e692a181bbacefd155d0f2"
+}
+{
+  "height": 8200,
+  "hash": "0x78fa2e50b707fdf148f97d4704bb948193ae1b4c58e692a181bbacefd155d0f2"
+}
+=== Node-2 sync logs ===
+2026-04-23T17:06:45.687879Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/93.127.213.192/tcp/30334/p2p/12D3KooWSR7MBvhMuREdFfMr698Hx9LWAtZ2DupkeZUU5uXmj3eU
+2026-04-23T17:06:45.689406Z  INFO zebvix_node::p2p: ✅ p2p connected: 12D3KooWSdQXhKRaCtzBDd2N9sz9WUS89nqK654BVU7rU8jwezNZ
+2026-04-23T17:06:46.149859Z  INFO zebvix_node::p2p: ⏬ p2p out-of-order block #8197 (tip=8195); requesting [8196..=8196] from 12D3KooWSdQXhKRaCtzBDd2N9sz9WUS89nqK654BVU7rU8jwezNZ
+2026-04-23T17:06:46.150336Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWSdQXhKRaCtzBDd2N9sz9WUS89nqK654BVU7rU8jwezNZ: 1 blocks
+2026-04-23T17:06:46.150455Z  INFO zebvix_node: 📦 p2p applied block #8196 (0 txs)
+2026-04-23T17:06:46.649900Z  INFO zebvix_node: 🗳  vote precommit h=8197 r=0 from 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  ✅ QUORUM
+2026-04-23T17:06:46.650734Z  INFO zebvix_node: 🗳  vote prevote h=8197 r=0 from 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  ✅ QUORUM
+2026-04-23T17:06:51.648950Z  INFO zebvix_node::p2p: ⏬ heartbeat: 12D3KooWSdQXhKRaCtzBDd2N9sz9WUS89nqK654BVU7rU8jwezNZ tip=8197 (we=8196); requesting [8197..=8197]
+2026-04-23T17:06:51.650318Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWSdQXhKRaCtzBDd2N9sz9WUS89nqK654BVU7rU8jwezNZ: 1 blocks
+2026-04-23T17:06:51.650432Z  INFO zebvix_node: 📦 p2p applied block #8197 (0 txs)
+2026-04-23T17:06:52.149758Z  INFO zebvix_node: 📦 p2p applied block #8198 (0 txs)
+2026-04-23T17:06:52.649836Z  INFO zebvix_node: 🗳  vote prevote h=8198 r=0 from 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  ✅ QUORUM
+2026-04-23T17:06:52.649996Z  INFO zebvix_node: 🗳  vote precommit h=8198 r=0 from 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  ✅ QUORUM
+2026-04-23T17:06:58.150046Z  INFO zebvix_node: 📦 p2p applied block #8199 (0 txs)
+2026-04-23T17:06:58.650094Z  INFO zebvix_node: 🗳  vote prevote h=8199 r=0 from 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  ✅ QUORUM
+2026-04-23T17:06:58.650855Z  INFO zebvix_node: 🗳  vote precommit h=8199 r=0 from 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  ✅ QUORUM
+2026-04-23T17:07:04.149390Z  INFO zebvix_node::state: 💰 dist-pool @h=8200 drained 300000000000000000000 wei → commission 30000000000000000000 wei (1 ops) | founder-liquid 192857142857142857142 wei | locked 77142857142857142857 wei
+2026-04-23T17:07:04.149433Z  INFO zebvix_node: 📦 p2p applied block #8200 (0 txs)
+2026-04-23T17:07:04.650100Z  INFO zebvix_node: 🗳  vote precommit h=8200 r=0 from 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  ✅ QUORUM
+2026-04-23T17:07:04.650160Z  INFO zebvix_node: 🗳  vote prevote h=8200 r=0 from 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  ✅ QUORUM
+=== Double-sign last 30s (should be 0) ===
+0
+root@srv1266996:/home/zebvix-chain# 
