@@ -89,6 +89,53 @@ pub const GOVERNOR_ADDRESS_HEX: &str = ADMIN_ADDRESS_HEX;
 /// Maximum number of governor rotations (parallel to admin rotation cap).
 pub const MAX_GOVERNOR_CHANGES: u8 = 3;
 
+// ───────── Reward locking + gas fee redistribution (Phase B.5) ─────────
+
+/// Burn sink address. ZBX sent here is provably destroyed (no key controls it).
+/// Bytes spell "burn" (62 75 72 6e) followed by zero bytes ending in 0xdead.
+pub const BURN_ADDRESS_HEX: &str = "0x6275726e0000000000000000000000000000dead";
+
+/// Dedicated treasury sub-account where the founder/admin's reward share lands.
+/// Defaults to ADMIN_ADDRESS so existing CLI/UX continues to work; can be
+/// rotated independently via future governance.
+pub const TREASURY_ADDRESS_HEX: &str = ADMIN_ADDRESS_HEX;
+
+/// Bootstrap thresholds. While **either** condition is unmet, the network is
+/// in Phase A (high treasury cut, slower locked release pressure).
+pub const BOOTSTRAP_VAL_THRESHOLD: usize = 500;
+pub const BOOTSTRAP_DEL_THRESHOLD: usize = 1000;
+
+/// Treasury cut of every epoch staking reward.
+///   Phase A: 50.00% → treasury (LIQUID, founder development)
+///   Phase B: 10.00% → treasury (LIQUID, hamesha)
+pub const TREASURY_CUT_BPS_PHASE_A: u64 = 5_000;
+pub const TREASURY_CUT_BPS_PHASE_B: u64 = 1_000;
+
+/// Locked-reward unlock parameters.
+///   Daily drip       = 0.50% of staked amount per day (per-address)
+///   Bulk release     = 25.00% of remaining locked balance every 5,000,000 blocks
+pub const DRIP_BPS_PER_DAY: u64 = 50;
+pub const BULK_INTERVAL_BLOCKS: u64 = 5_000_000;
+pub const BULK_RELEASE_BPS: u64 = 2_500;
+
+/// Day length in blocks at 5s block time (86,400 / 5).
+pub const BLOCKS_PER_DAY: u64 = 17_280;
+
+/// Burn cap = 50% of TOTAL_SUPPLY = 75M ZBX. Once cumulative gas-fee burn
+/// reaches this, the 10% gas-fee burn slice is rerouted to AMM liquidity.
+pub const BURN_CAP_WEI: u128 = 75_000_000u128 * WEI_PER_ZBX;
+
+/// Gas fee redistribution (per transaction, in basis points of `tx.fee`).
+///   50% → block proposer (validator)
+///   20% → its delegators (stake-proportional)
+///   20% → admin treasury (liquid)
+///   10% → burn (or AMM liquidity once BURN_CAP_WEI reached)
+/// Sum MUST equal 10_000.
+pub const GAS_FEE_VALIDATOR_BPS: u64 = 5_000;
+pub const GAS_FEE_DELEGATORS_BPS: u64 = 2_000;
+pub const GAS_FEE_TREASURY_BPS: u64 = 2_000;
+pub const GAS_FEE_BURN_BPS: u64 = 1_000;
+
 /// zSwap pool's magic address — no private key exists for it.
 /// Bytes spell "zswap" (7a 73 77 61 70) followed by 15 zero bytes.
 /// Any normal user sending ZBX (or zUSD) to this address triggers an

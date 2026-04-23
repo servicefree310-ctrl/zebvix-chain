@@ -24,6 +24,9 @@
 //!     unbondings; credit the returned `Payout` map to account balances.
 //!  4. Mirror `active_set()` into `consensus.rs` so voting power reflects stake.
 
+use crate::tokenomics::{
+    BLOCKS_PER_DAY, BULK_INTERVAL_BLOCKS, BULK_RELEASE_BPS, DRIP_BPS_PER_DAY,
+};
 use crate::types::{Address, Validator};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -218,6 +221,26 @@ pub struct UnbondingEntry {
     pub mature_at_epoch: u64,
 }
 
+/// Per-address locked-rewards bucket (Phase B.5).
+///
+/// Rewards accrue here instead of going liquid. Two parallel unlock mechanisms:
+///   1. **Daily drip** — `DRIP_BPS_PER_DAY` of the address's *currently staked*
+///      amount unlocks per day (computed lazily on each settle call). If the
+///      address has unstaked everything, drip stops; only bulk continues.
+///   2. **Bulk release** — every `BULK_INTERVAL_BLOCKS` blocks, `BULK_RELEASE_BPS`
+///      of the remaining locked balance is released (per-account counter).
+///   3. **Validator exit** — when an entire validator is removed/permanently jailed,
+///      the operator may call `force_unlock` to release every delegator's locked
+///      balance immediately (no waiting).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct LockedRewards {
+    pub balance_wei: u128,
+    pub last_drip_height: u64,
+    pub last_bulk_height: u64,
+    pub total_released: u128,
+    pub total_locked_lifetime: u128,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct StakingModule {
     pub current_epoch: u64,
@@ -229,10 +252,28 @@ pub struct StakingModule {
     pub unbonding_queue: VecDeque<UnbondingEntry>,
     /// Cumulative slashed wei (for telemetry / on-chain inflation tracking).
     pub total_slashed: u128,
+    /// Phase B.5 — per-address locked rewards bucket.
+    #[serde(default)]
+    pub locked_rewards: BTreeMap<Address, LockedRewards>,
+    /// Phase B.5 — last block height we credited locked rewards (for monitoring).
+    #[serde(default)]
+    pub last_epoch_height: u64,
 }
 
 /// Result of `end_epoch`: liquid wei to credit to each address.
 pub type Payout = BTreeMap<Address, u128>;
+
+/// Result of `end_epoch_locked` — split between immediate-liquid (treasury,
+/// matured unbondings) and accounting-only locked deposits.
+#[derive(Clone, Debug, Default)]
+pub struct EpochResult {
+    /// Wei to credit to the founder/admin treasury address (liquid).
+    pub treasury_payout: u128,
+    /// Wei to credit per address from matured unbonding queue (liquid).
+    pub unbonding_payout: Payout,
+    /// Total wei deposited into locked buckets this epoch (telemetry).
+    pub locked_deposited: u128,
+}
 
 // ─────────────────────────── API ────────────────────────────────
 
@@ -568,6 +609,258 @@ impl StakingModule {
             .into_iter()
             .map(|v| self.delegation_value(delegator, v))
             .sum()
+    }
+
+    // ── Phase B.5: locked-rewards bucket ──────────────────────────
+
+    /// Total ZBX wei staked by `addr` across every (non-jailed-or-jailed) validator.
+    /// Used as the basis for the daily drip rate.
+    pub fn total_stake_of(&self, addr: Address) -> u128 {
+        let mut total: u128 = 0;
+        for ((d, v), shares) in self.delegations.iter() {
+            if *d == addr {
+                if let Some(val) = self.validators.get(v) {
+                    total = total.saturating_add(val.shares_to_amount(*shares));
+                }
+            }
+        }
+        total
+    }
+
+    /// Add wei into the address's locked bucket. Initializes the per-account
+    /// drip + bulk timers on first deposit at `current_height`.
+    pub fn add_locked(&mut self, addr: Address, amount: u128, current_height: u64) {
+        if amount == 0 {
+            return;
+        }
+        let entry = self.locked_rewards.entry(addr).or_insert_with(|| LockedRewards {
+            last_drip_height: current_height,
+            last_bulk_height: current_height,
+            ..Default::default()
+        });
+        entry.balance_wei = entry.balance_wei.saturating_add(amount);
+        entry.total_locked_lifetime = entry.total_locked_lifetime.saturating_add(amount);
+    }
+
+    /// Snapshot a locked bucket without mutating it. Returns
+    /// `(balance, last_drip_height, last_bulk_height, total_released)`.
+    pub fn locked_snapshot(&self, addr: Address) -> Option<(u128, u64, u64, u128)> {
+        self.locked_rewards.get(&addr).map(|e| {
+            (e.balance_wei, e.last_drip_height, e.last_bulk_height, e.total_released)
+        })
+    }
+
+    /// Lazily compute (and apply) any pending unlock for `addr` up to
+    /// `current_height`. Returns wei to credit to the address's liquid balance.
+    /// Idempotent: calling at the same height twice releases nothing the second time.
+    pub fn settle_unlock(&mut self, addr: Address, current_height: u64) -> u128 {
+        let stake = self.total_stake_of(addr);
+        let entry = match self.locked_rewards.get_mut(&addr) {
+            Some(e) => e,
+            None => return 0,
+        };
+        if entry.balance_wei == 0 {
+            entry.last_drip_height = current_height;
+            entry.last_bulk_height = current_height;
+            return 0;
+        }
+        let mut released: u128 = 0;
+        // 1. Daily drip — only if the holder still has stake.
+        if stake > 0 && current_height > entry.last_drip_height {
+            let elapsed = current_height - entry.last_drip_height;
+            let daily = mul_div(stake, DRIP_BPS_PER_DAY as u128, COMMISSION_BPS_DEN as u128);
+            let drip = mul_div(daily, elapsed as u128, BLOCKS_PER_DAY as u128);
+            let take = drip.min(entry.balance_wei);
+            entry.balance_wei -= take;
+            released = released.saturating_add(take);
+        }
+        entry.last_drip_height = current_height;
+        // 2. Bulk — 25% per BULK_INTERVAL_BLOCKS, applied per elapsed full interval.
+        if entry.balance_wei > 0 && current_height >= entry.last_bulk_height {
+            let intervals = (current_height - entry.last_bulk_height) / BULK_INTERVAL_BLOCKS;
+            for _ in 0..intervals {
+                if entry.balance_wei == 0 {
+                    break;
+                }
+                let bulk = mul_div(
+                    entry.balance_wei,
+                    BULK_RELEASE_BPS as u128,
+                    COMMISSION_BPS_DEN as u128,
+                );
+                let take = bulk.min(entry.balance_wei);
+                entry.balance_wei -= take;
+                released = released.saturating_add(take);
+            }
+            entry.last_bulk_height += intervals * BULK_INTERVAL_BLOCKS;
+        } else if entry.balance_wei == 0 {
+            entry.last_bulk_height = current_height;
+        }
+        entry.total_released = entry.total_released.saturating_add(released);
+        if entry.balance_wei == 0 && stake == 0 {
+            self.locked_rewards.remove(&addr);
+        }
+        released
+    }
+
+    /// Predict (without mutating) how much would be released by `settle_unlock`
+    /// at `current_height`, plus the next-drip and next-bulk heights for UX.
+    /// Returns `(claimable_now, next_drip_height, next_bulk_height, locked_after)`.
+    pub fn preview_unlock(&self, addr: Address, current_height: u64) -> (u128, u64, u64, u128) {
+        let snap = match self.locked_rewards.get(&addr) {
+            Some(e) => e.clone(),
+            None => return (0, current_height, current_height, 0),
+        };
+        if snap.balance_wei == 0 {
+            return (0, current_height, current_height, 0);
+        }
+        let stake = self.total_stake_of(addr);
+        let mut bal = snap.balance_wei;
+        let mut released: u128 = 0;
+        if stake > 0 && current_height > snap.last_drip_height {
+            let elapsed = current_height - snap.last_drip_height;
+            let daily = mul_div(stake, DRIP_BPS_PER_DAY as u128, COMMISSION_BPS_DEN as u128);
+            let drip = mul_div(daily, elapsed as u128, BLOCKS_PER_DAY as u128);
+            let take = drip.min(bal);
+            bal -= take;
+            released += take;
+        }
+        if bal > 0 && current_height >= snap.last_bulk_height {
+            let intervals = (current_height - snap.last_bulk_height) / BULK_INTERVAL_BLOCKS;
+            for _ in 0..intervals {
+                if bal == 0 {
+                    break;
+                }
+                let bulk =
+                    mul_div(bal, BULK_RELEASE_BPS as u128, COMMISSION_BPS_DEN as u128);
+                let take = bulk.min(bal);
+                bal -= take;
+                released += take;
+            }
+        }
+        // Next scheduled events (1 block out for drip — drip is continuous).
+        let next_drip = current_height + 1;
+        let bulk_anchor = snap.last_bulk_height
+            + ((current_height.saturating_sub(snap.last_bulk_height)) / BULK_INTERVAL_BLOCKS)
+                * BULK_INTERVAL_BLOCKS;
+        let next_bulk = bulk_anchor + BULK_INTERVAL_BLOCKS;
+        (released, next_drip, next_bulk, bal)
+    }
+
+    /// Force-release every locked balance attached to a removed validator's
+    /// delegators (validator-exit unlock). Returns a payout map of liquid wei.
+    pub fn force_unlock_for_validator(&mut self, validator: Address) -> Payout {
+        let mut payout: Payout = BTreeMap::new();
+        // Snapshot delegators of this validator so we can remove their lock entries.
+        let dels: Vec<Address> = self
+            .delegations
+            .iter()
+            .filter(|((_, v), _)| *v == validator)
+            .map(|((d, _), _)| *d)
+            .collect();
+        // Also unlock the operator (commission was credited to operator).
+        let mut targets: BTreeSet<Address> = dels.into_iter().collect();
+        if let Some(v) = self.validators.get(&validator) {
+            targets.insert(v.operator);
+        }
+        for addr in targets {
+            if let Some(entry) = self.locked_rewards.remove(&addr) {
+                if entry.balance_wei > 0 {
+                    let slot = payout.entry(addr).or_insert(0);
+                    *slot = slot.saturating_add(entry.balance_wei);
+                }
+            }
+        }
+        payout
+    }
+
+    /// Phase B.5 epoch settlement.
+    ///
+    /// Splits `total_reward` into:
+    ///   • `treasury_cut_bps` portion → returned as `treasury_payout` (LIQUID
+    ///     credit to founder/admin treasury — no lock).
+    ///   • Remainder → distributed proportional to active validator stake. For
+    ///     each validator: `commission_bps` to operator's locked bucket; the
+    ///     rest split among that validator's delegators (share-proportional)
+    ///     into their locked buckets.
+    /// Also matures the unbonding queue (returned as `unbonding_payout`).
+    pub fn end_epoch_locked(
+        &mut self,
+        current_height: u64,
+        total_reward: u128,
+        treasury_cut_bps: u64,
+    ) -> EpochResult {
+        let mut result = EpochResult::default();
+        // 1. Carve out treasury portion (liquid).
+        let treasury =
+            mul_div(total_reward, treasury_cut_bps as u128, COMMISSION_BPS_DEN as u128);
+        result.treasury_payout = treasury;
+        let stakers_total = total_reward.saturating_sub(treasury);
+
+        // 2. Distribute stakers_total → locked buckets.
+        let active_total: u128 = self
+            .validators
+            .values()
+            .filter(|v| !v.jailed)
+            .map(|v| v.total_stake)
+            .sum();
+
+        if active_total > 0 && stakers_total > 0 {
+            // Snapshot validators + their delegators to avoid borrow conflicts.
+            let val_snapshot: Vec<(Address, u128, u64, Address, Vec<(Address, u128)>)> = self
+                .validators
+                .iter()
+                .filter(|(_, v)| !v.jailed)
+                .map(|(addr, v)| {
+                    let dels: Vec<(Address, u128)> = self
+                        .delegations
+                        .iter()
+                        .filter(|((_, va), _)| va == addr)
+                        .map(|((d, _), s)| (*d, *s))
+                        .collect();
+                    (*addr, v.total_stake, v.commission_bps, v.operator, dels)
+                })
+                .collect();
+
+            let mut credits: Vec<(Address, u128)> = Vec::new();
+            for (_vaddr, vstake, vcom_bps, voperator, dels) in val_snapshot {
+                let v_share = mul_div(stakers_total, vstake, active_total);
+                if v_share == 0 {
+                    continue;
+                }
+                let commission =
+                    mul_div(v_share, vcom_bps as u128, COMMISSION_BPS_DEN as u128);
+                let bonded = v_share.saturating_sub(commission);
+                if commission > 0 {
+                    credits.push((voperator, commission));
+                }
+                let total_shares: u128 = dels.iter().map(|(_, s)| *s).sum();
+                if total_shares > 0 && bonded > 0 {
+                    for (daddr, dshares) in dels {
+                        let d_cut = mul_div(bonded, dshares, total_shares);
+                        if d_cut > 0 {
+                            credits.push((daddr, d_cut));
+                        }
+                    }
+                }
+            }
+            for (addr, amt) in credits {
+                self.add_locked(addr, amt, current_height);
+                result.locked_deposited = result.locked_deposited.saturating_add(amt);
+            }
+        }
+
+        // 3. Mature unbonding queue.
+        self.current_epoch += 1;
+        self.last_epoch_height = current_height;
+        while let Some(front) = self.unbonding_queue.front() {
+            if front.mature_at_epoch > self.current_epoch {
+                break;
+            }
+            let e = self.unbonding_queue.pop_front().unwrap();
+            let slot = result.unbonding_payout.entry(e.delegator).or_insert(0);
+            *slot = slot.saturating_add(e.amount);
+        }
+        result
     }
 }
 

@@ -326,7 +326,8 @@ enum Cmd {
         #[arg(long, default_value = "0.002")]
         fee: String,
     },
-    /// Operator: claim accumulated commission from your validator's pool.
+    /// Claim accumulated rewards (operator commission + Phase B.5 locked-rewards drip + bulk).
+    /// Anyone with locked rewards can call — operator additionally drains commission_pool.
     ClaimRewards {
         #[arg(long)]
         signer_key: PathBuf,
@@ -336,6 +337,20 @@ enum Cmd {
         rpc_url: String,
         #[arg(long, default_value = "0.002")]
         fee: String,
+    },
+
+    // ─────────── Phase B.5 — Locked rewards + Burn stats ───────────
+    /// Show locked-rewards bucket for an address: balance, claimable now, next unlocks.
+    LockedRewards {
+        #[arg(long)]
+        address: String,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+    },
+    /// Show burn-pool progress (gas fee 10% slice → burn until 75M cap → AMM liquidity).
+    BurnStats {
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
     },
 }
 
@@ -948,6 +963,8 @@ async fn main() -> Result<()> {
             cmd_unstake(signer_key, validator, shares, rpc_url, fee).await,
         Cmd::Redelegate { signer_key, from, to, shares, rpc_url, fee } =>
             cmd_redelegate(signer_key, from, to, shares, rpc_url, fee).await,
+        Cmd::LockedRewards { address, rpc_url } => cmd_locked_rewards(address, rpc_url).await,
+        Cmd::BurnStats { rpc_url } => cmd_burn_stats(rpc_url).await,
         Cmd::ClaimRewards { signer_key, validator, rpc_url, fee } =>
             cmd_claim_rewards(signer_key, validator, rpc_url, fee).await,
         Cmd::ValidatorRemove { signer_key, address, rpc_url, fee } =>
@@ -1421,4 +1438,74 @@ async fn cmd_claim_rewards(
     submit_staking(&signer_key, &rpc_url, &fee,
         zebvix_node::staking::StakeOp::ClaimRewards { validator: v },
         &format!("ClaimRewards from {}", v)).await
+}
+
+// ─────────── Phase B.5 read-only views ───────────
+
+const WEI_PER_ZBX_F: f64 = 1_000_000_000_000_000_000.0;
+
+fn fmt_wei(wei_str: &str) -> String {
+    let w: u128 = wei_str.parse().unwrap_or(0);
+    format!("{:.6} ZBX ({} wei)", (w as f64) / WEI_PER_ZBX_F, w)
+}
+
+fn fmt_blocks_to_time(blocks: u64) -> String {
+    let secs = blocks.saturating_mul(5);
+    if secs < 60 { return format!("{}s", secs); }
+    let mins = secs / 60;
+    if mins < 60 { return format!("{}m {}s", mins, secs % 60); }
+    let hours = mins / 60;
+    if hours < 24 { return format!("{}h {}m", hours, mins % 60); }
+    let days = hours / 24;
+    if days < 30 { return format!("{}d {}h", days, hours % 24); }
+    let months = days / 30;
+    format!("~{}mo {}d", months, days % 30)
+}
+
+async fn cmd_locked_rewards(address: String, rpc_url: String) -> Result<()> {
+    let r = rpc_call(&rpc_url, "zbx_getLockedRewards", serde_json::json!([address])).await?;
+    let res = r.get("result").ok_or_else(|| anyhow::anyhow!("no result"))?;
+    let stake = res["stake_wei"].as_str().unwrap_or("0");
+    let locked = res["locked_balance_wei"].as_str().unwrap_or("0");
+    let claimable = res["claimable_now_wei"].as_str().unwrap_or("0");
+    let after = res["locked_after_claim_wei"].as_str().unwrap_or("0");
+    let daily = res["daily_drip_wei"].as_str().unwrap_or("0");
+    let blocks_to_bulk = res["blocks_to_next_bulk"].as_u64().unwrap_or(0);
+    let total_released = res["total_released_wei"].as_str().unwrap_or("0");
+    println!("🔒 Locked Rewards");
+    println!("   address                : {}", address);
+    println!("   current stake          : {}", fmt_wei(stake));
+    println!("   currently locked       : {}", fmt_wei(locked));
+    println!("   claimable now (drip+b) : {}", fmt_wei(claimable));
+    println!("   locked after claim     : {}", fmt_wei(after));
+    println!("   daily drip rate        : {} (0.5%/day of stake)", fmt_wei(daily));
+    println!("   next bulk unlock       : in {} blocks (~{}) — releases 25% of locked",
+        blocks_to_bulk, fmt_blocks_to_time(blocks_to_bulk));
+    println!("   total released ever    : {}", fmt_wei(total_released));
+    println!();
+    println!("   💡 To claim: zebvix-node claim-rewards --signer-key <key> --validator <addr>");
+    Ok(())
+}
+
+async fn cmd_burn_stats(rpc_url: String) -> Result<()> {
+    let r = rpc_call(&rpc_url, "zbx_getBurnStats", serde_json::json!([])).await?;
+    let res = r.get("result").ok_or_else(|| anyhow::anyhow!("no result"))?;
+    let burned = res["total_burned_wei"].as_str().unwrap_or("0");
+    let cap = res["burn_cap_wei"].as_str().unwrap_or("0");
+    let phase = res["phase"].as_str().unwrap_or("?");
+    let progress_bps = res["progress_bps"].as_u64().unwrap_or(0);
+    println!("🔥 Burn Stats");
+    println!("   burn address           : {}", res["burn_address"].as_str().unwrap_or(""));
+    println!("   total burned           : {}", fmt_wei(burned));
+    println!("   burn cap (50% supply)  : {}", fmt_wei(cap));
+    println!("   progress               : {:.2}%", progress_bps as f64 / 100.0);
+    println!("   current phase          : {} (10% gas slice → {})", phase,
+        if phase == "burn" { "burn address" } else { "AMM liquidity" });
+    println!();
+    println!("   Gas fee split (per tx):");
+    println!("     • {} bps → validator (proposer)", res["fee_split"]["validator_bps"]);
+    println!("     • {} bps → delegators (stake-prop)", res["fee_split"]["delegators_bps"]);
+    println!("     • {} bps → admin treasury", res["fee_split"]["treasury_bps"]);
+    println!("     • {} bps → burn / liquidity", res["fee_split"]["burn_or_liquidity_bps"]);
+    Ok(())
 }

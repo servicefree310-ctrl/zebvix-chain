@@ -3,8 +3,11 @@
 use crate::crypto::{block_hash, tx_hash, verify_tx, verify_txs_batch};
 use crate::pool::Pool;
 use crate::tokenomics::{
-    reward_at_height, ADMIN_ADDRESS_HEX, GENESIS_POOL_ZBX_WEI, GENESIS_POOL_ZUSD_LOAN,
+    reward_at_height, ADMIN_ADDRESS_HEX, BOOTSTRAP_DEL_THRESHOLD, BOOTSTRAP_VAL_THRESHOLD,
+    BURN_ADDRESS_HEX, BURN_CAP_WEI, GAS_FEE_BURN_BPS, GAS_FEE_DELEGATORS_BPS,
+    GAS_FEE_TREASURY_BPS, GAS_FEE_VALIDATOR_BPS, GENESIS_POOL_ZBX_WEI, GENESIS_POOL_ZUSD_LOAN,
     GOVERNOR_ADDRESS_HEX, MAX_ADMIN_CHANGES, MAX_GOVERNOR_CHANGES, POOL_ADDRESS_HEX,
+    TREASURY_ADDRESS_HEX, TREASURY_CUT_BPS_PHASE_A, TREASURY_CUT_BPS_PHASE_B,
 };
 use crate::types::{Address, Block, Hash, SignedTx, Validator};
 use anyhow::{anyhow, Result};
@@ -61,6 +64,16 @@ pub fn admin_address() -> Address {
 /// Live (possibly-rotated) governor is read via `State::current_governor()`.
 pub fn governor_address() -> Address {
     Address::from_hex(GOVERNOR_ADDRESS_HEX).expect("GOVERNOR_ADDRESS_HEX is valid")
+}
+
+/// Phase B.5 — burn sink address.
+pub fn burn_address() -> Address {
+    Address::from_hex(BURN_ADDRESS_HEX).expect("BURN_ADDRESS_HEX is valid")
+}
+
+/// Phase B.5 — founder treasury address.
+pub fn treasury_address() -> Address {
+    Address::from_hex(TREASURY_ADDRESS_HEX).expect("TREASURY_ADDRESS_HEX is valid")
 }
 
 impl State {
@@ -434,8 +447,17 @@ impl State {
                             .map_err(|e| anyhow!("redelegate: {}", e))
                     }
                     StakeOp::ClaimRewards { validator } => {
-                        sm.claim_rewards(signer, *validator)
-                            .map_err(|e| anyhow!("claim-rewards: {}", e))
+                        // Combines: (a) operator commission_pool (legacy, validator-only)
+                        // and (b) Phase B.5 locked-rewards drip + bulk for the signer
+                        // (every staker can claim drip — operator OR delegator).
+                        let current_h = self.tip().0;
+                        let unlocked = sm.settle_unlock(signer, current_h);
+                        // Validator-operator additionally drains commission_pool.
+                        let commission = match sm.claim_rewards(signer, *validator) {
+                            Ok(v) => v,
+                            Err(_) => 0, // not the operator → drip-only is fine
+                        };
+                        Ok(unlocked.saturating_add(commission))
                     }
                 };
 
@@ -545,29 +567,63 @@ impl State {
             total_fees = total_fees.saturating_add(tx.body.fee);
         }
         let reward = reward_at_height(block.header.height);
+        // Per-block proposer reward (halving schedule) — keep flowing to proposer liquid.
         let mut prop = self.account(&block.header.proposer);
-        prop.balance = prop.balance.saturating_add(reward).saturating_add(total_fees);
+        prop.balance = prop.balance.saturating_add(reward);
         self.put_account(&block.header.proposer, &prop)?;
 
-        // ── Phase B.4: epoch boundary — distribute staking rewards & matured unbondings ──
+        // ── Phase B.5: redistribute aggregated gas fees (50/20/20/10) ─────────
+        if total_fees > 0 {
+            self.redistribute_gas_fees(&block.header.proposer, total_fees)?;
+        }
+
+        // ── Phase B.5: epoch boundary — locked-rewards distribution + matured unbondings ──
         if block.header.height > 0
             && block.header.height % crate::staking::EPOCH_BLOCKS == 0
         {
+            // Detect Phase A vs Phase B (strict AND of validator + delegator thresholds).
             let mut sm = self.staking();
-            let payout = sm.end_epoch(crate::staking::STAKING_EPOCH_REWARD_WEI);
-            let mut total_paid: u128 = 0;
-            let payout_count = payout.len();
-            for (addr, amt) in payout {
-                let mut acc = self.account(&addr);
-                acc.balance = acc.balance.saturating_add(amt);
-                self.put_account(&addr, &acc)?;
-                total_paid = total_paid.saturating_add(amt);
+            let n_validators = sm.validators.values().filter(|v| !v.jailed).count();
+            let n_delegators: std::collections::BTreeSet<Address> =
+                sm.delegations.iter().map(|((d, _), _)| *d).collect();
+            let in_phase_b =
+                n_validators >= BOOTSTRAP_VAL_THRESHOLD && n_delegators.len() >= BOOTSTRAP_DEL_THRESHOLD;
+            let cut_bps = if in_phase_b {
+                TREASURY_CUT_BPS_PHASE_B
+            } else {
+                TREASURY_CUT_BPS_PHASE_A
+            };
+            let result = sm.end_epoch_locked(
+                block.header.height,
+                crate::staking::STAKING_EPOCH_REWARD_WEI,
+                cut_bps,
+            );
+            // Credit liquid: matured unbondings.
+            let mut total_unbond_paid: u128 = 0;
+            let unbond_count = result.unbonding_payout.len();
+            for (addr, amt) in &result.unbonding_payout {
+                let mut acc = self.account(addr);
+                acc.balance = acc.balance.saturating_add(*amt);
+                self.put_account(addr, &acc)?;
+                total_unbond_paid = total_unbond_paid.saturating_add(*amt);
+            }
+            // Credit liquid: founder treasury.
+            if result.treasury_payout > 0 {
+                let t_addr = treasury_address();
+                let mut t = self.account(&t_addr);
+                t.balance = t.balance.saturating_add(result.treasury_payout);
+                self.put_account(&t_addr, &t)?;
             }
             self.put_staking(&sm)?;
             tracing::info!(
-                "✅ epoch {} ended at h={} (matured {} unbondings = {} wei, +{} ZBX staking reward)",
-                sm.current_epoch, block.header.height, payout_count, total_paid,
-                crate::staking::STAKING_EPOCH_REWARD_WEI / 1_000_000_000_000_000_000u128
+                "✅ epoch {} ended @h={} | phase={} | treasury+={} wei | locked+={} wei | matured {} unbond ({} wei)",
+                sm.current_epoch,
+                block.header.height,
+                if in_phase_b { "B" } else { "A" },
+                result.treasury_payout,
+                result.locked_deposited,
+                unbond_count,
+                total_unbond_paid,
             );
         }
 
@@ -647,6 +703,103 @@ impl State {
     pub fn quorum_threshold(&self) -> u64 {
         let total = self.total_voting_power();
         if total == 0 { 0 } else { (total * 2) / 3 + 1 }
+    }
+
+    /// Phase B.5 — split aggregated block gas fees:
+    ///   50% → block proposer (validator) liquid
+    ///   20% → proposer's delegators (stake-proportional) liquid
+    ///   20% → admin treasury liquid
+    ///   10% → burn address  (or AMM liquidity once `BURN_CAP_WEI` reached)
+    /// If the proposer is NOT a registered staking validator (e.g. early
+    /// bootstrap), the validator + delegator slices both fall back to the
+    /// proposer address — no fee is lost.
+    fn redistribute_gas_fees(&self, proposer: &Address, total_fees: u128) -> Result<()> {
+        if total_fees == 0 {
+            return Ok(());
+        }
+        let den: u128 = 10_000;
+        let validator_cut = total_fees.saturating_mul(GAS_FEE_VALIDATOR_BPS as u128) / den;
+        let delegators_cut = total_fees.saturating_mul(GAS_FEE_DELEGATORS_BPS as u128) / den;
+        let treasury_cut = total_fees.saturating_mul(GAS_FEE_TREASURY_BPS as u128) / den;
+        // burn cut = remainder so rounding dust never leaks.
+        let burn_cut = total_fees
+            .saturating_sub(validator_cut)
+            .saturating_sub(delegators_cut)
+            .saturating_sub(treasury_cut);
+
+        // 1. Proposer cut (always paid liquid to proposer).
+        if validator_cut > 0 {
+            let mut p = self.account(proposer);
+            p.balance = p.balance.saturating_add(validator_cut);
+            self.put_account(proposer, &p)?;
+        }
+
+        // 2. Delegators cut — proportional to share weight on the proposer
+        // validator. If proposer not registered or no delegators, fall back
+        // to the proposer address (don't burn unintentionally).
+        let mut delegators_handled = false;
+        if delegators_cut > 0 {
+            let sm = self.staking();
+            if let Some(v) = sm.validators.get(proposer) {
+                let total_shares = v.total_shares;
+                if total_shares > 0 {
+                    let dels: Vec<(Address, u128)> = sm
+                        .delegations
+                        .iter()
+                        .filter(|((_, va), _)| va == proposer)
+                        .map(|((d, _), s)| (*d, *s))
+                        .collect();
+                    drop(sm);
+                    let mut paid: u128 = 0;
+                    for (i, (daddr, shares)) in dels.iter().enumerate() {
+                        let cut = if i + 1 == dels.len() {
+                            // Final delegator absorbs rounding dust.
+                            delegators_cut.saturating_sub(paid)
+                        } else {
+                            delegators_cut.saturating_mul(*shares) / total_shares
+                        };
+                        if cut == 0 {
+                            continue;
+                        }
+                        let mut acc = self.account(daddr);
+                        acc.balance = acc.balance.saturating_add(cut);
+                        self.put_account(daddr, &acc)?;
+                        paid = paid.saturating_add(cut);
+                    }
+                    delegators_handled = true;
+                }
+            }
+            if !delegators_handled {
+                let mut p = self.account(proposer);
+                p.balance = p.balance.saturating_add(delegators_cut);
+                self.put_account(proposer, &p)?;
+            }
+        }
+
+        // 3. Admin treasury cut.
+        if treasury_cut > 0 {
+            let t_addr = treasury_address();
+            let mut t = self.account(&t_addr);
+            t.balance = t.balance.saturating_add(treasury_cut);
+            self.put_account(&t_addr, &t)?;
+        }
+
+        // 4. Burn cut → either burn address (until cap) or AMM liquidity.
+        if burn_cut > 0 {
+            let burn_addr = burn_address();
+            let burned_so_far = self.account(&burn_addr).balance;
+            if burned_so_far < BURN_CAP_WEI {
+                let mut b = self.account(&burn_addr);
+                b.balance = b.balance.saturating_add(burn_cut);
+                self.put_account(&burn_addr, &b)?;
+            } else {
+                // Cap reached → reroute slice into AMM pool (single-sided ZBX add).
+                let mut p = self.pool();
+                p.zbx_reserve = p.zbx_reserve.saturating_add(burn_cut);
+                self.put_pool(&p)?;
+            }
+        }
+        Ok(())
     }
 
     pub fn block_at(&self, height: u64) -> Option<Block> {

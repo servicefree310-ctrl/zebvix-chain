@@ -440,6 +440,67 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 None => err(id, -32602, "invalid delegator address"),
             }
         }
+        // ───────── Phase B.5 — Locked rewards + Burn stats ─────────
+        "zbx_getLockedRewards" => {
+            let addr = req.params.get(0).and_then(parse_address);
+            match addr {
+                Some(a) => {
+                    let sm = ctx.state.staking();
+                    let current_h = ctx.state.tip().0;
+                    let snap = sm.locked_snapshot(a);
+                    let (claimable, next_drip, next_bulk, locked_after) =
+                        sm.preview_unlock(a, current_h);
+                    let stake = sm.total_stake_of(a);
+                    let daily_drip_wei = (stake.saturating_mul(
+                        crate::tokenomics::DRIP_BPS_PER_DAY as u128,
+                    ))
+                        / 10_000u128;
+                    let (balance_wei, last_drip_h, last_bulk_h, total_released) =
+                        snap.unwrap_or((0, current_h, current_h, 0));
+                    ok(id, json!({
+                        "address": a.to_hex(),
+                        "current_height": current_h,
+                        "locked_balance_wei": balance_wei.to_string(),
+                        "claimable_now_wei": claimable.to_string(),
+                        "locked_after_claim_wei": locked_after.to_string(),
+                        "stake_wei": stake.to_string(),
+                        "daily_drip_wei": daily_drip_wei.to_string(),
+                        "drip_bps_per_day": crate::tokenomics::DRIP_BPS_PER_DAY,
+                        "bulk_release_bps": crate::tokenomics::BULK_RELEASE_BPS,
+                        "bulk_interval_blocks": crate::tokenomics::BULK_INTERVAL_BLOCKS,
+                        "last_drip_height": last_drip_h,
+                        "last_bulk_height": last_bulk_h,
+                        "next_drip_height": next_drip,
+                        "next_bulk_height": next_bulk,
+                        "blocks_to_next_bulk": next_bulk.saturating_sub(current_h),
+                        "total_released_wei": total_released.to_string(),
+                    }))
+                }
+                None => err(id, -32602, "invalid address"),
+            }
+        }
+        "zbx_getBurnStats" => {
+            let burn_addr = crate::state::burn_address();
+            let burned = ctx.state.account(&burn_addr).balance;
+            let cap = crate::tokenomics::BURN_CAP_WEI;
+            let phase = if burned >= cap { "liquidity" } else { "burn" };
+            let progress_bps = if cap > 0 {
+                ((burned.min(cap) as u128).saturating_mul(10_000) / cap) as u64
+            } else { 0 };
+            ok(id, json!({
+                "burn_address": burn_addr.to_hex(),
+                "total_burned_wei": burned.to_string(),
+                "burn_cap_wei": cap.to_string(),
+                "phase": phase,
+                "progress_bps": progress_bps,
+                "fee_split": {
+                    "validator_bps": crate::tokenomics::GAS_FEE_VALIDATOR_BPS,
+                    "delegators_bps": crate::tokenomics::GAS_FEE_DELEGATORS_BPS,
+                    "treasury_bps": crate::tokenomics::GAS_FEE_TREASURY_BPS,
+                    "burn_or_liquidity_bps": crate::tokenomics::GAS_FEE_BURN_BPS,
+                },
+            }))
+        }
         m => err(id, -32601, format!("method not found: {m}")),
     };
     Json(resp)
