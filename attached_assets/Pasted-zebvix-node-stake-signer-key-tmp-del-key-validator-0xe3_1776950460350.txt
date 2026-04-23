@@ -1,0 +1,82 @@
+zebvix-node stake --signer-key /tmp/del.key \
+  --validator 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc --amount 10
+sleep 6
+zebvix-node staking-info
+
+# 8 min wait, fir founder balance check
+sleep 510
+curl -s -X POST -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","method":"zbx_getBalance","params":["0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc"],"id":1}' \
+  http://127.0.0.1:8545
+tail -20 /var/log/zebvix-n1.log | grep dist-poolcp: cannot create regular file '/usr/local/bin/zebvix-node': Text file busy
+root@srv1266996:/home/zebvix-chain# # Force kill + zyada sleep
+pkill -9 -f "zebvix-node start"
+sleep 5
+ps aux | grep zebvix-node | grep -v grep   # confirm: koi process nahi
+
+# Ab safely binary replace
+sudo cp target/release/zebvix-node /usr/local/bin/zebvix-node
+
+# Restart dono nodes
+nohup zebvix-node start --home /root/.zebvix \
+  --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns \
+  > /var/log/zebvix-n1.log 2>&1 &
+
+nohup zebvix-node start --home /home/zebvix-chain/.zebvix2 \
+  --rpc 127.0.0.1:8546 --p2p-port 30334 \
+  --peer /ip4/127.0.0.1/tcp/30333 --no-mdns \
+  > /var/log/zebvix-n2.log 2>&1 &
+
+sleep 8
+ps aux | grep zebvix-node | grep -v grep   # confirm: 2 processes running
+
+# Re-create stake
+zebvix-node validator-create --signer-key /home/zebvix-chain/validator.key \
+  --pubkey 0xaa9f6c1f047126b58bdfe62d7adc2ad04ec36d83b9391d313022fbd50cb5d097 \
+  --commission-bps 1000 --self-bond 50
+sleep 6
+
+zebvix-node stake --signer-key /tmp/del.key \
+  --validator 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc --amount 10
+sleep 6
+
+zebvix-node staking-info
+
+# 100 blocks wait (~8.5 min) for first distribution event
+sleep 510
+
+# Founder balance — should be huge (44k+ ZBX/day rate)
+tail -50 /var/log/zebvix-n1.log | grep dist-poolnce","params":["0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc"],"id":1}' \
+[1] 3716566
+[2] 3716567
+root     3716566  0.3  0.2 470524 18912 pts/4    Sl   13:16   0:00 zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns
+root     3716567  0.7  0.2 470604 19720 pts/4    Sl   13:16   0:00 zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns
+📝 CreateValidator (commission=1000bps, self_bond=50000000000000000000 wei) (signer: 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc, nonce: 7)
+   ✓ tx hash : 0x91d0bb334827a6504d57bdde86a1308839c1de25918328009a3f4cf2d2241195
+📝 Stake 10000000000000000000 wei → 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc (signer: 0x57957a0f7e3cd660c3dd10b897d38f8122f78980, nonce: 2)
+   ✓ tx hash : 0x2393b9343a11661dfde961ecc947667a9c5e53eaa217ff0f2f5a53d93c050d13
+🥩 Staking module state
+
+   Current epoch         : 0
+   Epoch length          : 17280 blocks
+   Epoch reward          : 50000000000000000000 wei
+   Unbonding epochs      : 7
+   Min self-bond (fallback): 1000000000000000000000 wei
+   Min self-bond (target USD): $50.00
+   Min self-bond (live $50≡): 50000000000000000000 wei
+   Min delegation        : 1000000000000000000 wei
+   Max commission        : 5000 bps
+   Max commission Δ/epoch: 100 bps
+   Total slashed         : 0 wei
+
+   Validators            : 1
+   Delegations           : 2
+   Unbonding entries     : 0
+
+   • Validator 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+       operator       : 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+       total stake    : 70000000000000000000 wei
+       total shares   : 70000000000000000000
+       commission     : 500 bps
+       commission pool: 0 wei
+       jailed         : false
