@@ -1,0 +1,55 @@
+tail -20 /var/log/zebvix-n1.log | grep dist-poolwarning: `zebvix-node` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 1m 39s
+root@srv1266996:/home/zebvix-chain# 
+root@srv1266996:/home/zebvix-chain# pkill -f "zebvix-node start" && sleep 3
+root@srv1266996:/home/zebvix-chain# sudo cp target/release/zebvix-node /usr/local/bin/zebvix-node
+
+nohup zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns > /var/log/zebvix-n1.log 2>&1 &
+nohup zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns > /var/log/zebvix-n2.log 2>&1 &
+sleep 8
+
+# Re-create stake (state phir reset hoga)
+zebvix-node validator-create --signer-key /home/zebvix-chain/validator.key \
+  --pubkey 0xaa9f6c1f047126b58bdfe62d7adc2ad04ec36d83b9391d313022fbd50cb5d097 \
+  --commission-bps 1000 --self-bond 50
+sleep 6
+zebvix-node stake --signer-key /tmp/del.key \
+  --validator 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc --amount 10
+sleep 6
+zebvix-node staking-info
+
+# 8 min wait, fir founder balance check
+sleep 510
+curl -s -X POST -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","method":"zbx_getBalance","params":["0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc"],"id":1}' \
+  http://127.0.0.1:8545
+tail -20 /var/log/zebvix-n1.log | grep dist-poolcd /home/zebvix-chain
+curl --compressed -o /tmp/zbx-new.tar.gz \
+  https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/zebvix-chain-updated.tar.gz
+tar -xf /tmp/zbx-new.tar.gz
+cargo build --release
+
+pkill -f "zebvix-node start" && sleep 3
+sudo cp target/release/zebvix-node /usr/local/bin/zebvix-node
+
+nohup zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns > /var/log/zebvix-n1.log 2>&1 &
+nohup zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns > /var/log/zebvix-n2.log 2>&1 &
+sleep 8
+
+# Re-create stake (state phir reset hoga)
+zebvix-node validator-create --signer-key /home/zebvix-chain/validator.key \
+  --pubkey 0xaa9f6c1f047126b58bdfe62d7adc2ad04ec36d83b9391d313022fbd50cb5d097 \
+  --commission-bps 1000 --self-bond 50
+sleep 6
+zebvix-node stake --signer-key /tmp/del.key \
+  --validator 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc --amount 10
+sleep 6
+zebvix-node staking-info
+
+# 8 min wait, fir founder balance check
+sleep 510
+curl -s -X POST -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","method":"zbx_getBalance","params":["0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc"],"id":1}' \
+  http://127.0.0.1:8545
+tail -20 /var/log/zebvix-n1.log | grep dist-poolcp: cannot create regular file '/usr/local/bin/zebvix-node': Text file busy
+root@srv1266996:/home/zebvix-chain# 
