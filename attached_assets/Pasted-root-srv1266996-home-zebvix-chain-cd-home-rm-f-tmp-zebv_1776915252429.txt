@@ -1,0 +1,43 @@
+root@srv1266996:/home/zebvix-chain# cd /home && \
+rm -f /tmp/zebvix-chain-updated.tar.gz && \
+curl --compressed -fL -o /tmp/zebvix-chain-updated.tar.gz "https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/zebvix-chain-updated.tar.gz" && \
+tar -xf /tmp/zebvix-chain-updated.tar.gz -C /home/ && \
+cd /home/zebvix-chain && cargo build --release && cargo test --release --lib staking
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100 62350  100 62350    0     0  81345      0 --:--:-- --:--:-- --:--:-- 81290
+   Compiling zebvix-node v0.1.0 (/home/zebvix-chain)
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:358:4
+    |
+358 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 1m 14s
+   Compiling zebvix-node v0.1.0 (/home/zebvix-chain)
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:358:4
+    |
+358 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib test) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 9.84s
+     Running unittests src/lib.rs (target/release/deps/zebvix_node-437b6351014eee0b)
+
+running 6 tests
+test staking::tests::commission_change_capped_per_epoch ... ok
+test staking::tests::create_stake_and_unstake_roundtrip ... ok
+test staking::tests::double_sign_slashes_5_percent ... ok
+test staking::tests::redelegate_moves_stake ... ok
+test staking::tests::rewards_compound_on_shares ... ok
+test staking::tests::unbonding_matures_after_cooldown ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+
+root@srv1266996:/home/zebvix-chain# 
