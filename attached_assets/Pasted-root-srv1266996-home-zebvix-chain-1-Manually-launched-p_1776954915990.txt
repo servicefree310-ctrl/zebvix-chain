@@ -1,0 +1,81 @@
+root@srv1266996:/home/zebvix-chain# # 1) Manually-launched purane processes ko explicit kill karo
+sudo kill -9 3742664
+sudo pkill -9 -f zebvix-node
+sleep 5
+ps aux | grep zebvix-node | grep -v grep    # MUST be empty
+
+# 2) Binary swap (atomic mv trick — busy bhi ho to chalega)
+sudo cp /home/zebvix-chain/target/release/zebvix-node /usr/local/bin/zebvix-node.new
+sudo mv -f /usr/local/bin/zebvix-node.new /usr/local/bin/zebvix-node
+
+# 3) Verify
+zebvix-node --help | grep -E "register-pay-id|lookup-pay-id|whois"
+
+# 4) Services start (sirf systemd ones, no nohup)
+sudo systemctl restart zebvix.service zebvix2.service
+sleep 8
+
+# 5) Test
+zebvix-node register-pay-id \
+  --signer-key /home/zebvix-chain/validator.key \
+  --pay-id founder@zbx \
+  --name "Zebvix Founder"
+sleep 6
+zebvix-node lookup-pay-id founder@zbx
+zebvix-node whois 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+[2]+  Killed                  nohup zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns > /var/log/zebvix-n2.log 2>&1
+Killed
+root     3743598  1.9  0.2 470592 18576 ?        Ssl  14:34   0:00 /usr/local/bin/zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns
+  register-pay-id            Register a permanent Pay-ID (e.g. `alice@zbx`) for the signer's address. Handle 3-25 chars `[a-z0-9_]`, name mandatory. ONE per address. CANNOT be edited or deleted afterwards
+  lookup-pay-id              Resolve a Pay-ID (`alice@zbx`) → address + name
+  whois                      Reverse lookup: address → Pay-ID + name (if registered)
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+🪪 Register Pay-ID
+
+   address  : 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+   pay-id   : founder@zbx
+   name     : Zebvix Founder
+   fee      : 0.002 ZBX
+
+   submit response:
+{
+  "id": 1,
+  "jsonrpc": "2.0",
+  "result": "0x0d1f6d32f351c39c2c95b7daac3f2a4c970dccbde7250b13208a758dc9041e1d"
+}
+
+   ⚠️  This Pay-ID is PERMANENT — it cannot be edited or deleted.
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+🔍 Pay-ID Lookup
+
+   pay-id   : founder@zbx
+   name     : Zebvix Founder
+   address  : 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+👤 Whois
+
+   address  : 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+   pay-id   : founder@zbx
+   name     : Zebvix Founder
+root@srv1266996:/home/zebvix-chain# 
