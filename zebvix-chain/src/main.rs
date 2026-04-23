@@ -1463,8 +1463,7 @@ fn fmt_blocks_to_time(blocks: u64) -> String {
 }
 
 async fn cmd_locked_rewards(address: String, rpc_url: String) -> Result<()> {
-    let r = rpc_call(&rpc_url, "zbx_getLockedRewards", serde_json::json!([address])).await?;
-    let res = r.get("result").ok_or_else(|| anyhow::anyhow!("no result"))?;
+    let res = rpc_call(&rpc_url, "zbx_getLockedRewards", serde_json::json!([address])).await?;
     let stake = res["stake_wei"].as_str().unwrap_or("0");
     let locked = res["locked_balance_wei"].as_str().unwrap_or("0");
     let claimable = res["claimable_now_wei"].as_str().unwrap_or("0");
@@ -1488,8 +1487,7 @@ async fn cmd_locked_rewards(address: String, rpc_url: String) -> Result<()> {
 }
 
 async fn cmd_burn_stats(rpc_url: String) -> Result<()> {
-    let r = rpc_call(&rpc_url, "zbx_getBurnStats", serde_json::json!([])).await?;
-    let res = r.get("result").ok_or_else(|| anyhow::anyhow!("no result"))?;
+    let res = rpc_call(&rpc_url, "zbx_getBurnStats", serde_json::json!([])).await?;
     let burned = res["total_burned_wei"].as_str().unwrap_or("0");
     let cap = res["burn_cap_wei"].as_str().unwrap_or("0");
     let phase = res["phase"].as_str().unwrap_or("?");

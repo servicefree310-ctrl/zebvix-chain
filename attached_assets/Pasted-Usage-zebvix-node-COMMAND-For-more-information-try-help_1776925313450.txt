@@ -1,0 +1,137 @@
+Usage: zebvix-node <COMMAND>
+
+For more information, try '--help'.
+root@srv1266996:/home/zebvix-chain# # Pehle pata karein node kaise running hai:
+ps aux | grep zebvix-node | grep -v grep
+
+# Agar `nohup` ya `screen`/`tmux` me hai to old process kill karke naye binary se restart:
+pkill -f "zebvix-node node"     # ya jo bhi command line use ki thi
+sleep 2
+
+# Phir naye binary se start (jaise pehle kiya tha):
+nohup zebvix-node node --data-dir /root/.zebvix > /var/log/zebvix.log 2>&1 &
+root     3579708  0.1  0.2 473008 19468 ?        Ssl  04:57   0:06 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns
+root     3579709  0.1  0.2 470376 19728 ?        Ssl  04:57   0:06 /usr/local/bin/zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns
+[1] 3587469
+root@srv1266996:/home/zebvix-chain# 1. Dono nodes stop kareinin
+pkill -f "zebvix-node start"
+sleep 3
+ps aux | grep zebvix-node | grep -v grep   # khaali aana chahiye
+
+# 2. Ab binary replace karein (busy nahi hoga)
+sudo cp /home/zebvix-chain/target/release/zebvix-node /usr/local/bin/zebvix-node
+
+# 3. Naye subcommands verify
+zebvix-node --help | grep -E "locked-rewards|burn-stats"
+
+# 4. Dono nodes wapas start karein (same flags jo pehle the)
+nohup zebvix-node start --home /root/.zebvix \
+  --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns \
+  > /var/log/zebvix-n1.log 2>&1 &
+
+nohup zebvix-node start --home /home/zebvix-chain/.zebvix2 \
+  --rpc 127.0.0.1:8546 --p2p-port 30334 \
+  --peer /ip4/127.0.0.1/tcp/30333 --no-mdns \
+  > /var/log/zebvix-n2.log 2>&1 &
+
+sleep 5
+ps aux | grep zebvix-node | grep -v grep   # 2 process dikhne chahiye
+
+# 5. Ab Phase B.5 RPCs test karein
+zebvix-node burn-stats
+zebvix-node locked-rewards --address 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+
+# 6. Ek tx bhejke gas fee redistribution check
+zebvix-node staking-info        # purana data load hua hai verify
+zebvix-node burn-stats          # baseline burn note kar lijiye
+# fir koi small tx bhejein, fir wapas burn-stats — burn balance badhna chahiye
+[1]+  Exit 2                  nohup zebvix-node node --data-dir /root/.zebvix > /var/log/zebvix.log 2>&1
+  claim-rewards              Claim accumulated rewards (operator commission + Phase B.5 locked-rewards drip + bulk). Anyone with locked rewards can call — operator additionally drains commission_pool
+  locked-rewards             Show locked-rewards bucket for an address: balance, claimable now, next unlocks
+  burn-stats                 Show burn-pool progress (gas fee 10% slice → burn until 75M cap → AMM liquidity)
+[1] 3587710
+[2] 3587711
+root     3587710  0.3  0.2 601660 19124 pts/4    Sl   06:19   0:00 zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns
+root     3587711  0.3  0.2 1060412 19068 pts/4   Sl   06:19   0:00 zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns
+Error: no result
+Error: no result
+🥩 Staking module state
+
+   Current epoch         : 0
+   Epoch length          : 17280 blocks
+   Epoch reward          : 50000000000000000000 wei
+   Unbonding epochs      : 7
+   Min self-bond (fallback): 1000000000000000000000 wei
+   Min self-bond (target USD): $50.00
+   Min self-bond (live $50≡): 50000000000000000000 wei
+   Min delegation        : 1000000000000000000 wei
+   Max commission        : 5000 bps
+   Max commission Δ/epoch: 100 bps
+   Total slashed         : 0 wei
+
+   Validators            : 0
+   Delegations           : 0
+   Unbonding entries     : 0
+Error: no result
+root@srv1266996:/home/zebvix-chain# # A. Raw RPC error dekhein (asli reason milega)
+curl -s -X POST -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","method":"zbx_getBurnStats","params":[],"id":1}' \
+  http://127.0.0.1:8545 | python3 -m json.tool
+
+curl -s -X POST -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","method":"zbx_getLockedRewards","params":["0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc"],"id":1}' \
+  http://127.0.0.1:8545 | python3 -m json.tool
+
+# B. State file check karein
+ls -la /root/.zebvix/
+# state.bin ka size aur date dekhein — agar choti/abhi-ki hai to schema fail hua
+
+# C. Node logs me deserialize warning
+tail -50 /var/log/zebvix-n1.log | grep -iE "deserial|state|load|error|warn"
+{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+        "burn_address": "0x6275726e0000000000000000000000000000dead",
+        "burn_cap_wei": "75000000000000000000000000",
+        "fee_split": {
+            "burn_or_liquidity_bps": 1000,
+            "delegators_bps": 2000,
+            "treasury_bps": 2000,
+            "validator_bps": 5000
+        },
+        "phase": "burn",
+        "progress_bps": 0,
+        "total_burned_wei": "0"
+    }
+}
+{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+        "address": "0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc",
+        "blocks_to_next_bulk": 0,
+        "bulk_interval_blocks": 5000000,
+        "bulk_release_bps": 2500,
+        "claimable_now_wei": "0",
+        "current_height": 1529,
+        "daily_drip_wei": "0",
+        "drip_bps_per_day": 50,
+        "last_bulk_height": 1529,
+        "last_drip_height": 1529,
+        "locked_after_claim_wei": "0",
+        "locked_balance_wei": "0",
+        "next_bulk_height": 1529,
+        "next_drip_height": 1529,
+        "stake_wei": "0",
+        "total_released_wei": "0"
+    }
+}
+total 24
+drwxr-xr-x  3 root root 4096 Apr 23 03:52 .
+drwx------ 24 root root 4096 Apr 23 03:52 ..
+drwxr-xr-x  2 root root 4096 Apr 23 06:20 data
+-rw-r--r--  1 root root  277 Apr 23 03:52 genesis.json
+-rw-r--r--  1 root root   57 Apr 23 03:52 node.json
+-rw-r--r--  1 root root  229 Apr 23 03:52 validator.key
+root@srv1266996:/home/zebvix-chain# 
