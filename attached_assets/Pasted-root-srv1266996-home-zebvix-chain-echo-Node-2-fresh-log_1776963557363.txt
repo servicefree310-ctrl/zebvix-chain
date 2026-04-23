@@ -1,0 +1,60 @@
+root@srv1266996:/home/zebvix-chain# echo "=== Node-2 fresh logs (since restart) ==="
+sudo journalctl -u zebvix2.service --since "16:56:50" --no-pager | tail -30
+
+echo ""
+echo "=== Current Node-2 dir tree ==="
+sudo ls -la /home/zebvix-chain/.zebvix2/
+sudo ls -la /home/zebvix-chain/.zebvix2/data/ 2>/dev/null | head -10
+
+echo ""
+echo "=== Genesis dir on Node-1 ==="
+sudo ls -la /root/.zebvix/
+
+echo ""
+echo "=== Live heights (re-fetch, no cache) ==="
+curl -s -X POST http://127.0.0.1:8546 -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":99,"method":"zbx_blockNumber","params":[]}' | jq .
+=== Node-2 fresh logs (since restart) ===
+Apr 23 16:56:50 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+
+=== Current Node-2 dir tree ===
+total 24
+drwxr-xr-x  3 root   root   4096 Apr 23 16:56 .
+drwxr-xr-x 22 ubuntu ubuntu 4096 Apr 23 16:11 ..
+drwxr-xr-x  2 root   root   4096 Apr 23 16:56 data
+-rw-r--r--  1 root   root    277 Apr 23 16:56 genesis.json
+-rw-r--r--  1 root   root     72 Apr 23 16:56 node.json
+-rw-r--r--  1 root   root    229 Apr 23 16:52 validator.key
+total 320
+drwxr-xr-x 2 root root   4096 Apr 23 16:56 .
+drwxr-xr-x 3 root root   4096 Apr 23 16:56 ..
+-rw-r--r-- 1 root root 219446 Apr 23 16:56 000004.log
+-rw-r--r-- 1 root root     16 Apr 23 16:56 CURRENT
+-rw-r--r-- 1 root root     36 Apr 23 16:56 IDENTITY
+-rw-r--r-- 1 root root      0 Apr 23 16:56 LOCK
+-rw-r--r-- 1 root root  59802 Apr 23 16:56 LOG
+-rw-r--r-- 1 root root    241 Apr 23 16:56 MANIFEST-000005
+-rw-r--r-- 1 root root  20788 Apr 23 16:56 OPTIONS-000007
+
+=== Genesis dir on Node-1 ===
+total 260
+drwxr-xr-x  3 root root   4096 Apr 23 03:52 .
+drwx------ 24 root root   4096 Apr 23 03:52 ..
+drwxr-xr-x  2 root root 241664 Apr 23 16:17 data
+-rw-r--r--  1 root root    277 Apr 23 03:52 genesis.json
+-rw-r--r--  1 root root     57 Apr 23 03:52 node.json
+-rw-r--r--  1 root root    229 Apr 23 03:52 validator.key
+
+=== Live heights (re-fetch, no cache) ===
+{
+  "jsonrpc": "2.0",
+  "id": 99,
+  "result": {
+    "hash": "0xdc253e829e4bc18bed5898392ae81f5bf826cfcd02adea7219f070b8bdb398cf",
+    "height": 380,
+    "hex": "0x17c",
+    "proposer": "0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc",
+    "timestamp_ms": 1776918687943
+  }
+}
+root@srv1266996:/home/zebvix-chain# 
