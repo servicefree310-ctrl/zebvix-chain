@@ -1,0 +1,51 @@
+root@srv1266996:/home/zebvix-chain# # Step 1: SAB kill karo
+sudo pkill -9 -f zebvix-node
+sleep 8
+ps aux | grep zebvix-node | grep -v grep
+# YAHAN OUTPUT EMPTY HONA CHAHIYE — agar koi PID bacha to:
+#   sudo kill -9 <PID>
+
+# Step 2: Binary copy
+sudo cp /home/zebvix-chain/target/release/zebvix-node /usr/local/bin/zebvix-node
+
+# Step 3: Verify naye commands hain ya nahi
+zebvix-node --help | grep -E "register-pay-id|lookup-pay-id|whois"
+
+# Step 4: Restart nodes
+nohup zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns > /var/log/zebvix-n1.log 2>&1 &
+nohup zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns > /var/log/zebvix-n2.log 2>&1 &
+sleep 8
+
+# Step 5: Pay-ID test
+zebvix-node register-pay-id \
+  --signer-key /home/zebvix-chain/validator.key \
+  --pay-id founder@zbx \
+  --name "Zebvix Founder"
+sleep 6
+zebvix-node lookup-pay-id founder@zbx
+zebvix-node whois 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+Killed
+[2]+  Killed                  nohup zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns > /var/log/zebvix-n2.log 2>&1
+root     3742576  1.0  0.2 470688 18796 ?        Ssl  14:30   0:00 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns
+cp: cannot create regular file '/usr/local/bin/zebvix-node': Text file busy
+[1] 3742663
+[2] 3742664
+[1]-  Exit 1                  nohup zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns > /var/log/zebvix-n1.log 2>&1
+error: unrecognized subcommand 'register-pay-id'
+
+Usage: zebvix-node <COMMAND>
+
+For more information, try '--help'.
+error: unrecognized subcommand 'lookup-pay-id'
+
+Usage: zebvix-node <COMMAND>
+
+For more information, try '--help'.
+error: unrecognized subcommand 'whois'
+
+  tip: a similar subcommand exists: 'show-validator'
+
+Usage: zebvix-node <COMMAND>
+
+For more information, try '--help'.
+root@srv1266996:/home/zebvix-chain# 
