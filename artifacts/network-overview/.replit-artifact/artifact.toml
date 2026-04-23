@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/network-overview/"
+title = "Zebvix Network Overview"
+version = "1.0.0"
+id = "artifacts/network-overview"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/network-overview/" ]
+localPort = 22815
+
+[services.development]
+run = "pnpm --filter @workspace/network-overview run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/network-overview", "run", "build" ]
+publicDir = "artifacts/network-overview/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22815"
+BASE_PATH = "/network-overview/"
