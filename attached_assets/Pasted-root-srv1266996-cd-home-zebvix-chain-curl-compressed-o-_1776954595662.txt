@@ -1,0 +1,100 @@
+root@srv1266996:~# cd /home/zebvix-chain
+curl --compressed -o /tmp/zbx-new.tar.gz \
+  https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/zebvix-chain-updated.tar.gz
+tar -xf /tmp/zbx-new.tar.gz
+cargo build --release
+
+pkill -9 -f "zebvix-node start"; sleep 5
+ps aux | grep zebvix-node | grep -v grep   # MUST be empty
+
+sudo cp target/release/zebvix-node /usr/local/bin/zebvix-node
+
+nohup zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns > /var/log/zebvix-n1.log 2>&1 &
+nohup zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns > /var/log/zebvix-n2.log 2>&1 &
+sleep 8
+
+# Founder ke liye Pay-ID register karein
+zebvix-node register-pay-id \
+  --signer-key /home/zebvix-chain/validator.key \
+  --pay-id founder@zbx \
+  --name "Zebvix Founder"
+
+sleep 6   # block confirm
+
+# Lookup test
+zebvix-node lookup-pay-id founder@zbx
+zebvix-node whois 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+
+# Delegator ke liye bhi
+zebvix-node register-pay-id \
+  --signer-key /tmp/del.key \
+  --pay-id ali@zbx \
+  --name "Ali Khan"
+sleep 6
+zebvix-node lookup-pay-id ali@zbx
+
+# Negative tests
+zebvix-node register-pay-id --signer-key /home/zebvix-chain/validator.key --pay-id second@zbx --name "X"   # should reject (1 per addr)
+zebvix-node lookup-pay-id nobody@zbx                                                                       # should error (handle <3)
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100 80604  100 80604    0     0    98k      0 --:--:-- --:--:-- --:--:--   99k
+   Compiling zebvix-node v0.1.0 (/home/zebvix-chain)
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:358:4
+    |
+358 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 1m 22s
+root     3741887  1.2  0.2 732740 18768 ?        Ssl  14:29   0:00 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns
+cp: cannot create regular file '/usr/local/bin/zebvix-node': Text file busy
+[1] 3741967
+[2] 3741968
+[1]-  Exit 1                  nohup zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns > /var/log/zebvix-n1.log 2>&1
+error: unrecognized subcommand 'register-pay-id'
+
+Usage: zebvix-node <COMMAND>
+
+For more information, try '--help'.
+error: unrecognized subcommand 'lookup-pay-id'
+
+Usage: zebvix-node <COMMAND>
+
+For more information, try '--help'.
+error: unrecognized subcommand 'whois'
+
+  tip: a similar subcommand exists: 'show-validator'
+
+Usage: zebvix-node <COMMAND>
+
+For more information, try '--help'.
+error: unrecognized subcommand 'register-pay-id'
+
+Usage: zebvix-node <COMMAND>
+
+For more information, try '--help'.
+error: unrecognized subcommand 'lookup-pay-id'
+
+Usage: zebvix-node <COMMAND>
+
+For more information, try '--help'.
+error: unrecognized subcommand 'register-pay-id'
+
+Usage: zebvix-node <COMMAND>
+
+For more information, try '--help'.
+error: unrecognized subcommand 'register-pay-id'
+
+Usage: zebvix-node <COMMAND>
+
+For more information, try '--help'.
+error: unrecognized subcommand 'lookup-pay-id'
+
+Usage: zebvix-node <COMMAND>
+
+For more information, try '--help'.
+root@srv1266996:/home/zebvix-chain# 
