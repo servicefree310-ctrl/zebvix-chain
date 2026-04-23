@@ -6,7 +6,8 @@
 //!   - zbx_getNonce           -> u64
 //!   - zbx_sendTransaction    -> tx hash (accepts JSON SignedTx)
 //!   - zbx_getBlockByNumber   -> Block JSON
-//!   - zbx_supply             -> { minted_wei, premine_wei, burned_wei,
+//!   - zbx_supply             -> { minted_wei, premine_wei, pool_seed_wei,
+//!                                  pool_reserve_wei, burned_wei,
 //!                                  circulating_wei, max_wei,
 //!                                  current_block_reward_wei, height }
 //!   - zbx_getValidator       -> { address, pubkey, voting_power } | null
@@ -147,19 +148,34 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
             let premine = crate::tokenomics::FOUNDER_PREMINE_WEI;
             let burn_addr = crate::state::burn_address();
             let burned = ctx.state.account(&burn_addr).balance;
-            // Circulating = all ZBX that has ever existed (minted by block rewards
-            // + genesis premine), MINUS any ZBX permanently sent to the burn
-            // address. ZBX held by validators, LPs, the AMM pool reserve, the
-            // reward-lock vault, and the treasury all count as circulating
-            // because they remain redeemable / spendable on-chain. Only `burned`
-            // is removed forever.
+            // Pool genesis seed: when the admin runs `pool-init-genesis`,
+            // GENESIS_POOL_ZBX_WEI (10M ZBX) is minted DIRECTLY into the AMM
+            // pool reserves. This mint is NOT counted by `cumulative_supply()`
+            // (which tracks block rewards only), so we add it back here once
+            // the pool is initialized. Before pool init, this is 0.
+            let pool = ctx.state.pool();
+            let pool_seed = if pool.is_initialized() {
+                crate::tokenomics::GENESIS_POOL_ZBX_WEI
+            } else {
+                0u128
+            };
+            let pool_reserve = pool.zbx_reserve;
+            // Circulating = all ZBX that has ever existed (block-reward mints +
+            // pool genesis seed + founder premine) MINUS ZBX permanently sent
+            // to the burn address. ZBX held by validators, LPs, the AMM pool
+            // reserve, the reward-lock vault, and the treasury all count as
+            // circulating because they remain redeemable / spendable on-chain.
+            // Only `burned` is removed forever.
             let circulating = minted
                 .saturating_add(premine)
+                .saturating_add(pool_seed)
                 .saturating_sub(burned);
             ok(id, json!({
                 "height": h,
                 "minted_wei": minted.to_string(),
                 "premine_wei": premine.to_string(),
+                "pool_seed_wei": pool_seed.to_string(),
+                "pool_reserve_wei": pool_reserve.to_string(),
                 "burned_wei": burned.to_string(),
                 "circulating_wei": circulating.to_string(),
                 "max_wei": TOTAL_SUPPLY_WEI.to_string(),

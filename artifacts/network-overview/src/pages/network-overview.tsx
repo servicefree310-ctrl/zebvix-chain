@@ -45,6 +45,8 @@ interface SupplyInfo {
   current_block_reward_wei: string;
   burned_wei?: string;
   premine_wei?: string;
+  pool_seed_wei?: string;
+  pool_reserve_wei?: string;
   circulating_wei?: string;
 }
 interface ValidatorInfo {
@@ -212,11 +214,13 @@ export default function NetworkOverview() {
   const maxSupply = supply ? weiHexToZbxNum(supply.max_wei) : 150_000_000;
   const burned = supply?.burned_wei ? weiHexToZbxNum(supply.burned_wei) : 0;
   const premine = supply?.premine_wei ? weiHexToZbxNum(supply.premine_wei) : 0;
-  // Prefer chain-computed circulating; fall back to (minted + premine - burned)
+  const poolSeed = supply?.pool_seed_wei ? weiHexToZbxNum(supply.pool_seed_wei) : 0;
+  const poolReserve = supply?.pool_reserve_wei ? weiHexToZbxNum(supply.pool_reserve_wei) : 0;
+  // Prefer chain-computed circulating; fall back to (minted + premine + pool_seed - burned)
   // for older nodes that don't expose `circulating_wei` yet.
   const circulating = supply?.circulating_wei
     ? weiHexToZbxNum(supply.circulating_wei)
-    : Math.max(0, minted + premine - burned);
+    : Math.max(0, minted + premine + poolSeed - burned);
   const blockReward = supply ? weiHexToZbxNum(supply.current_block_reward_wei) : 3;
   const supplyPercentMined = maxSupply > 0 ? (minted / maxSupply) * 100 : 0;
   const remainingSupply = Math.max(0, maxSupply - minted);
@@ -319,6 +323,8 @@ export default function NetworkOverview() {
           supplyPercentMined={supplyPercentMined}
           circulating={circulating}
           premine={premine}
+          poolSeed={poolSeed}
+          poolReserve={poolReserve}
           burned={burned}
           maxBurnSupply={maxBurnSupply}
           burnPercentOfMax={burnPercentOfMax}
@@ -600,7 +606,7 @@ function Row({ label, value, bold }: { label: string; value: string; bold?: bool
 
 interface TokenomicsProps {
   minted: number; maxSupply: number; remainingSupply: number; supplyPercentMined: number;
-  circulating: number; premine: number;
+  circulating: number; premine: number; poolSeed: number; poolReserve: number;
   burned: number; maxBurnSupply: number; burnPercentOfMax: number;
   blockReward: number; halvingEra: number; nextHalvingAt: number; nextHalvingReward: number;
   zbxUntilNextHalving: number; daysUntilNextHalving: number; yearsUntilFullSupply: number;
@@ -643,9 +649,11 @@ function TokenomicsSection(s: TokenomicsProps) {
             <div className="pt-2 border-t border-neutral-800 space-y-1">
               <Row label="Total Supply" value={`${fmtZbx(s.maxSupply)} ZBX`} bold />
               <Row label="Mined (block rewards)" value={`${fmtZbx(s.minted)} ZBX`} />
-              {s.premine > 0 && <Row label="Genesis Premine" value={`${fmtZbx(s.premine)} ZBX`} />}
+              {s.poolSeed > 0 && <Row label="AMM Pool Seed (genesis)" value={`+${fmtZbx(s.poolSeed)} ZBX`} />}
+              {s.premine > 0 && <Row label="Founder Premine" value={`+${fmtZbx(s.premine)} ZBX`} />}
               {s.burned > 0 && <Row label="Burned" value={`-${fmtZbx(s.burned)} ZBX`} />}
               <Row label="Circulating" value={`${fmtZbx(s.circulating)} ZBX`} bold />
+              {s.poolReserve > 0 && <Row label="↳ in AMM Pool" value={`${fmtZbx(s.poolReserve)} ZBX`} />}
               <Row label="Remaining to Mine" value={`${fmtZbx(s.remainingSupply)} ZBX`} />
             </div>
           </div>
@@ -801,7 +809,7 @@ function ZflTopTokens() {
 // ─────────────────────────────────────────────────────────────────────────────
 function VpsUpgradeCard() {
   const installerUrl =
-    `${window.location.origin}/api/downloads/install-zbx-supply-v0.1.sh`;
+    `${window.location.origin}/api/downloads/install-zbx-supply-v0.2.sh`;
   const cmd = `curl -fsSL ${installerUrl} | sudo bash`;
   const [copied, setCopied] = useState(false);
 
@@ -822,7 +830,7 @@ function VpsUpgradeCard() {
           <Cpu className="w-4 h-4 text-indigo-400" />
           VPS Node Upgrade — Supply RPC Patch
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono normal-case">
-            v0.1
+            v0.2
           </span>
         </h3>
         <a
@@ -836,10 +844,10 @@ function VpsUpgradeCard() {
       <div className="px-4 pb-4 space-y-3">
         <p className="text-xs text-neutral-400 leading-relaxed">
           Apne Zebvix VPS node pe SSH karke ye <span className="text-indigo-300 font-mono">ek-line command</span> chalao.
-          Script khud hi backup, build, install aur restart kar dega — phir
-          dashboard automatically <span className="text-emerald-300 font-mono">circulating_wei</span>,{" "}
-          <span className="text-orange-300 font-mono">burned_wei</span>,{" "}
-          <span className="text-amber-300 font-mono">premine_wei</span> fields consume karne lagega.
+          v0.2 fix: <span className="text-amber-300 font-mono">pool_seed_wei</span> +{" "}
+          <span className="text-amber-300 font-mono">pool_reserve_wei</span> add hue, aur{" "}
+          <span className="text-emerald-300 font-mono">circulating_wei</span> ab 10M AMM pool seed include karta hai.
+          Script khud hi backup, build, install aur restart kar dega.
         </p>
         <div className="relative">
           <pre className="bg-neutral-950 border border-neutral-800 rounded-md p-3 pr-12 text-xs font-mono text-emerald-300 overflow-x-auto whitespace-pre">
