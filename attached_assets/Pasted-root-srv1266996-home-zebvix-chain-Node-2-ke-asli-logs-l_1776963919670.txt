@@ -1,0 +1,111 @@
+root@srv1266996:/home/zebvix-chain# # Node-2 ke asli logs (last 60 lines)
+sudo tail -80 /var/log/zebvix2.log
+
+# Errors specifically
+sudo grep -iE "fail|error|warn|bad|panic" /var/log/zebvix2.log | tail -25
+2026-04-23T17:03:35.676031Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T17:03:35.676148Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:03:39.983097Z  INFO zebvix_node::p2p: ⏬ heartbeat: 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg tip=8165 (we=380); requesting [381..=636]
+2026-04-23T17:03:39.985403Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T17:03:39.985503Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:03:41.673851Z  INFO zebvix_node::p2p: ⏬ p2p out-of-order block #8166 (tip=380); requesting [381..=636] from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg
+2026-04-23T17:03:41.678030Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T17:03:41.678150Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:03:47.174311Z  INFO zebvix_node::p2p: ⏬ p2p out-of-order block #8167 (tip=380); requesting [381..=636] from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg
+2026-04-23T17:03:47.178543Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T17:03:47.178702Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:03:47.983748Z  INFO zebvix_node::p2p: ⏬ heartbeat: 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg tip=8167 (we=380); requesting [381..=636]
+2026-04-23T17:03:47.986310Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T17:03:47.986423Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:03:52.674254Z  INFO zebvix_node::p2p: ⏬ p2p out-of-order block #8168 (tip=380); requesting [381..=636] from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg
+2026-04-23T17:03:52.677409Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T17:03:52.677522Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:03:55.983394Z  INFO zebvix_node::p2p: ⏬ heartbeat: 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg tip=8168 (we=380); requesting [381..=636]
+2026-04-23T17:03:55.985598Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T17:03:55.985716Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:03:58.173532Z  INFO zebvix_node::p2p: ⏬ p2p out-of-order block #8169 (tip=380); requesting [381..=636] from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg
+2026-04-23T17:03:58.175453Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T17:03:58.175539Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:03.682190Z  INFO zebvix_node::p2p: ⏬ p2p out-of-order block #8170 (tip=380); requesting [381..=636] from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg
+2026-04-23T17:04:03.687638Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T17:04:03.687811Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:03.983541Z  INFO zebvix_node::p2p: ⏬ heartbeat: 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg tip=8170 (we=380); requesting [381..=636]
+2026-04-23T17:04:03.985984Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T17:04:03.986113Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:09.178811Z  INFO zebvix_node::p2p: ⏬ p2p out-of-order block #8171 (tip=380); requesting [381..=636] from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg
+2026-04-23T17:04:09.181060Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T17:04:09.181177Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:11.983493Z  INFO zebvix_node::p2p: ⏬ heartbeat: 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg tip=8171 (we=380); requesting [381..=636]
+2026-04-23T17:04:11.985955Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T17:04:11.986079Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:15.178924Z  INFO zebvix_node::p2p: ⏬ p2p out-of-order block #8172 (tip=380); requesting [381..=636] from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg
+2026-04-23T17:04:15.181349Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T17:04:15.181446Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:19.983189Z  INFO zebvix_node::p2p: ⏬ heartbeat: 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg tip=8172 (we=380); requesting [381..=636]
+2026-04-23T17:04:19.985688Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T17:04:19.985804Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:20.678628Z  INFO zebvix_node::p2p: ⏬ p2p out-of-order block #8173 (tip=380); requesting [381..=636] from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg
+2026-04-23T17:04:20.681570Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T17:04:20.681694Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:26.178813Z  INFO zebvix_node::p2p: ⏬ p2p out-of-order block #8174 (tip=380); requesting [381..=636] from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg
+2026-04-23T17:04:26.181244Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T17:04:26.181344Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:27.983034Z  INFO zebvix_node::p2p: ⏬ heartbeat: 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg tip=8174 (we=380); requesting [381..=636]
+2026-04-23T17:04:27.985784Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T17:04:27.985890Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:31.678738Z  INFO zebvix_node::p2p: ⏬ p2p out-of-order block #8175 (tip=380); requesting [381..=636] from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg
+2026-04-23T17:04:31.680647Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T17:04:31.680761Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:35.983644Z  INFO zebvix_node::p2p: ⏬ heartbeat: 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg tip=8175 (we=380); requesting [381..=636]
+2026-04-23T17:04:35.986512Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T17:04:35.986634Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:37.678675Z  INFO zebvix_node::p2p: ⏬ p2p out-of-order block #8176 (tip=380); requesting [381..=636] from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg
+2026-04-23T17:04:37.681183Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T17:04:37.681288Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:43.179372Z  INFO zebvix_node::p2p: ⏬ p2p out-of-order block #8177 (tip=380); requesting [381..=636] from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg
+2026-04-23T17:04:43.181414Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T17:04:43.181524Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:43.983396Z  INFO zebvix_node::p2p: ⏬ heartbeat: 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg tip=8177 (we=380); requesting [381..=636]
+2026-04-23T17:04:43.988464Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T17:04:43.988594Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:49.178878Z  INFO zebvix_node::p2p: ⏬ p2p out-of-order block #8178 (tip=380); requesting [381..=636] from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg
+2026-04-23T17:04:49.180900Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T17:04:49.181038Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:51.983765Z  INFO zebvix_node::p2p: ⏬ heartbeat: 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg tip=8178 (we=380); requesting [381..=636]
+2026-04-23T17:04:51.986620Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T17:04:51.986733Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:54.678491Z  INFO zebvix_node::p2p: ⏬ p2p out-of-order block #8179 (tip=380); requesting [381..=636] from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg
+2026-04-23T17:04:54.680479Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T17:04:54.680573Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:59.983874Z  INFO zebvix_node::p2p: ⏬ heartbeat: 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg tip=8179 (we=380); requesting [381..=636]
+2026-04-23T17:04:59.986768Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T17:04:59.986909Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:05:00.179234Z  INFO zebvix_node::p2p: ⏬ p2p out-of-order block #8180 (tip=380); requesting [381..=636] from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg
+2026-04-23T17:05:00.183524Z  INFO zebvix_node::p2p: ⏬ sync response from 12D3KooWDj5jGE6b1BF2ceNvtMZQdSEaevf2ydsGpakF5iwYzYjg: 256 blocks
+2026-04-23T17:05:00.183694Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:03:41.678150Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:03:47.178702Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:03:47.986423Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:03:52.677522Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:03:55.985716Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:03:58.175539Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:03.687811Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:03.986113Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:09.181177Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:11.986079Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:15.181446Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:19.985804Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:20.681694Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:26.181344Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:27.985890Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:31.680761Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:35.986634Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:37.681288Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:43.181524Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:43.988594Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:49.181038Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:51.986733Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:54.680573Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:04:59.986909Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+2026-04-23T17:05:00.183694Z  WARN zebvix_node: p2p apply_block #381 failed: bad nonce: have 0, got 2
+root@srv1266996:/home/zebvix-chain# 
