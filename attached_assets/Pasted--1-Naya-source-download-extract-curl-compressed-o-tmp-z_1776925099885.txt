@@ -1,0 +1,57 @@
+# 1. Naya source download + extract
+curl --compressed -o /tmp/zbx-new.tar.gz \
+  https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/zebvix-chain-updated.tar.gz
+tar -xf /tmp/zbx-new.tar.gz
+
+# 2. Rebuild (warning bhi gone hai ab)
+cargo build --release
+
+# 3. PURANE binary ko replace karein — YAHI key step hai
+which zebvix-node      # purane binary ka path dikhega, e.g. /usr/local/bin/zebvix-node
+sudo cp target/release/zebvix-node $(which zebvix-node)
+
+# 4. Naye subcommands verify karein
+zebvix-node --help | grep -E "locked-rewards|burn-stats"
+zebvix-node burn-stats
+zebvix-node locked-rewards --address 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100 73216  100 73216    0     0  94384      0 --:--:-- --:--:-- --:--:-- 94350
+   Compiling zebvix-node v0.1.0 (/home/zebvix-chain)
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:358:4
+    |
+358 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 1m 16s
+/usr/local/bin/zebvix-node
+cp: cannot create regular file '/usr/local/bin/zebvix-node': Text file busy
+error: unrecognized subcommand 'burn-stats'
+
+  tip: a similar subcommand exists: 'unstake'
+
+Usage: zebvix-node <COMMAND>
+
+For more information, try '--help'.
+error: unrecognized subcommand 'locked-rewards'
+
+Usage: zebvix-node <COMMAND>
+
+For more information, try '--help'.
+root@srv1266996:/home/zebvix-chain# # Pehle pata karein node kaise running hai:
+ps aux | grep zebvix-node | grep -v grep
+
+# Agar `nohup` ya `screen`/`tmux` me hai to old process kill karke naye binary se restart:
+pkill -f "zebvix-node node"     # ya jo bhi command line use ki thi
+sleep 2
+
+# Phir naye binary se start (jaise pehle kiya tha):
+nohup zebvix-node node --data-dir /root/.zebvix > /var/log/zebvix.log 2>&1 &
+root     3579708  0.1  0.2 473008 19468 ?        Ssl  04:57   0:06 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns
+root     3579709  0.1  0.2 470376 19728 ?        Ssl  04:57   0:06 /usr/local/bin/zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns
+[1] 3587469
+root@srv1266996:/home/zebvix-chain# 
