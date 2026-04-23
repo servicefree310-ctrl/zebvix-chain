@@ -1,0 +1,70 @@
+100 62347  100 62347    0     0  80193      0 --:--:-- --:--:-- --:--:-- 80137
+8:#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+   Compiling zebvix-node v0.1.0 (/home/zebvix-chain)
+error[E0277]: the trait bound `Address: Default` is not satisfied
+   --> src/staking.rs:138:5
+    |
+136 | #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+    |                        ------- in this derive macro expansion
+137 | pub struct ValidatorState {
+138 |     pub address: Address,
+    |     ^^^^^^^^^^^^^^^^^^^^ the trait `Default` is not implemented for `Address`
+    |
+help: consider annotating `Address` with `#[derive(Default)]`
+   --> src/types.rs:9:1
+    |
+  9 + #[derive(Default)]
+ 10 | pub struct Address(#[serde(with = "hex_array_20")] pub [u8; ADDRESS_LEN]);
+    |
+
+error[E0277]: the trait bound `Address: Default` is not satisfied
+   --> src/staking.rs:141:5
+    |
+136 | #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+    |                        ------- in this derive macro expansion
+...
+141 |     pub operator: Address,
+    |     ^^^^^^^^^^^^^^^^^^^^^ the trait `Default` is not implemented for `Address`
+    |
+help: consider annotating `Address` with `#[derive(Default)]`
+   --> src/types.rs:9:1
+    |
+  9 + #[derive(Default)]
+ 10 | pub struct Address(#[serde(with = "hex_array_20")] pub [u8; ADDRESS_LEN]);
+    |
+
+error[E0277]: the trait bound `Address: Default` is not satisfied
+   --> src/staking.rs:179:5
+    |
+177 | #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+    |                        ------- in this derive macro expansion
+178 | pub struct UnbondingEntry {
+179 |     pub delegator: Address,
+    |     ^^^^^^^^^^^^^^^^^^^^^^ the trait `Default` is not implemented for `Address`
+    |
+help: consider annotating `Address` with `#[derive(Default)]`
+   --> src/types.rs:9:1
+    |
+  9 + #[derive(Default)]
+ 10 | pub struct Address(#[serde(with = "hex_array_20")] pub [u8; ADDRESS_LEN]);
+    |
+
+error[E0277]: the trait bound `Address: Default` is not satisfied
+   --> src/staking.rs:180:5
+    |
+177 | #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+    |                        ------- in this derive macro expansion
+...
+180 |     pub validator: Address,
+    |     ^^^^^^^^^^^^^^^^^^^^^^ the trait `Default` is not implemented for `Address`
+    |
+help: consider annotating `Address` with `#[derive(Default)]`
+   --> src/types.rs:9:1
+    |
+  9 + #[derive(Default)]
+ 10 | pub struct Address(#[serde(with = "hex_array_20")] pub [u8; ADDRESS_LEN]);
+    |
+
+For more information about this error, try `rustc --explain E0277`.
+error: could not compile `zebvix-node` (lib) due to 4 previous errors
+root@srv1266996:/home/zebvix-chain# 

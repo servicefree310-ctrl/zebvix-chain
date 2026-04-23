@@ -5,7 +5,7 @@ use std::fmt;
 pub const ADDRESS_LEN: usize = 20;
 pub const HASH_LEN: usize = 32;
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize)]
 pub struct Address(#[serde(with = "hex_array_20")] pub [u8; ADDRESS_LEN]);
 
 impl Address {
