@@ -2,6 +2,10 @@ import React from "react";
 import {
   Activity, Box, ListOrdered, Server, Hash, Clock, DollarSign, Flame, Coins,
   Hourglass, TrendingDown, Pickaxe, ShieldCheck, ArrowUpRight, ExternalLink,
+  BookOpen, PlayCircle, TerminalSquare, FileJson, Users, Network, Settings, CheckSquare,
+  Rocket, Wallet, Shield, AtSign, ListChecks, Calculator, Map as MapIcon, Paintbrush,
+  Search, Droplets, ArrowLeftRight, TrendingUp, ArrowUpDown, Layers, FileCode2,
+  Code2, Sparkles, GitBranch, Download,
 } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Area, AreaChart,
@@ -85,7 +89,9 @@ export function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-100 p-6 space-y-6 font-sans">
+    <div className="min-h-screen bg-neutral-950 text-neutral-100 font-sans flex">
+      <AppSidebar />
+      <main className="flex-1 min-w-0 p-6 space-y-6">
       {/* HEADER */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -258,7 +264,91 @@ export function Dashboard() {
           </table>
         </div>
       </div>
+      </main>
     </div>
+  );
+}
+
+function AppSidebar() {
+  const CORE_NAV = [
+    { label: "Overview", icon: BookOpen, active: false },
+    { label: "Quick Start Script", icon: PlayCircle },
+    { label: "Environment Setup", icon: TerminalSquare },
+    { label: "Genesis Config", icon: FileJson },
+    { label: "Validator Setup", icon: Users },
+    { label: "Network Config", icon: Network },
+    { label: "Tokenomics", icon: Coins },
+    { label: "Customization", icon: Settings },
+    { label: "Launch Checklist", icon: CheckSquare },
+    { label: "Production Chain", icon: Rocket },
+  ];
+  const LIVE_NAV = [
+    { label: "Live Chain Status", icon: Activity, active: true },
+    { label: "Balance Lookup", icon: Wallet },
+    { label: "Multisig Explorer", icon: Shield },
+    { label: "Pay-ID Resolver", icon: AtSign },
+  ];
+  const ADDON_NAV = [
+    { label: "Phase Tracker", icon: ListChecks },
+    { label: "Economic Designer", icon: Calculator },
+    { label: "Implementation Roadmap", icon: MapIcon },
+    { label: "Rebranding Guide", icon: Paintbrush },
+    { label: "ZBX Tokenomics Design", icon: Coins },
+    { label: "Block Explorer", icon: Search },
+    { label: "ZBX Wallet", icon: Wallet },
+    { label: "Testnet Faucet", icon: Droplets },
+    { label: "Cross-Chain Bridge", icon: ArrowLeftRight },
+    { label: "Staking Dashboard", icon: TrendingUp },
+    { label: "DEX / Swap", icon: ArrowUpDown },
+    { label: "Zebvix Fabric Layer", icon: Layers },
+    { label: "Code Review — What Changed", icon: FileCode2 },
+    { label: "Chain Source Code", icon: Code2 },
+    { label: "Chain Features", icon: Sparkles },
+    { label: "Consensus Roadmap (DAG-BFT)", icon: GitBranch },
+    { label: "Downloads", icon: Download },
+  ];
+
+  const NavItem = ({ label, icon: Icon, active }: { label: string; icon: any; active?: boolean }) => (
+    <div className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer ${
+      active ? "bg-emerald-500/10 text-emerald-400" : "text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800/50"
+    }`}>
+      <Icon className="h-4 w-4 shrink-0" />
+      <span className="truncate">{label}</span>
+    </div>
+  );
+
+  return (
+    <aside className="hidden md:flex flex-col w-64 shrink-0 border-r border-neutral-800 bg-neutral-900/40 h-screen sticky top-0 overflow-y-auto">
+      <div className="p-4">
+        <div className="flex items-center gap-2 mb-1">
+          <div className="w-7 h-7 rounded bg-emerald-500 flex items-center justify-center shadow-[0_0_15px_rgba(34,197,94,0.35)]">
+            <div className="w-3 h-3 bg-neutral-950 rounded-sm" />
+          </div>
+          <span className="font-bold text-lg text-neutral-100 tracking-tight">Zebvix Dev</span>
+        </div>
+        <p className="text-[10px] text-neutral-500 font-mono pl-9 mb-5 tracking-wide">Zebvix Technologies Pvt Ltd</p>
+        <nav className="space-y-0.5">
+          {CORE_NAV.map((item) => <NavItem key={item.label} {...item} />)}
+          <div className="pt-3 pb-1 px-3">
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-emerald-500/80">● Live (VPS RPC)</span>
+          </div>
+          {LIVE_NAV.map((item) => <NavItem key={item.label} {...item} />)}
+          <div className="pt-3 pb-1 px-3">
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-emerald-500/60">Addons</span>
+          </div>
+          {ADDON_NAV.map((item) => <NavItem key={item.label} {...item} />)}
+        </nav>
+        <div className="p-4 mt-6 bg-neutral-900 border border-neutral-800 rounded-lg shadow-sm">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-neutral-400">Launch Readiness</span>
+            <span className="text-xs font-mono text-emerald-400">82%</span>
+          </div>
+          <div className="w-full h-1.5 bg-neutral-800 rounded-full overflow-hidden">
+            <div className="h-full bg-emerald-500 rounded-full" style={{ width: "82%" }} />
+          </div>
+        </div>
+      </div>
+    </aside>
   );
 }
 
