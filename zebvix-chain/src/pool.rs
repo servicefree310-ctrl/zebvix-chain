@@ -355,6 +355,41 @@ pub fn dynamic_gas_price_wei(
     gp.max(floor).min(cap)
 }
 
+/// Convert a USD-micro target ($0.001 = 1000) into the equivalent ZBX fee in
+/// WEI at the pool's *current* spot price. Returns `None` if the pool is
+/// uninitialized (caller should fall back to bootstrap bounds).
+pub fn usd_micro_to_zbx_wei(pool: &Pool, usd_micro: u128) -> Option<u128> {
+    if !pool.is_initialized() { return None; }
+    let price_q18 = pool.spot_price_zusd_per_zbx();
+    if price_q18 == 0 { return None; }
+    // fee_wei = usd_micro × 1e12 × 1e18 / price_q18
+    //   (because price_q18 = zusd_wei per ZBX × 1e18, and 1 zusd_wei = 1e-18 USD,
+    //    so 1 USD = 1e18 zusd_wei = 1e6 micro-USD per zusd_wei × 1e18)
+    usd_micro
+        .checked_mul(1_000_000_000_000)
+        .and_then(|v| v.checked_mul(SCALE_18))
+        .and_then(|v| v.checked_div(price_q18))
+}
+
+/// Dynamic per-tx fee bounds in WEI, based on current pool spot price.
+/// Returns `(min_wei, max_wei)`. Falls back to fixed bootstrap window when
+/// the pool is uninitialized.
+pub fn fee_bounds_wei(
+    pool: &Pool,
+    min_usd_micro: u128,
+    max_usd_micro: u128,
+    bootstrap_min_wei: u128,
+    bootstrap_max_wei: u128,
+) -> (u128, u128) {
+    match (
+        usd_micro_to_zbx_wei(pool, min_usd_micro),
+        usd_micro_to_zbx_wei(pool, max_usd_micro),
+    ) {
+        (Some(min_w), Some(max_w)) if max_w >= min_w => (min_w, max_w),
+        _ => (bootstrap_min_wei, bootstrap_max_wei),
+    }
+}
+
 fn isqrt_u128(n: u128) -> u128 {
     if n < 2 { return n; }
     // Initial guess: 2^ceil(bit_length/2). Avoids the (n+1)/2 overflow

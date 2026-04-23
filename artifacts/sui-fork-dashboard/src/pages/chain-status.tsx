@@ -141,11 +141,18 @@ const GROUPS: FeatureGroup[] = [
         files: ["src/state.rs"],
       },
       {
-        name: "Dynamic gas pricing (USD-pegged, on-chain oracle)",
-        desc: "Gas price auto-adjusts based on pool ZBX/USD spot price. Target $0.001/transfer. Floor 1 gwei (spam protection), cap 10,000 gwei (crash safety). Phase 1: read-only; Phase 3 will enforce in mempool.",
-        status: "wip",
-        version: "v0.1.2",
-        files: ["src/pool.rs", "src/tokenomics.rs", "src/rpc.rs"],
+        name: "Dynamic USD-pegged fee (consensus-enforced) ✅",
+        desc: "EVERY tx fee is bound to a live USD window of $0.001 (min) — $0.01 (max), auto-converted to ZBX wei via the AMM pool spot price at block-apply time. apply_tx() rejects any tx outside this band. Window auto-scales: if ZBX 10x rises, the wei amount drops 10x; if ZBX crashes, wei amount goes up so users still pay only ~1¢ max. Bootstrap fallback: while pool is uninitialized, fixed [0.000021, 0.21] ZBX window is used. Helpers: pool::fee_bounds_wei() + pool::usd_micro_to_zbx_wei(). New RPC zbx_feeBounds returns live {min, max, recommended} for wallets. CLI commands accept --fee auto to fetch + use the recommendation automatically (no math required).",
+        status: "done",
+        version: "v0.1.5",
+        files: ["src/pool.rs", "src/tokenomics.rs", "src/state.rs", "src/rpc.rs", "src/main.rs"],
+      },
+      {
+        name: "RPC: zbx_feeBounds + CLI --fee auto",
+        desc: "zbx_feeBounds returns { min_fee_wei, max_fee_wei, recommended_fee_wei, min_usd, max_usd, source }. New CLI helper resolve_fee() turns the literal string `--fee auto` into a live RPC fetch — used by register-pay-id (default = auto). Wallets/explorers display the live USD-pegged band so users never overpay or get rejected.",
+        status: "done",
+        version: "v0.1.5",
+        files: ["src/rpc.rs", "src/main.rs"],
       },
       {
         name: "Permissionless pool + auto-swap router (POOL_ADDRESS)",

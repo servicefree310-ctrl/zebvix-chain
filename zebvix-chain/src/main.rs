@@ -243,7 +243,11 @@ enum Cmd {
         name: String,
         #[arg(long, default_value = "http://127.0.0.1:8545")]
         rpc_url: String,
-        #[arg(long, default_value = "0.002")]
+        /// Fee in ZBX. Use `auto` (default) to fetch the live USD-pegged
+        /// recommendation from `zbx_feeBounds` (≈ $0.002 per tx). Pass an
+        /// explicit decimal (e.g. `0.005`) to override — must lie within
+        /// the dynamic [$0.001, $0.01] consensus window or tx is rejected.
+        #[arg(long, default_value = "auto")]
         fee: String,
     },
     /// Resolve a Pay-ID (`alice@zbx`) → address + name.
@@ -936,6 +940,23 @@ async fn reqwest_get_nonce(url: &str, addr: &Address) -> Result<u64> {
     Ok(resp["result"].as_u64().unwrap_or(0))
 }
 
+/// Resolve a `--fee` CLI argument: the literal string `"auto"` (case-insensitive)
+/// asks the node for the current `zbx_feeBounds` recommendation; anything else
+/// is parsed as a ZBX amount. Returns the fee in WEI.
+async fn resolve_fee(rpc_url: &str, fee_str: &str) -> Result<u128> {
+    if fee_str.trim().eq_ignore_ascii_case("auto") {
+        let req = serde_json::json!({
+            "jsonrpc":"2.0","id":1,"method":"zbx_feeBounds","params":[]
+        });
+        let resp = http_post(rpc_url, &req).await?;
+        let s = resp["result"]["recommended_fee_wei"].as_str()
+            .ok_or_else(|| anyhow!("zbx_feeBounds: missing recommended_fee_wei in response"))?;
+        s.parse::<u128>().map_err(|e| anyhow!("bad recommended_fee_wei: {e}"))
+    } else {
+        parse_zbx_amount(fee_str)
+    }
+}
+
 // ───────── Admin pool / faucet commands (Phase 1) ─────────
 //
 // These bypass the mempool and write directly to the on-disk state.
@@ -1178,7 +1199,7 @@ async fn cmd_register_pay_id(
 ) -> Result<()> {
     let (sk, pk) = read_keyfile(&signer_key)?;
     let from = address_from_pubkey(&pk);
-    let fee_wei = parse_zbx_amount(&fee)?;
+    let fee_wei = resolve_fee(&rpc_url, &fee).await?;
     let nonce = reqwest_get_nonce(&rpc_url, &from).await?;
     let body = TxBody {
         from, to: Address::ZERO, amount: 0, nonce, fee: fee_wei,
@@ -1195,7 +1216,9 @@ async fn cmd_register_pay_id(
     println!("   address  : {}", from);
     println!("   pay-id   : {}", pay_id);
     println!("   name     : {}", name);
-    println!("   fee      : {} ZBX", fee);
+    println!("   fee      : {} ZBX{}",
+        format!("{:.10}", fee_wei as f64 / 1e18),
+        if fee.eq_ignore_ascii_case("auto") { "  (auto from zbx_feeBounds)" } else { "" });
     println!();
     println!("   {C_DIM}submit response:{C_RESET}");
     println!("{}", serde_json::to_string_pretty(&resp)?);

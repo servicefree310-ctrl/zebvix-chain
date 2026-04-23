@@ -45,17 +45,37 @@ pub const MIN_TX_FEE_WEI: u128 = MIN_GAS_UNITS as u128 * MIN_GAS_PRICE_WEI;
 /// Future versions will compute by actual gas usage (EVM ops).
 pub const STANDARD_TX_FEE_WEI: u128 = MIN_TX_FEE_WEI;
 
-// ───────── Dynamic gas pricing (Phase 1: read-only oracle) ─────────
+// ───────── Dynamic gas pricing (USD-pegged, consensus-enforced) ─────────
 
 /// Target USD value per standard transfer, in micro-USD ($0.001 = 1000).
-/// User-friendly fee — auto-scales as ZBX price moves.
+/// Used for legacy `zbx_estimateGas` RPC + wallet auto-fill defaults.
 pub const TARGET_FEE_USD_MICRO: u128 = 1_000;
 
-/// Floor gas price = 1 gwei (spam protection — fee never below 21k × 1 gwei).
+/// **Hard minimum** fee per tx in micro-USD ($0.001).
+/// Consensus rejects any tx whose ZBX-denominated fee is worth LESS than this
+/// at the current pool spot price. Spam protection that auto-scales with price.
+pub const MIN_FEE_USD_MICRO: u128 = 1_000;
+
+/// **Hard maximum** fee per tx in micro-USD ($0.01).
+/// Consensus rejects any tx whose ZBX-denominated fee is worth MORE than this
+/// at the current pool spot price. Prevents accidental fat-finger over-payment.
+pub const MAX_FEE_USD_MICRO: u128 = 10_000;
+
+/// Floor gas price = 1 gwei (used only when pool is uninitialized — bootstrap).
 pub const DYNAMIC_GAS_FLOOR_GWEI: u128 = 1;
 
 /// Cap gas price = 10,000 gwei = 0.21 ZBX max fee per tx (price-crash safety).
 pub const DYNAMIC_GAS_CAP_GWEI: u128 = 10_000;
+
+/// Pre-pool bootstrap fee window (in WEI). When the AMM pool is not yet
+/// initialized, no spot price exists, so we fall back to a fixed band so the
+/// chain still runs. Once the pool is live, dynamic USD bounds take over.
+///   Min = 21_000 × 1 gwei  = 0.000_021 ZBX
+///   Max = 21_000 × 10_000 gwei = 0.21 ZBX
+pub const BOOTSTRAP_MIN_FEE_WEI: u128 =
+    (MIN_GAS_UNITS as u128) * DYNAMIC_GAS_FLOOR_GWEI * 1_000_000_000u128;
+pub const BOOTSTRAP_MAX_FEE_WEI: u128 =
+    (MIN_GAS_UNITS as u128) * DYNAMIC_GAS_CAP_GWEI * 1_000_000_000u128;
 
 // ───────── Pool / admin addresses ─────────
 

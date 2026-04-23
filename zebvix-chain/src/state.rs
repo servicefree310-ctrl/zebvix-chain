@@ -300,9 +300,31 @@ impl State {
     ///   - `ValidatorRemove` → admin-only; deletes a validator (last-validator
     ///                         safety enforced)
     pub fn apply_tx(&self, tx: &SignedTx) -> Result<()> {
-        if tx.body.fee < crate::tokenomics::MIN_TX_FEE_WEI {
+        // ── Dynamic USD-pegged fee bounds (consensus-enforced) ──
+        // Compute (min_wei, max_wei) from the current AMM pool spot price so
+        // every tx pays between $0.001 and $0.01 worth of ZBX. When the pool
+        // is uninitialized (pre-genesis), falls back to fixed bootstrap window.
+        // This is fully deterministic — every node reads the same on-chain pool
+        // state at the same height/order.
+        let pool = self.pool();
+        let (min_fee_wei, max_fee_wei) = crate::pool::fee_bounds_wei(
+            &pool,
+            crate::tokenomics::MIN_FEE_USD_MICRO,
+            crate::tokenomics::MAX_FEE_USD_MICRO,
+            crate::tokenomics::BOOTSTRAP_MIN_FEE_WEI,
+            crate::tokenomics::BOOTSTRAP_MAX_FEE_WEI,
+        );
+        if tx.body.fee < min_fee_wei {
             return Err(anyhow!(
-                "fee too low: {} wei < min {} wei", tx.body.fee, crate::tokenomics::MIN_TX_FEE_WEI
+                "fee too low: {} wei < dynamic min {} wei (≈ $0.001 at current ZBX price)",
+                tx.body.fee, min_fee_wei
+            ));
+        }
+        if tx.body.fee > max_fee_wei {
+            return Err(anyhow!(
+                "fee too high: {} wei > dynamic max {} wei (≈ $0.01 at current ZBX price) — \
+                pass --fee auto to use the recommended value",
+                tx.body.fee, max_fee_wei
             ));
         }
         let mut from = self.account(&tx.body.from);

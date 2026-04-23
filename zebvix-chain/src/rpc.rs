@@ -11,11 +11,12 @@
 
 use crate::mempool::Mempool;
 use crate::p2p::P2PMsg;
-use crate::pool::dynamic_gas_price_wei;
+use crate::pool::{dynamic_gas_price_wei, fee_bounds_wei};
 use crate::state::State;
 use crate::tokenomics::{
-    cumulative_supply, reward_at_height, CHAIN_ID, DYNAMIC_GAS_CAP_GWEI, DYNAMIC_GAS_FLOOR_GWEI,
-    MAX_SWAP_ZBX_WEI, MAX_SWAP_ZUSD, MIN_GAS_UNITS, TARGET_FEE_USD_MICRO, TOTAL_SUPPLY_WEI,
+    cumulative_supply, reward_at_height, BOOTSTRAP_MAX_FEE_WEI, BOOTSTRAP_MIN_FEE_WEI, CHAIN_ID,
+    DYNAMIC_GAS_CAP_GWEI, DYNAMIC_GAS_FLOOR_GWEI, MAX_FEE_USD_MICRO, MAX_SWAP_ZBX_WEI,
+    MAX_SWAP_ZUSD, MIN_FEE_USD_MICRO, MIN_GAS_UNITS, TARGET_FEE_USD_MICRO, TOTAL_SUPPLY_WEI,
 };
 use crate::types::{Address, SignedTx};
 use crate::vote::VotePool;
@@ -210,6 +211,30 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 "fee_zbx": format!("{:.10}", fee_wei as f64 / 1e18),
                 "target_usd": format!("{:.6}", TARGET_FEE_USD_MICRO as f64 / 1e6),
                 "pool_initialized": p.is_initialized(),
+            }))
+        }
+        // Live USD-pegged fee window enforced by consensus. Wallets/CLIs read
+        // this and pick any value inside [min_wei, max_wei]. The "recommended"
+        // value is the geometric/linear midpoint — defaults to ≈ $0.0055.
+        "zbx_feeBounds" => {
+            let p = ctx.state.pool();
+            let (min_w, max_w) = fee_bounds_wei(
+                &p, MIN_FEE_USD_MICRO, MAX_FEE_USD_MICRO,
+                BOOTSTRAP_MIN_FEE_WEI, BOOTSTRAP_MAX_FEE_WEI,
+            );
+            // Recommended = min × 2 (≈ $0.002), still safely below max ($0.01).
+            let recommended = min_w.saturating_mul(2).min(max_w);
+            ok(id, json!({
+                "min_fee_wei": min_w.to_string(),
+                "min_fee_zbx": format!("{:.10}", min_w as f64 / 1e18),
+                "max_fee_wei": max_w.to_string(),
+                "max_fee_zbx": format!("{:.10}", max_w as f64 / 1e18),
+                "recommended_fee_wei": recommended.to_string(),
+                "recommended_fee_zbx": format!("{:.10}", recommended as f64 / 1e18),
+                "min_usd": format!("{:.6}", MIN_FEE_USD_MICRO as f64 / 1e6),
+                "max_usd": format!("{:.6}", MAX_FEE_USD_MICRO as f64 / 1e6),
+                "pool_initialized": p.is_initialized(),
+                "source": if p.is_initialized() { "amm-pool-spot" } else { "bootstrap-fixed" },
             }))
         }
         "zbx_getZusdBalance" => {
