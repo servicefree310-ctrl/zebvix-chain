@@ -1,0 +1,51 @@
+Address    : 0x359941f37f5d46b9db8e7cdd61663fecaeb8e67d
+Public Key : 0x07a7328b1e24c993e008bd0de0dceeec5f703ad8310c464fd32fb7690edded90
+Saved key  : /home/zebvix-chain/.zebvix2/validator.key
+{
+  "validator_key_file": "/home/zebvix-chain/.zebvix2/validator.key"
+}# Warning: zebvix2.service changed on disk, the version systemd has loaded is outdated.
+# This output shows the current version of the unit's original fragment and drop-in files.
+# If fragments or drop-ins were added or removed, they are not properly reflected in this output.
+# Run 'systemctl daemon-reload' to reload units.
+ExecStart=/usr/local/bin/zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns --follower
+      Tasks: 7 (limit: 9483)
+     Memory: 4.0M (peak: 4.5M)
+        CPU: 49ms
+     CGroup: /system.slice/zebvix2.service
+             └─3778209 /usr/local/bin/zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns --follower
+
+Apr 23 16:52:05 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Scheduled restart job, restart counter is at 1.
+Apr 23 16:52:05 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 23 16:51:39 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Main process exited, code=exited, status=1/FAILURE
+Apr 23 16:51:39 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Failed with result 'exit-code'.
+Apr 23 16:51:44 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Scheduled restart job, restart counter is at 38.
+Apr 23 16:51:44 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 23 16:51:44 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Main process exited, code=exited, status=1/FAILURE
+Apr 23 16:51:44 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Failed with result 'exit-code'.
+Apr 23 16:51:50 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Scheduled restart job, restart counter is at 39.
+Apr 23 16:51:50 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 23 16:51:50 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Main process exited, code=exited, status=1/FAILURE
+Apr 23 16:51:50 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Failed with result 'exit-code'.
+Apr 23 16:51:55 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Scheduled restart job, restart counter is at 40.
+Apr 23 16:51:55 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 23 16:51:55 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Main process exited, code=exited, status=1/FAILURE
+Apr 23 16:51:55 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Failed with result 'exit-code'.
+Apr 23 16:52:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Scheduled restart job, restart counter is at 41.
+Apr 23 16:52:00 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+Apr 23 16:52:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Main process exited, code=exited, status=1/FAILURE
+Apr 23 16:52:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Failed with result 'exit-code'.
+Apr 23 16:52:05 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Scheduled restart job, restart counter is at 1.
+Apr 23 16:52:05 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+=== Node-1 ===
+{
+  "height": 8045,
+  "hash": "0x7b7dbda0dd2853b62b4a15bb86ce2c2d0dabfc9c067c1db033496635baa03687"
+}
+=== Node-2 ===
+{
+  "height": 380,
+  "hash": "0xdc253e829e4bc18bed5898392ae81f5bf826cfcd02adea7219f070b8bdb398cf"
+}
+=== Double-sign in last 30s ===
+0
+root@srv1266996:/home/zebvix-chain# 
