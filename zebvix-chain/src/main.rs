@@ -222,6 +222,14 @@ enum Cmd {
         #[arg(long, default_value = "http://127.0.0.1:8545")]
         rpc_url: String,
     },
+    /// Show ZBX (and zUSD if any) balance for any address.
+    Balance {
+        /// Address to query (0x… 20-byte hex).
+        #[arg(long)]
+        address: String,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+    },
     /// One-shot dashboard: chain info + height + supply + pool + staking + burn.
     /// Great for a quick "is everything healthy?" glance.
     ChainStatus {
@@ -1019,11 +1027,38 @@ async fn main() -> Result<()> {
         Cmd::ValidatorRemove { signer_key, address, rpc_url, fee } =>
             cmd_validator_remove(signer_key, address, rpc_url, fee).await,
         Cmd::RewardsPool { rpc_url } => cmd_rewards_pool(rpc_url).await,
+        Cmd::Balance { address, rpc_url } => cmd_balance(address, rpc_url).await,
         Cmd::ChainStatus { rpc_url } => cmd_chain_status(rpc_url).await,
     }
 }
 
 // ─────────── Phase B.6 — pool & status inspectors ───────────
+
+async fn cmd_balance(address: String, rpc_url: String) -> Result<()> {
+    let addr = Address::from_hex(&address)?;
+    let bal_hex = rpc_get(&rpc_url, "zbx_getBalance", serde_json::json!([addr.to_hex()])).await?;
+    let bal = parse_hex_wei(bal_hex.as_str().unwrap_or("0x0"));
+    let nonce = rpc_get(&rpc_url, "zbx_getNonce", serde_json::json!([addr.to_hex()]))
+        .await
+        .ok()
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let zusd_hex = rpc_get(&rpc_url, "zbx_getZusdBalance", serde_json::json!([addr.to_hex()]))
+        .await
+        .ok()
+        .and_then(|v| v.as_str().map(String::from))
+        .unwrap_or_else(|| "0x0".to_string());
+    let zusd = parse_hex_wei(&zusd_hex);
+    println!("{C_CYAN_B}💰 Balance{C_RESET}");
+    println!();
+    println!("   address       : {}", addr.to_hex());
+    println!("   {C_GREEN}ZBX balance{C_RESET}   : {} ZBX  {C_DIM}({} wei){C_RESET}", fmt_zbx(bal), bal);
+    if zusd > 0 {
+        println!("   {C_YELLOW}zUSD balance{C_RESET}  : {} zUSD {C_DIM}({} wei){C_RESET}", fmt_zbx(zusd), zusd);
+    }
+    println!("   nonce         : {nonce}");
+    Ok(())
+}
 
 fn parse_hex_wei(s: &str) -> u128 {
     let s = s.trim_start_matches("0x");
