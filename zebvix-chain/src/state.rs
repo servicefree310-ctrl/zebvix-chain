@@ -29,6 +29,8 @@ const META_GOVERNOR_CHANGES: &[u8] = b"governor_changes"; // u8 rotation counter
 // Phase B.1: validator set storage. Each validator is keyed by `validator/<20-byte-addr>`
 // in CF_META and contains a bincode-serialized `Validator`.
 const META_VALIDATOR_PREFIX: &[u8] = b"validator/";
+// Phase B.4: staking module — single bincode blob (entire StakingModule).
+const META_STAKING: &[u8] = b"staking";
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Account {
@@ -200,6 +202,23 @@ impl State {
         Ok(new_count)
     }
 
+    // ───────── Staking module persistence (Phase B.4) ─────────
+
+    /// Load the staking module blob (or default if uninitialized).
+    pub fn staking(&self) -> crate::staking::StakingModule {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.get_cf(cf, META_STAKING).ok().flatten()
+            .and_then(|b| bincode::deserialize(&b).ok())
+            .unwrap_or_default()
+    }
+
+    /// Persist the staking module blob.
+    pub fn put_staking(&self, s: &crate::staking::StakingModule) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.put_cf(cf, META_STAKING, bincode::serialize(s)?)?;
+        Ok(())
+    }
+
     fn put_account(&self, a: &Address, acc: &Account) -> Result<()> {
         let cf = self.db.cf_handle(CF_ACCOUNTS).unwrap();
         self.db.put_cf(cf, a.0, bincode::serialize(acc)?)?;
@@ -347,13 +366,85 @@ impl State {
                     Err(e) => return refund(&mut from, format!("governor-change: {}", e)),
                 }
             }
-            crate::types::TxKind::Staking(_) => {
-                // Phase B.4 staking ops are handled by the staking module
-                // (see crate::staking). Wiring into apply_tx is pending — for
-                // now, refund and return a clear error so blocks containing
-                // these txs are rejected rather than silently no-op'd.
-                return refund(&mut from,
-                    "staking ops not yet wired into apply_tx (B.4 integration pending)".into());
+            crate::types::TxKind::Staking(op) => {
+                // Phase B.4: dispatch staking ops to the StakingModule.
+                // Balance flow:
+                //   • CreateValidator/Stake : debit `self_bond`/`amount` from signer
+                //                             (in addition to the fee already charged)
+                //   • EditValidator/Unstake/Redelegate : no extra debit (Unstake
+                //     payouts arrive at end_epoch via the unbonding queue)
+                //   • ClaimRewards : credit operator with returned commission wei
+                // `tx.body.amount` (the EVM-style transfer field) is always refunded
+                // for staking governance txs.
+                use crate::staking::StakeOp;
+                let mut sm = self.staking();
+                let signer = tx.body.from;
+
+                // Helper: returns Ok(payout_wei_to_credit) on success.
+                let result: Result<u128> = match op {
+                    StakeOp::CreateValidator { pubkey, commission_bps, self_bond } => {
+                        if from.balance < *self_bond {
+                            Err(anyhow!(
+                                "create-validator: insufficient balance for self-bond {} wei",
+                                self_bond
+                            ))
+                        } else {
+                            from.balance -= *self_bond;
+                            match sm.create_validator(signer, *pubkey, *commission_bps, *self_bond) {
+                                Ok(()) => Ok(0u128),
+                                Err(e) => {
+                                    from.balance = from.balance.saturating_add(*self_bond);
+                                    Err(anyhow!("create-validator: {}", e))
+                                }
+                            }
+                        }
+                    }
+                    StakeOp::EditValidator { validator, new_commission_bps } => {
+                        sm.edit_validator(signer, *validator, *new_commission_bps)
+                            .map(|_| 0u128)
+                            .map_err(|e| anyhow!("edit-validator: {}", e))
+                    }
+                    StakeOp::Stake { validator, amount } => {
+                        if from.balance < *amount {
+                            Err(anyhow!("stake: insufficient balance for {} wei", amount))
+                        } else {
+                            from.balance -= *amount;
+                            match sm.stake(signer, *validator, *amount) {
+                                Ok(_) => Ok(0u128),
+                                Err(e) => {
+                                    from.balance = from.balance.saturating_add(*amount);
+                                    Err(anyhow!("stake: {}", e))
+                                }
+                            }
+                        }
+                    }
+                    StakeOp::Unstake { validator, shares } => {
+                        sm.unstake(signer, *validator, *shares)
+                            .map(|_| 0u128)
+                            .map_err(|e| anyhow!("unstake: {}", e))
+                    }
+                    StakeOp::Redelegate { from: src, to, shares } => {
+                        sm.redelegate(signer, *src, *to, *shares)
+                            .map(|_| 0u128)
+                            .map_err(|e| anyhow!("redelegate: {}", e))
+                    }
+                    StakeOp::ClaimRewards { validator } => {
+                        sm.claim_rewards(signer, *validator)
+                            .map_err(|e| anyhow!("claim-rewards: {}", e))
+                    }
+                };
+
+                match result {
+                    Ok(payout) => {
+                        from.balance = from.balance.saturating_add(tx.body.amount);
+                        from.balance = from.balance.saturating_add(payout);
+                        self.put_staking(&sm)?;
+                        self.put_account(&tx.body.from, &from)?;
+                        tracing::info!("⚙️  staking op applied: {:?}", op);
+                        return Ok(());
+                    }
+                    Err(e) => return refund(&mut from, e.to_string()),
+                }
             }
             crate::types::TxKind::Transfer => { /* fall through to legacy logic */ }
         }
@@ -452,6 +543,28 @@ impl State {
         let mut prop = self.account(&block.header.proposer);
         prop.balance = prop.balance.saturating_add(reward).saturating_add(total_fees);
         self.put_account(&block.header.proposer, &prop)?;
+
+        // ── Phase B.4: epoch boundary — distribute staking rewards & matured unbondings ──
+        if block.header.height > 0
+            && block.header.height % crate::staking::EPOCH_BLOCKS == 0
+        {
+            let mut sm = self.staking();
+            let payout = sm.end_epoch(crate::staking::STAKING_EPOCH_REWARD_WEI);
+            let mut total_paid: u128 = 0;
+            let payout_count = payout.len();
+            for (addr, amt) in payout {
+                let mut acc = self.account(&addr);
+                acc.balance = acc.balance.saturating_add(amt);
+                self.put_account(&addr, &acc)?;
+                total_paid = total_paid.saturating_add(amt);
+            }
+            self.put_staking(&sm)?;
+            tracing::info!(
+                "✅ epoch {} ended at h={} (matured {} unbondings = {} wei, +{} ZBX staking reward)",
+                sm.current_epoch, block.header.height, payout_count, total_paid,
+                crate::staking::STAKING_EPOCH_REWARD_WEI / 1_000_000_000_000_000_000u128
+            );
+        }
 
         let cf_b = self.db.cf_handle(CF_BLOCKS).unwrap();
         let cf_m = self.db.cf_handle(CF_META).unwrap();

@@ -53,6 +53,11 @@ pub const MAX_COMMISSION_BPS: u64 = 5_000;
 /// Maximum commission rate change per edit = 1.00 % per epoch (anti-rug).
 pub const MAX_COMMISSION_BPS_DELTA: u64 = 100;
 
+/// Total ZBX (in wei) freshly minted for stakers each epoch. This is in
+/// addition to per-block proposer rewards. ~50 ZBX/epoch ≈ ~50 ZBX/day at
+/// 1 epoch/day. Tune via governance later.
+pub const STAKING_EPOCH_REWARD_WEI: u128 = 50u128 * 1_000_000_000_000_000_000u128;
+
 /// Slash fraction for double-sign = 5.00 %.
 pub const SLASH_DOUBLE_SIGN_BPS: u64 = 500;
 /// Slash fraction for prolonged downtime = 0.10 %.
@@ -105,6 +110,7 @@ pub enum StakeOp {
         self_bond: u128,
     },
     EditValidator {
+        validator: Address,
         new_commission_bps: Option<u64>,
     },
     Stake {
