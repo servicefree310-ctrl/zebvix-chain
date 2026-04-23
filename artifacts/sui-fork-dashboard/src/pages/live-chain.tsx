@@ -52,6 +52,13 @@ interface SupplyInfo {
   current_block_reward_wei: string;
 }
 
+interface PoolInfo {
+  zbx_reserve_wei: string;
+  zusd_reserve: string;
+  lp_supply: string;
+  spot_price_usd_per_zbx: string;
+}
+
 export default function LiveChain() {
   const [tip, setTip] = useState<BlockInfo | null>(null);
   const [recent, setRecent] = useState<BlockInfo[]>([]);
@@ -62,6 +69,7 @@ export default function LiveChain() {
   const [payIdCount, setPayIdCount] = useState<number | null>(null);
   const [price, setPrice] = useState<PriceInfo | null>(null);
   const [supply, setSupply] = useState<SupplyInfo | null>(null);
+  const [pool, setPool] = useState<PoolInfo | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -113,7 +121,8 @@ export default function LiveChain() {
           rpc<{ total: number }>("zbx_payIdCount").catch(() => null),
           rpc<PriceInfo>("zbx_getPriceUSD").catch(() => null),
           rpc<SupplyInfo>("zbx_supply").catch(() => null),
-        ]).then(([v, va, ms, pid, pr, sup]) => {
+          rpc<PoolInfo>("zbx_getPool").catch(() => null),
+        ]).then(([v, va, ms, pid, pr, sup, po]) => {
           if (!mounted) return;
           if (v) setVotes(v);
           if (va) setVals(va);
@@ -121,6 +130,7 @@ export default function LiveChain() {
           if (pid) setPayIdCount(pid.total);
           if (pr) setPrice(pr);
           if (sup) setSupply(sup);
+          if (po) setPool(po);
         });
       } catch (e) {
         if (mounted) setErr(e instanceof Error ? e.message : String(e));
@@ -180,10 +190,21 @@ export default function LiveChain() {
           label="Market Cap"
           value={
             price && supply
-              ? fmtUsd(weiToUsd(supply.minted_wei, parseFloat(price.zbx_usd)))
+              ? fmtUsd(
+                  weiToUsd(
+                    (BigInt(supply.minted_wei) + BigInt(pool?.zbx_reserve_wei ?? "0")).toString(),
+                    parseFloat(price.zbx_usd),
+                  ),
+                )
               : "—"
           }
-          sub={supply ? `${weiHexToZbx(supply.minted_wei)} ZBX minted` : undefined}
+          sub={
+            supply
+              ? `${weiHexToZbx(
+                  (BigInt(supply.minted_wei) + BigInt(pool?.zbx_reserve_wei ?? "0")).toString(),
+                )} ZBX circulating`
+              : undefined
+          }
         />
         <Stat
           icon={Coins}
