@@ -78,6 +78,13 @@ pub enum TxKind {
     Transfer,
     ValidatorAdd { pubkey: [u8; 32], power: u64 },
     ValidatorRemove { address: Address },
+    /// Phase B.3.2 — change an existing validator's voting power **without**
+    /// remove+add (which would briefly drop total power below quorum and risk
+    /// halting the chain mid-block). Governor-only.
+    ValidatorEdit { address: Address, new_power: u64 },
+    /// Phase B.3.2 — rotate the governor key. Must be signed by the *current*
+    /// governor. Capped at `MAX_GOVERNOR_CHANGES` rotations (then locked).
+    GovernorChange { new_governor: Address },
     /// Phase B.4 — Sui-style PoS staking dispatch. The inner [`StakeOp`]
     /// variant selects the action (CreateValidator / Stake / Unstake /
     /// Redelegate / ClaimRewards / EditValidator). Sender = `body.from`,

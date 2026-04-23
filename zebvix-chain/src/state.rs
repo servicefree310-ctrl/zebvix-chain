@@ -4,7 +4,7 @@ use crate::crypto::{block_hash, tx_hash, verify_tx, verify_txs_batch};
 use crate::pool::Pool;
 use crate::tokenomics::{
     reward_at_height, ADMIN_ADDRESS_HEX, GENESIS_POOL_ZBX_WEI, GENESIS_POOL_ZUSD_LOAN,
-    MAX_ADMIN_CHANGES, POOL_ADDRESS_HEX,
+    GOVERNOR_ADDRESS_HEX, MAX_ADMIN_CHANGES, MAX_GOVERNOR_CHANGES, POOL_ADDRESS_HEX,
 };
 use crate::types::{Address, Block, Hash, SignedTx, Validator};
 use anyhow::{anyhow, Result};
@@ -23,6 +23,9 @@ const META_POOL: &[u8] = b"pool";
 const META_LP_PREFIX: &[u8] = b"lp/";
 const META_ADMIN: &[u8] = b"admin";              // 20-byte current admin address (override)
 const META_ADMIN_CHANGES: &[u8] = b"admin_changes"; // u8 count of rotations performed
+// Phase B.3.2 — governor role (validator-set authority, separated from admin).
+const META_GOVERNOR: &[u8] = b"governor";              // 20-byte current governor (override)
+const META_GOVERNOR_CHANGES: &[u8] = b"governor_changes"; // u8 rotation counter
 // Phase B.1: validator set storage. Each validator is keyed by `validator/<20-byte-addr>`
 // in CF_META and contains a bincode-serialized `Validator`.
 const META_VALIDATOR_PREFIX: &[u8] = b"validator/";
@@ -50,6 +53,12 @@ pub fn pool_address() -> Address {
 /// address is read from State via `State::current_admin()`.
 pub fn admin_address() -> Address {
     Address::from_hex(ADMIN_ADDRESS_HEX).expect("ADMIN_ADDRESS_HEX is valid")
+}
+
+/// Parse the **default genesis** governor address (compile-time constant).
+/// Live (possibly-rotated) governor is read via `State::current_governor()`.
+pub fn governor_address() -> Address {
+    Address::from_hex(GOVERNOR_ADDRESS_HEX).expect("GOVERNOR_ADDRESS_HEX is valid")
 }
 
 impl State {
@@ -139,6 +148,58 @@ impl State {
         Ok(new_count)
     }
 
+    // ───────── Governor rotation (validator-set authority) ─────────
+
+    /// Returns the **live** governor address (rotated override or genesis default).
+    pub fn current_governor(&self) -> Address {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        match self.db.get_cf(cf, META_GOVERNOR).ok().flatten() {
+            Some(b) if b.len() == 20 => {
+                let mut a = [0u8; 20];
+                a.copy_from_slice(&b);
+                Address(a)
+            }
+            _ => governor_address(),
+        }
+    }
+
+    pub fn governor_change_count(&self) -> u8 {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.get_cf(cf, META_GOVERNOR_CHANGES).ok().flatten()
+            .and_then(|b| b.first().copied())
+            .unwrap_or(0)
+    }
+
+    pub fn governor_changes_remaining(&self) -> u8 {
+        MAX_GOVERNOR_CHANGES.saturating_sub(self.governor_change_count())
+    }
+
+    /// Rotate the governor. Must be signed by the current governor.
+    /// Capped at `MAX_GOVERNOR_CHANGES`.
+    pub fn change_governor(&self, signer: &Address, new_governor: &Address) -> Result<u8> {
+        let current = self.current_governor();
+        if signer != &current {
+            return Err(anyhow!(
+                "only current governor {} can rotate (got signer {})", current, signer
+            ));
+        }
+        if new_governor == &current {
+            return Err(anyhow!("new governor is same as current — no-op"));
+        }
+        let count = self.governor_change_count();
+        if count >= MAX_GOVERNOR_CHANGES {
+            return Err(anyhow!(
+                "governor change limit reached: {} of {} rotations used (locked)",
+                count, MAX_GOVERNOR_CHANGES
+            ));
+        }
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.put_cf(cf, META_GOVERNOR, &new_governor.0)?;
+        let new_count = count + 1;
+        self.db.put_cf(cf, META_GOVERNOR_CHANGES, [new_count])?;
+        Ok(new_count)
+    }
+
     fn put_account(&self, a: &Address, acc: &Account) -> Result<()> {
         let cf = self.db.cf_handle(CF_ACCOUNTS).unwrap();
         self.db.put_cf(cf, a.0, bincode::serialize(acc)?)?;
@@ -178,42 +239,86 @@ impl State {
 
         let pool_addr = pool_address();
         let admin = self.current_admin();
+        let governor = self.current_governor();
 
-        // ── Phase B.3.1: validator governance txs ─────────────────────
-        // These only consume `fee`; `amount` is refunded so admin doesn't
-        // need to lock funds for governance ops. Block reward path still
-        // credits the proposer with all collected fees, so admin's fee
-        // contributes to chain economics like any other tx.
+        // ── Phase B.3.2: validator governance txs (governor-only) ─────
+        // Validator add / edit / remove and governor rotation are routed
+        // exclusively through the **governor** key, which is a separate role
+        // from the economic admin. This way, a compromise of the admin key
+        // (which controls pool/swap fees) cannot rewrite the consensus
+        // committee — and vice-versa.
+        //
+        // These txs only consume `fee`; `amount` is refunded so the governor
+        // doesn't need to lock funds for governance ops. The block-reward
+        // path still credits the proposer with collected fees.
+        //
+        // `refund` is a tiny helper closure that returns the `amount` to the
+        // sender, persists `from`, and bubbles an error back to the caller.
+        let refund = |from: &mut Account, msg: String| -> Result<()> {
+            from.balance = from.balance.saturating_add(tx.body.amount);
+            self.put_account(&tx.body.from, from)?;
+            Err(anyhow!(msg))
+        };
+
         match &tx.body.kind {
             crate::types::TxKind::ValidatorAdd { pubkey, power } => {
-                if tx.body.from != admin {
-                    from.balance = from.balance.saturating_add(tx.body.amount);
-                    self.put_account(&tx.body.from, &from)?;
-                    return Err(anyhow!("validator-add: only current admin {} may submit", admin));
+                if tx.body.from != governor {
+                    return refund(&mut from, format!(
+                        "validator-add: only current governor {} may submit", governor
+                    ));
                 }
                 if *power == 0 {
-                    from.balance = from.balance.saturating_add(tx.body.amount);
-                    self.put_account(&tx.body.from, &from)?;
-                    return Err(anyhow!("validator-add: voting power must be > 0"));
+                    return refund(&mut from, "validator-add: voting power must be > 0".into());
                 }
                 let v = crate::types::Validator::new(*pubkey, *power);
+                if self.get_validator(&v.address).is_some() {
+                    return refund(&mut from, format!(
+                        "validator-add: {} already in set (use ValidatorEdit)", v.address
+                    ));
+                }
                 self.put_validator(&v)?;
                 from.balance = from.balance.saturating_add(tx.body.amount);
                 self.put_account(&tx.body.from, &from)?;
                 tracing::info!("⚙️  validator-add applied: {} power={}", v.address, v.voting_power);
                 return Ok(());
             }
+            crate::types::TxKind::ValidatorEdit { address, new_power } => {
+                if tx.body.from != governor {
+                    return refund(&mut from, format!(
+                        "validator-edit: only current governor {} may submit", governor
+                    ));
+                }
+                if *new_power == 0 {
+                    return refund(&mut from,
+                        "validator-edit: new_power must be > 0 (use ValidatorRemove to delete)".into());
+                }
+                let mut v = match self.get_validator(address) {
+                    Some(v) => v,
+                    None => return refund(&mut from, format!(
+                        "validator-edit: {} not in set", address
+                    )),
+                };
+                let old_power = v.voting_power;
+                v.voting_power = *new_power;
+                self.put_validator(&v)?;
+                from.balance = from.balance.saturating_add(tx.body.amount);
+                self.put_account(&tx.body.from, &from)?;
+                tracing::info!(
+                    "⚙️  validator-edit applied: {} power {} → {}",
+                    address, old_power, new_power
+                );
+                return Ok(());
+            }
             crate::types::TxKind::ValidatorRemove { address } => {
-                if tx.body.from != admin {
-                    from.balance = from.balance.saturating_add(tx.body.amount);
-                    self.put_account(&tx.body.from, &from)?;
-                    return Err(anyhow!("validator-remove: only current admin {} may submit", admin));
+                if tx.body.from != governor {
+                    return refund(&mut from, format!(
+                        "validator-remove: only current governor {} may submit", governor
+                    ));
                 }
                 let vs = self.validators();
                 if vs.len() <= 1 && vs.iter().any(|v| v.address == *address) {
-                    from.balance = from.balance.saturating_add(tx.body.amount);
-                    self.put_account(&tx.body.from, &from)?;
-                    return Err(anyhow!("validator-remove: refusing to remove last validator (chain would halt)"));
+                    return refund(&mut from,
+                        "validator-remove: refusing to remove last validator (chain would halt)".into());
                 }
                 let removed = self.remove_validator(address)?;
                 from.balance = from.balance.saturating_add(tx.body.amount);
@@ -224,6 +329,31 @@ impl State {
                     tracing::warn!("validator-remove: address {} not in set (no-op)", address);
                 }
                 return Ok(());
+            }
+            crate::types::TxKind::GovernorChange { new_governor } => {
+                // Self-rotation: only the *current* governor may submit.
+                // change_governor() re-checks signer == current and enforces
+                // MAX_GOVERNOR_CHANGES. We refund `amount` either way.
+                match self.change_governor(&tx.body.from, new_governor) {
+                    Ok(count) => {
+                        from.balance = from.balance.saturating_add(tx.body.amount);
+                        self.put_account(&tx.body.from, &from)?;
+                        tracing::info!(
+                            "⚙️  governor rotated: {} → {} (rotation #{}/{})",
+                            governor, new_governor, count, MAX_GOVERNOR_CHANGES
+                        );
+                        return Ok(());
+                    }
+                    Err(e) => return refund(&mut from, format!("governor-change: {}", e)),
+                }
+            }
+            crate::types::TxKind::Staking(_) => {
+                // Phase B.4 staking ops are handled by the staking module
+                // (see crate::staking). Wiring into apply_tx is pending — for
+                // now, refund and return a clear error so blocks containing
+                // these txs are rejected rather than silently no-op'd.
+                return refund(&mut from,
+                    "staking ops not yet wired into apply_tx (B.4 integration pending)".into());
             }
             crate::types::TxKind::Transfer => { /* fall through to legacy logic */ }
         }

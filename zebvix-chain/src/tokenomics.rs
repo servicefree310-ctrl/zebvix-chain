@@ -76,6 +76,19 @@ pub const FOUNDER_PUBKEY_HEX: &str =
 /// be signed by the current admin's key.
 pub const MAX_ADMIN_CHANGES: u8 = 3;
 
+/// **Governor address** (Phase B.3.2) — the *only* role authorized to mutate
+/// the validator set: `ValidatorAdd`, `ValidatorEdit`, `ValidatorRemove`.
+/// Separate from `ADMIN_ADDRESS_HEX` so a compromise of the economic/admin
+/// key cannot rewrite the consensus committee.
+///
+/// Default = admin address (backward-compatible bootstrap). The genesis
+/// governor can be rotated via `TxKind::GovernorChange`, signed by the
+/// *current* governor; rotations are capped at `MAX_GOVERNOR_CHANGES`.
+pub const GOVERNOR_ADDRESS_HEX: &str = ADMIN_ADDRESS_HEX;
+
+/// Maximum number of governor rotations (parallel to admin rotation cap).
+pub const MAX_GOVERNOR_CHANGES: u8 = 3;
+
 /// zSwap pool's magic address — no private key exists for it.
 /// Bytes spell "zswap" (7a 73 77 61 70) followed by 15 zero bytes.
 /// Any normal user sending ZBX (or zUSD) to this address triggers an
