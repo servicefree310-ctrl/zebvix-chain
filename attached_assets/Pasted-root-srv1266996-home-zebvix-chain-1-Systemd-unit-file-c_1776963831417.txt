@@ -1,0 +1,119 @@
+root@srv1266996:/home/zebvix-chain# # 1) Systemd unit file content (current on disk + loaded)
+echo "=== File on disk ==="
+sudo cat /etc/systemd/system/zebvix2.service
+
+echo ""
+echo "=== systemd loaded version ==="
+sudo systemctl cat zebvix2.service
+
+echo ""
+echo "=== Daemon needs reload? ==="
+sudo systemctl show zebvix2.service -p NeedDaemonReload
+
+echo ""
+echo "=== Node-2 actual logs (raw, no filter) ==="
+sudo journalctl -u zebvix2.service -n 60 --no-pager -o short-iso | tail -40
+
+echo ""
+echo "=== Node-1 sees Node-2 peer? ==="
+sudo journalctl -u zebvix.service --since "2 minutes ago" --no-pager | grep -iE "peer|connect|sync" | tail -8
+
+echo ""
+echo "=== Ports listening ==="
+sudo ss -tlnp | grep -E "8545|8546|30333|30334"
+=== File on disk ===
+[Unit]
+Description=Zebvix L1 Blockchain Node-2
+After=network-online.target zebvix.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns --follower
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/var/log/zebvix2.log
+StandardError=append:/var/log/zebvix2.log
+
+[Install]
+WantedBy=multi-user.target
+
+=== systemd loaded version ===
+# /etc/systemd/system/zebvix2.service
+[Unit]
+Description=Zebvix L1 Blockchain Node-2
+After=network-online.target zebvix.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns --follower
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/var/log/zebvix2.log
+StandardError=append:/var/log/zebvix2.log
+
+[Install]
+WantedBy=multi-user.target
+
+=== Daemon needs reload? ===
+NeedDaemonReload=no
+
+=== Node-2 actual logs (raw, no filter) ===
+2026-04-23T16:51:18+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Main process exited, code=exited, status=1/FAILURE
+2026-04-23T16:51:18+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Failed with result 'exit-code'.
+2026-04-23T16:51:23+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Scheduled restart job, restart counter is at 34.
+2026-04-23T16:51:23+00:00 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+2026-04-23T16:51:23+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Main process exited, code=exited, status=1/FAILURE
+2026-04-23T16:51:23+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Failed with result 'exit-code'.
+2026-04-23T16:51:29+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Scheduled restart job, restart counter is at 35.
+2026-04-23T16:51:29+00:00 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+2026-04-23T16:51:29+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Main process exited, code=exited, status=1/FAILURE
+2026-04-23T16:51:29+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Failed with result 'exit-code'.
+2026-04-23T16:51:34+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Scheduled restart job, restart counter is at 36.
+2026-04-23T16:51:34+00:00 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+2026-04-23T16:51:34+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Main process exited, code=exited, status=1/FAILURE
+2026-04-23T16:51:34+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Failed with result 'exit-code'.
+2026-04-23T16:51:39+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Scheduled restart job, restart counter is at 37.
+2026-04-23T16:51:39+00:00 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+2026-04-23T16:51:39+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Main process exited, code=exited, status=1/FAILURE
+2026-04-23T16:51:39+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Failed with result 'exit-code'.
+2026-04-23T16:51:44+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Scheduled restart job, restart counter is at 38.
+2026-04-23T16:51:44+00:00 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+2026-04-23T16:51:44+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Main process exited, code=exited, status=1/FAILURE
+2026-04-23T16:51:44+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Failed with result 'exit-code'.
+2026-04-23T16:51:50+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Scheduled restart job, restart counter is at 39.
+2026-04-23T16:51:50+00:00 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+2026-04-23T16:51:50+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Main process exited, code=exited, status=1/FAILURE
+2026-04-23T16:51:50+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Failed with result 'exit-code'.
+2026-04-23T16:51:55+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Scheduled restart job, restart counter is at 40.
+2026-04-23T16:51:55+00:00 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+2026-04-23T16:51:55+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Main process exited, code=exited, status=1/FAILURE
+2026-04-23T16:51:55+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Failed with result 'exit-code'.
+2026-04-23T16:52:00+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Scheduled restart job, restart counter is at 41.
+2026-04-23T16:52:00+00:00 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+2026-04-23T16:52:00+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Main process exited, code=exited, status=1/FAILURE
+2026-04-23T16:52:00+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Failed with result 'exit-code'.
+2026-04-23T16:52:05+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Scheduled restart job, restart counter is at 1.
+2026-04-23T16:52:05+00:00 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+2026-04-23T16:54:24+00:00 srv1266996.hstgr.cloud systemd[1]: Stopping zebvix2.service - Zebvix L1 Blockchain Node-2...
+2026-04-23T16:54:24+00:00 srv1266996.hstgr.cloud systemd[1]: zebvix2.service: Deactivated successfully.
+2026-04-23T16:54:24+00:00 srv1266996.hstgr.cloud systemd[1]: Stopped zebvix2.service - Zebvix L1 Blockchain Node-2.
+2026-04-23T16:56:50+00:00 srv1266996.hstgr.cloud systemd[1]: Started zebvix2.service - Zebvix L1 Blockchain Node-2.
+
+=== Node-1 sees Node-2 peer? ===
+Apr 23 17:03:07 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T17:03:07.176003Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWCuGrkEx7QMau2j61S8LXrrihqzj3vdCPDhUMAukBvGQZ: serving 256 blocks [381..=636]
+Apr 23 17:03:07 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T17:03:07.984869Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWCuGrkEx7QMau2j61S8LXrrihqzj3vdCPDhUMAukBvGQZ: serving 256 blocks [381..=636]
+Apr 23 17:03:12 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T17:03:12.676287Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWCuGrkEx7QMau2j61S8LXrrihqzj3vdCPDhUMAukBvGQZ: serving 256 blocks [381..=636]
+Apr 23 17:03:15 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T17:03:15.985031Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWCuGrkEx7QMau2j61S8LXrrihqzj3vdCPDhUMAukBvGQZ: serving 256 blocks [381..=636]
+Apr 23 17:03:18 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T17:03:18.675538Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWCuGrkEx7QMau2j61S8LXrrihqzj3vdCPDhUMAukBvGQZ: serving 256 blocks [381..=636]
+Apr 23 17:03:23 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T17:03:23.984647Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWCuGrkEx7QMau2j61S8LXrrihqzj3vdCPDhUMAukBvGQZ: serving 256 blocks [381..=636]
+Apr 23 17:03:24 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T17:03:24.178089Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWCuGrkEx7QMau2j61S8LXrrihqzj3vdCPDhUMAukBvGQZ: serving 256 blocks [381..=636]
+Apr 23 17:03:30 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T17:03:30.175660Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWCuGrkEx7QMau2j61S8LXrrihqzj3vdCPDhUMAukBvGQZ: serving 256 blocks [381..=636]
+
+=== Ports listening ===
+LISTEN 0      128                           127.0.0.1:8546       0.0.0.0:*    users:(("zebvix-node",pid=3779537,fd=22))                                               
+LISTEN 0      128                           127.0.0.1:8545       0.0.0.0:*    users:(("zebvix-node",pid=3768824,fd=51))                                               
+LISTEN 0      1024                            0.0.0.0:30333      0.0.0.0:*    users:(("zebvix-node",pid=3768824,fd=49))                                               
+LISTEN 0      1024                            0.0.0.0:30334      0.0.0.0:*    users:(("zebvix-node",pid=3779537,fd=19))                                               
+root@srv1266996:/home/zebvix-chain# 
