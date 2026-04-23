@@ -1049,14 +1049,41 @@ async fn cmd_balance(address: String, rpc_url: String) -> Result<()> {
         .and_then(|v| v.as_str().map(String::from))
         .unwrap_or_else(|| "0x0".to_string());
     let zusd = parse_hex_wei(&zusd_hex);
+
+    let lock = rpc_get(&rpc_url, "zbx_getLockedRewards", serde_json::json!([addr.to_hex()]))
+        .await
+        .ok();
+    let (locked_bal, claimable, daily_drip, total_released) = if let Some(v) = &lock {
+        let p = |k: &str| v.get(k).and_then(|x| x.as_str()).and_then(|s| s.parse::<u128>().ok()).unwrap_or(0);
+        (p("locked_balance_wei"), p("claimable_now_wei"), p("daily_drip_wei"), p("total_released_wei"))
+    } else { (0, 0, 0, 0) };
+
+    let stake = lock.as_ref()
+        .and_then(|v| v.get("stake_wei"))
+        .and_then(|x| x.as_str())
+        .and_then(|s| s.parse::<u128>().ok())
+        .unwrap_or(0);
+
+    let total = bal + locked_bal + stake;
+
     println!("{C_CYAN_B}💰 Balance{C_RESET}");
     println!();
-    println!("   address       : {}", addr.to_hex());
-    println!("   {C_GREEN}ZBX balance{C_RESET}   : {} ZBX  {C_DIM}({} wei){C_RESET}", fmt_zbx(bal), bal);
-    if zusd > 0 {
-        println!("   {C_YELLOW}zUSD balance{C_RESET}  : {} zUSD {C_DIM}({} wei){C_RESET}", fmt_zbx(zusd), zusd);
+    println!("   address              : {}", addr.to_hex());
+    println!("   {C_GREEN}liquid (ZBX){C_RESET}         : {} ZBX  {C_DIM}({} wei){C_RESET}", fmt_zbx(bal), bal);
+    if stake > 0 {
+        println!("   {C_CYAN_B}staked{C_RESET}               : {} ZBX  {C_DIM}({} wei){C_RESET}", fmt_zbx(stake), stake);
     }
-    println!("   nonce         : {nonce}");
+    if locked_bal > 0 || claimable > 0 || total_released > 0 {
+        println!("   {C_YELLOW}🔒 locked rewards{C_RESET}    : {} ZBX  {C_DIM}({} wei){C_RESET}", fmt_zbx(locked_bal), locked_bal);
+        println!("      claimable now     : {} ZBX", fmt_zbx(claimable));
+        println!("      daily drip rate   : {} ZBX/day", fmt_zbx(daily_drip));
+        println!("      total released    : {} ZBX (lifetime)", fmt_zbx(total_released));
+    }
+    if zusd > 0 {
+        println!("   {C_YELLOW}zUSD balance{C_RESET}         : {} zUSD {C_DIM}({} wei){C_RESET}", fmt_zbx(zusd), zusd);
+    }
+    println!("   {C_CYAN_B}TOTAL (liq+stk+lck){C_RESET}  : {} ZBX", fmt_zbx(total));
+    println!("   nonce                : {nonce}");
     Ok(())
 }
 
