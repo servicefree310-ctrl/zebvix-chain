@@ -37,12 +37,24 @@ if [[ ! -d "$CHAIN_DIR" ]]; then
   red "ERROR: chain dir $CHAIN_DIR not found. Pass CHAIN_DIR=/your/path."
   exit 1
 fi
+# Rust may be installed but PATH is reset under `sudo bash`. Try common paths.
 if ! command -v cargo >/dev/null 2>&1; then
-  red "ERROR: cargo not found. Install Rust first:"
+  for envf in "$HOME/.cargo/env" /root/.cargo/env /home/*/.cargo/env; do
+    [ -f "$envf" ] && . "$envf" && break
+  done
+  for p in "$HOME/.cargo/bin" /root/.cargo/bin /usr/local/cargo/bin; do
+    [ -x "$p/cargo" ] && export PATH="$p:$PATH"
+  done
+fi
+if ! command -v cargo >/dev/null 2>&1; then
+  red "ERROR: cargo not found in PATH. If rust is installed, retry with:"
+  echo "  export PATH=\"\$HOME/.cargo/bin:/root/.cargo/bin:\$PATH\""
+  echo "  curl -fsSL $BASE_URL/install-zbx-supply-v0.2.sh | sudo -E bash"
+  echo "Or install Rust first:"
   echo "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
-  echo "  source \$HOME/.cargo/env"
   exit 1
 fi
+echo "    cargo     : $(command -v cargo)"
 
 cyan "==> 1/6  Downloading patch bundle"
 rm -rf "$WORKDIR"
