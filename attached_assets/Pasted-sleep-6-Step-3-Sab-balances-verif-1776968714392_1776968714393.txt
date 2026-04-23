@@ -1,0 +1,173 @@
+sleep 6
+
+═══════════════════════════════════════════════════════════
+# Step 3: Sab balances verify karo
+═══════════════════════════════════════════════════════════
+echo "=== Owner-2 balance (chahiye ~2 ZBX) ==="
+echotp://127.0.0.1:8545"id":1,"method":"zbx_getBalance","params":["0x7b88ccc9774ffd59dc4e24a1e044b4fc9784d52f"]}' \
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+{
+  "id": 1,
+  "jsonrpc": "2.0",
+  "result": "0x0fa7c8c7e8b0dbef62671bf9f4166cd7ef063b732b523416f7040098842aaf67"
+}
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+{
+  "id": 1,
+  "jsonrpc": "2.0",
+  "result": "0xc27d2346e6e5f5aa2ac926404eca4e5954df7fa49d4b8455953de18faf414db7"
+}
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+{
+  "id": 1,
+  "jsonrpc": "2.0",
+  "result": "0x60cff0f7a79333b46cf1e3b4fd122fdd5150e95e0098021f06711a880ad2cf72"
+}
+=== Owner-2 balance (chahiye ~2 ZBX) ===
+{"jsonrpc":"2.0","id":1,"result":"0x0"}
+=== Owner-3 balance (chahiye ~2 ZBX) ===
+{"jsonrpc":"2.0","id":1,"result":"0x1bc16d674ec80000"}
+=== Multisig balance (chahiye 100 ZBX) ===
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+🔐 Multisig Info
+
+   address         : 0xdc28ce35bab2369e5b85c779baf49d05dfb4e8d7
+   balance         : 100 ZBX  (100000000000000000000 wei)
+   threshold       : 2 of 3
+   created_height  : h=8932
+   total proposals : 1
+   owners:
+     1. 0x7b88ccc9774ffd59dc4e24a1e044b4fc9784d52f
+     2. 0xd8f28007f9b6cf4a45b33eaa96ad829ddc51848b
+     3. 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+✅ Multisig Approve
+
+   multisig     : 0xdc28ce35bab2369e5b85c779baf49d05dfb4e8d7
+   signer       : 0x7b88ccc9774ffd59dc4e24a1e044b4fc9784d52f
+   proposal_id  : #0
+   fee          : 0.0020000000 ZBX
+
+   submit response:
+{
+  "id": 1,
+  "jsonrpc": "2.0",
+  "result": "0x3af683b03063779a97b76b2691df809c773b309ff328e8a2a8a179f2e3839b30"
+}
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+📋 Multisig Proposals — 0xdc28ce35bab2369e5b85c779baf49d05dfb4e8d7
+
+   #0  [🟢 READY]  transfer 50000000000000000000 wei → 0x7b88ccc9774ffd59dc4e24a1e044b4fc9784d52f
+       proposer    : 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+       approvals   : 2 / 2
+         • 0x7b88ccc9774ffd59dc4e24a1e044b4fc9784d52f
+         • 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+       expires at  : h=26253
+
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+🚀 Multisig Execute
+
+   multisig     : 0xdc28ce35bab2369e5b85c779baf49d05dfb4e8d7
+   signer       : 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+   proposal_id  : #0
+   fee          : 0.0020000000 ZBX
+
+   submit response:
+{
+  "id": 1,
+  "jsonrpc": "2.0",
+  "result": "0x7a12c9657a727b73b312e9e9fd84aeaf8d231abea5fc6b0e2439df9e26481711"
+}
+
+=== Multisig (chahiye ~50 ZBX bach gaya) ===
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+🔐 Multisig Info
+
+   address         : 0xdc28ce35bab2369e5b85c779baf49d05dfb4e8d7
+   balance         : 50 ZBX  (50000000000000000000 wei)
+   threshold       : 2 of 3
+   created_height  : h=8932
+   total proposals : 1
+   owners:
+     1. 0x7b88ccc9774ffd59dc4e24a1e044b4fc9784d52f
+     2. 0xd8f28007f9b6cf4a45b33eaa96ad829ddc51848b
+     3. 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+
+=== Proposal #0 — EXECUTED hona chahiye ===
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+📋 Multisig Proposals — 0xdc28ce35bab2369e5b85c779baf49d05dfb4e8d7
+
+   #0  [✅ EXECUTED]  transfer 50000000000000000000 wei → 0x7b88ccc9774ffd59dc4e24a1e044b4fc9784d52f
+       proposer    : 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+       approvals   : 2 / 2
+         • 0x7b88ccc9774ffd59dc4e24a1e044b4fc9784d52f
+         • 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+       expires at  : h=26253
+
+
+=== Recipient (Owner-3) balance — chahiye ~52 ZBX (2 gas + 50 multisig) ===
+{"jsonrpc":"2.0","id":1,"result":"0x2d19e0180b6c30000"}
+root@srv1266996:/home/zebvix-chain# 
