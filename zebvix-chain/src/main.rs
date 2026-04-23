@@ -116,7 +116,10 @@ enum Cmd {
         /// Amount in ZBX (decimals allowed, e.g. 1.5).
         #[arg(long)]
         amount: String,
-        #[arg(long, default_value = "0")]
+        /// Fee in ZBX. Use `auto` (default) to fetch the live USD-pegged
+        /// recommendation from `zbx_feeBounds` (≈ $0.002 per tx). Pass an
+        /// explicit decimal (e.g. `0.005`) to override.
+        #[arg(long, default_value = "auto")]
         fee: String,
         #[arg(long, default_value = "http://127.0.0.1:8545")]
         rpc: String,
@@ -220,8 +223,10 @@ enum Cmd {
         /// JSON-RPC endpoint of a running node.
         #[arg(long, default_value = "http://127.0.0.1:8545")]
         rpc_url: String,
-        /// Fee in ZBX (must be ≥ 0.00105). Default 0.002 stays safely above min.
-        #[arg(long, default_value = "0.002")]
+        /// Fee in ZBX. Use `auto` (default) for live USD-pegged recommendation
+        /// from `zbx_feeBounds`. Pass an explicit decimal to override (must lie
+        /// within the dynamic [$0.001, $0.01] consensus window).
+        #[arg(long, default_value = "auto")]
         fee: String,
     },
     /// Inspect the per-block REWARDS_POOL: current balance + blocks-until-next-distribution.
@@ -295,7 +300,7 @@ enum Cmd {
         address: String,
         #[arg(long, default_value = "http://127.0.0.1:8545")]
         rpc_url: String,
-        #[arg(long, default_value = "0.002")]
+        #[arg(long, default_value = "auto")]
         fee: String,
     },
     /// Show a single validator's details (address, pubkey, voting_power).
@@ -328,7 +333,7 @@ enum Cmd {
         new_governor: String,
         #[arg(long, default_value = "http://127.0.0.1:8545")]
         rpc_url: String,
-        #[arg(long, default_value = "0.002")]
+        #[arg(long, default_value = "auto")]
         fee: String,
     },
 
@@ -370,7 +375,7 @@ enum Cmd {
         self_bond: String,
         #[arg(long, default_value = "http://127.0.0.1:8545")]
         rpc_url: String,
-        #[arg(long, default_value = "0.002")]
+        #[arg(long, default_value = "auto")]
         fee: String,
     },
     /// Edit commission for a validator you operate (capped 1% delta per epoch).
@@ -383,7 +388,7 @@ enum Cmd {
         new_commission_bps: u64,
         #[arg(long, default_value = "http://127.0.0.1:8545")]
         rpc_url: String,
-        #[arg(long, default_value = "0.002")]
+        #[arg(long, default_value = "auto")]
         fee: String,
     },
     /// Delegate ZBX to a validator. Mints delegation shares.
@@ -397,7 +402,7 @@ enum Cmd {
         amount: String,
         #[arg(long, default_value = "http://127.0.0.1:8545")]
         rpc_url: String,
-        #[arg(long, default_value = "0.002")]
+        #[arg(long, default_value = "auto")]
         fee: String,
     },
     /// Unstake by burning shares. Funds mature after UNBONDING_EPOCHS.
@@ -411,7 +416,7 @@ enum Cmd {
         shares: String,
         #[arg(long, default_value = "http://127.0.0.1:8545")]
         rpc_url: String,
-        #[arg(long, default_value = "0.002")]
+        #[arg(long, default_value = "auto")]
         fee: String,
     },
     /// Atomically move stake from one validator to another (no cooldown).
@@ -426,7 +431,7 @@ enum Cmd {
         shares: String,
         #[arg(long, default_value = "http://127.0.0.1:8545")]
         rpc_url: String,
-        #[arg(long, default_value = "0.002")]
+        #[arg(long, default_value = "auto")]
         fee: String,
     },
     /// Claim accumulated rewards (operator commission + Phase B.5 locked-rewards drip + bulk).
@@ -438,7 +443,7 @@ enum Cmd {
         validator: String,
         #[arg(long, default_value = "http://127.0.0.1:8545")]
         rpc_url: String,
-        #[arg(long, default_value = "0.002")]
+        #[arg(long, default_value = "auto")]
         fee: String,
     },
 
@@ -888,7 +893,7 @@ async fn cmd_send(from_key: PathBuf, to: String, amount: String, fee: String, rp
     let from = address_from_pubkey(&pk);
     let to = Address::from_hex(&to)?;
     let amount_wei = parse_zbx_amount(&amount)?;
-    let fee_wei = parse_zbx_amount(&fee)?;
+    let fee_wei = resolve_fee(&rpc_url, &fee).await?;
 
     // Get nonce from RPC
     let client = reqwest_get_nonce(&rpc_url, &from).await?;
@@ -1540,13 +1545,7 @@ async fn cmd_validator_add(
     let from = address_from_pubkey(&pk);
     let val_pk = parse_pubkey_hex(&pubkey_hex)?;
     let val_addr = address_from_pubkey(&val_pk);
-    let fee_wei = parse_zbx_amount(&fee)?;
-    if fee_wei < tokenomics::MIN_TX_FEE_WEI {
-        return Err(anyhow!(
-            "fee {} wei below MIN_TX_FEE_WEI {} wei (≈0.00105 ZBX) — pass --fee 0.002 or higher",
-            fee_wei, tokenomics::MIN_TX_FEE_WEI
-        ));
-    }
+    let fee_wei = resolve_fee(&rpc_url, &fee).await?;
 
     let nonce = reqwest_get_nonce(&rpc_url, &from).await?;
     let body = TxBody {
@@ -1575,13 +1574,7 @@ async fn cmd_validator_remove(
     let (sk, pk) = read_keyfile(&signer_key)?;
     let from = address_from_pubkey(&pk);
     let target = Address::from_hex(&address_hex)?;
-    let fee_wei = parse_zbx_amount(&fee)?;
-    if fee_wei < tokenomics::MIN_TX_FEE_WEI {
-        return Err(anyhow!(
-            "fee {} wei below MIN_TX_FEE_WEI {} wei (≈0.00105 ZBX) — pass --fee 0.002 or higher",
-            fee_wei, tokenomics::MIN_TX_FEE_WEI
-        ));
-    }
+    let fee_wei = resolve_fee(&rpc_url, &fee).await?;
 
     let nonce = reqwest_get_nonce(&rpc_url, &from).await?;
     let body = TxBody {
@@ -1622,15 +1615,9 @@ fn cmd_admin_info(home: PathBuf) -> Result<()> {
 
 fn parse_u128_amount(s: &str) -> Result<u128> { parse_zbx_amount(s) }
 
-fn check_fee(fee_wei: u128) -> Result<()> {
-    if fee_wei < tokenomics::MIN_TX_FEE_WEI {
-        return Err(anyhow!(
-            "fee {} wei below MIN_TX_FEE_WEI {} wei (≈0.00105 ZBX) — pass --fee 0.002 or higher",
-            fee_wei, tokenomics::MIN_TX_FEE_WEI
-        ));
-    }
-    Ok(())
-}
+// (Removed Phase A `check_fee` static floor — dynamic fee bounds are now
+// fully enforced consensus-side in `state::apply_tx` via `pool::fee_bounds_wei`,
+// and CLI fees route through `resolve_fee` which queries `zbx_feeBounds`.)
 
 async fn rpc_get(rpc_url: &str, method: &str, params: serde_json::Value) -> Result<serde_json::Value> {
     let req = serde_json::json!({ "jsonrpc":"2.0","id":1,"method":method,"params":params });
@@ -1659,8 +1646,7 @@ async fn cmd_governor_change(signer_key: PathBuf, new_governor: String, rpc_url:
     let (sk, pk) = read_keyfile(&signer_key)?;
     let from = address_from_pubkey(&pk);
     let new_gov = Address::from_hex(&new_governor)?;
-    let fee_wei = parse_zbx_amount(&fee)?;
-    check_fee(fee_wei)?;
+    let fee_wei = resolve_fee(&rpc_url, &fee).await?;
     let nonce = reqwest_get_nonce(&rpc_url, &from).await?;
     let body = TxBody {
         from, to: Address::ZERO, amount: 0, nonce, fee: fee_wei,
@@ -1765,8 +1751,7 @@ async fn submit_staking(
 ) -> Result<()> {
     let (sk, pk) = read_keyfile(signer_key)?;
     let from = address_from_pubkey(&pk);
-    let fee_wei = parse_zbx_amount(fee_str)?;
-    check_fee(fee_wei)?;
+    let fee_wei = resolve_fee(rpc_url, fee_str).await?;
     let nonce = reqwest_get_nonce(rpc_url, &from).await?;
     let body = TxBody {
         from, to: Address::ZERO, amount: 0, nonce, fee: fee_wei,

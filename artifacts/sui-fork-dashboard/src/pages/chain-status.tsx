@@ -155,6 +155,13 @@ const GROUPS: FeatureGroup[] = [
         files: ["src/rpc.rs", "src/main.rs"],
       },
       {
+        name: "--fee auto rolled out to ALL CLI commands ✅",
+        desc: "Every fee-paying CLI command (send, register-pay-id, validator-add/remove, governor-change, validator-create/edit-commission, stake, unstake, redelegate, claim-rewards) now defaults to --fee auto and routes through resolve_fee(). The legacy static check_fee() floor was removed — dynamic fee bounds are fully consensus-enforced in state::apply_tx. Users no longer need to know the current ZBX/USD rate to pay the right fee. Two-node cluster on VPS verified: Node-1 producer + Node-2 follower fully synced (heights match, zero double-sign).",
+        status: "done",
+        version: "v0.1.6",
+        files: ["src/main.rs"],
+      },
+      {
         name: "Permissionless pool + auto-swap router (POOL_ADDRESS)",
         desc: "Pool has a magic address (0x7a73776170...) with NO private key — controlled entirely by chain logic. Any normal user who SENDS ZBX to this address triggers an instant auto-swap: their ZBX is consumed by the pool, and zUSD is credited back to their wallet at the current spot rate. Admin transfers are exempted: admin → pool = single-sided liquidity add (no swap, no LP mint). Implemented in State::apply_tx as an interceptor.",
         status: "done",
