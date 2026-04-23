@@ -1,0 +1,27 @@
+root@srv1266996:/home/zebvix-chain# # Dono service files dekho — which port each runs on
+sudo systemctl cat zebvix.service zebvix2.service 2>&1 | grep -E "ExecStart|rpc-port|^Description" 
+
+# Listening ports
+sudo ss -tlnp | grep zebvix-node
+
+# P2P / gossip logs check
+sudo journalctl -u zebvix.service -n 200 --no-pager | grep -iE "peer|gossip|p2p|connect" | tail -10
+Description=Zebvix L1 Blockchain Node
+ExecStart=/usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns
+Description=Zebvix L1 Blockchain Node-2
+ExecStart=/usr/local/bin/zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns
+LISTEN 0      128                           127.0.0.1:8546       0.0.0.0:*    users:(("zebvix-node",pid=3768825,fd=48))                                               
+LISTEN 0      128                           127.0.0.1:8545       0.0.0.0:*    users:(("zebvix-node",pid=3768824,fd=51))                                               
+LISTEN 0      1024                            0.0.0.0:30333      0.0.0.0:*    users:(("zebvix-node",pid=3768824,fd=49))                                               
+LISTEN 0      1024                            0.0.0.0:30334      0.0.0.0:*    users:(("zebvix-node",pid=3768825,fd=43))                                               
+Apr 23 16:24:24 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:24:24.485818Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWLqLxRxaRDv4h2ZGm7UgyzNNwjdxVsSUoavkdsjYWpMJU: serving 16 blocks [7736..=7751]
+Apr 23 16:24:27 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:24:27.983564Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWLqLxRxaRDv4h2ZGm7UgyzNNwjdxVsSUoavkdsjYWpMJU: serving 16 blocks [7737..=7752]
+Apr 23 16:24:30 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:24:30.484664Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWLqLxRxaRDv4h2ZGm7UgyzNNwjdxVsSUoavkdsjYWpMJU: serving 16 blocks [7737..=7752]
+Apr 23 16:24:35 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:24:35.984081Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWLqLxRxaRDv4h2ZGm7UgyzNNwjdxVsSUoavkdsjYWpMJU: serving 16 blocks [7738..=7753]
+Apr 23 16:24:36 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:24:36.484356Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWLqLxRxaRDv4h2ZGm7UgyzNNwjdxVsSUoavkdsjYWpMJU: serving 16 blocks [7738..=7753]
+Apr 23 16:24:42 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:24:42.486063Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWLqLxRxaRDv4h2ZGm7UgyzNNwjdxVsSUoavkdsjYWpMJU: serving 15 blocks [7740..=7754]
+Apr 23 16:24:43 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:24:43.984467Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWLqLxRxaRDv4h2ZGm7UgyzNNwjdxVsSUoavkdsjYWpMJU: serving 16 blocks [7740..=7755]
+Apr 23 16:24:48 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:24:48.484681Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWLqLxRxaRDv4h2ZGm7UgyzNNwjdxVsSUoavkdsjYWpMJU: serving 15 blocks [7741..=7755]
+Apr 23 16:24:51 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:24:51.984782Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWLqLxRxaRDv4h2ZGm7UgyzNNwjdxVsSUoavkdsjYWpMJU: serving 16 blocks [7741..=7756]
+Apr 23 16:24:54 srv1266996.hstgr.cloud zebvix-node[3768824]: 2026-04-23T16:24:54.483967Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWLqLxRxaRDv4h2ZGm7UgyzNNwjdxVsSUoavkdsjYWpMJU: serving 15 blocks [7742..=7756]
+root@srv1266996:/home/zebvix-chain# 
