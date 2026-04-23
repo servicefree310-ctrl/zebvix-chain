@@ -1,0 +1,51 @@
+root@srv1266996:~# cd /home/zebvix-chain
+curl --compressed -o /tmp/zbx-new.tar.gz \
+  https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/zebvix-chain-updated.tar.gz
+tar -xf /tmp/zbx-new.tar.gz
+cargo build --release
+
+pkill -9 -f "zebvix-node start" && sleep 5
+sudo cp target/release/zebvix-node /usr/local/bin/zebvix-node
+
+nohup zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns > /var/log/zebvix-n1.log 2>&1 &
+nohup zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns > /var/log/zebvix-n2.log 2>&1 &
+sleep 8
+
+# Naya balance command try karein
+zebvix-node balance --address 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+zebvix-node balance --address 0x57957a0f7e3cd660c3dd10b897d38f8122f78980
+zebvix-node balance --address 0x7277647300000000000000000000000000000000   # rewards pool
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100 76964  100 76964    0     0  24583      0  0:00:03  0:00:03 --:--:-- 24589
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:358:4
+    |
+358 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+   Compiling zebvix-node v0.1.0 (/home/zebvix-chain)
+    Finished `release` profile [optimized] target(s) in 47.33s
+cp: cannot create regular file '/usr/local/bin/zebvix-node': Text file busy
+[1] 3726859
+[2] 3726860
+[1]-  Exit 1                  nohup zebvix-node start --home /root/.zebvix --rpc 127.0.0.1:8545 --p2p-port 30333 --no-mdns > /var/log/zebvix-n1.log 2>&1
+error: unrecognized subcommand 'balance'
+
+Usage: zebvix-node <COMMAND>
+
+For more information, try '--help'.
+error: unrecognized subcommand 'balance'
+
+Usage: zebvix-node <COMMAND>
+
+For more information, try '--help'.
+error: unrecognized subcommand 'balance'
+
+Usage: zebvix-node <COMMAND>
+
+For more information, try '--help'.
+root@srv1266996:/home/zebvix-chain# 
