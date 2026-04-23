@@ -1,0 +1,47 @@
+root@srv1266996:/home/zebvix-chain# # 1. Block height
+curl -s -X POST -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","method":"zbx_getHeight","params":[],"id":1}' \
+  http://127.0.0.1:8545
+
+# 2. REWARDS_POOL balance (har 5 sec me 3 ZBX badhna chahiye)
+curl -s -X POST -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","method":"zbx_getBalance","params":["0x7277647300000000000000000000000000000000"],"id":1}' \
+  http://127.0.0.1:8545
+
+# 3. Log file ka size + last 30 lines (filter ke bina)
+ls -la /var/log/zebvix-n1.log
+echo "─── last 30 log lines ───"
+tail -30 /var/log/zebvix-n1.log
+{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"method not found: zbx_getHeight"}}{"jsonrpc":"2.0","id":1,"result":"0xc85c4dc1c0b3c0000"}-rw-r--r-- 1 root root 175841 Apr 23 13:28 /var/log/zebvix-n1.log
+─── last 30 log lines ───
+2026-04-23T13:28:12.273659Z  WARN zebvix_node: ⚠️  DOUBLE-SIGN by 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc at h=5955 r=0 precommit (slashable in B.3+)
+2026-04-23T13:28:12.754604Z  INFO zebvix_node: 🗳  emitted prevote h=5973 block=0xb743f2ce64802ff197c059a678caad07f57be2c8994a549404042eff2f106b16  ✅ QUORUM
+2026-04-23T13:28:12.754725Z  INFO zebvix_node: 🗳  emitted precommit h=5973 block=0xb743f2ce64802ff197c059a678caad07f57be2c8994a549404042eff2f106b16  ✅ QUORUM
+2026-04-23T13:28:15.755533Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWAGGabHK7DozEkUkJubESgTmhV1rK1B2o2jzLzvW9VZik: serving 18 blocks [5956..=5973]
+2026-04-23T13:28:17.774589Z  WARN zebvix_node: ⚠️  DOUBLE-SIGN by 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc at h=5956 r=0 precommit (slashable in B.3+)
+2026-04-23T13:28:17.774694Z  WARN zebvix_node: ⚠️  DOUBLE-SIGN by 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc at h=5956 r=0 prevote (slashable in B.3+)
+2026-04-23T13:28:18.272345Z  INFO zebvix_node::consensus: ⛏  block #5974 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0x2085e161fb319c5e614ae16efc26bc07b6503e44d11b29a9e1cbdbfee0daba8a
+2026-04-23T13:28:18.273155Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWAGGabHK7DozEkUkJubESgTmhV1rK1B2o2jzLzvW9VZik: serving 17 blocks [5957..=5973]
+2026-04-23T13:28:18.754501Z  INFO zebvix_node: 🗳  emitted prevote h=5974 block=0x2085e161fb319c5e614ae16efc26bc07b6503e44d11b29a9e1cbdbfee0daba8a  ✅ QUORUM
+2026-04-23T13:28:18.754642Z  INFO zebvix_node: 🗳  emitted precommit h=5974 block=0x2085e161fb319c5e614ae16efc26bc07b6503e44d11b29a9e1cbdbfee0daba8a  ✅ QUORUM
+2026-04-23T13:28:23.274374Z  WARN zebvix_node: ⚠️  DOUBLE-SIGN by 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc at h=5957 r=0 precommit (slashable in B.3+)
+2026-04-23T13:28:23.274494Z  WARN zebvix_node: ⚠️  DOUBLE-SIGN by 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc at h=5957 r=0 prevote (slashable in B.3+)
+2026-04-23T13:28:23.757588Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWAGGabHK7DozEkUkJubESgTmhV1rK1B2o2jzLzvW9VZik: serving 17 blocks [5958..=5974]
+2026-04-23T13:28:24.271545Z  INFO zebvix_node::consensus: ⛏  block #5975 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0x04a8c51cb177679fce6c7f7f19fb3a9877aa3f704ede5cdf2f9569267b36dcfd
+2026-04-23T13:28:24.272266Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWAGGabHK7DozEkUkJubESgTmhV1rK1B2o2jzLzvW9VZik: serving 17 blocks [5958..=5974]
+2026-04-23T13:28:24.754577Z  INFO zebvix_node: 🗳  emitted prevote h=5975 block=0x04a8c51cb177679fce6c7f7f19fb3a9877aa3f704ede5cdf2f9569267b36dcfd  ✅ QUORUM
+2026-04-23T13:28:24.754693Z  INFO zebvix_node: 🗳  emitted precommit h=5975 block=0x04a8c51cb177679fce6c7f7f19fb3a9877aa3f704ede5cdf2f9569267b36dcfd  ✅ QUORUM
+2026-04-23T13:28:28.774655Z  WARN zebvix_node: ⚠️  DOUBLE-SIGN by 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc at h=5958 r=0 precommit (slashable in B.3+)
+2026-04-23T13:28:28.774758Z  WARN zebvix_node: ⚠️  DOUBLE-SIGN by 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc at h=5958 r=0 prevote (slashable in B.3+)
+2026-04-23T13:28:29.771525Z  INFO zebvix_node::consensus: ⛏  block #5976 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0x418e014cba71c0b0f2485639e960677adedc8d8ea0a4d45bfd0e56ecb3849a12
+2026-04-23T13:28:29.776314Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWAGGabHK7DozEkUkJubESgTmhV1rK1B2o2jzLzvW9VZik: serving 17 blocks [5959..=5975]
+2026-04-23T13:28:30.254592Z  INFO zebvix_node: 🗳  emitted prevote h=5976 block=0x418e014cba71c0b0f2485639e960677adedc8d8ea0a4d45bfd0e56ecb3849a12  ✅ QUORUM
+2026-04-23T13:28:30.254718Z  INFO zebvix_node: 🗳  emitted precommit h=5976 block=0x418e014cba71c0b0f2485639e960677adedc8d8ea0a4d45bfd0e56ecb3849a12  ✅ QUORUM
+2026-04-23T13:28:31.755429Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWAGGabHK7DozEkUkJubESgTmhV1rK1B2o2jzLzvW9VZik: serving 18 blocks [5959..=5976]
+2026-04-23T13:28:34.274009Z  WARN zebvix_node: ⚠️  DOUBLE-SIGN by 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc at h=5959 r=0 precommit (slashable in B.3+)
+2026-04-23T13:28:34.274108Z  WARN zebvix_node: ⚠️  DOUBLE-SIGN by 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc at h=5959 r=0 prevote (slashable in B.3+)
+2026-04-23T13:28:35.771620Z  INFO zebvix_node::consensus: ⛏  block #5977 produced  proposer=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc  round=0  txs=0  hash=0x692e99cf874e27528a17d4b163c463bdb0c42415cff2d2251b56021663745723
+2026-04-23T13:28:35.772472Z  INFO zebvix_node::p2p: ⏫ sync response → 12D3KooWAGGabHK7DozEkUkJubESgTmhV1rK1B2o2jzLzvW9VZik: serving 17 blocks [5960..=5976]
+2026-04-23T13:28:36.254527Z  INFO zebvix_node: 🗳  emitted prevote h=5977 block=0x692e99cf874e27528a17d4b163c463bdb0c42415cff2d2251b56021663745723  ✅ QUORUM
+2026-04-23T13:28:36.254676Z  INFO zebvix_node: 🗳  emitted precommit h=5977 block=0x692e99cf874e27528a17d4b163c463bdb0c42415cff2d2251b56021663745723  ✅ QUORUM
+root@srv1266996:/home/zebvix-chain# 
