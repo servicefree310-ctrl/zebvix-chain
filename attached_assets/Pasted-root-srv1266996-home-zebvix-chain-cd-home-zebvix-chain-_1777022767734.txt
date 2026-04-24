@@ -1,0 +1,120 @@
+root@srv1266996:/home/zebvix-chain# cd /home/zebvix-chain
+
+# 1. Import founder secret (positional, no --secret-hex flag)
+./target/release/zbx import \
+  0xa8674e60d95ec1fa2b37f264b01b8407d2fbb0789bd836382472d181973ebbf8 \
+  --out ~/.zebvix/founder.key
+
+# 2. Verify address (positional keyfile path)
+./target/release/zbx address ~/.zebvix/founder.key
+
+# 3. Check founder balance (positional address)
+./target/release/zbx balance 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315
+
+# 4. Check chain progressing
+./target/release/zbx tip
+sleep 6
+./target/release/zbx tip
+
+# 5. Re-register BNB Chain — founder.key signer + explicit fee
+./target/release/zebvix-node bridge-register-network \
+  --signer-key ~/.zebvix/founder.key \
+  --id 56 --name "BNB Chain" --kind evm \
+  --rpc-url http://127.0.0.1:8545 --fee 0.005
+
+sleep 7
+
+./target/release/zebvix-node bridge-register-asset \
+  --signer-key ~/.zebvix/founder.key \
+  --network-id 56 --native zbx \
+  --contract 0x0000000000000000000000000000000000000000 \
+  --decimals 18 \
+  --rpc-url http://127.0.0.1:8545 --fee 0.005
+
+sleep 7
+
+# 6. Verify
+./target/release/zebvix-node bridge-networks --rpc-url http://127.0.0.1:8545
+./target/release/zebvix-node bridge-stats    --rpc-url http://127.0.0.1:8545
+  ✓ Imported wallet → 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315
+  Saved to /root/.zebvix/founder.key
+0x40907000ac0a1a73e4cd89889b4d7ee8980c0315
+  Address : 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315
+  ZBX     : 0 ZBX
+  zUSD    : 0 zUSD
+  Wei     : 0
+  Tip height : 0
+  Tip hash   : ?
+  Tip height : 0
+  Tip hash   : ?
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+🌉 Bridge register-network
+   id      : 56
+   name    : BNB Chain
+   kind    : Evm
+   admin   : 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315
+{
+  "id": 1,
+  "jsonrpc": "2.0",
+  "result": "0x86fa5d54de267bbfe8150d52e58a569d0aa00e1d3f36beb34490322c0a624e59"
+}
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+🌉 Bridge register-asset
+   network_id : 56
+   native     : ZBX
+   contract   : 0x0000000000000000000000000000000000000000
+   decimals   : 18
+{
+  "id": 1,
+  "jsonrpc": "2.0",
+  "result": "0x58d9cadf1c3d4098a416ea947b4666e8deaba90f660d9e4e553cb43d9901b312"
+}
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+🌉 Bridge networks  (count=0)
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+🌉 Bridge assets  (count=0)
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+🌉 Bridge stats
+   networks      : 0 (active 0)
+   assets        : 0 (active 0)
+   locked ZBX    : 0 wei
+   locked zUSD   : 0
+   out events    : 0
+   claims used   : 0
+   lock address  : 0x7a62726467000000000000000000000000000000
+root@srv1266996:/home/zebvix-chain# 
