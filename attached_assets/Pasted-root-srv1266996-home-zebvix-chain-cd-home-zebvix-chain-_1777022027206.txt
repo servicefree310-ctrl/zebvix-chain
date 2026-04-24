@@ -1,0 +1,24 @@
+root@srv1266996:/home/zebvix-chain# cd /home/zebvix-chain && curl -fsSL "https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/api/download/newchain" -o newchain.tgz && ls -la newchain.tgz && cd /home && tar xzf zebvix-chain/newchain.tgz && cd zebvix-chain && grep -n "ts: self.current_block_ts_ms" src/state.rs && cargo build --release 2>&1 | tail -20
+-rw-r--r-- 1 root root 113996 Apr 24 09:13 newchain.tgz
+1356:                            ts: self.current_block_ts_ms.load(Ordering::SeqCst) as i64,
+581 |                 _ => return axum::Json(err(id, -32602, "source_tx_hash must be 0x + 64 hex chars (32 bytes)".into())),
+    |                                                                                                              ^^^^
+    |
+    = note: multiple `impl`s satisfying `_: std::convert::From<&str>` found in the following crates: `axum_core`, `bytes`, `hickory_proto`, `primitive_types`:
+            - impl std::convert::From<&'static str> for Body;
+            - impl std::convert::From<&'static str> for U128;
+            - impl std::convert::From<&'static str> for U256;
+            - impl std::convert::From<&'static str> for U512;
+            - impl std::convert::From<&'static str> for hickory_proto::error::DnsSecError;
+            - impl std::convert::From<&'static str> for hickory_proto::error::ProtoError;
+            - impl std::convert::From<&'static str> for libp2p::bytes::Bytes;
+    = note: required for `&str` to implement `Into<_>`
+help: try using a fully qualified path to specify the expected types
+    |
+581 -                 _ => return axum::Json(err(id, -32602, "source_tx_hash must be 0x + 64 hex chars (32 bytes)".into())),
+581 +                 _ => return axum::Json(err(id, -32602, <&str as Into<T>>::into("source_tx_hash must be 0x + 64 hex chars (32 bytes)"))),
+    |
+
+For more information about this error, try `rustc --explain E0283`.
+error: could not compile `zebvix-node` (lib) due to 2 previous errors
+root@srv1266996:/home/zebvix-chain# 
