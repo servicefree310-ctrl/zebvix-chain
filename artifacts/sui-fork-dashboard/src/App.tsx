@@ -38,6 +38,7 @@ import BalanceLookup from "@/pages/balance-lookup";
 import MultisigExplorer from "@/pages/multisig-explorer";
 import PayIdResolver from "@/pages/payid-resolver";
 import ConnectWallet from "@/pages/connect-wallet";
+import SwapPage from "@/pages/swap";
 
 const queryClient = new QueryClient();
 
@@ -77,6 +78,7 @@ function Router() {
         <Route path="/multisig-explorer" component={MultisigExplorer} />
         <Route path="/payid-resolver" component={PayIdResolver} />
         <Route path="/connect-wallet" component={ConnectWallet} />
+        <Route path="/swap" component={SwapPage} />
         <Route component={NotFound} />
       </Switch>
     </Shell>

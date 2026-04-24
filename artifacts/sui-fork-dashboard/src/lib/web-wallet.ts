@@ -195,6 +195,48 @@ export function encodeTransferBody(opts: {
   );
 }
 
+// ── Phase B.10 — Swap (Buy/Sell) tx encoding ───────────────────────────────
+
+/** Direction of an AMM swap. Matches `crate::transaction::SwapDirection`. */
+export type SwapDirection = "zbx_to_zusd" | "zusd_to_zbx";
+
+/// Encode a Swap-kind TxBody — exactly 172 bytes:
+///   from(50) + to(50) + amount(16) + nonce(8) + fee(16) + chain_id(8)
+///   + kind_tag(4 = 8) + direction_tag(4) + min_out(16) = 172.
+///
+/// `body.amount` carries the swap input amount (in ZBX wei OR zUSD micro-units
+/// depending on `direction`). `body.to` MUST equal `body.from` (the chain
+/// rejects swaps where to != from). Output is credited back to the sender's
+/// account in the *opposite* token.
+export function encodeSwapBody(opts: {
+  from: string;
+  amountIn: bigint;
+  direction: SwapDirection;
+  minOut: bigint;
+  feeWei: bigint;
+  nonce: number | bigint;
+  chainId: number | bigint;
+}): Uint8Array {
+  const dirTag = opts.direction === "zbx_to_zusd" ? 0 : 1;
+  return concat(
+    addrBincode(opts.from),         // 50
+    addrBincode(opts.from),         // 50  (to == from for swaps)
+    u128Le(opts.amountIn),          // 16
+    u64Le(opts.nonce),              //  8
+    u128Le(opts.feeWei),            // 16
+    u64Le(opts.chainId),            //  8
+    u32Le(8),                       //  4  TxKind::Swap discriminator
+    u32Le(dirTag),                  //  4  SwapDirection discriminator
+    u128Le(opts.minOut),            // 16
+  );
+}
+
+/** Convert a zUSD decimal-string to 18-decimal micro-units. Same scale as wei. */
+export function zusdToMicros(zusd: string | number): bigint {
+  // zUSD shares the 18-decimal layout with ZBX wei, so we can reuse zbxToWei.
+  return zbxToWei(zusd);
+}
+
 // ── Signing + send ─────────────────────────────────────────────────────────
 
 const ZBX_DECIMALS = 18n;
@@ -267,6 +309,56 @@ export async function sendTransfer(opts: {
 
   const sig = ed25519.sign(body, seed);            // 64 bytes
   const signed = concat(body, pub, sig);           // 152 + 32 + 64 = 248
+  const hexHex = "0x" + bytesToHex(signed);
+
+  const res = await rpc<string>("zbx_sendRawTransaction", [hexHex]);
+  return { hash: typeof res === "string" ? res : "" };
+}
+
+/**
+ * Phase B.10 — sign a TxKind::Swap and submit to the chain.
+ *
+ * This is the explicit AMM buy/sell path with on-chain slippage protection
+ * (`minOut`). If the AMM would return less than `minOut`, the swap reverts
+ * and only the fee is consumed (principal refunded).
+ */
+export async function sendSwap(opts: {
+  privateKeyHex: string;
+  direction: SwapDirection;
+  /** Amount of input token (ZBX wei or zUSD micro-units, same 18-dec scale). */
+  amountIn: bigint;
+  /** Minimum acceptable output from the pool (in opposite token's units). */
+  minOut: bigint;
+  feeZbx?: string | number; // default "0.002"
+  chainId?: number;
+}): Promise<SendResult> {
+  const seedHex = opts.privateKeyHex.replace(/^0x/i, "");
+  if (!/^[0-9a-fA-F]{64}$/.test(seedHex)) {
+    throw new Error("private key must be 64 hex chars");
+  }
+  const seed = hexToBytes(seedHex);
+  const pub = publicKeyFromSeed(seed);
+  const from = addressFromPublic(pub);
+
+  const nonceRaw = (await rpc<unknown>("zbx_getNonce", [from])) as
+    | number | string;
+  const nonce = parseNonce(nonceRaw);
+
+  const chainId = opts.chainId ?? 7878;
+  const feeZbx = opts.feeZbx ?? "0.002";
+
+  const body = encodeSwapBody({
+    from,
+    amountIn: opts.amountIn,
+    direction: opts.direction,
+    minOut: opts.minOut,
+    feeWei: zbxToWei(feeZbx),
+    nonce,
+    chainId,
+  });
+
+  const sig = ed25519.sign(body, seed);
+  const signed = concat(body, pub, sig);  // 172 + 32 + 64 = 268
   const hexHex = "0x" + bytesToHex(signed);
 
   const res = await rpc<string>("zbx_sendRawTransaction", [hexHex]);

@@ -377,10 +377,24 @@ impl State {
         if from.nonce != tx.body.nonce {
             return Err(anyhow!("bad nonce: have {}, got {}", from.nonce, tx.body.nonce));
         }
-        let total = tx.body.amount.checked_add(tx.body.fee)
-            .ok_or_else(|| anyhow!("amount+fee overflow"))?;
-        if from.balance < total { return Err(anyhow!("insufficient balance")); }
-        from.balance -= total;
+        // Pre-dispatch debit. For most tx kinds `body.amount` is denominated
+        // in ZBX wei and lives in `from.balance`, so we debit `amount + fee`
+        // up-front and let the per-kind arm credit any output. Phase B.10
+        // exception: a `Swap { ZusdToZbx }` carries `amount` in zUSD (NOT in
+        // `balance`), so for that single case we must NOT pre-debit `amount`
+        // from `balance` — only the ZBX `fee`. The Swap arm itself debits the
+        // zUSD principal from `from.zusd` and handles its own refunds.
+        let pre_debit = match &tx.body.kind {
+            crate::types::TxKind::Swap {
+                direction: crate::transaction::SwapDirection::ZusdToZbx, ..
+            } => tx.body.fee,
+            _ => tx.body.amount.checked_add(tx.body.fee)
+                .ok_or_else(|| anyhow!("amount+fee overflow"))?,
+        };
+        if from.balance < pre_debit {
+            return Err(anyhow!("insufficient balance"));
+        }
+        from.balance -= pre_debit;
         from.nonce += 1;
 
         let pool_addr = pool_address();
@@ -829,6 +843,139 @@ impl State {
                         return Ok(());
                     }
                     Err(e) => return refund(&mut from, e.to_string()),
+                }
+            }
+            crate::types::TxKind::Swap { direction, min_out } => {
+                // ── Phase B.10 — explicit AMM swap with slippage protection ──
+                //
+                // Pre-dispatch debit (above) is kind-aware:
+                //   • ZbxToZusd → already debited `amount + fee` from balance.
+                //   • ZusdToZbx → debited only `fee` from balance; the swap arm
+                //     itself debits the zUSD principal from `from.zusd`.
+                // On any failure we return the principal to its source token
+                // (the global `refund` closure refunds to .balance which is
+                // wrong for ZusdToZbx, so we use a local direction-aware one).
+                use crate::transaction::SwapDirection;
+
+                let dir = *direction;
+                let swap_refund = |from: &mut Account, msg: String| -> Result<()> {
+                    match dir {
+                        SwapDirection::ZbxToZusd => {
+                            // We DID pre-debit `amount` from balance — restore it.
+                            from.balance = from.balance.saturating_add(tx.body.amount);
+                        }
+                        SwapDirection::ZusdToZbx => {
+                            // We did NOT pre-debit `amount` from balance for this
+                            // direction (only `fee`), so nothing to restore here.
+                            // Fee is consumed (standard "revert with gas").
+                        }
+                    }
+                    self.put_account(&tx.body.from, from)?;
+                    Err(anyhow!(msg))
+                };
+
+                if tx.body.amount == 0 {
+                    return swap_refund(&mut from, "swap: amount must be > 0".into());
+                }
+                if tx.body.to != tx.body.from {
+                    return swap_refund(&mut from,
+                        "swap: body.to must equal body.from (output credits sender)".into());
+                }
+                let mut pool = self.pool();
+                if !pool.is_initialized() {
+                    return swap_refund(&mut from,
+                        "swap: pool not yet initialized — cannot swap yet".into());
+                }
+                let height = self.tip().0;
+
+                match direction {
+                    SwapDirection::ZbxToZusd => {
+                        // Pre-debit already removed `amount` from balance — that
+                        // is exactly the ZBX we want to swap. No re-balancing.
+                        match pool.swap_zbx_for_zusd(tx.body.amount, height) {
+                            Ok(zusd_out) if zusd_out >= *min_out => {
+                                let (admin_zbx, admin_zusd) = pool.settle_fees();
+                                self.put_pool(&pool)?;
+                                from.zusd = from.zusd.saturating_add(zusd_out);
+                                self.put_account(&tx.body.from, &from)?;
+                                if admin_zbx > 0 || admin_zusd > 0 {
+                                    let mut a = self.account(&admin);
+                                    a.balance = a.balance.saturating_add(admin_zbx);
+                                    a.zusd = a.zusd.saturating_add(admin_zusd);
+                                    self.put_account(&admin, &a)?;
+                                }
+                                tracing::info!(
+                                    "🔁 swap zbx→zusd: {} wei → {} zUSD by {} (min_out {})",
+                                    tx.body.amount, zusd_out, tx.body.from, min_out
+                                );
+                                return Ok(());
+                            }
+                            Ok(zusd_out) => {
+                                // Slippage failure — refund ZBX principal, keep fee.
+                                from.balance = from.balance.saturating_add(tx.body.amount);
+                                self.put_account(&tx.body.from, &from)?;
+                                return Err(anyhow!(
+                                    "swap slippage: would receive {} zUSD < min_out {} (refunded {} ZBX wei, fee kept)",
+                                    zusd_out, min_out, tx.body.amount
+                                ));
+                            }
+                            Err(e) => {
+                                from.balance = from.balance.saturating_add(tx.body.amount);
+                                self.put_account(&tx.body.from, &from)?;
+                                return Err(anyhow!(
+                                    "swap zbx→zusd failed (refunded {} ZBX wei, fee kept): {}",
+                                    tx.body.amount, e
+                                ));
+                            }
+                        }
+                    }
+                    SwapDirection::ZusdToZbx => {
+                        // The pre-dispatch debit only took `fee` from balance for
+                        // this direction (see kind-aware pre_debit above), so we
+                        // do NOT need to refund balance here — we only need to
+                        // debit the zUSD principal.
+                        if from.zusd < tx.body.amount {
+                            return swap_refund(&mut from, format!(
+                                "swap: insufficient zUSD: have {}, need {}",
+                                from.zusd, tx.body.amount));
+                        }
+                        from.zusd -= tx.body.amount;
+                        match pool.swap_zusd_for_zbx(tx.body.amount, height) {
+                            Ok(zbx_out) if zbx_out >= *min_out => {
+                                let (admin_zbx, admin_zusd) = pool.settle_fees();
+                                self.put_pool(&pool)?;
+                                from.balance = from.balance.saturating_add(zbx_out);
+                                self.put_account(&tx.body.from, &from)?;
+                                if admin_zbx > 0 || admin_zusd > 0 {
+                                    let mut a = self.account(&admin);
+                                    a.balance = a.balance.saturating_add(admin_zbx);
+                                    a.zusd = a.zusd.saturating_add(admin_zusd);
+                                    self.put_account(&admin, &a)?;
+                                }
+                                tracing::info!(
+                                    "🔁 swap zusd→zbx: {} zUSD → {} ZBX wei by {} (min_out {})",
+                                    tx.body.amount, zbx_out, tx.body.from, min_out
+                                );
+                                return Ok(());
+                            }
+                            Ok(zbx_out) => {
+                                from.zusd = from.zusd.saturating_add(tx.body.amount);
+                                self.put_account(&tx.body.from, &from)?;
+                                return Err(anyhow!(
+                                    "swap slippage: would receive {} ZBX wei < min_out {} (refunded {} zUSD, fee kept)",
+                                    zbx_out, min_out, tx.body.amount
+                                ));
+                            }
+                            Err(e) => {
+                                from.zusd = from.zusd.saturating_add(tx.body.amount);
+                                self.put_account(&tx.body.from, &from)?;
+                                return Err(anyhow!(
+                                    "swap zusd→zbx failed (refunded {} zUSD, fee kept): {}",
+                                    tx.body.amount, e
+                                ));
+                            }
+                        }
+                    }
                 }
             }
             crate::types::TxKind::Transfer => { /* fall through to legacy logic */ }

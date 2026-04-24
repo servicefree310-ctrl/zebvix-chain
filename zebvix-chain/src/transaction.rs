@@ -77,6 +77,54 @@ pub enum TxKind {
     /// Multisig accounts hold their own balance separately and can be funded
     /// like any normal address.
     Multisig(crate::multisig::MultisigOp),
+    /// Phase B.10 — explicit on-chain AMM swap with slippage protection.
+    ///
+    /// First-class buy/sell against the ZBX/zUSD pool. Unlike the legacy
+    /// auto-router (sending ZBX to the pool address as a Transfer), this
+    /// variant supports BOTH directions and includes a `min_out` slippage
+    /// guard: if the pool would return less than `min_out`, the swap is
+    /// reverted and the principal refunded (only the fee is consumed).
+    ///
+    /// `body.amount` carries the **input amount** (in ZBX wei or zUSD micro-units
+    /// depending on `direction`). `body.to` should equal `body.from` (output is
+    /// always credited back to the sender) and is enforced by `apply_tx`.
+    /// `body.fee` is always paid in ZBX wei.
+    Swap {
+        direction: SwapDirection,
+        min_out: u128,
+    },
+}
+
+/// Phase B.10 — direction of an AMM [`TxKind::Swap`].
+///
+/// Variant order is consensus-critical (bincode encodes as u32 LE tag).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SwapDirection {
+    /// Sell ZBX, receive zUSD ("buy zUSD with ZBX").
+    ZbxToZusd,
+    /// Sell zUSD, receive ZBX ("buy ZBX with zUSD").
+    ZusdToZbx,
+}
+
+impl SwapDirection {
+    pub fn label(&self) -> &'static str {
+        match self {
+            SwapDirection::ZbxToZusd => "zbx_to_zusd",
+            SwapDirection::ZusdToZbx => "zusd_to_zbx",
+        }
+    }
+    pub fn input_symbol(&self) -> &'static str {
+        match self {
+            SwapDirection::ZbxToZusd => "ZBX",
+            SwapDirection::ZusdToZbx => "zUSD",
+        }
+    }
+    pub fn output_symbol(&self) -> &'static str {
+        match self {
+            SwapDirection::ZbxToZusd => "zUSD",
+            SwapDirection::ZusdToZbx => "ZBX",
+        }
+    }
 }
 
 impl TxKind {
@@ -92,6 +140,7 @@ impl TxKind {
             TxKind::Staking(_) => "staking",
             TxKind::RegisterPayId { .. } => "register_pay_id",
             TxKind::Multisig(_) => "multisig",
+            TxKind::Swap { .. } => "swap",
         }
     }
 
@@ -108,13 +157,17 @@ impl TxKind {
             TxKind::Staking(_) => 5,
             TxKind::RegisterPayId { .. } => 6,
             TxKind::Multisig(_) => 7,
+            TxKind::Swap { .. } => 8,
         }
     }
 
-    /// Returns true if this kind moves user funds (Transfer or any
-    /// Staking op that debits/credits the sender).
+    /// Returns true if this kind moves user funds (Transfer, Staking, or Swap —
+    /// each debits/credits the sender's balance).
     pub fn is_value_bearing(&self) -> bool {
-        matches!(self, TxKind::Transfer | TxKind::Staking(_))
+        matches!(
+            self,
+            TxKind::Transfer | TxKind::Staking(_) | TxKind::Swap { .. }
+        )
     }
 }
 

@@ -53,6 +53,22 @@ Standalone Rust crate building Zebvix L1 — token ZBX, chain-id 7878, EVM-style
 - `src/crypto.rs` — `sign_tx`, `verify_tx`, `tx_hash`, `tx_signing_bytes` (low-level). `transaction.rs` wraps these as inherent methods.
 - `src/mempool.rs`, `src/state.rs`, `src/rpc.rs`, `src/consensus.rs` — consume `SignedTx` via the existing `crate::types::*` import path; no churn needed.
 
+### Phase B.10 — Advanced on-chain Buy/Sell (Apr 24, 2026) ✅ (Replit-side; VPS deploy pending)
+
+Promotes the AMM swap from an admin-only CLI path to a first-class user transaction with on-chain slippage protection — the explicit "Buy ZBX / Sell ZBX" flow.
+
+- **`transaction.rs`** — New `SwapDirection { ZbxToZusd, ZusdToZbx }` enum and `TxKind::Swap { direction, min_out }` variant **appended at the end** of `TxKind` (bincode tag = **8**, fully backward-compatible — older tx kinds keep tags 0–7). `variant_name()`, `tag_index()`, `is_value_bearing()` updated. `body.amount` carries the swap input (ZBX wei OR zUSD micro-units depending on direction); `body.to` MUST equal `body.from` (chain enforces).
+- **`state.rs apply_tx`** — Kind-aware pre-debit: ZbxToZusd debits `amount + fee` from `balance`; ZusdToZbx debits **only** `fee` from `balance` and the swap arm itself debits `amount` from `from.zusd`. New `Swap` arm validates direction-specific balance, runs `pool.swap_*`, enforces consensus `min_out` (slippage revert refunds principal — only fee consumed, EVM-style "revert with gas"), settles fees + admin payout, credits output to sender. Local direction-aware `swap_refund` closure prevents the global `refund` from incorrectly minting ZBX on early-error ZusdToZbx paths.
+- **`rpc.rs`** — Three new methods:
+  - `zbx_swapQuote(direction, amount_in)` — read-only preview (clones pool — never mutates state). Returns `expected_out`, `fee_in`, `price_impact_bps`, `would_succeed`, `reason`, plus pre-computed `recommended_min_out_at_{0_5,1,3}pct`.
+  - `zbx_recentSwaps(limit=20)` — filtered view of the recent-tx ring buffer (`kind_index == 8`). Returns trade history without re-scanning blocks.
+  - `zbx_poolStats(window=200)` — pool reserves + spot price + fee accounting + recent-window swap count.
+  - `kind_name` tables in `zbx_recentTxs` and `zbx_mempoolPending` updated to include `"Swap"` at index 8.
+- **`api-server/src/routes/rpc.ts`** — Whitelisted `zbx_swapQuote`, `zbx_recentSwaps`, `zbx_poolStats`.
+- **Dashboard — `web-wallet.ts`** — `encodeSwapBody({from, direction, amountIn, minOut, nonce, feeWei, chainId})` produces a 172-byte body matching bincode (`from(50)+to(50)+amount(16)+nonce(8)+fee(16)+chain_id(8)+kind_tag(4=8)+direction_tag(4)+min_out(16)`); signed = 268 bytes. New `sendSwap()` helper mirrors `sendTransfer`. `SwapDirection` type + `zusdToMicros` exported.
+- **Dashboard — `/swap` page** — Full advanced UI: active-wallet card with live ZBX + zUSD balances, direction toggle (Buy / Sell), amount input with 25/50/75/MAX (with 0.01 ZBX gas reserve), debounced live `zbx_swapQuote` (350ms), slippage picker (0.5/1/3/5/custom %), price-impact warnings (amber ≥1%, red ≥5%), insufficient-balance + insufficient-gas validation (both directions need fee in ZBX), pool reserves card, "How it works" sidebar, `RecentSwapsPanel` (auto-polls every 5s, on-chain index badge). Wired into `App.tsx` (`<Route path="/swap" component={SwapPage} />`) and `LIVE_NAV` sidebar.
+- **Status** — Replit-side build/test passes (TS clean, e2e Playwright passes all assertions). VPS deploy of new chain binary still pending — until then the live pool/quote/recent-swap RPCs return method-not-found and the panel shows "Loading pool…".
+
 ### Phase B.9 — On-chain Recent-Tx Index (Apr 24, 2026) ✅
 
 Eliminates the need for dashboards/wallets to scan thousands of blocks just to display the last N transactions.

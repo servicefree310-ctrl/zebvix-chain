@@ -198,6 +198,7 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 5 => "Staking",
                 6 => "RegisterPayId",
                 7 => "Multisig",
+                8 => "Swap",
                 _ => "Unknown",
             };
             let txs: Vec<Value> = snap.into_iter().take(limit).map(|(h, from, to, amount, fee, nonce, kind)| json!({
@@ -235,6 +236,7 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 5 => "Staking",
                 6 => "RegisterPayId",
                 7 => "Multisig",
+                8 => "Swap",
                 _ => "Unknown",
             };
             let recs = ctx.state.recent_txs(limit);
@@ -336,6 +338,155 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 "lifetime_fees_zusd": p.total_fees_collected_zusd.to_string(),
                 "lifetime_admin_paid_zusd": p.total_admin_paid_zusd.to_string(),
                 "lifetime_reinvested_zusd": p.total_reinvested_zusd.to_string(),
+            }))
+        }
+        "zbx_swapQuote" => {
+            // Phase B.10 — read-only swap preview. Does NOT mutate the pool.
+            // Params: [direction: "zbx_to_zusd" | "zusd_to_zbx", amount_in: string]
+            // Returns: { expected_out, fee_in, price_impact_bps, would_succeed,
+            //            reason, spot_price_before, spot_price_after, recommended_min_out_at_1pct }
+            let dir_str = req.params.get(0).and_then(|v| v.as_str()).unwrap_or("");
+            let amt_str = req.params.get(1)
+                .and_then(|v| v.as_str().map(|s| s.to_string()).or_else(|| v.as_u64().map(|n| n.to_string())))
+                .unwrap_or_default();
+            let amount_in: u128 = match amt_str.parse() {
+                Ok(n) => n,
+                Err(_) => return err(id, -32602, format!("invalid amount_in: '{}'", amt_str)),
+            };
+            let p = ctx.state.pool();
+            if !p.is_initialized() {
+                return ok(id, json!({
+                    "would_succeed": false,
+                    "reason": "pool not initialized",
+                    "expected_out": "0",
+                    "fee_in": "0",
+                    "price_impact_bps": 0,
+                }));
+            }
+            // Mutate a CLONE so we don't touch real state.
+            let mut sim = p.clone();
+            let height = ctx.state.tip().0;
+            let spot_before = p.spot_price_zusd_per_zbx();
+            const FEE_BPS_NUM: u128 = 3;
+            const FEE_BPS_DEN: u128 = 1000;
+            let fee_in = amount_in.saturating_mul(FEE_BPS_NUM) / FEE_BPS_DEN;
+
+            let res = match dir_str {
+                "zbx_to_zusd" => sim.swap_zbx_for_zusd(amount_in, height),
+                "zusd_to_zbx" => sim.swap_zusd_for_zbx(amount_in, height),
+                _ => return err(id, -32602,
+                    "direction must be 'zbx_to_zusd' or 'zusd_to_zbx'".into()),
+            };
+            match res {
+                Ok(out) => {
+                    let spot_after = sim.spot_price_zusd_per_zbx();
+                    // price impact = |spot_after - spot_before| / spot_before * 10000  (bps)
+                    let impact_bps = if spot_before == 0 { 0 } else {
+                        let diff = if spot_after > spot_before { spot_after - spot_before }
+                                   else { spot_before - spot_after };
+                        // safe: diff/spot_before <= 1, multiply by 10000 first.
+                        ((diff as u128).saturating_mul(10_000) / spot_before) as u64
+                    };
+                    let min_out_1pct = out.saturating_mul(99) / 100;
+                    ok(id, json!({
+                        "would_succeed": true,
+                        "direction": dir_str,
+                        "amount_in": amount_in.to_string(),
+                        "fee_in": fee_in.to_string(),
+                        "expected_out": out.to_string(),
+                        "price_impact_bps": impact_bps,
+                        "price_impact_pct": format!("{:.4}", impact_bps as f64 / 100.0),
+                        "spot_price_before_q18": spot_before.to_string(),
+                        "spot_price_after_q18": spot_after.to_string(),
+                        "recommended_min_out_at_0_5pct": (out.saturating_mul(995) / 1000).to_string(),
+                        "recommended_min_out_at_1pct": min_out_1pct.to_string(),
+                        "recommended_min_out_at_3pct": (out.saturating_mul(97) / 100).to_string(),
+                        "fee_pct": "0.30",
+                    }))
+                }
+                Err(e) => ok(id, json!({
+                    "would_succeed": false,
+                    "reason": e,
+                    "direction": dir_str,
+                    "amount_in": amount_in.to_string(),
+                    "fee_in": fee_in.to_string(),
+                    "expected_out": "0",
+                    "price_impact_bps": 0,
+                    "spot_price_before_q18": spot_before.to_string(),
+                })),
+            }
+        }
+        "zbx_recentSwaps" => {
+            // Phase B.10 — filtered view of the recent-tx ring buffer:
+            // returns only tx records whose kind_index == 8 (Swap).
+            // Useful for trade-history panels without re-scanning blocks.
+            let limit = req.params.get(0)
+                .and_then(|v| v.as_u64())
+                .unwrap_or(20)
+                .min(crate::state::RECENT_TX_CAP) as usize;
+            // Fetch a wider window from the index because filtering may drop most.
+            let scan_window = (limit * 8).min(crate::state::RECENT_TX_CAP as usize);
+            let recs = ctx.state.recent_txs(scan_window);
+            let total = ctx.state.recent_tx_total();
+            let swaps: Vec<Value> = recs.into_iter()
+                .filter(|r| r.kind_index == 8)
+                .take(limit)
+                .map(|r| json!({
+                    "seq":          r.seq,
+                    "height":       r.height,
+                    "timestamp_ms": r.timestamp_ms,
+                    "hash":         format!("0x{}", hex::encode(r.hash)),
+                    "from":         r.from.to_hex(),
+                    "amount_in":    r.amount.to_string(),
+                    "fee":          r.fee.to_string(),
+                    "nonce":        r.nonce,
+                }))
+                .collect();
+            ok(id, json!({
+                "returned":      swaps.len(),
+                "scan_window":   scan_window,
+                "total_indexed": total,
+                "max_cap":       crate::state::RECENT_TX_CAP,
+                "swaps":         swaps,
+            }))
+        }
+        "zbx_poolStats" => {
+            // Phase B.10 — pool overview + recent-window swap stats.
+            // Optional param[0] = window in indexed txs (default 200, cap = RECENT_TX_CAP).
+            let window = req.params.get(0)
+                .and_then(|v| v.as_u64())
+                .unwrap_or(200)
+                .min(crate::state::RECENT_TX_CAP) as usize;
+            let p = ctx.state.pool();
+            let recs = ctx.state.recent_txs(window);
+            let mut swap_count: u64 = 0;
+            let mut volume_in_amount_total: u128 = 0;
+            // The recent-tx index does NOT yet carry the swap direction, so we
+            // expose only the raw count + summed amounts. A direction-aware
+            // breakdown requires extending RecentTxRecord (future work).
+            for r in &recs {
+                if r.kind_index == 8 {
+                    swap_count += 1;
+                    volume_in_amount_total = volume_in_amount_total.saturating_add(r.amount);
+                }
+            }
+            let spot = p.spot_price_zusd_per_zbx();
+            ok(id, json!({
+                "pool_initialized":             p.is_initialized(),
+                "zbx_reserve_wei":              p.zbx_reserve.to_string(),
+                "zusd_reserve":                 p.zusd_reserve.to_string(),
+                "lp_supply":                    p.lp_supply.to_string(),
+                "spot_price_zusd_per_zbx_q18": spot.to_string(),
+                "spot_price_usd_per_zbx":      format!("{:.6}", spot as f64 / 1e18),
+                "fee_pct":                      "0.30",
+                "max_swap_zbx":                 "100000",
+                "max_swap_zusd":                "100000",
+                "loan_outstanding_zusd":        p.loan_outstanding_zusd.to_string(),
+                "loan_repaid":                  p.loan_repaid(),
+                "lifetime_fees_zusd":           p.total_fees_collected_zusd.to_string(),
+                "window_indexed_txs":           recs.len(),
+                "window_swap_count":            swap_count,
+                "window_swap_amount_sum":       volume_in_amount_total.to_string(),
             }))
         }
         "zbx_getAdmin" => {
