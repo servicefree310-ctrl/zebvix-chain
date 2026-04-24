@@ -217,30 +217,42 @@ function BootstrapBanner({ pool, onRefresh }: { pool: PoolFull | null; onRefresh
     setTimeout(() => setCopied(null), 1500);
   }
 
-  const cmd = `# 1. SSH into VPS and rebuild with new genesis seed (Phase B.11.1)
+  const devUrl = "https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev";
+  const cmd = `# ╔══════════════════════════════════════════════════════════════════════╗
+# ║  Phase B.11.1 — Pool Genesis Seed Deploy (VPS, run as root)         ║
+# ║  Pulls latest chain code + scripts straight from this Replit env.    ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+
+# 1) SSH into the VPS
 ssh root@93.127.213.192
-cd /home/zebvix-chain
-git pull                    # or scp src/tokenomics.rs
-cargo build --release --features evm
-cp target/release/zebvix-node /usr/local/bin/
 
-# 2. STOP the node so admin-pool-genesis can take the RocksDB lock.
-#    No data wipe needed — pool is currently uninitialized, so calling
-#    pool_init_genesis() on the existing state will simply seed it.
-systemctl stop zebvix.service
+# 2) Pull latest zebvix-chain source + scripts in ONE shot
+cd /tmp && rm -rf zbx-update && mkdir zbx-update
+curl -fsSL "${devUrl}/api/download/newchain" -o /tmp/zbx-latest.tgz
+tar -xzf /tmp/zbx-latest.tgz -C /tmp/zbx-update
+ls -la /tmp/zbx-update                # should show zebvix-chain/  scripts/
 
-# 3. Seed the pool: mints 20M ZBX + 10M zUSD into the AMM reserves
-#    (LP locked permanently to POOL_ADDRESS). NOTE the binary name is
-#    'zebvix-node' (not 'zbx') and the subcommand uses a hyphen.
-zebvix-node admin-pool-genesis --home /home/zebvix-chain/.zebvix
+# 3) Sync into /home/zebvix-chain (preserves target/, .zebvix data, .git)
+rsync -av --exclude=target --exclude=.zebvix --exclude=.git \\
+  /tmp/zbx-update/zebvix-chain/ /home/zebvix-chain/
+mkdir -p /home/zebvix-chain/scripts
+rsync -av /tmp/zbx-update/scripts/ /home/zebvix-chain/scripts/
+chmod +x /home/zebvix-chain/scripts/*.sh
 
-# 4. Restart the node — pool is now LIVE.
-systemctl start zebvix.service
+# 4) Verify the new constants made it (20M ZBX seed)
+grep -n 'GENESIS_POOL_ZBX_WEI\\|GENESIS_POOL_ZUSD_LOAN' \\
+  /home/zebvix-chain/src/tokenomics.rs | grep -v '^//'
 
-# Expected admin-pool-genesis output:
-#   ZBX reserve   : 20000000 ZBX  (minted to pool, not admin)
-#   zUSD reserve  : 10000000 zUSD (minted as liquidity loan)
-#   Spot price    : 1 ZBX = $0.500000`;
+# 5) Run the one-shot deploy script
+#    (build → stop service → admin-pool-genesis → start → verify via RPC)
+sudo bash /home/zebvix-chain/scripts/deploy_pool_genesis_seed.sh
+
+# Expected post-deploy verification (script runs this for you):
+#   initialized      : true
+#   zbx_reserve_wei  : 20000000000000000000000000   (= 20M ZBX)
+#   zusd_reserve     : 10000000000000000000000000   (= 10M zUSD)
+#   spot_price_usd   : 0.500000                     (= $0.50 / ZBX)
+#   loan_outstanding : 10000000.000000              (repaid via swap fees)`;
 
   return (
     <div className="rounded-2xl border-2 border-amber-500/50 bg-gradient-to-br from-amber-500/10 to-orange-500/10 overflow-hidden">
