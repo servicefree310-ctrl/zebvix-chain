@@ -1,0 +1,31 @@
+root@srv1266996:/home/zebvix-chain# echo "=== Hardlink verification (same inode = same file) ===" && \
+ls -li /usr/local/bin/zebvix-node /home/zebvix-chain/target/release/zebvix-node 2>&1 && \
+echo "" && \
+echo "=== Build timestamp marker (Phase C.2 chain-id check string in binary) ===" && \
+strings /usr/local/bin/zebvix-node 2>/dev/null | grep -c "wrong chain id" && \
+echo "(expect: 1 or more — confirms Phase C.2 code in running binary)" && \
+echo "" && \
+echo "============================================" && \
+echo "=== SMOKE TESTS — Phase C.2 verification ===" && \
+echo "============================================" && \
+echo "" && \
+echo "=== A) eth_chainId (expect 0x1ec6 = 7878) ===" && \
+curl -s -X POST http://127.0.0.1:8545 -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_chainId","id":1,"params":[]}' && echo "" && \
+echo "" && \
+echo "=== B) eth_blockNumber ===" && \
+curl -s -X POST http://127.0.0.1:8545 -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_blockNumber","id":2,"params":[]}' && echo "" && \
+echo "" && \
+echo "=== C) net_version (expect '7878') ===" && \
+curl -s -X POST http://127.0.0.1:8545 -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"net_version","id":3,"params":[]}' && echo "" && \
+echo "" && \
+echo "=== D) Cross-chain replay guard (expect 'wrong chain id: tx declared 56, node is 7878') ===" && \
+curl -s -X POST http://127.0.0.1:8545 -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_sendRawTransaction","id":4,"params":["0xf86c808504a817c80082520894000000000000000000000000000000000000dead880de0b6b3a76400008081d6a0aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa055555555555555555555555555555555555555555555555555555555555555555"]}' && echo "" && \
+echo "" && \
+echo "=== E) Unprotected legacy tx (expect 'unprotected legacy tx (no EIP-155) rejected') ===" && \
+curl -s -X POST http://127.0.0.1:8545 -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_sendRawTransaction","id":5,"params":["0xf86c808504a817c80082520894000000000000000000000000000000000000dead880de0b6b3a7640000801ba0
+> 
