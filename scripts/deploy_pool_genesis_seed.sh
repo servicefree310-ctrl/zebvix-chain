@@ -70,6 +70,25 @@ fi
 ok "Constants OK (20M ZBX + 10M zUSD = \$0.50/ZBX)"
 
 say "Step 2/6 — Build release binary with EVM feature"
+# Some VPS shells (especially under sudo) don't have cargo in PATH even though
+# rustup installed it for root. Try the common rustup install location before
+# giving up.
+if ! command -v cargo >/dev/null 2>&1; then
+  for env_file in "$HOME/.cargo/env" "/root/.cargo/env" "/usr/local/cargo/env"; do
+    if [[ -f "$env_file" ]]; then
+      # shellcheck disable=SC1090
+      source "$env_file"
+      [[ -n "${CARGO_HOME:-}" ]] && warn "sourced $env_file (CARGO_HOME=$CARGO_HOME)"
+      break
+    fi
+  done
+fi
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "ERROR: cargo not found. Install rustup or run: source \$HOME/.cargo/env" >&2
+  echo "       Then re-run this script in the SAME shell session." >&2
+  exit 1
+fi
+ok "cargo at $(command -v cargo) ($(cargo --version))"
 cargo build --release --features evm
 ok "Build complete"
 
