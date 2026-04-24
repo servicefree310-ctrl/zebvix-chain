@@ -37,6 +37,7 @@ const ALLOWED_METHODS = new Set<string>([
   "zbx_getMultisigProposals",
   "zbx_listMultisigsByOwner",
   "zbx_multisigCount",
+  "zbx_sendRawTransaction",
   "eth_chainId",
   "eth_blockNumber",
   "eth_getBalance",

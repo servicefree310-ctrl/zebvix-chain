@@ -75,6 +75,8 @@
     "zod": "catalog:"
   },
   "dependencies": {
+    "@noble/curves": "^2.2.0",
+    "@noble/hashes": "^2.2.0",
     "qrcode.react": "^4.2.0"
   }
 }
