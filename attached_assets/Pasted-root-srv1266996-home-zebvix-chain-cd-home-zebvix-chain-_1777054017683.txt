@@ -1,0 +1,85 @@
+root@srv1266996:/home/zebvix-chain# cd /home/zebvix-chain
+
+# ───── Patch 1: tokenomics.rs (constant + breakdown comment) ─────
+python3 << 'PYEOF'
+import os
+path = 'src/tokenomics.rs'
+with open(path) as f:
+    c = f.read()
+
+# Patch breakdown comment
+old1 = """/// Total max supply = 150,000,000 ZBX.
+/// Breakdown:
+///   - Founder pre-mine (genesis allocation):  10,000,000 ZBX
+///   - Block rewards over time:               140,000,000 ZBX
+pub const TOTAL_SUPPLY_ZBX: u128 = 150_000_000u128;"""
+new1 = """/// Total max supply = 150,000,000 ZBX.
+/// Breakdown:
+///   - Foundation pre-mine (genesis allocation): 9,990,000 ZBX  (6.66%)
+///   - AMM pool genesis seed:                   20,000,000 ZBX  (13.33%)
+///   - Block rewards over time:                120,010,000 ZBX  (80.01%)
+pub const TOTAL_SUPPLY_ZBX: u128 = 150_000_000u128;"""
+
+# Patch constant + docstring
+old2 = """/// Default founder pre-mine = 0 ZBX. Admin/founder earns ZBX **only** through
+/// block rewards (proposer reward + tx fees) and the post-loan 50% swap-fee
+/// share. No genesis allocation to the founder.
+pub const FOUNDER_PREMINE_ZBX: u128 = 0u128;"""
+new2 = """/// Foundation pre-mine = 9.99M ZBX (6.66% of max supply). This allocation is
+/// credited to the founder/admin address at genesis via `--alloc` and is used
+/// for development, operations, marketing, community grants, and team salaries.
+/// It is publicly disclosed and counted in `circulating_wei` so on-chain supply
+/// reporting reflects the true spendable balance held by the foundation.
+/// Industry context: Ethereum ~10%, Solana ~25%, Sui ~30% — Zebvix at ~6.66%.
+pub const FOUNDER_PREMINE_ZBX: u128 = 9_990_000u128;"""
+
+changed = False
+if old1 in c: c = c.replace(old1, new1); changed = True
+  -d '{"jsonrpc":"2.0","id":1,"method":"zbx_supply","params":[]}' | python3 -m json.toolsap fees.");"""),
+✅ tokenomics.rs patched
+✅ main.rs patched (3/3 replacements)
+✅ bin/zbx.rs patched
+✅ README.md patched
+
+=== Verification ===
+pub const FOUNDER_PREMINE_ZBX: u128 = 9_990_000u128;
+    let premine: u128 = 9_990_000;
+| Foundation pre-mine | 9,990,000 ZBX (6.66% — development & operations) |
+
+=== Rebuilding (~1m41s) ===
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 1m 41s
+
+=== Swapping binary + restarting ===
+cp: '/home/zebvix-chain/target/release/zebvix-node' and '/usr/local/bin/zebvix-node' are the same file
+● zebvix.service - Zebvix L1 Blockchain Node
+     Loaded: loaded (/etc/systemd/system/zebvix.service; enabled; preset: enabled)
+     Active: active (running) since Fri 2026-04-24 18:06:21 UTC; 5s ago
+   Main PID: 4172908 (zebvix-node)
+      Tasks: 7 (limit: 9483)
+     Memory: 4.0M (peak: 5.0M)
+        CPU: 34ms
+     CGroup: /system.slice/zebvix.service
+             └─4172908 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333 --no-mdns
+
+
+=== Post-restart supply RPC ===
+{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+        "burned_wei": "1800000000000000",
+        "circulating_wei": "30006022998200000000000000",
+        "current_block_reward_wei": "3000000000000000000",
+        "height": 5341,
+        "max_wei": "150000000000000000000000000",
+        "minted_wei": "16023000000000000000000",
+        "pool_reserve_wei": "20000000000000000000000000",
+        "pool_seed_wei": "20000000000000000000000000",
+        "premine_wei": "9990000000000000000000000"
+    }
+}
+root@srv1266996:/home/zebvix-chain# 
