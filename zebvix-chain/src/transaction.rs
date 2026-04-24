@@ -108,6 +108,16 @@ pub enum TxKind {
     /// - All others: ignored (refunded).
     /// `body.fee` is always paid in ZBX wei.
     Bridge(crate::bridge::BridgeOp),
+    /// Phase D — forkless on-chain governance. Carries one of
+    /// [`crate::proposal::ProposalOp`] (`Submit` to create a new proposal,
+    /// `Vote` to cast a yes/no vote on an open one).
+    ///
+    /// Submit requires the sender to hold ≥ 1 000 ZBX (balance check, no
+    /// lock — funds remain spendable). Voters have no balance threshold;
+    /// they only pay the standard gas fee. `body.amount` is always refunded
+    /// for both ops; only `body.fee` is consumed. `body.to` should equal
+    /// `body.from` (enforced loosely — the field is unused).
+    Proposal(crate::proposal::ProposalOp),
 }
 
 /// Phase B.10 — direction of an AMM [`TxKind::Swap`].
@@ -157,6 +167,7 @@ impl TxKind {
             TxKind::Multisig(_) => "multisig",
             TxKind::Swap { .. } => "swap",
             TxKind::Bridge(_) => "bridge",
+            TxKind::Proposal(_) => "proposal",
         }
     }
 
@@ -175,6 +186,7 @@ impl TxKind {
             TxKind::Multisig(_) => 7,
             TxKind::Swap { .. } => 8,
             TxKind::Bridge(_) => 9,
+            TxKind::Proposal(_) => 10,
         }
     }
 

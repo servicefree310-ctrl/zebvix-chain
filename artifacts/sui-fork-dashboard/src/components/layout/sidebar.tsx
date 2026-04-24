@@ -32,7 +32,8 @@ import {
   Shield,
   AtSign,
   Smartphone,
-  Cpu
+  Cpu,
+  Vote
 } from "lucide-react";
 import { useChecklist } from "@/hooks/useChecklist";
 import { Progress } from "@/components/ui/progress";
@@ -61,6 +62,7 @@ const LIVE_NAV = [
   { href: "/payid-resolver", label: "Pay-ID Resolver", icon: AtSign },
   { href: "/connect-wallet", label: "Connect Mobile Wallet", icon: Smartphone },
   { href: "/swap", label: "Swap (Buy / Sell)", icon: ArrowUpDown },
+  { href: "/governance", label: "Governance (Phase D)", icon: Vote },
 ];
 
 const ADDON_NAV = [

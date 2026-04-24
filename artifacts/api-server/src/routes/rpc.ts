@@ -44,6 +44,14 @@ const ALLOWED_METHODS = new Set<string>([
   "zbx_swapQuote",
   "zbx_recentSwaps",
   "zbx_poolStats",
+  // ── Phase D — On-chain governance (read-only) ──────────────────────
+  "zbx_proposalsList",
+  "zbx_proposalGet",
+  "zbx_proposerCheck",
+  "zbx_proposalHasVoted",
+  "zbx_proposalShadowExec",
+  "zbx_featureFlagsList",
+  "zbx_featureFlagGet",
   // ── Phase C.2 native EVM JSON-RPC (Cancun) ──────────────────────────
   // Read-side
   "eth_chainId",

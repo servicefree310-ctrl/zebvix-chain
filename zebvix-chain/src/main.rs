@@ -674,6 +674,83 @@ enum Cmd {
         #[arg(long, default_value = "http://127.0.0.1:8545")]
         rpc_url: String,
     },
+
+    // ─────────── Phase D — On-chain forkless governance ───────────
+    /// Submit a governance proposal. Requires the signer wallet to hold ≥ 1 000 ZBX.
+    /// Lifecycle: 14d shadow-execution test phase → 76d voting → auto-activate
+    /// (90% positive + ≥5 quorum) or auto-reject. 1 wallet = 1 vote, no balance weighting.
+    Propose {
+        /// Signer keyfile (must hold ≥ 1 000 ZBX).
+        #[arg(long)]
+        signer_key: PathBuf,
+        /// Proposal kind: `feature_flag`, `param_change`, `contract_whitelist`, or `text_only`.
+        #[arg(long)]
+        kind: String,
+        /// `feature_flag` / `contract_whitelist` key name (e.g. `zswap_v2_enabled`).
+        #[arg(long, default_value = "")]
+        key: String,
+        /// `feature_flag`: target state (`true` to enable, `false` to disable).
+        #[arg(long, default_value_t = true)]
+        enabled: bool,
+        /// `param_change`: parameter name (e.g. `amm_fee_bps`).
+        #[arg(long, default_value = "")]
+        param: String,
+        /// `param_change`: new u128 value.
+        #[arg(long, default_value = "0")]
+        new_value: String,
+        /// `contract_whitelist`: contract address (0x… 20-byte hex).
+        #[arg(long, default_value = "")]
+        address: String,
+        /// `contract_whitelist`: human-readable label.
+        #[arg(long, default_value = "")]
+        label: String,
+        /// Proposal title (1-100 chars).
+        #[arg(long)]
+        title: String,
+        /// Proposal description / rationale (1-4000 chars).
+        #[arg(long)]
+        description: String,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+        /// Fee in ZBX. Use `auto` (default) for live USD-pegged recommendation.
+        #[arg(long, default_value = "auto")]
+        fee: String,
+    },
+    /// Cast a yes/no vote on an active proposal. 1 wallet = 1 vote. No re-vote allowed.
+    /// Voter only pays gas; no balance threshold required.
+    Vote {
+        #[arg(long)]
+        signer_key: PathBuf,
+        /// Numeric proposal id (see `proposals-list`).
+        #[arg(long)]
+        proposal_id: u64,
+        /// Vote yes (default) or pass `--no-yes` for no.
+        #[arg(long, default_value_t = true)]
+        yes: bool,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+        #[arg(long, default_value = "auto")]
+        fee: String,
+    },
+    /// Read-only: list governance proposals (newest first).
+    ProposalsList {
+        #[arg(long, default_value_t = 50)]
+        limit: u64,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+    },
+    /// Read-only: detailed view of one proposal.
+    ProposalGet {
+        #[arg(long)]
+        id: u64,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+    },
+    /// Read-only: list all on-chain feature flags (the on-chain effect of approved proposals).
+    FeatureFlagsList {
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -1382,6 +1459,16 @@ async fn main() -> Result<()> {
         Cmd::BridgeNetworks { rpc_url } => cmd_bridge_networks(rpc_url).await,
         Cmd::BridgeAssets { network_id, rpc_url } => cmd_bridge_assets(network_id, rpc_url).await,
         Cmd::BridgeStats { rpc_url } => cmd_bridge_stats(rpc_url).await,
+        // ─── Phase D — on-chain forkless governance dispatch ───
+        Cmd::Propose { signer_key, kind, key, enabled, param, new_value, address, label,
+                        title, description, rpc_url, fee } =>
+            cmd_propose(signer_key, kind, key, enabled, param, new_value, address, label,
+                        title, description, rpc_url, fee).await,
+        Cmd::Vote { signer_key, proposal_id, yes, rpc_url, fee } =>
+            cmd_vote(signer_key, proposal_id, yes, rpc_url, fee).await,
+        Cmd::ProposalsList { limit, rpc_url } => cmd_proposals_list(limit, rpc_url).await,
+        Cmd::ProposalGet { id, rpc_url } => cmd_proposal_get(id, rpc_url).await,
+        Cmd::FeatureFlagsList { rpc_url } => cmd_feature_flags_list(rpc_url).await,
     }
 }
 
@@ -2060,6 +2147,174 @@ async fn cmd_validator_add(
     println!();
     println!("✓ Tx accepted into mempool. Once next block is committed,");
     println!("  every node applies the change → registry converges chain-wide.");
+    Ok(())
+}
+
+// ─────────── Phase D — On-chain governance CLI implementations ───────────
+//
+// All proposal txs flow through the standard signed-tx pipeline: build a
+// `TxKind::Proposal(ProposalOp::{Submit,Vote})`, sign with the user's key,
+// post to `zbx_sendTransaction`. The chain validates everything in
+// `state::apply_tx` — same path the dashboard wallet flow uses.
+
+async fn cmd_propose(
+    signer_key: PathBuf,
+    kind_str: String,
+    key: String,
+    enabled: bool,
+    param: String,
+    new_value: String,
+    address: String,
+    label: String,
+    title: String,
+    description: String,
+    rpc_url: String,
+    fee: String,
+) -> Result<()> {
+    use zebvix_node::proposal::{ProposalKind, ProposalOp};
+
+    let kind: ProposalKind = match kind_str.as_str() {
+        "feature_flag" => {
+            if key.is_empty() {
+                return Err(anyhow!("--key required for feature_flag proposals"));
+            }
+            ProposalKind::FeatureFlag { key: key.clone(), enabled }
+        }
+        "param_change" => {
+            if param.is_empty() {
+                return Err(anyhow!("--param required for param_change proposals"));
+            }
+            let nv: u128 = new_value.parse()
+                .map_err(|_| anyhow!("--new-value must be a non-negative integer (got '{}')", new_value))?;
+            ProposalKind::ParamChange { param: param.clone(), new_value: nv }
+        }
+        "contract_whitelist" => {
+            if key.is_empty() || address.is_empty() || label.is_empty() {
+                return Err(anyhow!(
+                    "contract_whitelist needs --key, --address and --label"
+                ));
+            }
+            let addr = Address::from_hex(&address)?;
+            ProposalKind::ContractWhitelist { key: key.clone(), address: addr, label: label.clone() }
+        }
+        "text_only" => ProposalKind::TextOnly,
+        other => return Err(anyhow!(
+            "unknown --kind '{}'. Allowed: feature_flag | param_change | contract_whitelist | text_only",
+            other
+        )),
+    };
+
+    let (sk, pk) = read_keyfile(&signer_key)?;
+    let from = address_from_pubkey(&pk);
+    let fee_wei = resolve_fee(&rpc_url, &fee).await?;
+    let nonce = reqwest_get_nonce(&rpc_url, &from).await?;
+
+    let body = TxBody {
+        from, to: Address::ZERO, amount: 0, nonce, fee: fee_wei,
+        chain_id: CHAIN_ID,
+        kind: TxKind::Proposal(ProposalOp::Submit {
+            title: title.clone(),
+            description: description.clone(),
+            kind,
+        }),
+    };
+    let tx = sign_tx(&sk, body);
+    println!("🗳️  Submitting proposal");
+    println!("   proposer : {}", from);
+    println!("   kind     : {}", kind_str);
+    println!("   title    : {}", title);
+    println!("   nonce/fee: {} / {} wei", nonce, fee_wei);
+    let tx_hash = submit_tx_strict(&rpc_url, &tx).await?;
+    println!("   ✓ tx hash: {}", tx_hash);
+    println!();
+    println!("Once next block commits, the proposal will appear in `proposals-list`");
+    println!("with status `Testing` (14d shadow-execution phase).");
+    Ok(())
+}
+
+async fn cmd_vote(
+    signer_key: PathBuf,
+    proposal_id: u64,
+    yes: bool,
+    rpc_url: String,
+    fee: String,
+) -> Result<()> {
+    use zebvix_node::proposal::ProposalOp;
+
+    let (sk, pk) = read_keyfile(&signer_key)?;
+    let from = address_from_pubkey(&pk);
+    let fee_wei = resolve_fee(&rpc_url, &fee).await?;
+    let nonce = reqwest_get_nonce(&rpc_url, &from).await?;
+
+    let body = TxBody {
+        from, to: Address::ZERO, amount: 0, nonce, fee: fee_wei,
+        chain_id: CHAIN_ID,
+        kind: TxKind::Proposal(ProposalOp::Vote { proposal_id, yes }),
+    };
+    let tx = sign_tx(&sk, body);
+    println!("🗳️  Voting on proposal #{}: {}", proposal_id, if yes { "YES" } else { "NO" });
+    println!("   voter    : {}", from);
+    println!("   nonce/fee: {} / {} wei", nonce, fee_wei);
+    let tx_hash = submit_tx_strict(&rpc_url, &tx).await?;
+    println!("   ✓ tx hash: {}", tx_hash);
+    Ok(())
+}
+
+async fn cmd_proposals_list(limit: u64, rpc_url: String) -> Result<()> {
+    let v = rpc_get(&rpc_url, "zbx_proposalsList", serde_json::json!([limit])).await?;
+    let count = v.get("count").and_then(|c| c.as_u64()).unwrap_or(0);
+    let tip = v.get("tip_height").and_then(|h| h.as_u64()).unwrap_or(0);
+    println!("🗳️  Governance proposals (tip h={}, returned {})", tip, count);
+    println!();
+    let arr = v.get("proposals").and_then(|p| p.as_array()).cloned().unwrap_or_default();
+    if arr.is_empty() {
+        println!("   (no proposals on-chain yet)");
+        return Ok(());
+    }
+    for p in arr {
+        let id    = p.get("id").and_then(|x| x.as_u64()).unwrap_or(0);
+        let title = p.get("title").and_then(|x| x.as_str()).unwrap_or("");
+        let status= p.get("status").and_then(|x| x.as_str()).unwrap_or("?");
+        let yes   = p.get("yes_votes").and_then(|x| x.as_u64()).unwrap_or(0);
+        let no    = p.get("no_votes").and_then(|x| x.as_u64()).unwrap_or(0);
+        let pct   = p.get("pass_pct_bps").and_then(|x| x.as_u64()).unwrap_or(0);
+        println!("   #{:<4}  [{:<9}]  yes={:<4} no={:<4} ({:.2}%)  {}",
+            id, status, yes, no, pct as f64 / 100.0, title);
+    }
+    Ok(())
+}
+
+async fn cmd_proposal_get(id: u64, rpc_url: String) -> Result<()> {
+    let v = rpc_get(&rpc_url, "zbx_proposalGet", serde_json::json!([id])).await?;
+    if v.is_null() {
+        println!("Proposal #{} not found.", id);
+        return Ok(());
+    }
+    println!("🗳️  Proposal #{}", id);
+    println!("{}", serde_json::to_string_pretty(&v)?);
+    Ok(())
+}
+
+async fn cmd_feature_flags_list(rpc_url: String) -> Result<()> {
+    let v = rpc_get(&rpc_url, "zbx_featureFlagsList", serde_json::json!([])).await?;
+    let arr = v.get("flags").and_then(|f| f.as_array()).cloned().unwrap_or_default();
+    println!("🚩 On-chain feature flags ({})", arr.len());
+    println!();
+    if arr.is_empty() {
+        println!("   (no feature flags activated yet)");
+        return Ok(());
+    }
+    for f in arr {
+        let key = f.get("key").and_then(|x| x.as_str()).unwrap_or("?");
+        let val = f.get("value").and_then(|x| x.as_str()).unwrap_or("?");
+        let on  = f.get("enabled").and_then(|x| x.as_bool()).unwrap_or(false);
+        let lbl = f.get("contract_label").and_then(|x| x.as_str()).unwrap_or("");
+        println!("   {:<28}  value={:<12} {}{}",
+            key, val,
+            if on { "ENABLED" } else { "disabled" },
+            if lbl.is_empty() { String::new() } else { format!("  ({})", lbl) },
+        );
+    }
     Ok(())
 }
 

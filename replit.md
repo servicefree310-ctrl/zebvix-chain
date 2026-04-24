@@ -34,12 +34,13 @@ The project is organized as a pnpm workspace monorepo, with each package managin
 
 ## Zebvix L1 Blockchain (`zebvix-chain/`)
 - **Consensus:** 2-node sync (P2P gossip, heartbeat, block sync), RocksDB-backed validator registry, Ed25519 votes with double-sign detection, 2/2 quorum for block verification, round-robin proposer.
-- **Transactions:** `TxKind` enum supports `Transfer`, `ValidatorAdd`, `ValidatorRemove`, and `Swap`.
+- **Transactions:** `TxKind` enum supports `Transfer`, `ValidatorAdd`, `ValidatorRemove`, `Swap`, `Bridge`, and `Proposal` (Phase D governance).
 - **Tokenomics:** 150M ZBX supply, Bitcoin-style halving.
 - **AMM:** On-chain zSwap AMM with initial seed at $0.50/ZBX. Supports `SwapDirection` (ZbxToZusd, ZusdToZbx) with slippage protection.
 - **Recent Transactions:** On-chain `RecentTxRecord` index (RocksDB-backed ring buffer) for fast retrieval of past transactions without scanning blocks.
 - **Cryptography:** Switched from Ed25519 to secp256k1 (ECDSA) for ETH-compatible address derivation (`keccak256(uncompressed_pubkey[1..])[12..]`).
 - **Bridge Module:** On-chain `bridge` module with `BridgeNetwork` and `BridgeAsset` registries, lock/release pattern for cross-chain transfers. Admin-extensible for new networks and assets.
+- **Phase D — Forkless On-chain Governance:** `proposal` module with `ProposalKind` (FeatureFlag, ParamChange, ContractWhitelist, TextOnly). Wallets holding ≥ 1 000 ZBX may submit proposals (only fee consumed; principal refunded). Lifecycle: 14-day shadow-execution Testing phase → 76-day Voting phase (90 days total). 1 wallet = 1 vote (no balance weighting; voters only pay gas). Auto-activates iff yes/total ≥ 90% AND total ≥ 5; activation flips a feature flag, sets a u128 param, or whitelists a contract — no hard fork. Max 3 active (Testing|Voting) proposals per proposer. State persisted in `CF_META` under `prop/`, `prop_vote/`, `prop_active/`, `prop_count`, `ff/`, `ff_label/`. RPC: `zbx_proposalsList`, `zbx_proposalGet`, `zbx_proposerCheck`, `zbx_proposalHasVoted`, `zbx_proposalShadowExec` (strictly read-only, never mutates consensus state), `zbx_featureFlagsList`, `zbx_featureFlagGet`. CLI: `propose`, `vote`, `proposals-list`, `proposal-get`, `feature-flags-list`. Dashboard `/governance` page with eligibility check, proposals list, feature-flag sidebar, and shadow-exec preview. Status labels are capitalized end-to-end (`Testing`, `Voting`, `Approved`, `Rejected`, `Activated`).
 
 ## EVM Integration
 - **EVM Execution Layer:** Native EVM implementation (Cancun fork) in Rust, gated behind `cargo --features evm`.

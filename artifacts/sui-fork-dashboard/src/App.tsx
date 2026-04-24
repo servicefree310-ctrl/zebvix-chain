@@ -41,6 +41,7 @@ import ConnectWallet from "@/pages/connect-wallet";
 import SwapPage from "@/pages/swap";
 import EvmExplorer from "@/pages/evm-explorer";
 import PoolExplorer from "@/pages/pool-explorer";
+import GovernancePage from "@/pages/governance";
 
 const queryClient = new QueryClient();
 
@@ -83,6 +84,7 @@ function Router() {
         <Route path="/swap" component={SwapPage} />
         <Route path="/evm-explorer" component={EvmExplorer} />
         <Route path="/pool-explorer" component={PoolExplorer} />
+        <Route path="/governance" component={GovernancePage} />
         <Route component={NotFound} />
       </Switch>
     </Shell>

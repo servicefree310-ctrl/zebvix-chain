@@ -6,6 +6,7 @@ pub mod mempool;
 pub mod multisig;
 pub mod p2p;
 pub mod pool;
+pub mod proposal;
 pub mod rpc;
 pub mod staking;
 pub mod state;

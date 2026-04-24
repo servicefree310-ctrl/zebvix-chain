@@ -1441,6 +1441,121 @@ impl State {
                     }
                 }
             }
+            crate::types::TxKind::Proposal(op) => {
+                // ── Phase D — on-chain forkless governance ──
+                use crate::proposal::{
+                    Proposal, ProposalOp, ProposalStatus,
+                    MAX_ACTIVE_PROPOSALS_PER_ADDRESS, MIN_PROPOSER_BALANCE_WEI,
+                    TEST_PHASE_BLOCKS, TOTAL_LIFECYCLE_BLOCKS,
+                    validate_description, validate_kind, validate_title,
+                };
+                let current_height = self.tip().0;
+                let current_ts_ms = self.current_block_ts_ms.load(Ordering::SeqCst);
+
+                match op {
+                    ProposalOp::Submit { title, description, kind } => {
+                        // Reconstruct the pre-debit balance: original = current + amount + fee.
+                        // We need the wallet to have held ≥ 1 000 ZBX BEFORE paying gas.
+                        let original_balance = from.balance
+                            .saturating_add(tx.body.amount)
+                            .saturating_add(tx.body.fee);
+                        if original_balance < MIN_PROPOSER_BALANCE_WEI {
+                            return refund(&mut from, format!(
+                                "proposal-submit: proposer needs ≥ {} wei (1000 ZBX), has {}",
+                                MIN_PROPOSER_BALANCE_WEI, original_balance
+                            ));
+                        }
+                        let active_count = self.count_active_proposals_by(&tx.body.from);
+                        if active_count >= MAX_ACTIVE_PROPOSALS_PER_ADDRESS {
+                            return refund(&mut from, format!(
+                                "proposal-submit: {} already has {} active proposals (max {})",
+                                tx.body.from, active_count, MAX_ACTIVE_PROPOSALS_PER_ADDRESS
+                            ));
+                        }
+                        let title_v = match validate_title(title) {
+                            Ok(t) => t,
+                            Err(e) => return refund(&mut from, format!("proposal-submit: {}", e)),
+                        };
+                        let desc_v = match validate_description(description) {
+                            Ok(d) => d,
+                            Err(e) => return refund(&mut from, format!("proposal-submit: {}", e)),
+                        };
+                        let mut kind_v = kind.clone();
+                        if let Err(e) = validate_kind(&mut kind_v) {
+                            return refund(&mut from, format!("proposal-submit: {}", e));
+                        }
+                        let id = match self.next_proposal_id() {
+                            Ok(i) => i,
+                            Err(e) => return refund(&mut from,
+                                format!("proposal-submit: id alloc failed: {}", e)),
+                        };
+                        let proposal = Proposal {
+                            id,
+                            proposer: tx.body.from,
+                            title: title_v,
+                            description: desc_v,
+                            kind: kind_v,
+                            status: ProposalStatus::Testing,
+                            created_at_height: current_height,
+                            created_at_ms: current_ts_ms,
+                            voting_starts_at_height: current_height + TEST_PHASE_BLOCKS,
+                            voting_ends_at_height: current_height + TOTAL_LIFECYCLE_BLOCKS,
+                            yes_votes: 0,
+                            no_votes: 0,
+                            test_runs: 0,
+                            test_success: 0,
+                            test_failure: 0,
+                            activated_at_height: None,
+                        };
+                        self.put_proposal(&proposal)?;
+                        self.put_active_marker(&tx.body.from, id)?;
+                        // Refund principal — only fee consumed.
+                        from.balance = from.balance.saturating_add(tx.body.amount);
+                        self.put_account(&tx.body.from, &from)?;
+                        tracing::info!(
+                            "🗳️  proposal-submit id={} kind={} from {} title=\"{}\" \
+                             test→14d voting→14..90d",
+                            id, proposal.kind.variant_label(), tx.body.from, proposal.title,
+                        );
+                        return Ok(());
+                    }
+                    ProposalOp::Vote { proposal_id, yes } => {
+                        let mut proposal = match self.get_proposal(*proposal_id) {
+                            Some(p) => p,
+                            None => return refund(&mut from, format!(
+                                "proposal-vote: id {} not found", proposal_id
+                            )),
+                        };
+                        if proposal.status != ProposalStatus::Voting {
+                            return refund(&mut from, format!(
+                                "proposal-vote: id {} is in '{}' phase, voting not open",
+                                proposal_id, proposal.status.label()
+                            ));
+                        }
+                        if self.has_voted(*proposal_id, &tx.body.from) {
+                            return refund(&mut from, format!(
+                                "proposal-vote: {} has already voted on id {}",
+                                tx.body.from, proposal_id
+                            ));
+                        }
+                        self.put_vote(*proposal_id, &tx.body.from, *yes)?;
+                        if *yes {
+                            proposal.yes_votes = proposal.yes_votes.saturating_add(1);
+                        } else {
+                            proposal.no_votes  = proposal.no_votes.saturating_add(1);
+                        }
+                        self.put_proposal(&proposal)?;
+                        from.balance = from.balance.saturating_add(tx.body.amount);
+                        self.put_account(&tx.body.from, &from)?;
+                        tracing::info!(
+                            "🗳️  proposal-vote id={} {} from {} (tally yes={} no={})",
+                            proposal_id, if *yes { "YES" } else { "NO" }, tx.body.from,
+                            proposal.yes_votes, proposal.no_votes,
+                        );
+                        return Ok(());
+                    }
+                }
+            }
             crate::types::TxKind::Transfer => { /* fall through to legacy logic */ }
         }
 
@@ -1737,6 +1852,15 @@ impl State {
             );
         }
 
+        // ── Phase D — tick governance proposals ──
+        // Advances Testing → Voting (at +14 d), Voting → Approved/Rejected (at
+        // +90 d), and Approved → Activated (apply state effect). Runs once per
+        // block; failure here is logged but non-fatal so a stuck proposal can
+        // never halt block production.
+        if let Err(e) = self.tick_proposals(block.header.height) {
+            tracing::warn!("proposal tick failed (non-fatal): {e}");
+        }
+
         let cf_b = self.db.cf_handle(CF_BLOCKS).unwrap();
         let cf_m = self.db.cf_handle(CF_META).unwrap();
         let key = block.header.height.to_be_bytes();
@@ -1745,6 +1869,311 @@ impl State {
         self.db.put_cf(cf_m, META_HEIGHT, key)?;
         self.db.put_cf(cf_m, META_LAST_HASH, bh.0)?;
         *self.tip.write() = (block.header.height, bh);
+        Ok(())
+    }
+
+    // ───────────────────── Phase D — Governance proposals & feature flags ─────────────────────
+    //
+    // All keys live in CF_META under stable prefixes:
+    //   prop/<id_be8>             → bincode(Proposal)
+    //   prop_vote/<id_be8><a20>   → 1 byte (1 = yes, 0 = no)
+    //   prop_active/<a20><id_be8> → 1 byte marker (proposer's open proposals)
+    //   prop_count                → u64 BE next id (1-based)
+    //   ff/<key>                  → 16-byte u128 BE (feature flag value)
+    //   ff_label/<key>            → bincode((Address, String, u64 height))
+
+    fn prop_key(id: u64) -> Vec<u8> {
+        let mut k = b"prop/".to_vec();
+        k.extend_from_slice(&id.to_be_bytes());
+        k
+    }
+    fn prop_vote_key(id: u64, voter: &Address) -> Vec<u8> {
+        let mut k = b"prop_vote/".to_vec();
+        k.extend_from_slice(&id.to_be_bytes());
+        k.extend_from_slice(&voter.0);
+        k
+    }
+    fn prop_active_key(proposer: &Address, id: u64) -> Vec<u8> {
+        let mut k = b"prop_active/".to_vec();
+        k.extend_from_slice(&proposer.0);
+        k.extend_from_slice(&id.to_be_bytes());
+        k
+    }
+    fn ff_key(key: &str) -> Vec<u8> {
+        let mut k = b"ff/".to_vec();
+        k.extend_from_slice(key.as_bytes());
+        k
+    }
+    fn ff_label_key(key: &str) -> Vec<u8> {
+        let mut k = b"ff_label/".to_vec();
+        k.extend_from_slice(key.as_bytes());
+        k
+    }
+
+    /// Allocate the next sequential proposal id (1-based, monotonic). Persists
+    /// the new counter atomically before returning so two parallel callers
+    /// can't collide.
+    pub fn next_proposal_id(&self) -> Result<u64> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let cur = self.db.get_cf(cf, b"prop_count").ok().flatten()
+            .map(|b| {
+                let mut a = [0u8; 8];
+                if b.len() == 8 { a.copy_from_slice(&b); }
+                u64::from_be_bytes(a)
+            }).unwrap_or(0);
+        let next = cur + 1;
+        self.db.put_cf(cf, b"prop_count", next.to_be_bytes())?;
+        Ok(next)
+    }
+
+    pub fn put_proposal(&self, p: &crate::proposal::Proposal) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.put_cf(cf, Self::prop_key(p.id), bincode::serialize(p)?)?;
+        Ok(())
+    }
+
+    pub fn get_proposal(&self, id: u64) -> Option<crate::proposal::Proposal> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.get_cf(cf, Self::prop_key(id)).ok().flatten()
+            .and_then(|b| bincode::deserialize(&b).ok())
+    }
+
+    /// All proposals, sorted ascending by id.
+    pub fn list_proposals(&self) -> Vec<crate::proposal::Proposal> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let mut out: Vec<crate::proposal::Proposal> = Vec::new();
+        let prefix: &[u8] = b"prop/";
+        let it = self.db.prefix_iterator_cf(cf, prefix);
+        for item in it {
+            let Ok((k, v)) = item else { continue };
+            // Defensive: prefix iter may overshoot OR overlap prop_vote/ /
+            // prop_active/ (same `prop` prefix prefix). We only want `prop/`
+            // exact prefix + 8-byte id suffix.
+            if !k.starts_with(prefix) { break; }
+            if k.len() != prefix.len() + 8 { continue; }
+            if let Ok(p) = bincode::deserialize::<crate::proposal::Proposal>(&v) {
+                out.push(p);
+            }
+        }
+        out.sort_by_key(|p| p.id);
+        out
+    }
+
+    /// Newest-first slice of proposals (cheap: scan + sort + truncate).
+    pub fn list_proposals_recent(&self, limit: usize) -> Vec<crate::proposal::Proposal> {
+        let mut all = self.list_proposals();
+        all.sort_by(|a, b| b.id.cmp(&a.id));
+        all.truncate(limit);
+        all
+    }
+
+    pub fn has_voted(&self, id: u64, voter: &Address) -> bool {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.get_cf(cf, Self::prop_vote_key(id, voter)).ok().flatten().is_some()
+    }
+
+    pub fn put_vote(&self, id: u64, voter: &Address, yes: bool) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.put_cf(cf, Self::prop_vote_key(id, voter), [if yes { 1u8 } else { 0u8 }])?;
+        Ok(())
+    }
+
+    /// Counts how many open (Testing or Voting) proposals were submitted by
+    /// `proposer`. Marker entries for terminated proposals are tolerated
+    /// (skipped via status check) and pruned by `tick_proposals`.
+    pub fn count_active_proposals_by(&self, proposer: &Address) -> u64 {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let mut prefix = b"prop_active/".to_vec();
+        prefix.extend_from_slice(&proposer.0);
+        let it = self.db.prefix_iterator_cf(cf, &prefix);
+        let mut count = 0u64;
+        for item in it {
+            let Ok((k, _)) = item else { continue };
+            if !k.starts_with(&prefix) { break; }
+            if k.len() != prefix.len() + 8 { continue; }
+            let mut id_bytes = [0u8; 8];
+            id_bytes.copy_from_slice(&k[prefix.len()..]);
+            let id = u64::from_be_bytes(id_bytes);
+            if let Some(p) = self.get_proposal(id) {
+                if p.status.is_active() {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
+    pub fn put_active_marker(&self, proposer: &Address, id: u64) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.put_cf(cf, Self::prop_active_key(proposer, id), [1u8])?;
+        Ok(())
+    }
+
+    fn delete_active_marker(&self, proposer: &Address, id: u64) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.delete_cf(cf, Self::prop_active_key(proposer, id))?;
+        Ok(())
+    }
+
+    pub fn get_feature_flag(&self, key: &str) -> Option<u128> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.get_cf(cf, Self::ff_key(key)).ok().flatten().and_then(|b| {
+            if b.len() == 16 {
+                let mut a = [0u8; 16];
+                a.copy_from_slice(&b);
+                Some(u128::from_be_bytes(a))
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn set_feature_flag(&self, key: &str, value: u128) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.put_cf(cf, Self::ff_key(key), value.to_be_bytes())?;
+        Ok(())
+    }
+
+    /// True iff the named flag is set to a non-zero value. Convenience wrapper
+    /// for runtime code that only cares about the boolean view.
+    pub fn feature_flag_enabled(&self, key: &str) -> bool {
+        self.get_feature_flag(key).map(|v| v != 0).unwrap_or(false)
+    }
+
+    /// All feature flags, sorted by key.
+    pub fn list_feature_flags(&self) -> Vec<(String, u128)> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let prefix: &[u8] = b"ff/";
+        let mut out = Vec::new();
+        let it = self.db.prefix_iterator_cf(cf, prefix);
+        for item in it {
+            let Ok((k, v)) = item else { continue };
+            if !k.starts_with(prefix) { break; }
+            // Defensive: skip ff_label/ entries (overlap on `ff` prefix).
+            let key_bytes = &k[prefix.len()..];
+            if key_bytes.starts_with(b"label/") { continue; }
+            if let Ok(ks) = std::str::from_utf8(key_bytes) {
+                if v.len() == 16 {
+                    let mut a = [0u8; 16];
+                    a.copy_from_slice(&v);
+                    out.push((ks.to_string(), u128::from_be_bytes(a)));
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// Persist the contract metadata for a `ContractWhitelist`-kind activation.
+    pub fn put_contract_label(&self, key: &str, addr: &Address, label: &str, height: u64)
+        -> Result<()>
+    {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let payload = bincode::serialize(&(*addr, label.to_string(), height))?;
+        self.db.put_cf(cf, Self::ff_label_key(key), payload)?;
+        Ok(())
+    }
+
+    pub fn get_contract_label(&self, key: &str) -> Option<(Address, String, u64)> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.get_cf(cf, Self::ff_label_key(key)).ok().flatten()
+            .and_then(|b| bincode::deserialize(&b).ok())
+    }
+
+    /// Tick all active proposals at `height`. Advances Testing→Voting at
+    /// `voting_starts_at_height`, Voting→Approved/Rejected at
+    /// `voting_ends_at_height`, then Approved→Activated (applying the
+    /// state effect immediately). Errors per-proposal are logged but do
+    /// NOT halt the loop — a single bad proposal can never freeze the
+    /// chain.
+    pub fn tick_proposals(&self, height: u64) -> Result<()> {
+        use crate::proposal::{ProposalKind, ProposalStatus, MIN_QUORUM_VOTES};
+
+        let proposals = self.list_proposals();
+        for mut p in proposals {
+            // Skip terminated proposals; only Approved is re-checked because we
+            // collapse Approved → Activated in the same tick.
+            if p.status.is_terminal() { continue; }
+
+            let mut changed = false;
+
+            if p.status == ProposalStatus::Testing && height >= p.voting_starts_at_height {
+                p.status = ProposalStatus::Voting;
+                changed = true;
+                tracing::info!("🗳️  proposal id={} test→vote phase @h={}", p.id, height);
+            }
+
+            if p.status == ProposalStatus::Voting && height >= p.voting_ends_at_height {
+                if p.meets_pass_criteria() {
+                    p.status = ProposalStatus::Approved;
+                    tracing::info!(
+                        "🗳️  proposal id={} APPROVED @h={} yes={} no={} pct={:.2}%",
+                        p.id, height, p.yes_votes, p.no_votes,
+                        p.pass_pct_bps() as f64 / 100.0
+                    );
+                } else {
+                    p.status = ProposalStatus::Rejected;
+                    if let Err(e) = self.delete_active_marker(&p.proposer, p.id) {
+                        tracing::warn!("active-marker delete failed (non-fatal): {e}");
+                    }
+                    tracing::info!(
+                        "🗳️  proposal id={} REJECTED @h={} yes={} no={} pct={:.2}% (quorum={})",
+                        p.id, height, p.yes_votes, p.no_votes,
+                        p.pass_pct_bps() as f64 / 100.0, MIN_QUORUM_VOTES
+                    );
+                }
+                changed = true;
+            }
+
+            if p.status == ProposalStatus::Approved {
+                // Apply the on-chain effect.
+                let apply_result: Result<()> = match &p.kind {
+                    ProposalKind::FeatureFlag { key, enabled } => {
+                        self.set_feature_flag(key, if *enabled { 1 } else { 0 })
+                    }
+                    ProposalKind::ParamChange { param, new_value } => {
+                        self.set_feature_flag(param, *new_value)
+                    }
+                    ProposalKind::ContractWhitelist { key, address, label } => {
+                        self.set_feature_flag(key, 1)
+                            .and_then(|_| self.put_contract_label(key, address, label, height))
+                    }
+                    ProposalKind::TextOnly => Ok(()),
+                };
+                if let Err(e) = apply_result {
+                    tracing::warn!(
+                        "proposal id={} activation failed (will retry next tick): {e}", p.id
+                    );
+                    // Persist the Approved status so the next tick re-enters
+                    // this branch directly (instead of re-tallying from Voting),
+                    // then move on. We swallow a persist error here only to
+                    // log — the next tick will retry both persistence and
+                    // activation.
+                    if changed {
+                        if let Err(pe) = self.put_proposal(&p) {
+                            tracing::warn!(
+                                "proposal id={} approved-state persist failed (non-fatal, will retry): {pe}", p.id
+                            );
+                        }
+                    }
+                    continue; // leave status as Approved, retry next block
+                }
+                p.status = ProposalStatus::Activated;
+                p.activated_at_height = Some(height);
+                if let Err(e) = self.delete_active_marker(&p.proposer, p.id) {
+                    tracing::warn!("active-marker delete failed (non-fatal): {e}");
+                }
+                tracing::info!(
+                    "🗳️  proposal id={} ACTIVATED @h={} kind={}",
+                    p.id, height, p.kind.variant_label()
+                );
+                changed = true;
+            }
+
+            if changed {
+                self.put_proposal(&p)?;
+            }
+        }
         Ok(())
     }
 

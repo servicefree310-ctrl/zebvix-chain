@@ -86,6 +86,32 @@ fn parse_address(v: &Value) -> Option<Address> {
     Address::from_hex(s).ok()
 }
 
+/// Phase D — render a `ProposalKind` as user-facing JSON (used by the
+/// dashboard / explorer / wallet). Mirrors the on-chain enum exactly so the
+/// frontend never has to introspect type discriminants directly.
+fn proposal_kind_to_json(k: &crate::proposal::ProposalKind) -> Value {
+    use crate::proposal::ProposalKind::*;
+    match k {
+        FeatureFlag { key, enabled } => json!({
+            "type": "feature_flag",
+            "key": key,
+            "enabled": enabled,
+        }),
+        ParamChange { param, new_value } => json!({
+            "type": "param_change",
+            "param": param,
+            "new_value": new_value.to_string(),
+        }),
+        ContractWhitelist { key, address, label } => json!({
+            "type": "contract_whitelist",
+            "key": key,
+            "address": address.to_hex(),
+            "label": label,
+        }),
+        TextOnly => json!({ "type": "text_only" }),
+    }
+}
+
 async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<RpcResp> {
     let _ = req.jsonrpc;
     let id = req.id.clone();
@@ -205,6 +231,8 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 6 => "RegisterPayId",
                 7 => "Multisig",
                 8 => "Swap",
+                9 => "Bridge",
+                10 => "Proposal",
                 _ => "Unknown",
             };
             let txs: Vec<Value> = snap.into_iter().take(limit).map(|(h, from, to, amount, fee, nonce, kind)| json!({
@@ -243,6 +271,8 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 6 => "RegisterPayId",
                 7 => "Multisig",
                 8 => "Swap",
+                9 => "Bridge",
+                10 => "Proposal",
                 _ => "Unknown",
             };
             let recs = ctx.state.recent_txs(limit);
@@ -669,6 +699,216 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 "source": if p.is_initialized() { "amm-pool-spot" } else { "bootstrap-fixed" },
             }))
         }
+        // ────────── Phase D — Forkless on-chain governance ──────────
+        // Read-only views over proposals + feature flags. Submit/Vote happen
+        // via standard `zbx_sendRawTransaction` with a `TxKind::Proposal`
+        // payload, identical to every other tx.
+
+        "zbx_proposalsList" => {
+            // Params: [limit?: u64]  (default 50, no hard cap — proposals are bounded by submit limits)
+            let limit = req.params.get(0).and_then(|v| v.as_u64()).unwrap_or(50) as usize;
+            let recent = ctx.state.list_proposals_recent(limit);
+            let (h, _) = ctx.state.tip();
+            let to_json = |p: &crate::proposal::Proposal| json!({
+                "id": p.id,
+                "proposer": p.proposer.to_hex(),
+                "title": p.title,
+                "description": p.description,
+                "kind": proposal_kind_to_json(&p.kind),
+                "status": p.status.label(),
+                "created_at_height": p.created_at_height,
+                "created_at_ms": p.created_at_ms,
+                "voting_starts_at_height": p.voting_starts_at_height,
+                "voting_ends_at_height": p.voting_ends_at_height,
+                "yes_votes": p.yes_votes,
+                "no_votes": p.no_votes,
+                "total_votes": p.total_votes(),
+                "pass_pct_bps": p.pass_pct_bps(),
+                "test_runs": p.test_runs,
+                "test_success": p.test_success,
+                "test_failure": p.test_failure,
+                "activated_at_height": p.activated_at_height,
+                "blocks_until_voting": p.voting_starts_at_height.saturating_sub(h),
+                "blocks_until_close": p.voting_ends_at_height.saturating_sub(h),
+            });
+            let arr: Vec<Value> = recent.iter().map(to_json).collect();
+            ok(id, json!({
+                "count": arr.len(),
+                "tip_height": h,
+                "min_proposer_balance_wei": crate::proposal::MIN_PROPOSER_BALANCE_WEI.to_string(),
+                "test_phase_blocks": crate::proposal::TEST_PHASE_BLOCKS,
+                "vote_phase_blocks": crate::proposal::VOTE_PHASE_BLOCKS,
+                "total_lifecycle_blocks": crate::proposal::TOTAL_LIFECYCLE_BLOCKS,
+                "min_quorum_votes": crate::proposal::MIN_QUORUM_VOTES,
+                "pass_threshold_bps": crate::proposal::PASS_THRESHOLD_BPS,
+                "proposals": arr,
+            }))
+        }
+
+        "zbx_proposalGet" => {
+            // Params: [id: u64]
+            let pid = match req.params.get(0).and_then(|v| v.as_u64()) {
+                Some(n) => n,
+                None => return Json(err(id, -32602, "missing proposal id")),
+            };
+            match ctx.state.get_proposal(pid) {
+                Some(p) => {
+                    let (h, _) = ctx.state.tip();
+                    ok(id, json!({
+                        "id": p.id,
+                        "proposer": p.proposer.to_hex(),
+                        "title": p.title,
+                        "description": p.description,
+                        "kind": proposal_kind_to_json(&p.kind),
+                        "status": p.status.label(),
+                        "created_at_height": p.created_at_height,
+                        "created_at_ms": p.created_at_ms,
+                        "voting_starts_at_height": p.voting_starts_at_height,
+                        "voting_ends_at_height": p.voting_ends_at_height,
+                        "yes_votes": p.yes_votes,
+                        "no_votes": p.no_votes,
+                        "total_votes": p.total_votes(),
+                        "pass_pct_bps": p.pass_pct_bps(),
+                        "meets_pass_criteria": p.meets_pass_criteria(),
+                        "test_runs": p.test_runs,
+                        "test_success": p.test_success,
+                        "test_failure": p.test_failure,
+                        "activated_at_height": p.activated_at_height,
+                        "tip_height": h,
+                        "blocks_until_voting": p.voting_starts_at_height.saturating_sub(h),
+                        "blocks_until_close": p.voting_ends_at_height.saturating_sub(h),
+                    }))
+                }
+                None => ok(id, Value::Null),
+            }
+        }
+
+        "zbx_proposerCheck" => {
+            // Params: [address]
+            let addr = match req.params.get(0).and_then(parse_address) {
+                Some(a) => a,
+                None => return Json(err(id, -32602, "invalid address")),
+            };
+            let bal = ctx.state.balance(&addr);
+            let active = ctx.state.count_active_proposals_by(&addr);
+            ok(id, json!({
+                "address": addr.to_hex(),
+                "balance_wei": bal.to_string(),
+                "balance_zbx": format!("{:.6}", bal as f64 / 1e18),
+                "min_proposer_balance_wei": crate::proposal::MIN_PROPOSER_BALANCE_WEI.to_string(),
+                "min_proposer_balance_zbx": "1000",
+                "has_min_balance": bal >= crate::proposal::MIN_PROPOSER_BALANCE_WEI,
+                "active_proposals": active,
+                "max_active_proposals": crate::proposal::MAX_ACTIVE_PROPOSALS_PER_ADDRESS,
+                "can_submit": bal >= crate::proposal::MIN_PROPOSER_BALANCE_WEI
+                    && active < crate::proposal::MAX_ACTIVE_PROPOSALS_PER_ADDRESS,
+            }))
+        }
+
+        "zbx_proposalHasVoted" => {
+            // Params: [proposal_id: u64, voter: hex]
+            let pid = match req.params.get(0).and_then(|v| v.as_u64()) {
+                Some(n) => n,
+                None => return Json(err(id, -32602, "missing proposal id")),
+            };
+            let voter = match req.params.get(1).and_then(parse_address) {
+                Some(a) => a,
+                None => return Json(err(id, -32602, "invalid voter address")),
+            };
+            ok(id, json!({
+                "proposal_id": pid,
+                "voter": voter.to_hex(),
+                "has_voted": ctx.state.has_voted(pid, &voter),
+            }))
+        }
+
+        "zbx_proposalShadowExec" => {
+            // Params: [proposal_id: u64]
+            // Strictly read-only "what-if": describes the chain state that
+            // would result if this proposal were already activated. MUST NOT
+            // mutate any consensus-replicated state — different RPC traffic
+            // across nodes would otherwise cause divergence.
+            let pid = match req.params.get(0).and_then(|v| v.as_u64()) {
+                Some(n) => n,
+                None => return Json(err(id, -32602, "missing proposal id")),
+            };
+            let p = match ctx.state.get_proposal(pid) {
+                Some(p) => p,
+                None => return Json(ok(id, json!({
+                    "ok": false,
+                    "reason": "proposal not found",
+                }))),
+            };
+            // Compute the projected effect.
+            let (effect, success): (Value, bool) = match &p.kind {
+                crate::proposal::ProposalKind::FeatureFlag { key, enabled } => (json!({
+                    "type": "feature_flag",
+                    "key": key,
+                    "current_value": ctx.state.get_feature_flag(key)
+                        .map(|v| v.to_string()).unwrap_or_else(|| "<unset>".into()),
+                    "would_become": if *enabled { "1" } else { "0" },
+                    "would_enable": *enabled,
+                }), true),
+                crate::proposal::ProposalKind::ParamChange { param, new_value } => (json!({
+                    "type": "param_change",
+                    "param": param,
+                    "current_value": ctx.state.get_feature_flag(param)
+                        .map(|v| v.to_string()).unwrap_or_else(|| "<unset>".into()),
+                    "would_become": new_value.to_string(),
+                }), true),
+                crate::proposal::ProposalKind::ContractWhitelist { key, address, label } => (json!({
+                    "type": "contract_whitelist",
+                    "key": key,
+                    "address": address.to_hex(),
+                    "label": label,
+                    "currently_whitelisted": ctx.state.get_contract_label(key).is_some(),
+                }), true),
+                crate::proposal::ProposalKind::TextOnly => (json!({
+                    "type": "text_only",
+                    "note": "signal-only proposal — no on-chain effect at activation",
+                }), true),
+            };
+            ok(id, json!({
+                "ok": success,
+                "proposal_id": pid,
+                "status": p.status.label(),
+                "shadow_executed": true,
+                "main_state_committed": false,
+                "projected_effect": effect,
+            }))
+        }
+
+        "zbx_featureFlagsList" => {
+            let flags = ctx.state.list_feature_flags();
+            let arr: Vec<Value> = flags.into_iter().map(|(k, v)| {
+                let label = ctx.state.get_contract_label(&k);
+                json!({
+                    "key": k,
+                    "value": v.to_string(),
+                    "enabled": v != 0,
+                    "contract_address": label.as_ref().map(|(a, _, _)| a.to_hex()),
+                    "contract_label":   label.as_ref().map(|(_, l, _)| l.clone()),
+                    "set_at_height":    label.as_ref().map(|(_, _, h)| *h),
+                })
+            }).collect();
+            ok(id, json!({ "count": arr.len(), "flags": arr }))
+        }
+
+        "zbx_featureFlagGet" => {
+            // Params: [key: string]
+            let key = match req.params.get(0).and_then(|v| v.as_str()) {
+                Some(s) => s.to_string(),
+                None => return Json(err(id, -32602, "missing flag key")),
+            };
+            let v = ctx.state.get_feature_flag(&key);
+            ok(id, json!({
+                "key": key,
+                "value": v.map(|n| n.to_string()),
+                "enabled": v.map(|n| n != 0).unwrap_or(false),
+                "set": v.is_some(),
+            }))
+        }
+
         "zbx_getZusdBalance" => {
             let addr = req.params.get(0).and_then(parse_address);
             match addr {
