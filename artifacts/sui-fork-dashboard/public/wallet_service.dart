@@ -276,11 +276,25 @@ class WalletService {
   // ── Bincode encoding (matches `bincode = "1.3"` default config on chain) ──
   // Default config = little-endian, fixint, enum tag = u32 LE.
 
+  /// Bincode-encoded `Address`. The chain declares
+  /// `Address(#[serde(with = "hex_array_20")] [u8;20])`, which serializes to a
+  /// hex STRING ("0x..40 chars..") in EVERY serde format — including bincode.
+  /// So the wire form is a bincode string: u64 LE length prefix + UTF-8 bytes.
+  /// Total = 8 + 42 = 50 bytes per address.
   static Uint8List _addrBytes(String hex0x) {
-    final s = hex0x.startsWith('0x') ? hex0x.substring(2) : hex0x;
-    final b = hex.decode(s);
-    if (b.length != 20) throw Exception('address must be 20 bytes');
-    return Uint8List.fromList(b);
+    var s = hex0x.startsWith('0x') ? hex0x : '0x$hex0x';
+    s = s.toLowerCase();
+    if (s.length != 42) {
+      throw Exception('address must be 0x + 40 hex chars (got "$s")');
+    }
+    // Validate the hex part decodes cleanly.
+    final raw = hex.decode(s.substring(2));
+    if (raw.length != 20) throw Exception('address must be 20 bytes');
+    final str = utf8.encode(s);
+    final bb = BytesBuilder()
+      ..add(_u64Le(str.length)) // 8
+      ..add(str);               // 42
+    return bb.toBytes();        // 50
   }
 
   static Uint8List _u64Le(int v) {
@@ -308,6 +322,16 @@ class WalletService {
   }
 
   /// Encode a Transfer-kind TxBody to bincode bytes (matches chain wire format).
+  /// Layout:
+  ///   from (Address as bincode string)  : 50
+  ///   to   (Address as bincode string)  : 50
+  ///   amount  u128 LE                   : 16
+  ///   nonce   u64  LE                   :  8
+  ///   fee     u128 LE                   : 16
+  ///   chain_id u64 LE                   :  8
+  ///   kind    enum tag u32 LE (Transfer=0): 4
+  ///                                      ───
+  ///                                      152 bytes
   static Uint8List encodeTransferBody({
     required String from,
     required String to,
@@ -317,14 +341,14 @@ class WalletService {
     required int chainId,
   }) {
     final bb = BytesBuilder();
-    bb.add(_addrBytes(from));        // 20
-    bb.add(_addrBytes(to));          // 20
+    bb.add(_addrBytes(from));        // 50
+    bb.add(_addrBytes(to));          // 50
     bb.add(_u128Le(amountWei));      // 16
     bb.add(_u64Le(nonce));           //  8
     bb.add(_u128Le(feeWei));         // 16
     bb.add(_u64Le(chainId));         //  8
     bb.add(_u32Le(0));               //  4  (TxKind::Transfer = variant 0)
-    return bb.toBytes();             // 92 bytes total
+    return bb.toBytes();             // 152 bytes total
   }
 
   /// Sign a Transfer and return a hex string suitable for `zbx_sendRawTransaction`.
@@ -344,10 +368,10 @@ class WalletService {
     final sig = signRaw(body, seed);
     final pub = derivePublic(seed);
     final bb = BytesBuilder()
-      ..add(body)   // 92
-      ..add(pub)    // 32
-      ..add(sig);   // 64
-    return '0x${hex.encode(bb.toBytes())}';  // 188 bytes / 376 hex chars
+      ..add(body)   // 152
+      ..add(pub)    // 32   (raw [u8;32], no custom serde on SignedTx.pubkey)
+      ..add(sig);   // 64   (BigArray = bincode tuple of 64 u8 = raw)
+    return '0x${hex.encode(bb.toBytes())}';  // 248 bytes / 496 hex chars
   }
 
   // ── Crypto helpers ──────────────────────────────────────────────────────
