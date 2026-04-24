@@ -46,6 +46,13 @@ Standalone Rust crate building Zebvix L1 — token ZBX, chain-id 7878, EVM-style
 - **Small improvements (Apr 22, 2026)** ✅ — Added `zbx_blockNumber` RPC (richer than eth_blockNumber: returns height + hex + hash + timestamp_ms + proposer); new CLI `show-validator --address <0x…>` (queries `zbx_getValidator` via RPC); new CLI `block-number` (chain tip details).
 - **B.3.2.4 — `LastCommit` in BlockHeader** ⏳ — signed precommit set from prev block, validated on apply.
 
+### Module layout
+
+- `src/transaction.rs` — **canonical home of `TxKind`, `TxBody`, `SignedTx`** plus inherent helpers (`SignedTx::hash()`, `.sender_address()`, `.verify()`, `.to_bytes()`, `.from_bytes()`, `TxBody::transfer()`, `TxBody::sign()`, `TxKind::variant_name()`, `.tag_index()`). Wire format = bincode of these structs in field order — DO NOT reorder.
+- `src/types.rs` — `Address`, `Hash`, `BlockHeader`, `Block`, `Validator`, hex serde helpers. Re-exports `TxKind`/`TxBody`/`SignedTx` from `transaction.rs` for backward compat (so `crate::types::SignedTx` keeps working everywhere).
+- `src/crypto.rs` — `sign_tx`, `verify_tx`, `tx_hash`, `tx_signing_bytes` (low-level). `transaction.rs` wraps these as inherent methods.
+- `src/mempool.rs`, `src/state.rs`, `src/rpc.rs`, `src/consensus.rs` — consume `SignedTx` via the existing `crate::types::*` import path; no churn needed.
+
 ### Known follow-ups
 
 - **B.3.1.5 VPS re-init COMPLETE (Apr 22, 2026)**: backups taken (`/root/zebvix-backups/preB315-*`), `.zebvix` and `.zebvix2` data dirs wiped, both re-init'd with deterministic genesis. Node-2's `validator.key` was inside `.zebvix2/` and got wiped — restored from backup tarball (same pubkey `0xde996e74...` so the earlier `validator-add` tx still matches). Both nodes now on identical chain, genuine 2/2 quorum.

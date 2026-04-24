@@ -61,77 +61,10 @@ impl fmt::Display for Hash {
     }
 }
 
-/// Phase B.3.1 — transaction kind discriminator.
-///
-/// `Transfer` is the legacy/default behaviour: move `amount` from
-/// `body.from` → `body.to` (or trigger pool intercept if `to == POOL`).
-///
-/// `ValidatorAdd` / `ValidatorRemove` are admin-only governance txs that
-/// mutate the on-chain validator registry. They MUST be signed by the
-/// current admin address; `body.amount` is refunded (only `body.fee` is
-/// burned/paid). This makes the validator set part of replicated state, so
-/// every node — including new joiners — converges on the same set by simply
-/// applying blocks.
-#[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum TxKind {
-    #[default]
-    Transfer,
-    ValidatorAdd { pubkey: [u8; 32], power: u64 },
-    ValidatorRemove { address: Address },
-    /// Phase B.3.2 — change an existing validator's voting power **without**
-    /// remove+add (which would briefly drop total power below quorum and risk
-    /// halting the chain mid-block). Governor-only.
-    ValidatorEdit { address: Address, new_power: u64 },
-    /// Phase B.3.2 — rotate the governor key. Must be signed by the *current*
-    /// governor. Capped at `MAX_GOVERNOR_CHANGES` rotations (then locked).
-    GovernorChange { new_governor: Address },
-    /// Phase B.4 — Sui-style PoS staking dispatch. The inner [`StakeOp`]
-    /// variant selects the action (CreateValidator / Stake / Unstake /
-    /// Redelegate / ClaimRewards / EditValidator). Sender = `body.from`,
-    /// `body.amount` is debited from sender for `Stake` / `CreateValidator`
-    /// (and credited back for matured `Unstake` / `ClaimRewards` payouts at
-    /// epoch end). All other ops use `body.amount = 0`.
-    Staking(crate::staking::StakeOp),
-    /// Phase B.7 — register a human-readable Pay-ID for the sender's address.
-    /// Format: `<handle>@zbx`, handle is 3-25 chars `[a-z0-9_]`. `name` is a
-    /// 1-50 char display label (mandatory). One Pay-ID per address; once set,
-    /// it is **permanent** — cannot be edited or deleted.
-    RegisterPayId { pay_id: String, name: String },
-    /// Phase B.8 — M-of-N multisig wallets. The inner [`MultisigOp`] selects
-    /// the action (Create / Propose / Approve / Revoke / Execute). Sender =
-    /// `body.from`. `body.amount` is always refunded; only `body.fee` is paid.
-    /// Multisig accounts hold their own balance separately and can be funded
-    /// like any normal address.
-    Multisig(crate::multisig::MultisigOp),
-}
-
-/// Transaction body (unsigned). Amount is in wei (1 ZBX = 10^18 wei).
-///
-/// **Wire format note (B.3.1):** `kind` was added at the end of this struct.
-/// This is a chain-breaking change vs. pre-B.3.1 binaries — devnets must
-/// re-init genesis. The default value is `Transfer` so all existing CLI
-/// helpers and EVM-style flows keep working unchanged.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TxBody {
-    pub from: Address,
-    pub to: Address,
-    pub amount: u128,
-    pub nonce: u64,
-    pub fee: u128,
-    pub chain_id: u64,
-    pub kind: TxKind,
-}
-
-/// Signed transaction (BLS-style, but using ed25519 for v0.1).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SignedTx {
-    pub body: TxBody,
-    /// Compressed ed25519 public key of sender (32 bytes).
-    pub pubkey: [u8; 32],
-    /// Ed25519 signature (64 bytes).
-    #[serde(with = "BigArray")]
-    pub signature: [u8; 64],
-}
+// Transaction types (`TxKind`, `TxBody`, `SignedTx`) live in their own module
+// at `crate::transaction`. We re-export them here so all existing imports of
+// `crate::types::{TxKind, TxBody, SignedTx}` keep compiling unchanged.
+pub use crate::transaction::{SignedTx, TxBody, TxKind};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockHeader {

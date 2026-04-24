@@ -9,5 +9,6 @@ pub mod rpc;
 pub mod staking;
 pub mod state;
 pub mod tokenomics;
+pub mod transaction;
 pub mod types;
 pub mod vote;

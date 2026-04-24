@@ -1,4 +1,4 @@
-modules = ["nodejs-24"]
+modules = ["nodejs-24", "rust"]
 
 [deployment]
 router = "application"
@@ -58,3 +58,6 @@ externalPort = 3000
 [[ports]]
 localPort = 22815
 externalPort = 3003
+
+[nix]
+channel = "stable-25_05"
