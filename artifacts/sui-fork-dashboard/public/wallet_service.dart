@@ -273,6 +273,83 @@ class WalletService {
     };
   }
 
+  // ── Bincode encoding (matches `bincode = "1.3"` default config on chain) ──
+  // Default config = little-endian, fixint, enum tag = u32 LE.
+
+  static Uint8List _addrBytes(String hex0x) {
+    final s = hex0x.startsWith('0x') ? hex0x.substring(2) : hex0x;
+    final b = hex.decode(s);
+    if (b.length != 20) throw Exception('address must be 20 bytes');
+    return Uint8List.fromList(b);
+  }
+
+  static Uint8List _u64Le(int v) {
+    final b = ByteData(8)..setUint64(0, v, Endian.little);
+    return b.buffer.asUint8List();
+  }
+
+  static Uint8List _u32Le(int v) {
+    final b = ByteData(4)..setUint32(0, v, Endian.little);
+    return b.buffer.asUint8List();
+  }
+
+  /// 16-byte little-endian encoding of an unsigned 128-bit BigInt.
+  static Uint8List _u128Le(BigInt v) {
+    if (v.isNegative) throw Exception('u128 cannot be negative');
+    final out = Uint8List(16);
+    var x = v;
+    final mask = BigInt.from(0xff);
+    for (var i = 0; i < 16; i++) {
+      out[i] = (x & mask).toInt();
+      x = x >> 8;
+    }
+    if (x != BigInt.zero) throw Exception('u128 overflow');
+    return out;
+  }
+
+  /// Encode a Transfer-kind TxBody to bincode bytes (matches chain wire format).
+  static Uint8List encodeTransferBody({
+    required String from,
+    required String to,
+    required BigInt amountWei,
+    required int nonce,
+    required BigInt feeWei,
+    required int chainId,
+  }) {
+    final bb = BytesBuilder();
+    bb.add(_addrBytes(from));        // 20
+    bb.add(_addrBytes(to));          // 20
+    bb.add(_u128Le(amountWei));      // 16
+    bb.add(_u64Le(nonce));           //  8
+    bb.add(_u128Le(feeWei));         // 16
+    bb.add(_u64Le(chainId));         //  8
+    bb.add(_u32Le(0));               //  4  (TxKind::Transfer = variant 0)
+    return bb.toBytes();             // 92 bytes total
+  }
+
+  /// Sign a Transfer and return a hex string suitable for `zbx_sendRawTransaction`.
+  String signTransferRaw({
+    required String from,
+    required String to,
+    required BigInt amountWei,
+    required int nonce,
+    required BigInt feeWei,
+    required int chainId,
+    required Uint8List seed,
+  }) {
+    final body = encodeTransferBody(
+      from: from, to: to, amountWei: amountWei,
+      nonce: nonce, feeWei: feeWei, chainId: chainId,
+    );
+    final sig = signRaw(body, seed);
+    final pub = derivePublic(seed);
+    final bb = BytesBuilder()
+      ..add(body)   // 92
+      ..add(pub)    // 32
+      ..add(sig);   // 64
+    return '0x${hex.encode(bb.toBytes())}';  // 188 bytes / 376 hex chars
+  }
+
   // ── Crypto helpers ──────────────────────────────────────────────────────
   /// Ed25519 verifying key (32 bytes) from a 32-byte seed.
   static Uint8List derivePublic(Uint8List seed) {

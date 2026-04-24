@@ -260,17 +260,16 @@ class AppState extends ChangeNotifier {
   }) async {
     final w = activeWallet ?? await wallet.load();
     if (w == null) throw Exception('no wallet');
-    final body = {
-      'from': w.address,
-      'to': to,
-      'amount': '0x${zbxToWei(amountZbx).toRadixString(16)}',
-      'fee': '0x${zbxToWei(feeZbx).toRadixString(16)}',
-      'nonce': balance.nonce,
-      'chain_id': 7878,
-      'kind': {'Transfer': {}},
-    };
-    final signed = wallet.signTransaction(body, w.privateKey);
-    final res = await rpc.sendRaw(signed);
+    final hexTx = wallet.signTransferRaw(
+      from: w.address,
+      to: to,
+      amountWei: zbxToWei(amountZbx),
+      nonce: balance.nonce,
+      feeWei: zbxToWei(feeZbx),
+      chainId: 7878,
+      seed: w.privateKey,
+    );
+    final res = await rpc.sendRawHex(hexTx);
     refresh();
     return res?.toString() ?? '';
   }
