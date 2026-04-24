@@ -1342,8 +1342,7 @@ impl<'db, D: EvmDb> Interp<'db, D> {
 /// Convert a U256 stack word into a 20-byte EVM address by taking the
 /// lower 160 bits (top 96 bits ignored per yellow paper §9.4).
 fn address_from_u256(v: U256) -> Address {
-    let mut buf = [0u8; 32];
-    v.to_big_endian(&mut buf);
+    let buf = v.to_big_endian();
     let mut addr = [0u8; 20];
     addr.copy_from_slice(&buf[12..]);
     Address::from_bytes(addr)

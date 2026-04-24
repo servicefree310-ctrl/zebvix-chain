@@ -570,9 +570,9 @@ pub fn keccak256(data: &[u8]) -> [u8; 32] {
 
 /// Big-endian `U256` ↔ `[u8; 32]`.
 pub fn u256_to_bytes(v: U256) -> [u8; 32] {
-    let mut buf = [0u8; 32];
-    v.to_big_endian(&mut buf);
-    buf
+    // primitive-types 0.13+ returns the array directly (older 0.12 took
+    // a `&mut [u8; 32]` out-param).
+    v.to_big_endian()
 }
 
 pub fn bytes_to_u256(b: &[u8]) -> U256 {

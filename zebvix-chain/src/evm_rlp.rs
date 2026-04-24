@@ -253,8 +253,7 @@ pub fn encode_u256(v: U256) -> RlpItem {
     if v.is_zero() {
         return RlpItem::Bytes(vec![]);
     }
-    let mut buf = [0u8; 32];
-    v.to_big_endian(&mut buf);
+    let buf = v.to_big_endian();
     RlpItem::Bytes(trim_leading_zeros(&buf))
 }
 

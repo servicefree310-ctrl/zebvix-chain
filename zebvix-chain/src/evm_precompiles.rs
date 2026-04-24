@@ -353,8 +353,7 @@ pub fn amm_swap(input: &[u8], gas_limit: u64) -> PrecompileOutput {
         return PrecompileOutput::err(G_AMM_SWAP);
     }
     let _ = direction; // sign so future patch can branch on it
-    let mut out = vec![0u8; 32];
-    amount_out.to_big_endian(&mut out);
+    let out = amount_out.to_big_endian().to_vec();
     PrecompileOutput::ok(G_AMM_SWAP, out)
 }
 
@@ -449,10 +448,10 @@ mod tests {
         input[31] = 0; // direction = 0
         // amount_in = 1000
         let amount_in = U256::from(1000u32);
-        amount_in.to_big_endian(&mut input[32..64]);
+        input[32..64].copy_from_slice(&amount_in.to_big_endian());
         // min_out = 2000 (more than 95% of 1000), should fail
         let min_out = U256::from(2000u32);
-        min_out.to_big_endian(&mut input[64..96]);
+        input[64..96].copy_from_slice(&min_out.to_big_endian());
         let out = amm_swap(&input, 100_000);
         assert!(!out.success, "min_out > amount_out * 0.95 must revert");
     }

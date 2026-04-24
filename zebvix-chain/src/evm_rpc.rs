@@ -49,8 +49,7 @@ use std::sync::Arc;
 /// "quantity" type). Zero is `"0x0"`.
 pub fn quantity(v: U256) -> String {
     if v.is_zero() { return "0x0".to_string(); }
-    let mut buf = [0u8; 32];
-    v.to_big_endian(&mut buf);
+    let buf = v.to_big_endian();
     let trimmed = buf.iter().position(|b| *b != 0).map(|i| &buf[i..]).unwrap_or(&buf);
     let mut hex_str = hex::encode(trimmed);
     // Strip a single leading zero nibble (e.g. "0a" → "a") to match Geth.
@@ -159,7 +158,7 @@ pub fn dispatch(ctx: &EvmRpcCtx, method: &str, params: &[Value]) -> Result<Value
         "eth_getStorageAt" => {
             let addr = parse_address(get_str(params, 0)?)?;
             let key = parse_u256(get_str(params, 1)?)?;
-            let mut k = [0u8; 32]; key.to_big_endian(&mut k);
+            let k = key.to_big_endian();
             let v = ctx.db.storage(&addr, &H256::from(k));
             Ok(json!(format!("0x{}", hex::encode(v.as_bytes()))))
         }
