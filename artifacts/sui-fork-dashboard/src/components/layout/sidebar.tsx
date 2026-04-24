@@ -48,6 +48,7 @@ const CORE_NAV = [
   { href: "/validators", label: "Validator Setup", icon: Users },
   { href: "/network", label: "Network Config", icon: Network },
   { href: "/tokenomics", label: "Tokenomics", icon: Coins },
+  { href: "/smart-contracts", label: "Smart Contracts (EVM)", icon: FileCode2 },
   { href: "/customization", label: "Customization", icon: Settings },
   { href: "/checklist", label: "Launch Checklist", icon: CheckSquare },
   { href: "/production", label: "Production Chain", icon: Rocket },

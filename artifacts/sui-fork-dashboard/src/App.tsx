@@ -42,6 +42,7 @@ import SwapPage from "@/pages/swap";
 import EvmExplorer from "@/pages/evm-explorer";
 import PoolExplorer from "@/pages/pool-explorer";
 import GovernancePage from "@/pages/governance";
+import SmartContracts from "@/pages/smart-contracts";
 
 const queryClient = new QueryClient();
 
@@ -85,6 +86,7 @@ function Router() {
         <Route path="/evm-explorer" component={EvmExplorer} />
         <Route path="/pool-explorer" component={PoolExplorer} />
         <Route path="/governance" component={GovernancePage} />
+        <Route path="/smart-contracts" component={SmartContracts} />
         <Route component={NotFound} />
       </Switch>
     </Shell>
