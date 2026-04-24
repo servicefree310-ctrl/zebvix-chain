@@ -1,0 +1,68 @@
+   Compiling rocksdb v0.22.0
+   Compiling zebvix-node v0.1.0 (/home/zebvix-chain)
+error[E0283]: type annotations needed
+   --> src/rpc.rs:378:72
+    |
+377 |                 _ => return Json(err(id, -32602,
+    |                                  --- required by a bound introduced by this call
+378 |                     "direction must be 'zbx_to_zusd' or 'zusd_to_zbx'".into())),
+    |                                                                        ^^^^
+    |
+    = note: cannot satisfy `_: Into<std::string::String>`
+note: required by a bound in `rpc::err`
+   --> src/rpc.rs:69:40
+    |
+ 69 | fn err(id: Value, code: i32, msg: impl Into<String>) -> RpcResp {
+    |                                        ^^^^^^^^^^^^ required by this bound in `err`
+help: try using a fully qualified path to specify the expected types
+    |
+378 -                     "direction must be 'zbx_to_zusd' or 'zusd_to_zbx'".into())),
+378 +                     <&str as Into<T>>::into("direction must be 'zbx_to_zusd' or 'zusd_to_zbx'"))),
+    |
+help: consider removing this method call, as the receiver has type `&'static str` and `&'static str: Into<std::string::String>` trivially holds
+    |
+378 -                     "direction must be 'zbx_to_zusd' or 'zusd_to_zbx'".into())),
+378 +                     "direction must be 'zbx_to_zusd' or 'zusd_to_zbx'")),
+    |
+
+error[E0283]: type annotations needed
+   --> src/rpc.rs:378:72
+    |
+378 |                     "direction must be 'zbx_to_zusd' or 'zusd_to_zbx'".into())),
+    |                                                                        ^^^^
+    |
+    = note: multiple `impl`s satisfying `_: std::convert::From<&str>` found in the following crates: `axum_core`, `bytes`, `hickory_proto`, `primitive_types`:
+            - impl std::convert::From<&'static str> for Body;
+            - impl std::convert::From<&'static str> for U128;
+            - impl std::convert::From<&'static str> for U256;
+            - impl std::convert::From<&'static str> for U512;
+            - impl std::convert::From<&'static str> for hickory_proto::error::DnsSecError;
+            - impl std::convert::From<&'static str> for hickory_proto::error::ProtoError;
+            - impl std::convert::From<&'static str> for libp2p::bytes::Bytes;
+    = note: required for `&str` to implement `Into<_>`
+help: try using a fully qualified path to specify the expected types
+    |
+378 -                     "direction must be 'zbx_to_zusd' or 'zusd_to_zbx'".into())),
+378 +                     <&str as Into<T>>::into("direction must be 'zbx_to_zusd' or 'zusd_to_zbx'"))),
+    |
+
+error[E0502]: cannot borrow `from.zusd` as immutable because it is also borrowed as mutable
+   --> src/state.rs:940:33
+    |
+938 |   ...                   return swap_refund(&mut from, format!(
+    |                                -           --------- mutable borrow occurs here
+    |  ______________________________|
+    | |
+939 | | ...                       "swap: insufficient zUSD: have {}, need {}",
+940 | | ...                       from.zusd, tx.body.amount));
+    | |___________________________^^^^^^^^^_________________- mutable borrow later used here
+    |                             |
+    |                             immutable borrow occurs here
+
+Some errors have detailed explanations: E0283, E0502.
+For more information about an error, try `rustc --explain E0283`.
+error: could not compile `zebvix-node` (lib) due to 3 previous errors
+bash: ./target/release/zbx: No such file or directory
+bash: ./target/release/zebvix-chain: No such file or directory
+[1] 3990341
+{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"method not found: zbx_chainId"}}{"jsonrpc":"2.0","id":2,"result":null}root@srv1266996:/home/zebvix-chain# 

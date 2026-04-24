@@ -375,7 +375,7 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 "zbx_to_zusd" => sim.swap_zbx_for_zusd(amount_in, height),
                 "zusd_to_zbx" => sim.swap_zusd_for_zbx(amount_in, height),
                 _ => return Json(err(id, -32602,
-                    "direction must be 'zbx_to_zusd' or 'zusd_to_zbx'".into())),
+                    "direction must be 'zbx_to_zusd' or 'zusd_to_zbx'")),
             };
             match res {
                 Ok(out) => {

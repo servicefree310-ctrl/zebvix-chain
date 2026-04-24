@@ -935,9 +935,15 @@ impl State {
                         // do NOT need to refund balance here — we only need to
                         // debit the zUSD principal.
                         if from.zusd < tx.body.amount {
+                            // Capture immutable read into a local before the
+                            // `&mut from` borrow inside swap_refund() — borrow
+                            // checker would otherwise reject reading from.zusd
+                            // while mutably borrowing `from`.
+                            let have = from.zusd;
+                            let need = tx.body.amount;
                             return swap_refund(&mut from, format!(
                                 "swap: insufficient zUSD: have {}, need {}",
-                                from.zusd, tx.body.amount));
+                                have, need));
                         }
                         from.zusd -= tx.body.amount;
                         match pool.swap_zusd_for_zbx(tx.body.amount, height) {
