@@ -43,7 +43,7 @@ class AppState extends ChangeNotifier {
   static const _kRelay = 'cfg.relay';
   static const _kBio = 'cfg.bio';
 
-  String rpcEndpoint = 'https://93.127.213.192:8545';
+  String rpcEndpoint = 'http://93.127.213.192:8545';
   String relayBase =
       'https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/api';
   bool biometricEnabled = false;
@@ -74,6 +74,12 @@ class AppState extends ChangeNotifier {
   Future<void> init() async {
     final p = await SharedPreferences.getInstance();
     rpcEndpoint = p.getString(_kRpc) ?? rpcEndpoint;
+    // auto-correct: an older build defaulted to https:// for the bare-IP RPC
+    // which this server doesn't actually speak. Force HTTP for the dev VPS.
+    if (rpcEndpoint == 'https://93.127.213.192:8545') {
+      rpcEndpoint = 'http://93.127.213.192:8545';
+      await p.setString(_kRpc, rpcEndpoint);
+    }
     relayBase = p.getString(_kRelay) ?? relayBase;
     biometricEnabled = p.getBool(_kBio) ?? false;
     rpc = ZbxRpc(rpcEndpoint);
