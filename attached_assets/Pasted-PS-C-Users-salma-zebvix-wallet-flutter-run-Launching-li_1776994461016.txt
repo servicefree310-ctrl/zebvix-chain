@@ -1,0 +1,48 @@
+PS C:\Users\salma\zebvix-wallet> flutter run
+Launching lib\main.dart on RMX3940 in debug mode...
+lib/state/app_state.dart:162:30: Error: Operator '[]' cannot be called on 'Map<String, dynamic>?' because it is potentially null.
+ - 'Map' is from 'dart:core'.
+        final ds = (stakedRes['delegations'] as List?) ?? [];
+                             ^
+lib/state/app_state.dart:170:35: Error: Operator '[]' cannot be called on 'Map<String, dynamic>?' because it is potentially null.
+ - 'Map' is from 'dart:core'.
+        final entries = (lockedRes['entries'] as List?) ?? [];
+                                  ^
+lib/state/app_state.dart:177:42: Error: Operator '[]' cannot be called on 'Map<String, dynamic>?' because it is potentially null.
+ - 'Map' is from 'dart:core'.
+      if (payRes is Map) payName = payRes['name']?.toString();
+                                         ^
+lib/services/wallet_service.dart:48:46: Error: The method 'KeyParameter' isn't defined for the type 'WalletService'.
+ - 'WalletService' is from 'package:zebvix_wallet/services/wallet_service.dart' ('lib/services/wallet_service.dart').
+Try correcting the name to the name of an existing method, or defining a method named 'KeyParameter'.
+    final h = HMac(SHA256Digest(), 64)..init(KeyParameter(_utf8('zbx-seed')));
+                                             ^^^^^^^^^^^^
+lib/services/wallet_service.dart:101:20: Error: The method 'PrivateKeyParameter' isn't defined for the type 'WalletService'.
+ - 'WalletService' is from 'package:zebvix_wallet/services/wallet_service.dart' ('lib/services/wallet_service.dart').
+Try correcting the name to the name of an existing method, or defining a method named 'PrivateKeyParameter'.
+      ..init(true, PrivateKeyParameter<ECPrivateKey>(pk));
+                   ^^^^^^^^^^^^^^^^^^^
+lib/services/wallet_service.dart:190:14: Error: The method 'KeyParameter' isn't defined for the type 'WalletService'.
+ - 'WalletService' is from 'package:zebvix_wallet/services/wallet_service.dart' ('lib/services/wallet_service.dart').
+Try correcting the name to the name of an existing method, or defining a method named 'KeyParameter'.
+    rng.seed(KeyParameter(seed));
+             ^^^^^^^^^^^^
+Target kernel_snapshot_program failed: Exception
+
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:compileFlutterBuildDebug'.
+> Process 'command 'C:\src\flutter\bin\flutter.bat'' finished with non-zero exit value 1
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 1m 55s
+Running Gradle task 'assembleDebug'...                            116.4s
+Error: Gradle task assembleDebug failed with exit code 1
+PS C:\Users\salma\zebvix-wallet> 
