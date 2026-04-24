@@ -31,7 +31,8 @@ import {
   Activity,
   Shield,
   AtSign,
-  Smartphone
+  Smartphone,
+  Cpu
 } from "lucide-react";
 import { useChecklist } from "@/hooks/useChecklist";
 import { Progress } from "@/components/ui/progress";
@@ -53,6 +54,7 @@ const CORE_NAV = [
 
 const LIVE_NAV = [
   { href: "/live-chain", label: "Live Chain Status", icon: Activity },
+  { href: "/evm-explorer", label: "EVM Explorer (C.2)", icon: Cpu },
   { href: "/balance-lookup", label: "Balance Lookup", icon: Wallet },
   { href: "/multisig-explorer", label: "Multisig Explorer", icon: Shield },
   { href: "/payid-resolver", label: "Pay-ID Resolver", icon: AtSign },

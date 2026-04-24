@@ -44,10 +44,43 @@ const ALLOWED_METHODS = new Set<string>([
   "zbx_swapQuote",
   "zbx_recentSwaps",
   "zbx_poolStats",
+  // ── Phase C.2 native EVM JSON-RPC (Cancun) ──────────────────────────
+  // Read-side
   "eth_chainId",
   "eth_blockNumber",
   "eth_getBalance",
   "eth_getTransactionCount",
+  "eth_getCode",
+  "eth_getStorageAt",
+  "eth_call",
+  "eth_estimateGas",
+  "eth_gasPrice",
+  "eth_maxPriorityFeePerGas",
+  "eth_feeHistory",
+  "eth_getBlockByHash",
+  "eth_getBlockByNumber",
+  "eth_getTransactionByHash",
+  "eth_getTransactionByBlockHashAndIndex",
+  "eth_getTransactionByBlockNumberAndIndex",
+  "eth_getTransactionReceipt",
+  "eth_getBlockTransactionCountByHash",
+  "eth_getBlockTransactionCountByNumber",
+  "eth_getLogs",
+  "eth_syncing",
+  "eth_accounts",
+  "eth_coinbase",
+  "eth_mining",
+  "eth_hashrate",
+  "eth_protocolVersion",
+  // Write-side (signed raw txs only — node still validates chain id, sig, gas, nonce)
+  "eth_sendRawTransaction",
+  // net_*
+  "net_version",
+  "net_listening",
+  "net_peerCount",
+  // web3_*
+  "web3_clientVersion",
+  "web3_sha3",
   "rpc_methods",
 ]);
 

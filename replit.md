@@ -581,3 +581,51 @@ systemctl restart zebvix-node
 Default builds (`cargo build --release` without `--features evm`) keep the
 exact pre-Phase-C behavior — zero-risk rollout for operators that want to
 delay EVM activation.
+
+### Dashboard FULL UPDATE — Mission Control + EVM Explorer (2026-04-24)
+User asked: "ab full advance dashboard do explore jaha per full chain
+sercive ho live kro full update dashboard". Shipped:
+
+1. **`pages/home.tsx` rewritten** as Mission Control:
+   - Hero with live block height, animated flash on new block, MAINNET
+     LIVE badge, chain_id 7878 badge, validator count, Phase C.2 badge.
+   - Roadmap status banner (B.10 Native Rust → C.3 Foundry, all LIVE
+     except C.3 = NEXT).
+   - 4 KPI tiles: Block Height, ZBX Price, Market Cap, FDV.
+   - 5 mini-KPI tiles: Validators, Multisigs, Pay-IDs, Native gas,
+     EVM gasPrice.
+   - Recent-blocks ribbon (last 8 blocks with tx count + age).
+   - 12-card Quick Access grid linking to every chain service.
+   - Chain Identity card (RPC URL, consensus, EVM status, VPS, service).
+   - MetaMask Connect card with one-click `wallet_addEthereumChain`
+     for chain 0x1ec6.
+   - Dev Integration tabs (ethers.js / Foundry / curl) with copy button.
+   - Auto-refresh 5s, parallel RPC fetch for primary + secondary stats.
+
+2. **`pages/evm-explorer.tsx` NEW** — Phase C.2 native eth_* playground:
+   - NetStatusGrid: 6 live cells (eth_chainId / eth_blockNumber /
+     eth_gasPrice / net_version / web3_clientVersion / eth_syncing),
+     auto-refresh 4s.
+   - eth_getBalance tool (raw hex + wei + ZBX rendering).
+   - eth_getTransactionCount + eth_getCode tool (EOA vs CONTRACT detect,
+     bytecode reveal toggle).
+   - eth_getBlockByNumber tool (latest/earliest/pending/numeric).
+   - eth_getTransactionByHash + eth_getTransactionReceipt side-by-side.
+   - Raw JSON-RPC dispatcher with 7 method presets.
+   - All numeric rendering uses `hexToBigInt` / `fmtBig` / `fmtZbx` /
+     `fmtTimestamp` safe parsers — survives null/""/"0x"/malformed input
+     without crashing the page (architect-flagged fix).
+
+3. **`api-server/routes/rpc.ts` whitelist expanded** from 5 to ~30
+   methods covering all read-side eth_*, net_*, web3_*, plus
+   eth_sendRawTransaction for write path.
+
+4. **Routing**: `/evm-explorer` registered in `App.tsx`, sidebar
+   `LIVE_NAV` got "EVM Explorer (C.2)" entry with Cpu icon.
+
+Architect review (2026-04-24) found one medium-severity bug —
+`BigInt("0x")` and `BigInt("")` throw, which would crash the EVM
+Explorer if RPC returned partial data. Fixed by routing every numeric
+render through the new safe-parser helpers in `evm-explorer.tsx`.
+Verified live: Mission Control showing block #1,815, EVM Explorer
+showing block #1,843 (chain advancing 5–7 blocks/min as expected).
