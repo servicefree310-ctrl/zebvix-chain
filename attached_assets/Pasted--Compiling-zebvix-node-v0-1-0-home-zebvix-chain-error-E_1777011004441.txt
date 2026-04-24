@@ -1,0 +1,305 @@
+  Compiling zebvix-node v0.1.0 (/home/zebvix-chain)
+error[E0308]: mismatched types
+   --> src/rpc.rs:354:34
+    |
+ 83 | async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<RpcResp> {
+    |                                                                            ------------- expected `Json<RpcResp>` because of return type
+...
+354 |                 Err(_) => return err(id, -32602, format!("invalid amount_in: '{}'", amt_str)),
+    |                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Json<RpcResp>`, found `RpcResp`
+    |
+    = note: expected struct `Json<RpcResp>`
+               found struct `RpcResp`
+help: try wrapping the expression in `axum::Json`
+    |
+354 |                 Err(_) => return axum::Json(err(id, -32602, format!("invalid amount_in: '{}'", amt_str))),
+    |                                  +++++++++++                                                            +
+
+error[E0277]: the trait bound `[u8; 33]: serde::Serialize` is not satisfied
+    --> src/staking.rs:140:9
+     |
+ 140 |         pubkey: [u8; 33],
+     |         ^^^^^^ the trait `Serialize` is not implemented for `[u8; 33]`
+     |
+     = note: for local types consider adding `#[derive(serde::Serialize)]` to your `[u8; 33]` type
+     = note: for types from other crates check whether the crate offers a `serde` feature flag
+     = help: the following other types implement trait `Serialize`:
+               [T; 0]
+               [T]
+               [T; 1]
+               [T; 2]
+               [T; 3]
+               [T; 4]
+               [T; 5]
+               [T; 6]
+             and 26 others
+note: required by a bound in `multisig::_::_serde::ser::SerializeStructVariant::serialize_field`
+    --> /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_core-1.0.228/src/ser/mod.rs:1987:21
+     |
+1985 |     fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
+     |        --------------- required by a bound in this associated function
+1986 |     where
+1987 |         T: ?Sized + Serialize;
+     |                     ^^^^^^^^^ required by this bound in `SerializeStructVariant::serialize_field`
+
+error[E0277]: the trait bound `[u8; 33]: serde::Deserialize<'de>` is not satisfied
+    --> src/staking.rs:140:17
+     |
+ 140 |         pubkey: [u8; 33],
+     |                 ^^^^^^^^ the trait `Deserialize<'_>` is not implemented for `[u8; 33]`
+     |
+     = note: for local types consider adding `#[derive(serde::Deserialize)]` to your `[u8; 33]` type
+     = note: for types from other crates check whether the crate offers a `serde` feature flag
+     = help: the following other types implement trait `Deserialize<'de>`:
+               &[u8]
+               [T; 0]
+               [T; 1]
+               [T; 2]
+               [T; 3]
+               [T; 4]
+               [T; 5]
+               [T; 6]
+             and 26 others
+note: required by a bound in `next_element`
+    --> /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_core-1.0.228/src/de/mod.rs:1771:12
+     |
+1769 |     fn next_element<T>(&mut self) -> Result<Option<T>, Self::Error>
+     |        ------------ required by a bound in this associated function
+1770 |     where
+1771 |         T: Deserialize<'de>,
+     |            ^^^^^^^^^^^^^^^^ required by this bound in `SeqAccess::next_element`
+
+error[E0277]: the trait bound `[u8; 33]: serde::Deserialize<'de>` is not satisfied
+    --> src/staking.rs:140:17
+     |
+ 140 |         pubkey: [u8; 33],
+     |                 ^^^^^^^^ the trait `Deserialize<'_>` is not implemented for `[u8; 33]`
+     |
+     = note: for local types consider adding `#[derive(serde::Deserialize)]` to your `[u8; 33]` type
+     = note: for types from other crates check whether the crate offers a `serde` feature flag
+     = help: the following other types implement trait `Deserialize<'de>`:
+               &[u8]
+               [T; 0]
+               [T; 1]
+               [T; 2]
+               [T; 3]
+               [T; 4]
+               [T; 5]
+               [T; 6]
+             and 26 others
+note: required by a bound in `next_value`
+    --> /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_core-1.0.228/src/de/mod.rs:1916:12
+     |
+1914 |     fn next_value<V>(&mut self) -> Result<V, Self::Error>
+     |        ---------- required by a bound in this associated function
+1915 |     where
+1916 |         V: Deserialize<'de>,
+     |            ^^^^^^^^^^^^^^^^ required by this bound in `MapAccess::next_value`
+
+error[E0277]: the trait bound `[u8; 33]: serde::Deserialize<'de>` is not satisfied
+   --> src/staking.rs:137:50
+    |
+137 | #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    |                                                  ^^^^^^^^^^^ the trait `Deserialize<'_>` is not implemented for `[u8; 33]`
+    |
+    = note: for local types consider adding `#[derive(serde::Deserialize)]` to your `[u8; 33]` type
+    = note: for types from other crates check whether the crate offers a `serde` feature flag
+    = help: the following other types implement trait `Deserialize<'de>`:
+              &[u8]
+              [T; 0]
+              [T; 1]
+              [T; 2]
+              [T; 3]
+              [T; 4]
+              [T; 5]
+              [T; 6]
+            and 26 others
+note: required by a bound in `multisig::_::_serde::__private228::de::missing_field`
+   --> /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:26:8
+    |
+ 24 | pub fn missing_field<'de, V, E>(field: &'static str) -> Result<V, E>
+    |        ------------- required by a bound in this function
+ 25 | where
+ 26 |     V: Deserialize<'de>,
+    |        ^^^^^^^^^^^^^^^^ required by this bound in `missing_field`
+    = note: this error originates in the derive macro `Deserialize` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `[u8; 33]: Default` is not satisfied
+   --> src/staking.rs:178:5
+    |
+174 | #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+    |                        ------- in this derive macro expansion
+...
+178 |     pub pubkey: [u8; 33],
+    |     ^^^^^^^^^^^^^^^^^^^^ the trait `Default` is not implemented for `[u8; 33]`
+    |
+    = help: the following other types implement trait `Default`:
+              &[T]
+              &mut [T]
+              [T; 0]
+              [T; 1]
+              [T; 2]
+              [T; 3]
+              [T; 4]
+              [T; 5]
+            and 27 others
+
+error[E0277]: the trait bound `[u8; 33]: serde::Serialize` is not satisfied
+    --> src/transaction.rs:53:20
+     |
+  53 |     ValidatorAdd { pubkey: [u8; 33], power: u64 },
+     |                    ^^^^^^ the trait `Serialize` is not implemented for `[u8; 33]`
+     |
+     = note: for local types consider adding `#[derive(serde::Serialize)]` to your `[u8; 33]` type
+     = note: for types from other crates check whether the crate offers a `serde` feature flag
+     = help: the following other types implement trait `Serialize`:
+               [T; 0]
+               [T]
+               [T; 1]
+               [T; 2]
+               [T; 3]
+               [T; 4]
+               [T; 5]
+               [T; 6]
+             and 26 others
+note: required by a bound in `multisig::_::_serde::ser::SerializeStructVariant::serialize_field`
+    --> /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_core-1.0.228/src/ser/mod.rs:1987:21
+     |
+1985 |     fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
+     |        --------------- required by a bound in this associated function
+1986 |     where
+1987 |         T: ?Sized + Serialize;
+     |                     ^^^^^^^^^ required by this bound in `SerializeStructVariant::serialize_field`
+
+error[E0277]: the trait bound `[u8; 33]: serde::Deserialize<'de>` is not satisfied
+    --> src/transaction.rs:53:28
+     |
+  53 |     ValidatorAdd { pubkey: [u8; 33], power: u64 },
+     |                            ^^^^^^^^ the trait `Deserialize<'_>` is not implemented for `[u8; 33]`
+     |
+     = note: for local types consider adding `#[derive(serde::Deserialize)]` to your `[u8; 33]` type
+     = note: for types from other crates check whether the crate offers a `serde` feature flag
+     = help: the following other types implement trait `Deserialize<'de>`:
+               &[u8]
+               [T; 0]
+               [T; 1]
+               [T; 2]
+               [T; 3]
+               [T; 4]
+               [T; 5]
+               [T; 6]
+             and 26 others
+note: required by a bound in `next_element`
+    --> /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_core-1.0.228/src/de/mod.rs:1771:12
+     |
+1769 |     fn next_element<T>(&mut self) -> Result<Option<T>, Self::Error>
+     |        ------------ required by a bound in this associated function
+1770 |     where
+1771 |         T: Deserialize<'de>,
+     |            ^^^^^^^^^^^^^^^^ required by this bound in `SeqAccess::next_element`
+
+error[E0277]: the trait bound `[u8; 33]: serde::Deserialize<'de>` is not satisfied
+    --> src/transaction.rs:53:28
+     |
+  53 |     ValidatorAdd { pubkey: [u8; 33], power: u64 },
+     |                            ^^^^^^^^ the trait `Deserialize<'_>` is not implemented for `[u8; 33]`
+     |
+     = note: for local types consider adding `#[derive(serde::Deserialize)]` to your `[u8; 33]` type
+     = note: for types from other crates check whether the crate offers a `serde` feature flag
+     = help: the following other types implement trait `Deserialize<'de>`:
+               &[u8]
+               [T; 0]
+               [T; 1]
+               [T; 2]
+               [T; 3]
+               [T; 4]
+               [T; 5]
+               [T; 6]
+             and 26 others
+note: required by a bound in `next_value`
+    --> /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_core-1.0.228/src/de/mod.rs:1916:12
+     |
+1914 |     fn next_value<V>(&mut self) -> Result<V, Self::Error>
+     |        ---------- required by a bound in this associated function
+1915 |     where
+1916 |         V: Deserialize<'de>,
+     |            ^^^^^^^^^^^^^^^^ required by this bound in `MapAccess::next_value`
+
+error[E0277]: the trait bound `[u8; 33]: serde::Deserialize<'de>` is not satisfied
+  --> src/transaction.rs:49:59
+   |
+49 | #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+   |                                                           ^^^^^^^^^^^ the trait `Deserialize<'_>` is not implemented for `[u8; 33]`
+   |
+   = note: for local types consider adding `#[derive(serde::Deserialize)]` to your `[u8; 33]` type
+   = note: for types from other crates check whether the crate offers a `serde` feature flag
+   = help: the following other types implement trait `Deserialize<'de>`:
+             &[u8]
+             [T; 0]
+             [T; 1]
+             [T; 2]
+             [T; 3]
+             [T; 4]
+             [T; 5]
+             [T; 6]
+           and 26 others
+note: required by a bound in `multisig::_::_serde::__private228::de::missing_field`
+  --> /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:26:8
+   |
+24 | pub fn missing_field<'de, V, E>(field: &'static str) -> Result<V, E>
+   |        ------------- required by a bound in this function
+25 | where
+26 |     V: Deserialize<'de>,
+   |        ^^^^^^^^^^^^^^^^ required by this bound in `missing_field`
+   = note: this error originates in the derive macro `Deserialize` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused import: `k256::elliptic_curve::sec1::ToEncodedPoint`
+  --> src/crypto.rs:38:5
+   |
+38 | use k256::elliptic_curve::sec1::ToEncodedPoint;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+error[E0004]: non-exhaustive patterns: `&TxKind::Swap { .. }` not covered
+  --> src/mempool.rs:67:34
+   |
+67 |             let kind_idx = match &t.body.kind {
+   |                                  ^^^^^^^^^^^^ pattern `&TxKind::Swap { .. }` not covered
+   |
+note: `TxKind` defined here
+  --> src/transaction.rs:50:10
+   |
+50 | pub enum TxKind {
+   |          ^^^^^^
+...
+92 |     Swap {
+   |     ---- not covered
+   = note: the matched value is of type `&TxKind`
+help: ensure that all possible cases are being handled by adding a match arm with a wildcard pattern or an explicit pattern as shown
+   |
+75 ~                 crate::types::TxKind::Multisig(_)          => 7,
+76 ~                 &TxKind::Swap { .. } => todo!(),
+   |
+
+error[E0502]: cannot borrow `from.zusd` as immutable because it is also borrowed as mutable
+   --> src/state.rs:940:33
+    |
+938 |   ...                   return swap_refund(&mut from, format!(
+    |                                -           --------- mutable borrow occurs here
+    |  ______________________________|
+    | |
+939 | | ...                       "swap: insufficient zUSD: have {}, need {}",
+940 | | ...                       from.zusd, tx.body.amount));
+    | |___________________________^^^^^^^^^_________________- mutable borrow later used here
+    |                             |
+    |                             immutable borrow occurs here
+
+Some errors have detailed explanations: E0004, E0277, E0308, E0502.
+For more information about an error, try `rustc --explain E0004`.
+warning: `zebvix-node` (lib) generated 1 warning
+error: could not compile `zebvix-node` (lib) due to 12 previous errors; 1 warning emitted
+bash: ./target/release/zbx: No such file or directory
+bash: ./target/release/zebvix-chain: No such file or directory
+[1] 3981195
+{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"method not found: zbx_chainId"}}{"jsonrpc":"2.0","id":2,"result":null}root@srv1266996:/home/zebvix-chain# 

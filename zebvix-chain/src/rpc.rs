@@ -351,17 +351,17 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 .unwrap_or_default();
             let amount_in: u128 = match amt_str.parse() {
                 Ok(n) => n,
-                Err(_) => return err(id, -32602, format!("invalid amount_in: '{}'", amt_str)),
+                Err(_) => return Json(err(id, -32602, format!("invalid amount_in: '{}'", amt_str))),
             };
             let p = ctx.state.pool();
             if !p.is_initialized() {
-                return ok(id, json!({
+                return Json(ok(id, json!({
                     "would_succeed": false,
                     "reason": "pool not initialized",
                     "expected_out": "0",
                     "fee_in": "0",
                     "price_impact_bps": 0,
-                }));
+                })));
             }
             // Mutate a CLONE so we don't touch real state.
             let mut sim = p.clone();
@@ -374,8 +374,8 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
             let res = match dir_str {
                 "zbx_to_zusd" => sim.swap_zbx_for_zusd(amount_in, height),
                 "zusd_to_zbx" => sim.swap_zusd_for_zbx(amount_in, height),
-                _ => return err(id, -32602,
-                    "direction must be 'zbx_to_zusd' or 'zusd_to_zbx'".into()),
+                _ => return Json(err(id, -32602,
+                    "direction must be 'zbx_to_zusd' or 'zusd_to_zbx'".into())),
             };
             match res {
                 Ok(out) => {

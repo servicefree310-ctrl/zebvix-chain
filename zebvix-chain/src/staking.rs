@@ -137,6 +137,7 @@ pub enum StakingError {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StakeOp {
     CreateValidator {
+        #[serde(with = "crate::types::hex_array_33")]
         pubkey: [u8; 33],
         commission_bps: u64,
         self_bond: u128,
@@ -171,7 +172,7 @@ pub enum StakeOp {
 
 // ─────────────────────────── Data model ─────────────────────────
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ValidatorState {
     pub address: Address,
     #[serde(with = "crate::types::hex_array_33")]
@@ -192,6 +193,25 @@ pub struct ValidatorState {
     pub jailed_until: u64,
     /// Epoch in which the last commission edit occurred (rate-limit anchor).
     pub last_commission_edit_epoch: u64,
+}
+
+// Phase B.11 — `[u8; 33]` does not implement `Default` (serde / std stop at
+// 32-byte arrays), so we hand-roll one with an all-zero pubkey placeholder.
+impl Default for ValidatorState {
+    fn default() -> Self {
+        Self {
+            address: Address::default(),
+            pubkey: [0u8; 33],
+            operator: Address::default(),
+            total_stake: 0,
+            total_shares: 0,
+            commission_bps: 0,
+            commission_pool: 0,
+            jailed: false,
+            jailed_until: 0,
+            last_commission_edit_epoch: 0,
+        }
+    }
 }
 
 impl ValidatorState {

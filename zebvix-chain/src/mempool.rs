@@ -73,6 +73,7 @@ impl Mempool {
                 crate::types::TxKind::Staking(_)           => 5,
                 crate::types::TxKind::RegisterPayId { .. } => 6,
                 crate::types::TxKind::Multisig(_)          => 7,
+                crate::types::TxKind::Swap { .. }          => 8,
             };
             (*h, t.body.from, t.body.to, t.body.amount, t.body.fee, t.body.nonce, kind_idx)
         }).collect();

@@ -50,7 +50,11 @@ use serde_big_array::BigArray;
 pub enum TxKind {
     #[default]
     Transfer,
-    ValidatorAdd { pubkey: [u8; 33], power: u64 },
+    ValidatorAdd {
+        #[serde(with = "crate::types::hex_array_33")]
+        pubkey: [u8; 33],
+        power: u64,
+    },
     ValidatorRemove { address: Address },
     /// Phase B.3.2 — change an existing validator's voting power **without**
     /// remove+add (which would briefly drop total power below quorum and risk
