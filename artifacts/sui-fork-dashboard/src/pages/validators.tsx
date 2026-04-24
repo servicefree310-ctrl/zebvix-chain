@@ -798,7 +798,7 @@ curl -s -X POST https://rpc.zebvix.io \\
               <code className="text-emerald-300 font-mono">
                 {staking
                   ? `${weiHexToZbx(staking.min_self_bond_wei)} ZBX (or $${(staking.min_self_bond_usd_micro / 1_000_000).toFixed(0)} USD floor)`
-                  : "1,000 ZBX or $50 USD floor"}
+                  : "100 ZBX or $50 USD floor"}
               </code>
             </div>
             <div className="flex justify-between">

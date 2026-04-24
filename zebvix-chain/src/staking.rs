@@ -45,7 +45,7 @@ pub const MAX_ACTIVE_VALIDATORS: usize = 100;
 
 /// Fallback minimum self-bond in ZBX wei when the AMM pool is uninitialized
 /// (no spot price available). Used as the floor for tests and pre-pool bootstrap.
-pub const MIN_SELF_BOND_WEI: u128 = 1_000u128 * 1_000_000_000_000_000_000u128;
+pub const MIN_SELF_BOND_WEI: u128 = 100u128 * 1_000_000_000_000_000_000u128;
 
 /// Target USD value of the minimum self-bond, in micro-USD ($50 = 50_000_000).
 /// Once the pool is initialized, the actual on-chain minimum is derived
@@ -75,8 +75,9 @@ pub fn dynamic_min_self_bond_wei(spot_price_q18: u128) -> u128 {
     if result.bits() > 128 { u128::MAX } else { result.as_u128() }
 }
 
-/// Minimum delegation amount (1 ZBX). Prevents share-precision dust.
-pub const MIN_DELEGATION_WEI: u128 = 1_000_000_000_000_000_000u128;
+/// Minimum delegation amount (10 ZBX). Prevents share-precision dust and
+/// keeps the delegator UX honest (no tiny dust positions).
+pub const MIN_DELEGATION_WEI: u128 = 10u128 * 1_000_000_000_000_000_000u128;
 
 /// Commission rate is stored in basis points (1 bp = 0.01 %). Range 0..=10_000.
 pub const COMMISSION_BPS_DEN: u64 = 10_000;
@@ -382,6 +383,19 @@ impl StakingModule {
         if amount < MIN_DELEGATION_WEI {
             return Err(StakingError::AmountTooSmall);
         }
+        self.deposit_unchecked(delegator, validator, amount)
+    }
+
+    /// Internal: deposit `amount` of bond into `validator` for `delegator` without
+    /// enforcing `MIN_DELEGATION_WEI`. Used by `stake()` (after the min check) and by
+    /// `redelegate()` (bypasses min so existing pre-existing legacy small positions
+    /// can still be moved between validators without inflation).
+    fn deposit_unchecked(
+        &mut self,
+        delegator: Address,
+        validator: Address,
+        amount: u128,
+    ) -> Result<u128, StakingError> {
         let v = self
             .validators
             .get_mut(&validator)
@@ -463,8 +477,13 @@ impl StakingModule {
             }
             amt
         };
-        // Deposit into destination.
-        self.stake(delegator, to, amount.max(MIN_DELEGATION_WEI))?;
+        // Deposit into destination. We bypass the MIN_DELEGATION_WEI check on
+        // purpose: the funds are already bonded (validated when the original
+        // delegation was created), so moving them between validators must not
+        // be blocked by — and must not inflate to — the current minimum.
+        // CRITICAL: never `amount.max(MIN)` here; that mints free stake when
+        // legacy delegations are redelegated after the minimum is raised.
+        self.deposit_unchecked(delegator, to, amount)?;
         Ok(amount)
     }
 
@@ -1090,6 +1109,36 @@ mod tests {
         s.stake(d, v1, MIN_DELEGATION_WEI * 50).unwrap();
         let shares = *s.delegations.get(&(d, v1)).unwrap();
         s.redelegate(d, v1, v2, shares).unwrap();
+        assert!(s.delegations.get(&(d, v1)).is_none());
+        assert!(s.delegations.get(&(d, v2)).copied().unwrap_or(0) > 0);
+    }
+
+    /// Regression: redelegating a sub-`MIN_DELEGATION_WEI` legacy position must
+    /// move the exact `amount` (no inflation). Earlier code did
+    /// `stake(.., amount.max(MIN))` which minted free stake when MIN was raised
+    /// above existing positions.
+    #[test]
+    fn redelegate_legacy_small_position_does_not_inflate() {
+        let mut s = StakingModule::new();
+        let op1 = addr(1);
+        let op2 = addr(2);
+        let v1 = make_validator(&mut s, op1, 16, MIN_SELF_BOND_WEI);
+        let v2 = make_validator(&mut s, op2, 17, MIN_SELF_BOND_WEI);
+        let d = addr(9);
+        // Inject a legacy small delegation (1 wei) directly, simulating a
+        // pre-existing position that predates today's MIN_DELEGATION_WEI.
+        let legacy_amount: u128 = 1;
+        s.deposit_unchecked(d, v1, legacy_amount).unwrap();
+        let shares = *s.delegations.get(&(d, v1)).unwrap();
+        let before_total =
+            s.validators.get(&v1).unwrap().total_stake + s.validators.get(&v2).unwrap().total_stake;
+        s.redelegate(d, v1, v2, shares).unwrap();
+        let after_total =
+            s.validators.get(&v1).unwrap().total_stake + s.validators.get(&v2).unwrap().total_stake;
+        assert_eq!(
+            before_total, after_total,
+            "redelegate must not change total bonded stake"
+        );
         assert!(s.delegations.get(&(d, v1)).is_none());
         assert!(s.delegations.get(&(d, v2)).copied().unwrap_or(0) > 0);
     }
