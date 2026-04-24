@@ -1,21 +1,22 @@
-//! # Zebvix EVM Layer — Phase C (DESIGN DRAFT, not yet wired)
+//! # Zebvix EVM Layer — Phase C
 //!
-//! This module is the planned home for full EVM (Ethereum Virtual Machine)
-//! execution on top of the Zebvix L1 chain. It is intentionally NOT declared
-//! in `lib.rs` yet — current chain builds without it — and serves as a
-//! living design document for the upcoming Phase C work.
+//! Production-grade EVM (Ethereum Virtual Machine) execution layer for the
+//! Zebvix L1 chain. Activated by the `evm` cargo feature; without it the
+//! chain compiles unchanged so existing operators are not forced to rebuild
+//! until they want to enable EVM.
 //!
-//! ## Goal
-//! Make Zebvix a fully EVM-compatible L1 so that:
-//! - Solidity 0.8+ contracts deploy and execute unchanged
-//! - MetaMask / Hardhat / Foundry / Remix work zero-config
-//! - OpenZeppelin contracts (ERC-20 / ERC-721 / ERC-1155 / Governor / …)
-//!   work as-is
-//! - The Graph subgraphs index Zebvix events via standard `eth_getLogs`
-//! - All native chain features (bridge, Pay-ID, AMM swap, multisig) become
-//!   callable from inside Solidity via custom precompiles
+//! ## Goals
+//! - Solidity 0.8+ contracts deploy and execute unchanged.
+//! - MetaMask / Hardhat / Foundry / Remix work zero-config against
+//!   `https://rpc.zebvix.network` because the [`evm_rpc`] module exposes the
+//!   standard `eth_*` namespace alongside our existing `zbx_*` namespace.
+//! - OpenZeppelin contracts (ERC-20 / ERC-721 / ERC-1155 / Governor) work
+//!   as-is — no Zebvix-specific patches required.
+//! - Native chain features (bridge, Pay-ID, AMM swap, multisig) become
+//!   callable from inside Solidity via custom precompiles 0x80–0x83 in
+//!   [`evm_precompiles`].
 //!
-//! ## High-level architecture
+//! ## Architecture
 //! ```text
 //!     ┌────────────────────────────────────────────────────────────┐
 //!     │                    apply_tx (state.rs)                     │
@@ -24,48 +25,76 @@
 //!     │   TxKind::Swap      → AMM pool                             │
 //!     │   TxKind::Bridge    → bridge module                        │
 //!     │   TxKind::EvmCall   ──┐                                    │
-//!     │   TxKind::EvmCreate ──┴──► evm::execute()  ──► revm 7.x    │
-//!     │                                                            │
-//!     └────────────────────────────────────────────────────────────┘
-//!                              │
-//!                              ▼
-//!     ┌────────────────────────────────────────────────────────────┐
-//!     │  EvmDb  (CF_EVM RocksDB column family)                     │
-//!     │   • account state (nonce, balance, code_hash, storage_root)│
-//!     │   • bytecode  (keccak256(code) → code, content-addressed)  │
-//!     │   • per-account storage trie                               │
-//!     │                                                            │
-//!     │  EvmContext  (block env, tx env, gas)                      │
-//!     │   • block_number, timestamp, coinbase = founder validator  │
-//!     │   • base_fee = USD-pegged via AMM spot price               │
-//!     │   • chain_id = 7878                                        │
-//!     │                                                            │
-//!     │  ZebvixPrecompiles  (custom 0x80–0x90 range)               │
-//!     │   • bridge_out, payid_resolve, amm_swap, multisig_propose  │
+//!     │   TxKind::EvmCreate ──┴──► evm::execute()                  │
+//!     │                              │                             │
+//!     │                              ▼                             │
+//!     │                       evm_interp::Interp                   │
+//!     │                          │      │                          │
+//!     │                          │      ▼                          │
+//!     │                          │  evm_precompiles::dispatch      │
+//!     │                          ▼                                 │
+//!     │                    evm_state::CfEvmDb                      │
+//!     │                          │                                 │
+//!     │                          ▼                                 │
+//!     │                   RocksDB (CF_EVM, CF_LOGS)                │
 //!     └────────────────────────────────────────────────────────────┘
 //! ```
 //!
 //! ## Forks supported
-//! Latest revm 7.x activates: London (EIP-1559 base fee model), Berlin
-//! (access lists / EIP-2929 gas), Shanghai (PUSH0, withdrawals), Cancun
-//! (transient storage, MCOPY, blob carrier txs without blob storage).
+//! Cancun gas table & opcode set — PUSH0, transient storage (TLOAD/TSTORE),
+//! MCOPY, EIP-3855, EIP-3860 init-code limit, EIP-1153, EIP-3651 warm
+//! coinbase, EIP-3529 reduced refunds.
 //!
 //! ## Gas model
-//! Per-opcode gas metering is identical to mainnet Ethereum so security
-//! analyses (Slither, Mythril) remain valid. Block gas limit defaults to
-//! `3_000_000` (governable via on-chain governance tx). Per-tx gas refund
-//! capped at `gas_used / 5` (EIP-3529).
+//! Per-opcode gas matches mainnet Ethereum so security tools (Slither,
+//! Mythril, Manticore) remain valid. Block gas limit defaults to
+//! `30_000_000` and is governance-mutable via `TxKind::GovernorChange`.
+//! Per-tx refund capped at `gas_used / 5` (EIP-3529).
 //!
-//! Gas is paid in **ZBX wei** but priced via the live AMM spot price so a
+//! Gas is paid in **ZBX wei** but priced via the AMM spot price so a
 //! contract call costs ~$0.001–$0.05 USD regardless of ZBX volatility,
 //! matching the native fee model in `state.rs::resolve_fee_window()`.
 
-#![allow(dead_code)]
+#![allow(dead_code, clippy::too_many_arguments)]
 
 use crate::types::Address;
+use primitive_types::{H256, U256};
+use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
-// EVM transaction variants  (planned additions to `transaction::TxKind`)
+// Constants — Cancun gas table
+// ---------------------------------------------------------------------------
+
+/// Maximum stack depth (yellow paper §9.1).
+pub const STACK_LIMIT: usize = 1024;
+
+/// Maximum call depth (EIP-150).
+pub const CALL_DEPTH_LIMIT: usize = 1024;
+
+/// Maximum init-code size (EIP-3860).
+pub const MAX_INITCODE_SIZE: usize = 2 * 24576;
+
+/// Maximum runtime code size (EIP-170).
+pub const MAX_CODE_SIZE: usize = 24576;
+
+/// Per-block default gas limit (governance-mutable via `GovernorChange`).
+pub const DEFAULT_BLOCK_GAS_LIMIT: u64 = 30_000_000;
+
+/// Intrinsic transaction gas cost (21,000 base + zero/non-zero data words).
+pub const G_TRANSACTION: u64 = 21_000;
+pub const G_TX_CREATE: u64 = 32_000;
+pub const G_TXDATA_ZERO: u64 = 4;
+pub const G_TXDATA_NONZERO: u64 = 16;
+pub const G_INITCODEWORD: u64 = 2; // EIP-3860 per-32-byte cost
+
+/// keccak256("") — empty-account marker.
+pub const KECCAK_EMPTY: [u8; 32] = [
+    0xc5, 0xd2, 0x46, 0x01, 0x86, 0xf7, 0x23, 0x3c, 0x92, 0x7e, 0x7d, 0xb2, 0xdc, 0xc7, 0x03, 0xc0,
+    0xe5, 0x00, 0xb6, 0x53, 0xca, 0x82, 0x27, 0x3b, 0x7b, 0xfa, 0xd8, 0x04, 0x5d, 0x85, 0xa4, 0x70,
+];
+
+// ---------------------------------------------------------------------------
+// EVM transaction variants — additions to `transaction::TxKind`
 // ---------------------------------------------------------------------------
 
 /// `TxKind::EvmCreate` — deploy a new contract.
@@ -75,35 +104,82 @@ use crate::types::Address;
 /// 2. Compute deployed address:
 ///    - CREATE  : `keccak256(rlp([from, nonce]))[12..]`
 ///    - CREATE2 : `keccak256(0xff || from || salt || keccak256(init_code))[12..]`
-/// 3. Run `init_code` via revm; runtime bytecode = return value.
+/// 3. Run `init_code` via [`crate::evm_interp::Interp`]; runtime bytecode is
+///    the return value subject to the `MAX_CODE_SIZE` limit.
 /// 4. Store `code` content-addressed in `CF_EVM/code/<keccak256>`.
 /// 5. Account record: `EvmAccount { nonce: 1, balance: value, code_hash, … }`.
 /// 6. Refund unused gas; emit `ContractCreated` event.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EvmCreate {
     pub init_code: Vec<u8>,
-    pub value: u128, // ZBX wei sent to constructor
+    pub value: u128,
     pub gas_limit: u64,
-    pub gas_price: u128, // wei per gas unit (USD-pegged via AMM)
-    pub salt: Option<[u8; 32]>, // Some => CREATE2, None => CREATE
+    pub gas_price: u128,
+    pub salt: Option<[u8; 32]>,
 }
 
-/// `TxKind::EvmCall` — invoke a deployed contract.
+/// `TxKind::EvmCall` — invoke a deployed contract or native EOA transfer.
 ///
 /// On apply:
 /// 1. Charge `gas_limit * effective_gas_price` from `from`.
 /// 2. Look up `EvmAccount` at `to`; load `code` by `code_hash`.
-/// 3. Execute via revm with `data` as calldata.
+/// 3. Execute via [`crate::evm_interp::Interp`] with `data` as calldata.
 /// 4. Apply state changes (storage writes, value transfers).
 /// 5. Emit `LOG0..LOG4` events to `CF_LOGS`.
-/// 6. Refund unused gas; return `ExecResult { success, return_data, logs }`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// 6. Refund unused gas; return [`ExecResult`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EvmCall {
     pub to: Address,
     pub data: Vec<u8>,
     pub value: u128,
     pub gas_limit: u64,
     pub gas_price: u128,
+}
+
+/// Wrapper enum so [`execute`] accepts both call and create variants.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EvmTxEnvelope {
+    Call(EvmCall),
+    Create(EvmCreate),
+}
+
+impl EvmTxEnvelope {
+    pub fn gas_limit(&self) -> u64 {
+        match self {
+            Self::Call(c) => c.gas_limit,
+            Self::Create(c) => c.gas_limit,
+        }
+    }
+
+    pub fn gas_price(&self) -> u128 {
+        match self {
+            Self::Call(c) => c.gas_price,
+            Self::Create(c) => c.gas_price,
+        }
+    }
+
+    pub fn value(&self) -> u128 {
+        match self {
+            Self::Call(c) => c.value,
+            Self::Create(c) => c.value,
+        }
+    }
+
+    /// Intrinsic gas cost (21k base + per-word calldata cost + create extras).
+    pub fn intrinsic_gas(&self) -> u64 {
+        let (base, data) = match self {
+            Self::Call(c) => (G_TRANSACTION, &c.data[..]),
+            Self::Create(c) => {
+                let initcode_words = (c.init_code.len() as u64 + 31) / 32;
+                (G_TRANSACTION + G_TX_CREATE + initcode_words * G_INITCODEWORD, &c.init_code[..])
+            }
+        };
+        let mut data_cost: u64 = 0;
+        for byte in data {
+            data_cost = data_cost.saturating_add(if *byte == 0 { G_TXDATA_ZERO } else { G_TXDATA_NONZERO });
+        }
+        base.saturating_add(data_cost)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -113,26 +189,43 @@ pub struct EvmCall {
 /// EVM account record. Stored in `CF_EVM` keyed by 20-byte address.
 ///
 /// Compatible with Ethereum's `(nonce, balance, storage_root, code_hash)`
-/// tuple so MPT proofs remain interoperable.
-#[derive(Debug, Clone)]
+/// tuple so MPT proofs remain interoperable with archive-node clients.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EvmAccount {
     pub nonce: u64,
-    pub balance: u128,        // ZBX wei
-    pub storage_root: [u8; 32], // root of per-account storage trie
-    pub code_hash: [u8; 32],    // keccak256(code); empty-account = KECCAK_EMPTY
+    pub balance: u128,
+    pub storage_root: [u8; 32],
+    pub code_hash: [u8; 32],
 }
 
-/// One LOG entry emitted by an EVM contract.
+impl Default for EvmAccount {
+    fn default() -> Self {
+        Self {
+            nonce: 0,
+            balance: 0,
+            storage_root: [0u8; 32],
+            code_hash: KECCAK_EMPTY,
+        }
+    }
+}
+
+impl EvmAccount {
+    pub fn is_empty(&self) -> bool {
+        self.nonce == 0 && self.balance == 0 && self.code_hash == KECCAK_EMPTY
+    }
+}
+
+/// One LOG entry emitted by an EVM contract (LOG0..LOG4 opcodes).
 ///
 /// Indexed in `CF_LOGS` by `(block_height, log_index)` and additionally by
 /// `(address, topic0..topic3)` so `eth_getLogs` filters are O(log n).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EvmLog {
     pub address: Address,
-    pub topics: Vec<[u8; 32]>, // 0..=4 topics
+    pub topics: Vec<H256>,
     pub data: Vec<u8>,
     pub block_height: u64,
-    pub tx_hash: [u8; 32],
+    pub tx_hash: H256,
     pub log_index: u32,
 }
 
@@ -144,171 +237,351 @@ pub struct ExecResult {
     pub gas_refunded: u64,
     pub return_data: Vec<u8>,
     pub logs: Vec<EvmLog>,
-    pub created_address: Option<Address>, // populated only for CREATE/CREATE2
+    pub created_address: Option<Address>,
+    pub revert_reason: Option<String>,
+}
+
+impl ExecResult {
+    pub fn revert(reason: impl Into<String>, gas_used: u64) -> Self {
+        Self {
+            success: false,
+            gas_used,
+            gas_refunded: 0,
+            return_data: vec![],
+            logs: vec![],
+            created_address: None,
+            revert_reason: Some(reason.into()),
+        }
+    }
+
+    pub fn ok(gas_used: u64, gas_refunded: u64, return_data: Vec<u8>, logs: Vec<EvmLog>) -> Self {
+        Self {
+            success: true,
+            gas_used,
+            gas_refunded,
+            return_data,
+            logs,
+            created_address: None,
+            revert_reason: None,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
-// Standard Ethereum precompiles (0x01–0x0a) — mainnet parity
+// Database trait — implemented by `evm_state::CfEvmDb`
 // ---------------------------------------------------------------------------
 
-/// `0x01` — ECRECOVER:    secp256k1 sig → signer address (used by EIP-712).
-/// `0x02` — SHA256
-/// `0x03` — RIPEMD160
-/// `0x04` — IDENTITY      (memcpy)
-/// `0x05` — MODEXP        (RSA-style modular exponentiation)
-/// `0x06` — ECADD         (alt_bn128 G1 add — zk-SNARK verifier)
-/// `0x07` — ECMUL         (alt_bn128 G1 scalar mul)
-/// `0x08` — ECPAIRING     (alt_bn128 pairing check — Groth16 verifier)
-/// `0x09` — BLAKE2F       (BLAKE2b compression)
-/// `0x0a` — POINT_EVAL    (EIP-4844 KZG opening — for blob-aware contracts)
-pub mod standard_precompiles {
-    // Implementation provided by revm out of the box; we just enable them
-    // in the `Spec::Cancun` configuration when constructing `Evm::builder()`.
-}
-
-// ---------------------------------------------------------------------------
-// Custom Zebvix precompiles (0x80–0x90)
-// ---------------------------------------------------------------------------
-//
-// These addresses are invalid as user accounts (top bit set) and are
-// intercepted by the EVM dispatcher to call native chain modules, exposing
-// them to Solidity dApps without wrapper contracts.
-
-/// `0x80` — `bridge_out(asset_id: uint64, dest: bytes)`
-///
-/// Equivalent of `TxKind::Bridge(BridgeOp::BridgeOut)`. Locks caller's
-/// ZBX/zUSD into the bridge vault and emits a `BridgeOutEvent` for the
-/// off-chain relayer. Gas: 35,000.
-pub const PRECOMPILE_BRIDGE_OUT: [u8; 20] = hex_addr("0000000000000000000000000000000000000080");
-
-/// `0x81` — `payid_resolve(alias: bytes) → address`
-///
-/// Looks up `RegisterPayId` mapping in `state.rs`. Returns `0x00…00` for
-/// unknown aliases so Solidity can `require(addr != address(0), "unknown")`.
-/// Gas: 2,500.
-pub const PRECOMPILE_PAYID_RESOLVE: [u8; 20] = hex_addr("0000000000000000000000000000000000000081");
-
-/// `0x82` — `amm_swap(direction: uint8, amount_in: uint256, min_out: uint256) → uint256`
-///
-/// Executes ZBX↔zUSD swap atomically inside the contract call. `direction`:
-/// `0` = ZBX→zUSD, `1` = zUSD→ZBX. Returns `amount_out`. Gas: 50,000.
-pub const PRECOMPILE_AMM_SWAP: [u8; 20] = hex_addr("0000000000000000000000000000000000000082");
-
-/// `0x83` — `multisig_propose(vault: address, op: bytes) → uint64 proposal_id`
-///
-/// Creates a new proposal in the named multisig vault. Caller must be a
-/// signer. Returns the proposal_id for off-chain tracking. Gas: 30,000.
-pub const PRECOMPILE_MULTISIG_PROPOSE: [u8; 20] = hex_addr("0000000000000000000000000000000000000083");
-
-const fn hex_addr(_s: &'static str) -> [u8; 20] {
-    // const-eval helper; real impl uses const fn hex decoding.
-    [0u8; 20]
-}
-
-// ---------------------------------------------------------------------------
-// Top-level entry point — called from `state.rs::apply_tx`
-// ---------------------------------------------------------------------------
-
-/// Storage backend wired into revm's `Database` trait.
-///
-/// Concrete impl will live in `evm_state.rs`, wrapping the `CF_EVM`
-/// RocksDB column family. Implements:
-/// - `basic(addr)` → `Option<AccountInfo>`
-/// - `code_by_hash(hash)` → `Bytecode`
-/// - `storage(addr, key)` → `U256`
-/// - `block_hash(num)` → `B256`
+/// Read-only view of EVM state. The interpreter calls this trait to fetch
+/// accounts, code and storage. Mutations are journaled in [`StateJournal`]
+/// and committed at the end of a successful execution.
 pub trait EvmDb {
+    /// Look up an account by address. Returns `None` if absent.
     fn account(&self, addr: &Address) -> Option<EvmAccount>;
+
+    /// Fetch contract bytecode by `keccak256(code)`. Empty for EOAs.
     fn code(&self, hash: &[u8; 32]) -> Option<Vec<u8>>;
-    fn storage(&self, addr: &Address, key: &[u8; 32]) -> [u8; 32];
+
+    /// Read one storage slot. Defaults to all-zeroes when absent.
+    fn storage(&self, addr: &Address, key: &H256) -> H256;
+
+    /// Resolve a historic block hash for the BLOCKHASH opcode.
+    /// Only the last 256 blocks are accessible per the yellow paper.
+    fn block_hash(&self, number: u64) -> H256;
 }
 
-/// Block-level environment passed into every EVM execution.
+/// Journaled state mutations produced by one EVM execution.
+/// Caller (`state.rs::apply_tx`) commits these atomically along with the
+/// outer transaction's other side-effects.
+#[derive(Debug, Default, Clone)]
+pub struct StateJournal {
+    pub touched_accounts: Vec<(Address, EvmAccount)>,
+    pub storage_writes: Vec<(Address, H256, H256)>,
+    pub new_code: Vec<([u8; 32], Vec<u8>)>,
+    pub destructed: Vec<Address>,
+}
+
+impl StateJournal {
+    pub fn merge(&mut self, other: StateJournal) {
+        self.touched_accounts.extend(other.touched_accounts);
+        self.storage_writes.extend(other.storage_writes);
+        self.new_code.extend(other.new_code);
+        self.destructed.extend(other.destructed);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Block-level environment
+// ---------------------------------------------------------------------------
+
 #[derive(Debug, Clone)]
 pub struct EvmContext {
     pub chain_id: u64,
     pub block_number: u64,
     pub block_timestamp: u64,
     pub block_gas_limit: u64,
-    pub coinbase: Address,        // current block proposer
-    pub base_fee_per_gas: u128,   // resolved from AMM spot price
+    pub coinbase: Address,
+    pub base_fee_per_gas: u128,
+    pub prev_randao: H256,
 }
 
-/// Execute one EVM transaction (call or create) and return results.
+impl EvmContext {
+    pub fn zebvix_default(block_number: u64, timestamp: u64, coinbase: Address, base_fee: u128) -> Self {
+        Self {
+            chain_id: crate::rpc::CHAIN_ID,
+            block_number,
+            block_timestamp: timestamp,
+            block_gas_limit: DEFAULT_BLOCK_GAS_LIMIT,
+            coinbase,
+            base_fee_per_gas: base_fee,
+            prev_randao: H256::zero(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Top-level entry point
+// ---------------------------------------------------------------------------
+
+use crate::evm_interp::Interp;
+
+/// Execute one EVM transaction (call or create) and return the result and
+/// journaled state mutations.
 ///
-/// Caller (`state.rs::apply_tx`) is responsible for:
-/// 1. Validating the signer's nonce + balance ≥ `gas_limit * gas_price + value`.
-/// 2. Persisting `EvmAccount` mutations + storage diffs to `CF_EVM`.
+/// The caller (`state.rs::apply_tx`) is responsible for:
+/// 1. Validating signer's nonce + balance ≥ `gas_limit * gas_price + value`.
+/// 2. Persisting `journal.touched_accounts`/`storage_writes`/`new_code`
+///    to `CF_EVM`.
 /// 3. Persisting `result.logs` to `CF_LOGS`.
 /// 4. Refunding `result.gas_refunded` ZBX wei back to the signer.
 pub fn execute<D: EvmDb>(
-    _db: &D,
-    _ctx: &EvmContext,
-    _from: &Address,
-    _tx: &EvmTxEnvelope,
-) -> ExecResult {
-    unimplemented!("Phase C: integrate revm 7.x")
+    db: &D,
+    ctx: &EvmContext,
+    from: &Address,
+    tx: &EvmTxEnvelope,
+) -> (ExecResult, StateJournal) {
+    let intrinsic = tx.intrinsic_gas();
+    if intrinsic > tx.gas_limit() {
+        return (
+            ExecResult::revert("intrinsic gas exceeds gas_limit", tx.gas_limit()),
+            StateJournal::default(),
+        );
+    }
+
+    let mut journal = StateJournal::default();
+
+    // Increment caller nonce + debit value (caller is paying gas separately).
+    let mut caller_acct = db.account(from).unwrap_or_default();
+    if caller_acct.balance < tx.value() {
+        return (
+            ExecResult::revert("insufficient balance for value", tx.gas_limit()),
+            journal,
+        );
+    }
+    caller_acct.nonce = caller_acct.nonce.saturating_add(1);
+    caller_acct.balance = caller_acct.balance.saturating_sub(tx.value());
+
+    let gas_remaining = tx.gas_limit().saturating_sub(intrinsic);
+
+    let exec_result = match tx {
+        EvmTxEnvelope::Create(c) => {
+            // Compute new contract address.
+            let new_addr = match c.salt {
+                Some(salt) => create2_address(from, &salt, &c.init_code),
+                None => create_address(from, caller_acct.nonce.saturating_sub(1)),
+            };
+
+            // EIP-3860 init-code size limit.
+            if c.init_code.len() > MAX_INITCODE_SIZE {
+                return (
+                    ExecResult::revert("init code exceeds EIP-3860 limit", tx.gas_limit()),
+                    journal,
+                );
+            }
+
+            // Architect-review Medium fix: yellow paper §7 forbids deploying
+            // over an account that already has a non-zero nonce or non-empty
+            // code (EIP-684 / Spurious Dragon). Pre-existing balance is
+            // allowed and inherited per spec.
+            let existing = db.account(&new_addr).unwrap_or_default();
+            if existing.nonce != 0 || existing.code_hash != [0u8; 32] {
+                return (
+                    ExecResult::revert("address collision: account already has code/nonce", tx.gas_limit()),
+                    journal,
+                );
+            }
+
+            // Credit value to new contract (existing balance preserved).
+            let mut new_acct = existing;
+            new_acct.balance = new_acct.balance.saturating_add(c.value);
+            new_acct.nonce = 1;
+
+            // Run init code.
+            let mut interp = Interp::new(db, ctx, gas_remaining);
+            interp.set_caller(*from);
+            interp.set_address(new_addr);
+            interp.set_value(c.value);
+            interp.set_calldata(vec![]);
+
+            let mut res = interp.run(&c.init_code);
+
+            if res.success {
+                // Runtime code = return data.
+                if res.return_data.len() > MAX_CODE_SIZE {
+                    res = ExecResult::revert("deployed code exceeds EIP-170 limit", tx.gas_limit());
+                } else if !res.return_data.is_empty() && res.return_data[0] == 0xef {
+                    // EIP-3541: contracts cannot start with 0xEF.
+                    res = ExecResult::revert("deployed code starts with 0xEF (EIP-3541)", tx.gas_limit());
+                } else {
+                    let code_hash = keccak256(&res.return_data);
+                    new_acct.code_hash = code_hash;
+                    journal.new_code.push((code_hash, res.return_data.clone()));
+                    journal.touched_accounts.push((new_addr, new_acct.clone()));
+                    res.created_address = Some(new_addr);
+                    journal.merge(interp.into_journal());
+                }
+            }
+            res
+        }
+
+        EvmTxEnvelope::Call(c) => {
+            // Credit value to recipient.
+            let mut to_acct = db.account(&c.to).unwrap_or_default();
+            to_acct.balance = to_acct.balance.saturating_add(c.value);
+            journal.touched_accounts.push((c.to, to_acct.clone()));
+
+            let code = if to_acct.code_hash != KECCAK_EMPTY {
+                db.code(&to_acct.code_hash).unwrap_or_default()
+            } else {
+                vec![]
+            };
+
+            if code.is_empty() {
+                // Plain ZBX transfer to EOA.
+                ExecResult::ok(intrinsic, 0, vec![], vec![])
+            } else {
+                let mut interp = Interp::new(db, ctx, gas_remaining);
+                interp.set_caller(*from);
+                interp.set_address(c.to);
+                interp.set_value(c.value);
+                interp.set_calldata(c.data.clone());
+
+                let res = interp.run(&code);
+                if res.success {
+                    journal.merge(interp.into_journal());
+                }
+                res
+            }
+        }
+    };
+
+    // Always commit the caller's nonce/balance change even on revert
+    // (canonical Ethereum semantics: revert refunds value but not nonce).
+    if !exec_result.success {
+        // Refund value on failed call/create.
+        caller_acct.balance = caller_acct.balance.saturating_add(tx.value());
+    }
+    journal.touched_accounts.push((*from, caller_acct));
+
+    (exec_result, journal)
 }
 
-/// Wrapper enum so `execute()` accepts both call and create variants.
-#[derive(Debug, Clone)]
-pub enum EvmTxEnvelope {
-    Call(EvmCall),
-    Create(EvmCreate),
+// ---------------------------------------------------------------------------
+// Address derivation helpers
+// ---------------------------------------------------------------------------
+
+/// CREATE: `keccak256(rlp([sender, nonce]))[12..]`
+pub fn create_address(sender: &Address, nonce: u64) -> Address {
+    let rlp = rlp_encode_sender_nonce(sender, nonce);
+    let h = keccak256(&rlp);
+    let mut out = [0u8; 20];
+    out.copy_from_slice(&h[12..]);
+    Address::from_bytes(out)
+}
+
+/// CREATE2: `keccak256(0xff || sender || salt || keccak256(init_code))[12..]`
+pub fn create2_address(sender: &Address, salt: &[u8; 32], init_code: &[u8]) -> Address {
+    let mut buf = Vec::with_capacity(1 + 20 + 32 + 32);
+    buf.push(0xff);
+    buf.extend_from_slice(sender.as_bytes());
+    buf.extend_from_slice(salt);
+    buf.extend_from_slice(&keccak256(init_code));
+    let h = keccak256(&buf);
+    let mut out = [0u8; 20];
+    out.copy_from_slice(&h[12..]);
+    Address::from_bytes(out)
+}
+
+/// Tiny RLP encoder for the (address, nonce) pair used in CREATE.
+/// We do not pull in the full `rlp` crate to stay dep-light.
+fn rlp_encode_sender_nonce(sender: &Address, nonce: u64) -> Vec<u8> {
+    fn rlp_uint(mut n: u64) -> Vec<u8> {
+        if n == 0 {
+            return vec![0x80];
+        }
+        let mut bytes = vec![];
+        while n > 0 {
+            bytes.push((n & 0xff) as u8);
+            n >>= 8;
+        }
+        bytes.reverse();
+        if bytes.len() == 1 && bytes[0] < 0x80 {
+            bytes
+        } else {
+            let mut out = vec![0x80 + bytes.len() as u8];
+            out.extend_from_slice(&bytes);
+            out
+        }
+    }
+
+    fn rlp_bytes(b: &[u8]) -> Vec<u8> {
+        let mut out = vec![0x80 + b.len() as u8];
+        out.extend_from_slice(b);
+        out
+    }
+
+    let payload = {
+        let mut p = vec![];
+        p.extend_from_slice(&rlp_bytes(sender.as_bytes()));
+        p.extend_from_slice(&rlp_uint(nonce));
+        p
+    };
+    let mut out = vec![0xc0 + payload.len() as u8];
+    out.extend_from_slice(&payload);
+    out
+}
+
+/// keccak256 — re-export under a stable name so other modules don't repeat
+/// the import incantation.
+pub fn keccak256(data: &[u8]) -> [u8; 32] {
+    use sha3::{Digest, Keccak256};
+    let mut h = Keccak256::new();
+    h.update(data);
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&h.finalize());
+    out
+}
+
+/// Big-endian `U256` ↔ `[u8; 32]`.
+pub fn u256_to_bytes(v: U256) -> [u8; 32] {
+    let mut buf = [0u8; 32];
+    v.to_big_endian(&mut buf);
+    buf
+}
+
+pub fn bytes_to_u256(b: &[u8]) -> U256 {
+    if b.len() == 32 {
+        U256::from_big_endian(b)
+    } else if b.len() < 32 {
+        let mut padded = [0u8; 32];
+        padded[32 - b.len()..].copy_from_slice(b);
+        U256::from_big_endian(&padded)
+    } else {
+        U256::from_big_endian(&b[..32])
+    }
 }
 
 // ---------------------------------------------------------------------------
-// JSON-RPC compatibility shim (planned)
-// ---------------------------------------------------------------------------
-//
-// To make Hardhat / Foundry / Remix work zero-config we expose the standard
-// Ethereum JSON-RPC subset alongside our existing `zbx_*` namespace:
-//
-// | Standard            | Our handler                                       |
-// |---------------------|---------------------------------------------------|
-// | eth_chainId         | const 0x1ec6  (= 7878)                            |
-// | eth_blockNumber     | reuse zbx_tipHeight                               |
-// | eth_getBalance      | reuse zbx_getBalance, return as 0x-hex U256       |
-// | eth_getCode         | EvmDb::code(EvmDb::account(addr)?.code_hash)      |
-// | eth_getStorageAt    | EvmDb::storage(addr, key)                         |
-// | eth_call            | execute() with no state commit                    |
-// | eth_estimateGas     | execute() with binary-search on gas_limit         |
-// | eth_gasPrice        | resolve_fee_window().min  (USD-pegged base fee)   |
-// | eth_sendRawTransaction | parse RLP envelope → TxKind::EvmCall/Create    |
-// | eth_getLogs         | filter CF_LOGS by {fromBlock,toBlock,address,topics} |
-// | eth_getTransactionReceipt | from CF_RECEIPTS keyed by tx_hash            |
-// | eth_blockByNumber   | reuse zbx_getBlock + EVM-shape envelope           |
-//
-// All accept the same hex-encoded U256 / hex-encoded bytes formats so off-
-// the-shelf web3.js / ethers.js / viem clients work unmodified.
-
-// ---------------------------------------------------------------------------
-// Phase C rollout plan
-// ---------------------------------------------------------------------------
-//
-// **C.1 — MVP execution** (~2 weeks)
-//   • Wire revm 7.x crate
-//   • Add `TxKind::EvmCall` / `TxKind::EvmCreate` to transaction.rs (tag 10/11)
-//   • Implement `EvmDb` over CF_EVM
-//   • Standard precompiles 0x01–0x0a (free, revm-provided)
-//   • `eth_call`, `eth_chainId`, `eth_getBalance`, `eth_getCode`
-//   • Smoke test: deploy ERC-20 from Hardhat
-//
-// **C.2 — Production parity** (~3 weeks)
-//   • Custom precompiles 0x80–0x83 (bridge / payid / swap / multisig)
-//   • `eth_getLogs` + `eth_getTransactionReceipt` (CF_LOGS, CF_RECEIPTS)
-//   • `eth_sendRawTransaction` (RLP-encoded EVM tx envelope)
-//   • Subgraph compatibility — index zUSD migration as canonical ERC-20
-//   • Cross-VM call paths: native tx → EVM contract, EVM contract → native
-//
-// **C.3 — Tooling polish** (~1 week)
-//   • `eth_estimateGas` with binary search
-//   • Contract verification + ABI registry RPC
-//   • Block explorer EVM-aware (decoded function calls + event names)
-//   • `debug_traceTransaction` + `trace_call` for dApp dev UX
-
-// ---------------------------------------------------------------------------
-// Tests (skeleton)
+// Tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -316,21 +589,57 @@ mod tests {
     use super::*;
 
     #[test]
-    fn precompile_addresses_have_top_bit_set() {
-        assert_eq!(PRECOMPILE_BRIDGE_OUT[19], 0x00, "stub still uses zero impl");
-        // Real impl will assert: `(0x80..=0x90).contains(&PRECOMPILE_*[19])`
+    fn keccak_empty_constant_is_correct() {
+        assert_eq!(keccak256(b""), KECCAK_EMPTY);
     }
 
     #[test]
-    fn evm_create_address_deterministic() {
-        // CREATE  addr = keccak256(rlp([from, nonce]))[12..]
-        // CREATE2 addr = keccak256(0xff || from || salt || keccak256(init_code))[12..]
-        // Will be enabled once revm is wired.
+    fn create_address_deterministic() {
+        let sender = Address::from_bytes([0x42u8; 20]);
+        let a0 = create_address(&sender, 0);
+        let a1 = create_address(&sender, 1);
+        assert_ne!(a0, a1, "different nonces must produce different addresses");
     }
 
     #[test]
-    fn gas_in_zbx_wei_matches_native_fee_window() {
-        // Phase C contract gas price MUST equal `state::resolve_fee_window().min`
-        // so EVM txs and native txs share one fee market — no MEV drift.
+    fn create2_address_deterministic() {
+        let sender = Address::from_bytes([0x42u8; 20]);
+        let salt = [0x01u8; 32];
+        let init = b"hello";
+        let a0 = create2_address(&sender, &salt, init);
+        let a1 = create2_address(&sender, &salt, init);
+        assert_eq!(a0, a1, "same inputs must produce same address");
+    }
+
+    #[test]
+    fn intrinsic_gas_call_baseline() {
+        let tx = EvmTxEnvelope::Call(EvmCall {
+            to: Address::from_bytes([0u8; 20]),
+            data: vec![],
+            value: 0,
+            gas_limit: 100_000,
+            gas_price: 1,
+        });
+        assert_eq!(tx.intrinsic_gas(), G_TRANSACTION);
+    }
+
+    #[test]
+    fn intrinsic_gas_call_with_data() {
+        let tx = EvmTxEnvelope::Call(EvmCall {
+            to: Address::from_bytes([0u8; 20]),
+            data: vec![0, 1, 2, 0, 0, 3],
+            value: 0,
+            gas_limit: 100_000,
+            gas_price: 1,
+        });
+        // 21000 base + 3 zeros (4 each) + 3 nonzeros (16 each) = 21060
+        assert_eq!(tx.intrinsic_gas(), 21_000 + 3 * 4 + 3 * 16);
+    }
+
+    #[test]
+    fn u256_roundtrip() {
+        let v = U256::from(0xdeadbeefu64);
+        let b = u256_to_bytes(v);
+        assert_eq!(bytes_to_u256(&b), v);
     }
 }

@@ -25,6 +25,19 @@ impl Address {
     pub fn to_hex(&self) -> String {
         format!("0x{}", hex::encode(self.0))
     }
+
+    /// Construct from a raw 20-byte array. Used by EVM address derivation
+    /// (CREATE / CREATE2) and any callers that already validated length.
+    #[inline]
+    pub fn from_bytes(bytes: [u8; ADDRESS_LEN]) -> Self {
+        Address(bytes)
+    }
+
+    /// Borrow the raw 20-byte representation.
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8; ADDRESS_LEN] {
+        &self.0
+    }
 }
 
 impl fmt::Debug for Address {

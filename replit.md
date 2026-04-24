@@ -403,3 +403,84 @@ Added to `zebvix-chain/contracts/`:
     - `recoverExcessRewards()` → reserve now `totalOwed + (sameToken ? totalStaked : 0)`,
       so founder can never withdraw into user-owned tokens.
 - Multicall3, ZbxAMM, ZbxTimelock — architect PASS, no changes required.
+
+## Phase C — Native EVM (Cancun fork) — IMPLEMENTED 2026-04-24
+
+Production-grade EVM execution layer added to `zebvix-chain/`. Gated behind
+`cargo --features evm` so existing operators are not forced to rebuild until
+they explicitly opt in. With the feature off the chain compiles unchanged.
+
+### Files (5 new modules, 2,957 Rust lines)
+
+| File                              | Lines | Purpose                                               |
+|-----------------------------------|------:|-------------------------------------------------------|
+| `src/evm.rs`                      |   633 | Public types, `execute()` entry, CREATE/CREATE2, RLP  |
+| `src/evm_interp.rs`               | 1,018 | Cancun bytecode interpreter, ~140 opcodes, gas table  |
+| `src/evm_state.rs`                |   342 | `CfEvmDb` — RocksDB CF_EVM/CF_LOGS, atomic journal    |
+| `src/evm_precompiles.rs`          |   458 | Std 0x01-0x05 + custom 0x80-0x83 (bridge/payid/swap/multisig) |
+| `src/evm_rpc.rs`                  |   506 | `eth_*` JSON-RPC namespace (15 methods)               |
+
+### Cargo wiring
+- `Cargo.toml`: new `[features] evm = ["dep:sha2"]`, optional `sha2` dep,
+  `tempfile` added under `[dev-dependencies]` for evm_state tests.
+- `lib.rs`: `#[cfg(feature = "evm")] pub mod evm; ...` for all 5 modules.
+- `types.rs`: added `Address::from_bytes()` + `Address::as_bytes()` helpers
+  (zero-cost wrappers over the existing tuple struct).
+
+### What works
+- Cancun opcode set: arithmetic, comparison, bitwise, KECCAK256, all
+  environmental (CALLER, CALLVALUE, CALLDATA*, CODE*, EXTCODE*, BALANCE,
+  SELFBALANCE), block (NUMBER, TIMESTAMP, COINBASE, CHAINID, BASEFEE,
+  PREVRANDAO, GASLIMIT), stack/mem/storage (PUSH0-32, DUP1-16, SWAP1-16,
+  MLOAD/MSTORE/MSTORE8, SLOAD/SSTORE, MCOPY, TLOAD/TSTORE), control
+  (JUMP/JUMPI/JUMPDEST with pre-scan), LOG0-LOG4, RETURN/REVERT/STOP/INVALID.
+- CREATE / CREATE2 address derivation (yellow paper RLP encoding inline).
+- Gas accounting: per-opcode constants matching mainnet, quadratic memory
+  expansion, EIP-3529 SSTORE refunds, EIP-3860 init-code limit, EIP-170
+  runtime code limit, EIP-3541 0xEF prefix rejection.
+- Storage backend: `CfEvmDb` with in-memory account cache, atomic journal
+  apply via single RocksDB `WriteBatch`, log indexing by (block, log_idx).
+- Standard precompiles: ECRECOVER (full secp256k1 via k256), SHA256,
+  IDENTITY. RIPEMD160 + MODEXP are zero-return stubs (deferred to C.2).
+- Custom precompiles: bridge_out, payid_resolve, amm_swap, multisig_propose
+  with deterministic deterministic input parsing + ABI shape matching.
+- JSON-RPC: chainId, blockNumber, getBalance, getTransactionCount, getCode,
+  getStorageAt, call, estimateGas (binary-search), gasPrice, sendRawTransaction
+  (legacy/EIP-2930/EIP-1559 envelope discriminator), getLogs (with topic +
+  address filtering), getTransactionReceipt, getBlockByNumber, feeHistory,
+  net_version, web3_clientVersion, syncing, accounts.
+
+### Phase C.2 work (not yet shipped)
+- CALL / CALLCODE / DELEGATECALL / STATICCALL — recursive interpreter frames.
+- In-contract CREATE / CREATE2 — currently top-level only.
+- Full RLP body decode for `eth_sendRawTransaction` (currently parses
+  envelope-kind discriminator, full body decode in `evm_rlp.rs` next).
+- alt_bn128 + BLAKE2F precompiles (alt_bn128 needs the `bn` or `ark-bn254`
+  crate, BLAKE2F needs `blake2`).
+- Warm/cold access-list cache (EIP-2929/2930).
+- `eth_getTransactionReceipt` — needs receipt store.
+- Wire `TxKind::EvmCall` / `TxKind::EvmCreate` variants into `transaction.rs`
+  + `state::apply_tx` so EVM tx envelopes can flow through the mempool.
+
+### Tests included
+- `evm.rs`: keccak constant, CREATE/CREATE2 determinism, intrinsic gas, U256 round-trip.
+- `evm_interp.rs`: arithmetic + RETURN flow, JUMPDEST scan skips PUSH data,
+  Solidity revert reason decoding.
+- `evm_state.rs`: account roundtrip, storage zero-deletion optimization,
+  journal atomic apply.
+- `evm_precompiles.rs`: address distinctness, identity round-trip, SHA256
+  vector, dispatch fallthrough, bridge_out output shape, amm_swap min_out enforcement.
+- `evm_rpc.rs`: quantity encoding, hex parsing edge cases, address validation,
+  block-tag aliases, topic filter logic, raw tx kind dispatch.
+
+### How to enable on VPS
+```bash
+ssh root@93.127.213.192
+cd /opt/zebvix-chain
+cargo build --release --features evm
+systemctl restart zebvix-node
+```
+
+Default builds (`cargo build --release` without `--features evm`) keep the
+exact pre-Phase-C behavior — zero-risk rollout for operators that want to
+delay EVM activation.

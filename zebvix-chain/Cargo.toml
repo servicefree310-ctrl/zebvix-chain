@@ -10,9 +10,18 @@ license = "MIT"
 name = "zebvix-node"
 path = "src/main.rs"
 
+[features]
+default = []
+# Phase C — Native EVM (Cancun-fork bytecode interpreter, eth_* JSON-RPC,
+# custom Zebvix precompiles 0x80-0x83). Adds the optional `sha2` dep used
+# by the SHA-256 precompile and pulls in the EVM modules from `lib.rs`.
+# Build with `cargo build --release --features evm` on the VPS to enable.
+evm = ["dep:sha2"]
+
 [dependencies]
 k256 = { version = "0.13", features = ["ecdsa", "serde"] }
 sha3 = "0.10"
+sha2 = { version = "0.10", optional = true }
 rand = "0.8"
 hex = "0.4"
 serde = { version = "1.0", features = ["derive"] }
@@ -35,6 +44,9 @@ serde-big-array = "0.5"
 rayon = "1.10"
 futures = "0.3"
 libp2p = { version = "0.54", features = ["tokio", "tcp", "noise", "yamux", "gossipsub", "mdns", "macros", "ping", "identify", "request-response", "cbor"] }
+
+[dev-dependencies]
+tempfile = "3.10"
 
 [profile.release]
 opt-level = 3
