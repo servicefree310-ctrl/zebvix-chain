@@ -1,0 +1,97 @@
+grep -n "try_evm_dispatch\|evm_db: Some" /home/zebvix-chain/src/rpc.rs /home/zebvix-chain/src/main.rs | head -8 && \
+grep -n "raw_db" /home/zebvix-chain/src/state.rs && \
+echo "" && \
+cd /home/zebvix-chain && \
+echo "=== Rebuild (incremental, ~30-90 sec) ===" && \
+time cargo build --release --features evm 2>&1 | tail -15 && \
+echo "" && \
+echo "=== Verify Phase C.2 strings now PRESENT in fresh binary ===" && \
+strings /home/zebvix-chain/target/release/zebvix-node | grep -c "wrong chain id" && \
+strings /home/zebvix-chain/target/release/zebvix-node | grep -c "unprotected legacy tx" && \
+strings /home/zebvix-chain/target/release/zebvix-node | grep -c "rlp decode failed" && \
+echo "(expect: each >= 1)" && \
+echo "" && \
+echo "=== Stop service + install + restart ===" && \
+systemctl stop zebvix.service && \
+cp /home/zebvix-chain/target/release/zebvix-node /usr/local/bin/zebvix-node && \
+chmod +x /usr/local/bin/zebvix-node && \
+systemctl start zebvix.service && \
+sleep 5 && \
+systemctl status zebvix.service --no-pager | head -10 && \
+echo "" && \
+echo "=== RUN SMOKE TESTS ===" && \
+/tmp/zebvix_smoke.sh
+=== Verify wiring fixes ===
+/home/zebvix-chain/src/rpc.rs:1090:                if let Some(resp) = try_evm_dispatch(&ctx, &id, m, &req.params) {
+/home/zebvix-chain/src/rpc.rs:1104:fn try_evm_dispatch(
+/home/zebvix-chain/src/main.rs:1084:            evm_db: Some(Arc::new(zebvix_node::evm_state::CfEvmDb::new(state.raw_db()))),
+/home/zebvix-chain/src/main.rs:1099:        evm_db: Some(Arc::new(zebvix_node::evm_state::CfEvmDb::new(state.raw_db()))),
+210:    pub fn raw_db(&self) -> Arc<DB> {
+
+=== Rebuild (incremental, ~30-90 sec) ===
+   Compiling zebvix-node v0.1.0 (/home/zebvix-chain)
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:393:4
+    |
+393 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 1m 37s
+
+real    1m37.687s
+user    2m29.158s
+sys     0m5.947s
+
+=== Verify Phase C.2 strings now PRESENT in fresh binary ===
+1
+1
+1
+(expect: each >= 1)
+
+=== Stop service + install + restart ===
+● zebvix.service - Zebvix L1 Blockchain Node
+     Loaded: loaded (/etc/systemd/system/zebvix.service; enabled; preset: enabled)
+     Active: active (running) since Fri 2026-04-24 12:21:53 UTC; 5s ago
+   Main PID: 4088239 (zebvix-node)
+      Tasks: 7 (limit: 9483)
+     Memory: 2.7M (peak: 3.3M)
+        CPU: 28ms
+     CGroup: /system.slice/zebvix.service
+             └─4088239 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333 --no-mdns
+
+
+=== RUN SMOKE TESTS ===
+=== Hardlink check ===
+3750049 -rwxr-xr-x 2 root root 17145952 Apr 24 12:21 /home/zebvix-chain/target/release/zebvix-node
+   3236 -rwxr-xr-x 1 root root 17145952 Apr 24 12:21 /usr/local/bin/zebvix-node
+
+=== Phase C.2 marker count in /usr/local/bin binary ===
+1
+
+============================================
+=== Phase C.2 SMOKE TESTS ===
+============================================
+
+--- A) eth_chainId (expect 0x1ec6) ---
+{"jsonrpc":"2.0","id":1,"result":"0x1ec6"}
+
+--- B) eth_blockNumber ---
+{"jsonrpc":"2.0","id":2,"result":"0x6a4"}
+
+--- C) net_version (expect 7878) ---
+{"jsonrpc":"2.0","id":3,"result":"7878"}
+
+--- D) Cross-chain replay (expect: wrong chain id) ---
+{"jsonrpc":"2.0","id":4,"error":{"code":-32000,"message":"rlp decode failed: unknown tx envelope kind"}}
+
+--- E) Unprotected legacy tx (expect: unprotected legacy) ---
+{"jsonrpc":"2.0","id":5,"error":{"code":-32000,"message":"rlp decode failed: unknown tx envelope kind"}}
+
+--- F) Malformed RLP (expect: rlp decode failed) ---
+{"jsonrpc":"2.0","id":6,"error":{"code":-32000,"message":"rlp decode failed: RLP: long-list length truncated"}}
+
+=== Done ===
+root@srv1266996:/home/zebvix-chain# 
