@@ -1,0 +1,58 @@
+
+nohup zebvix-node start --home /home/zebvix-chain/.zebvix2 \
+  --rpc 127.0.0.1:8546 --p2p-port 30334 \
+  --peer /ip4/127.0.0.1/tcp/30333 --no-mdns \
+  > /var/log/zebvix-n2.log 2>&1 &
+
+sleep 8
+
+# 6) Verify chain still progressing + naya RPC kaam kar raha
+  http://127.0.0.1:8545 | jq2,"method":"zbx_recentTxs","params":[15]}' \
+/home/zebvix-chain/src/state.rs:52://   - `rtx/<seq_be8>`            → bincode(RecentTxRecord)  (the entry)
+/home/zebvix-chain/src/state.rs:114:pub struct RecentTxRecord {
+/home/zebvix-chain/src/state.rs:929:    fn push_recent_tx(&self, mut rec: RecentTxRecord) -> Result<()> {
+/home/zebvix-chain/src/state.rs:954:    pub fn recent_txs(&self, limit: usize) -> Vec<RecentTxRecord> {
+/home/zebvix-chain/src/state.rs:965:                if let Ok(r) = bincode::deserialize::<RecentTxRecord>(&bytes) {
+/home/zebvix-chain/src/state.rs:1004:            let rec = RecentTxRecord {
+/home/zebvix-chain/src/state.rs:1005:                seq: 0, // overwritten by push_recent_tx
+/home/zebvix-chain/src/state.rs:1016:            if let Err(e) = self.push_recent_tx(rec) {
+/home/zebvix-chain/src/rpc.rs:219:        "zbx_recentTxs" => {
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:393:4
+    |
+393 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 1m 18s
+-rwxr-xr-x 1 root root 16519152 Apr 24 04:58 /usr/local/bin/zebvix-node
+[2]+  Killed                  nohup zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns > /var/log/zebvix-n2.log 2>&1
+Killed
+[1]+  Killed                  nohup zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333 --no-mdns > /var/log/zebvix-n1.log 2>&1
+[1] 3960065
+[2] 3960066
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "hash": "0x9d429bfcf135312619feddf14e8df9f1ff89b19e1b0cf51ab6f80865c94e0a2e",
+    "height": 15646,
+    "hex": "0x3d1e",
+    "proposer": "0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc",
+    "timestamp_ms": 1777006731839
+  }
+}
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "result": {
+    "max_cap": 1000,
+    "returned": 0,
+    "stored": 0,
+    "total_indexed": 0,
+    "txs": []
+  }
+}
+root@srv1266996:/home/zebvix-chain# 
