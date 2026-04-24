@@ -1,0 +1,72 @@
+# 3) Start node (single-validator, no LAN mDNS)
+nohup ./target/release/zebvix-node start \
+  --home /root/.zebvix-node1 \
+  --rpc 0.0.0.0:8545 \
+  --p2p-port 30333 \
+  --no-mdns \
+  > /root/zebvix-node1.log 2>&1 &
+disown
+
+sleep 4
+
+echo '--- chainId (use eth_chainId, NOT zbx_chainId) ---'
+curl -s -X POST http://127.0.0.1:8545 -H 'content-type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'
+
+echo
+echo '--- chainInfo ---'
+curl -s -X POST http://127.0.0.1:8545 -H 'content-type: application/json' \
+  --data '{"jsonrpc":"2.0","id":2,"method":"zbx_chainInfo","params":[]}'
+
+echo
+echo '--- founder validator (33B pubkey expected) ---'
+curl -s -X POST http://127.0.0.1:8545 -H 'content-type: application/json' \
+echo -25 /root/zebvix-node1.log:3,"method":"zbx_getValidator","params":["0x40907000ac0a1a73e4cd89889b4d7ee8980c0315"]}'
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+Address    : 0x5e57134ba34d5cee4ebf4244b71f1f08e2e52b7c
+Public Key : 0x0339e872e8d21f677d77eb21993a80de4de26d7ef711cc45bf54abe8e4e5e1bcd1
+Saved key  : /root/zebvix-keys/node1.json
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+ℹ️  No founder pre-mine — admin earns ZBX only via block rewards & swap fees.
+ℹ️  Genesis validator (founder, deterministic): 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315 (power=1)
+ℹ️  Local validator key 0x5e57134ba34d5cee4ebf4244b71f1f08e2e52b7c is NOT the founder — it must be added post-genesis via `validator-add` tx (admin-signed).
+✅ Initialized Zebvix chain at /root/.zebvix-node1
+   chain_id          : 7878
+   validator address : 0x5e57134ba34d5cee4ebf4244b71f1f08e2e52b7c
+   genesis           : /root/.zebvix-node1/genesis.json
+   data dir          : /root/.zebvix-node1/data
+[1] 4000381
+--- chainId (use eth_chainId, NOT zbx_chainId) ---
+{"jsonrpc":"2.0","id":1,"result":"0x1ec6"}
+--- chainInfo ---
+{"jsonrpc":"2.0","id":2,"result":{"block_time_secs":5,"chain_id":7878,"decimals":18,"name":"Zebvix","token":"ZBX"}}
+--- founder validator (33B pubkey expected) ---
+{"jsonrpc":"2.0","id":3,"result":{"address":"0x40907000ac0a1a73e4cd89889b4d7ee8980c0315","pubkey":"0x035a3d7a0a8ce0607fa8a2ac3f36d4239ad9f582ca044a125d262f42eff3bcf9d3","voting_power":1}}
+--- node log tail ---
+nohup: ignoring input
+2026-04-24T06:49:04.980197Z  INFO zebvix_node: 🚀 Zebvix node starting
+2026-04-24T06:49:04.980227Z  INFO zebvix_node:    chain_id  : 7878
+2026-04-24T06:49:04.980232Z  INFO zebvix_node:    proposer  : 0x5e57134ba34d5cee4ebf4244b71f1f08e2e52b7c
+2026-04-24T06:49:04.980261Z  INFO zebvix_node:    tip       : height=0 hash=0x0000000000000000000000000000000000000000000000000000000000000000
+2026-04-24T06:49:04.980265Z  INFO zebvix_node:    rpc       : http://0.0.0.0:8545
+2026-04-24T06:49:04.980683Z  INFO zebvix_node:    p2p       : tcp/30333  peer_id=12D3KooWF6xTRn7idjv1hiJz5eP9eb4Dd8Zg6fDiZuULvyeGT8MV
+2026-04-24T06:49:04.980692Z  INFO zebvix_node:    mdns      : DISABLED (--no-mdns)
+2026-04-24T06:49:04.980969Z  INFO zebvix_node::consensus: ⛏  producer started: my_address=0x5e57134ba34d5cee4ebf4244b71f1f08e2e52b7c, mode=ROUND_ROBIN+TIMEOUTS (B.3.2.2) pacing=5s propose_timeout=8s tick=500ms
+2026-04-24T06:49:04.981819Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWF6xTRn7idjv1hiJz5eP9eb4Dd8Zg6fDiZuULvyeGT8MV
+2026-04-24T06:49:04.981835Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/93.127.213.192/tcp/30333/p2p/12D3KooWF6xTRn7idjv1hiJz5eP9eb4Dd8Zg6fDiZuULvyeGT8MV
+
+root@srv1266996:/home/zebvix-chain# 

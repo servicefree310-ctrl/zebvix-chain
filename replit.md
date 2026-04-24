@@ -171,12 +171,29 @@ on the VPS):**
 - TS dashboard: `tsc --noEmit` clean ✓
 - Sign+verify roundtrip + RFC6979 determinism + low-S confirmed ✓
 
-**VPS deploy steps (next, when shell access available):**
-1. Stop both nodes.
-2. `cargo build --release` on srv1266996.
-3. `rm -rf ~/.zebvix/<chain-data-dir>` on every node (state is incompatible).
-4. Run `zbx init --validator-key …` then start nodes — genesis seeds the new
-   founder validator at `0x40907000…0315` with power=1 deterministically.
-5. Browser users will see new addresses (their old Ed25519-derived addresses
-   are gone with the chain wipe). Importing an existing ETH private key in
-   the /wallet page now yields the SAME address as MetaMask.
+**VPS deploy: COMPLETED 2026-04-24 on srv1266996 (93.127.213.192).**
+Live verification:
+- `eth_chainId` → `0x1ec6` (= 7878) ✓
+- `zbx_chainInfo` → `{chain_id:7878, name:"Zebvix", token:"ZBX", block_time_secs:5}` ✓
+- `zbx_getValidator(0x40907000…0315)` → pubkey `0x035a3d7a…bcf9d3` (33B, `0x03` compressed prefix confirms secp256k1) ✓
+- Node-1 producer running, P2P listening on `/ip4/93.127.213.192/tcp/30333` ✓
+- RPC on `0.0.0.0:8545`, peer_id `12D3KooWF6xTRn7idjv1hiJz5eP9eb4Dd8Zg6fDiZuULvyeGT8MV`
+
+Compile fixes applied during VPS build (all merged into live tarball at
+`attached_assets/downloads/zebvix-chain-b11.tar.gz`, served by
+`/api/download/newchain`):
+- `[u8; 33]` needs explicit `#[serde(with = "crate::types::hex_array_33")]` —
+  added to `TxKind::ValidatorAdd::pubkey` + `StakeOp::CreateValidator::pubkey`.
+- `ValidatorState` cannot derive `Default` (`[u8;33]` lacks it) — manual
+  `impl Default` with all-zero pubkey.
+- `mempool::snapshot()` match needed `TxKind::Swap { .. } => 8` arm.
+- 3 `return err/ok(...)` calls in `rpc::handle()` needed `axum::Json(...)` wrap.
+- `state.rs` swap zUSD-insufficient branch: capture `from.zusd` into local
+  before `swap_refund(&mut from, format!(...))` (E0502 borrow checker).
+- Removed unused `ToEncodedPoint` import in `crypto.rs`.
+
+**Next:** import founder secret
+(`0xa8674e60d95ec1fa2b37f264b01b8407d2fbb0789bd836382472d181973ebbf8`) into
+MetaMask → switch network to chain_id 7878 RPC `http://93.127.213.192:8545`
+→ admin/governor controls (validator-add, pool genesis, swap, payid registry)
+all signable from the same ETH key.
