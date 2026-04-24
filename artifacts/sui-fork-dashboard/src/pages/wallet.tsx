@@ -132,6 +132,11 @@ export default function WalletPage() {
           </TabsTrigger>
           <TabsTrigger value="history">
             <History className="h-4 w-4 mr-1.5" /> History
+            {history.length > 0 && (
+              <Badge variant="secondary" className="ml-1.5 h-5 px-1.5 text-[10px]">
+                {history.length}
+              </Badge>
+            )}
           </TabsTrigger>
         </TabsList>
 
@@ -210,11 +215,18 @@ function ActiveWalletCard(props: {
           <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
         </Button>
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <div>
           <div className="text-xs text-muted-foreground">Balance</div>
           <div className="text-2xl font-bold text-primary">
             {balance} <span className="text-sm font-normal text-muted-foreground">ZBX</span>
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-muted-foreground">Total transactions</div>
+          <div className="text-2xl font-bold" data-testid="text-total-tx">{nonce ?? "—"}</div>
+          <div className="text-[10px] text-muted-foreground mt-0.5">
+            confirmed on-chain
           </div>
         </div>
         <div>
@@ -561,9 +573,17 @@ function HistoryTab(props: {
       : s === "failed" ? "text-red-400 border-red-500/30 bg-red-500/5"
         : "text-amber-400 border-amber-500/30 bg-amber-500/5";
 
+  const submitted = history.filter(r => r.status === "submitted").length;
+  const failed = history.filter(r => r.status !== "submitted").length;
+
   return (
     <div className="space-y-3">
-      <div className="flex justify-end">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-sm text-muted-foreground" data-testid="text-history-summary">
+          Total: <span className="font-bold text-foreground">{history.length}</span> transaction{history.length === 1 ? "" : "s"}
+          <span className="ml-2 text-emerald-400">{submitted} submitted</span>
+          {failed > 0 && <span className="ml-2 text-red-400">{failed} failed</span>}
+        </div>
         <Button variant="outline" size="sm" onClick={onClear}>
           <Trash2 className="h-3 w-3 mr-1.5" /> Clear history
         </Button>
