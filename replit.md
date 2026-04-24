@@ -198,7 +198,33 @@ MetaMask → switch network to chain_id 7878 RPC `http://93.127.213.192:8545`
 → admin/governor controls (validator-add, pool genesis, swap, payid registry)
 all signable from the same ETH key.
 
-## Phase B.12 — BEP20 / EVM bridge module (2026-04-24) ✅ (Replit-side; VPS deploy pending)
+## Phase B.12 — BEP20 / EVM bridge module (2026-04-24) ✅ FULLY LIVE on VPS
+
+**Smoke-test on VPS srv1266996 (2026-04-24):**
+- Re-genesis with founder identity as both block-signer AND admin:
+  `init --validator-key ~/.zebvix/founder.key --alloc 0x40907000…0315:10000000`
+  (NOTE: `FOUNDER_PREMINE_ZBX = 0u128` in tokenomics → default pre-mine is OFF;
+  must use explicit `--alloc` for founder ZBX, otherwise admin can't pay gas.)
+- Founder secret: `0xa8674e60d95ec1fa2b37f264b01b8407d2fbb0789bd836382472d181973ebbf8`
+  → addr `0x40907000ac0a1a73e4cd89889b4d7ee8980c0315` (= `tokenomics::ADMIN_ADDRESS_HEX`).
+  Imported via `zbx import <secret_hex> --out ~/.zebvix/founder.key` (positional secret).
+- Block production confirmed: tip advancing 1→2→…, founder proposing every 5s.
+- `bridge-register-network` (id=56 BNB Chain, evm) tx applied → registry count=1.
+- `bridge-register-asset` (asset_id=240518168576, ZBX, decimals=18) tx applied → registry count=1.
+- Fees deducted live: founder balance 10,000,000 → 9,999,999.999 ZBX.
+- All 7 read-only RPCs verified: networks/assets/stats consistent.
+- Bridge lock vault address: `0x7a62726467000000000000000000000000000000` (constant).
+
+**KNOWN GOTCHAS (documented for future work):**
+- `zbx` CLI uses POSITIONAL args (`zbx import <SECRET_HEX>`, `zbx address <KEYFILE>`,
+  `zbx balance <ADDRESS>`), NOT `--secret-hex/--keyfile/--address` flags.
+- Bridge CLI verbs live in `zebvix-node` binary (main.rs), NOT yet ported to `zbx`
+  binary. Use `./target/release/zebvix-node bridge-*`. Future cleanup: port to zbx.rs.
+- `--fee auto` returns 0.000042 ZBX in bootstrap state (below consensus min 0.001 ZBX).
+  Use explicit `--fee 0.005` for admin ops until pool-spot fee resolution stabilizes.
+- Local validator key MUST equal genesis founder address for solo-validator block
+  production; otherwise chain stuck at height=0. Multi-validator setup via
+  `validator-add` tx (post-genesis) is the path for adding extra validators.
 
 **Goal:** make Zebvix bridge-able to BNB Chain (BEP20), Ethereum, Polygon and
 arbitrary external networks via an admin-extensible on-chain registry +
