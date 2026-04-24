@@ -1,0 +1,53 @@
+root@srv1266996:/home/zebvix-chain# # 2. Backup current source (no rm — sirf rename)
+cd /home/zebvix-chain
+mkdir -p .backups
+tar -czf .backups/zebvix-chain-$(date +%Y%m%d-%H%M%S).pre-min-update.tgz src/ Cargo.toml 2>/dev/null
+ls -la .backups/ | tail -3
+# 3. Pull fresh source from Replit
+curl -fsSL "https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/api/download/newchain" -o newchain.tgz
+ls -la newchain.tgz   # should be ~188 KB
+# 4. Extract in place
+tar -xzf newchain.tgz
+rm newchain.tgz   # safe: it's a downloaded artifact, not your code
+# 5. Verify the constants landed
+grep -nE 'MIN_SELF_BOND_WEI: u128|MIN_DELEGATION_WEI: u128' src/staking.rs
+grep -nE 'deposit_unchecked|redelegate_legacy_small' src/staking.rs
+# 6. Build
+cargo build --release 2>&1 | tail -20
+# (binary symlink /usr/local/bin/zebvix-node already points to target/release)
+# 7. Restart node
+systemctl restart zebvix-node
+sleep 5
+systemctl status zebvix-node --no-pager | head -15
+journalctl -u zebvix-node -n 20 --no-pager
+# 8. Verify live RPC reflects new minimums
+curl -s -X POST http://127.0.0.1:8545 -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"zbx_getStaking","params":[]}' \
+  | grep -oE 'min_(self_bond|delegation)_wei":"0x[^"]+"'
+# 9. Run the staking unit tests (optional, slow first time)
+cargo test --release --lib staking:: 2>&1 | tail -15
+drwxr-xr-x 2 root   root     4096 Apr 24 18:50 .
+drwxr-xr-x 8 ubuntu ubuntu   4096 Apr 24 18:50 ..
+-rw-r--r-- 1 root   root   169990 Apr 24 18:50 zebvix-chain-20260424-185054.pre-min-update.tgz
+-rw-r--r-- 1 root root 188397 Apr 24 18:50 newchain.tgz
+48:pub const MIN_SELF_BOND_WEI: u128 = 100u128 * 1_000_000_000_000_000_000u128;
+80:pub const MIN_DELEGATION_WEI: u128 = 10u128 * 1_000_000_000_000_000_000u128;
+386:        self.deposit_unchecked(delegator, validator, amount)
+393:    fn deposit_unchecked(
+486:        self.deposit_unchecked(delegator, to, amount)?;
+1121:    fn redelegate_legacy_small_position_does_not_inflate() {
+1131:        s.deposit_unchecked(d, v1, legacy_amount).unwrap();
+   Compiling zebvix-node v0.1.0 (/home/zebvix-chain)
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:393:4
+    |
+393 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 1m 38s
+Failed to restart zebvix-node.service: Unit zebvix-node.service not found.
+Unit zebvix-node.service could not be found.
+-- No entries --
