@@ -5,7 +5,7 @@ import {
   Activity, Box, Users, Coins, ArrowLeftRight, Wifi, ShieldCheck, Hash,
   TrendingUp, Layers, Cpu, Sparkles, Search, Wallet, ArrowUpDown, AtSign,
   Shield, Droplets, GitBranch, Rocket, Copy, ExternalLink, Check, Flame,
-  Zap, Smartphone, Code2, Network as NetworkIcon, FileCode2,
+  Zap, Smartphone, Code2, Network as NetworkIcon, FileCode2, Database, PieChart,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -24,7 +24,7 @@ interface PoolMini {
 interface SupplyInfo {
   height: number; minted_wei: string; max_wei: string;
   burned_wei?: string; premine_wei?: string;
-  pool_seed_wei?: string; circulating_wei?: string;
+  pool_seed_wei?: string; pool_reserve_wei?: string; circulating_wei?: string;
 }
 interface ValidatorInfo {
   validators?: Array<{ address: string; voting_power: number }>;
@@ -134,6 +134,14 @@ export default function Home() {
   const circulating = supply?.circulating_wei ?? "0";
   const marketCap = effectivePrice && supply ? weiToUsd(circulating, effectivePrice) : 0;
   const fdvCap = effectivePrice && supply ? weiToUsd(supply.max_wei, effectivePrice) : 0;
+  // Compact ZBX formatter for tile values: 20,006,933 ZBX -> "20.01M ZBX"
+  const fmtZbxCompact = (weiStr: string): string => {
+    const zbx = parseFloat(weiHexToZbx(weiStr).replace(/,/g, ""));
+    if (!isFinite(zbx)) return "—";
+    if (zbx >= 1_000_000) return `${(zbx / 1_000_000).toFixed(2)}M`;
+    if (zbx >= 1_000) return `${(zbx / 1_000).toFixed(2)}K`;
+    return zbx.toFixed(2);
+  };
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -161,20 +169,28 @@ export default function Home() {
       <PhaseBanner />
 
       {/* KPI ROW */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         <Kpi icon={Box} tone="cyan" label="Block Height"
           value={tip ? `#${tip.height.toLocaleString()}` : "—"}
           sub={tip ? `proposer ${shortAddr(tip.proposer, 4, 4)}` : "loading"} flash={flash} />
         <Kpi icon={TrendingUp} tone="emerald" label="ZBX Price"
           value={priceNum > 0 ? `$${formatPrice(priceNum)}` : (poolUninit ? `$${TARGET_LAUNCH_PRICE_USD.toFixed(2)}*` : "—")}
           sub={priceNum > 0 ? (price?.source ?? "") : (poolUninit ? "* target — pool not seeded yet" : "")} />
+        <Kpi icon={Database} tone="sky" label="Total Supply"
+          value={supply ? `${fmtZbxCompact(circulating)} ZBX` : "—"}
+          sub={supply ? `${weiHexToZbx(circulating)} ZBX (pool + minted − burn)` : ""} />
         <Kpi icon={Coins} tone="violet" label={poolUninit ? "Market Cap (target)" : "Market Cap"}
           value={marketCap ? fmtUsd(marketCap) : "—"}
-          sub={supply ? `circ ${weiHexToZbx(circulating)} ZBX` : ""} />
+          sub={supply && effectivePrice ? `= ${fmtZbxCompact(circulating)} ZBX × $${formatPrice(effectivePrice)}` : ""} />
         <Kpi icon={Layers} tone="amber" label={poolUninit ? "FDV (target)" : "FDV"}
           value={fdvCap ? fmtUsd(fdvCap) : "—"}
           sub={supply ? `max ${weiHexToZbx(supply.max_wei)}` : ""} />
       </div>
+
+      {/* SUPPLY BREAKDOWN — answers "where is the ZBX?" */}
+      {supply && (
+        <SupplyBreakdownCard supply={supply} priceUsd={effectivePrice} poolUninit={poolUninit} />
+      )}
 
       {/* SECONDARY KPIS */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
@@ -345,6 +361,81 @@ function PoolBootstrapBanner() {
 // ─────────────────────────────────────────────────────────────────────────────
 // KPI components
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Supply Breakdown — explains "where is the ZBX?" so users see that
+// circulating × price = market cap is the correct math.
+// ─────────────────────────────────────────────────────────────────────────────
+function SupplyBreakdownCard({ supply, priceUsd, poolUninit }: {
+  supply: SupplyInfo; priceUsd: number; poolUninit: boolean;
+}) {
+  const toZbx = (w?: string) => parseFloat(weiHexToZbx(w ?? "0").replace(/,/g, "")) || 0;
+  const minted = toZbx(supply.minted_wei);
+  const premine = toZbx(supply.premine_wei);
+  const poolSeed = toZbx(supply.pool_seed_wei);
+  const poolReserve = toZbx(supply.pool_reserve_wei);
+  const burned = toZbx(supply.burned_wei);
+  const circulating = toZbx(supply.circulating_wei);
+  const max = toZbx(supply.max_wei);
+
+  // Bucket: pool reserve (current, dynamic) + treasury (everything outside the pool).
+  // poolReserve == poolSeed at genesis; diverges once swaps execute.
+  const treasuryAndUsers = Math.max(0, circulating - poolReserve);
+  const remainingMint = Math.max(0, max - circulating - burned);
+
+  const buckets = [
+    { label: "AMM Pool reserve",          zbx: poolReserve,        color: "bg-cyan-500",    note: "locked LP, drives price" },
+    { label: "Treasury + validators + users", zbx: treasuryAndUsers, color: "bg-violet-500",  note: "block rewards + premine" },
+    { label: "Burned (forever)",          zbx: burned,             color: "bg-red-500",     note: "removed from supply" },
+    { label: "Yet to mint",               zbx: remainingMint,      color: "bg-zinc-700",    note: `up to ${max.toLocaleString()} max cap` },
+  ];
+  const total = buckets.reduce((a, b) => a + b.zbx, 0);
+  const fmtZbx = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(3)}M` : n >= 1_000 ? `${(n / 1_000).toFixed(2)}K` : n.toFixed(4);
+
+  return (
+    <div className="p-4 rounded-xl border border-border bg-card/60">
+      <div className="flex items-center gap-2 mb-3">
+        <PieChart className="h-4 w-4 text-sky-400" />
+        <span className="text-sm font-semibold">Supply Breakdown</span>
+        <span className="text-[11px] text-muted-foreground">— where every ZBX is right now</span>
+      </div>
+
+      {/* Stacked bar */}
+      <div className="flex h-3 rounded-full overflow-hidden bg-zinc-900 border border-border mb-3">
+        {buckets.map((b, i) => (
+          <div key={i} className={b.color}
+            style={{ width: total > 0 ? `${(b.zbx / total) * 100}%` : "0%" }}
+            title={`${b.label}: ${fmtZbx(b.zbx)} ZBX`} />
+        ))}
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
+        {buckets.map((b, i) => (
+          <div key={i} className="p-2 rounded-md border border-border bg-card">
+            <div className="flex items-center gap-1.5 mb-0.5">
+              <span className={`inline-block h-2 w-2 rounded-full ${b.color}`} />
+              <span className="text-muted-foreground truncate">{b.label}</span>
+            </div>
+            <div className="font-mono font-semibold tabular-nums">{fmtZbx(b.zbx)} ZBX</div>
+            <div className="text-[10px] text-muted-foreground truncate">{b.note}</div>
+            {priceUsd > 0 && b.zbx > 0 && (
+              <div className="text-[10px] text-emerald-400 mt-0.5">≈ {fmtUsd(b.zbx * priceUsd)}</div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Math footer */}
+      <div className="mt-3 pt-3 border-t border-border text-[11px] text-muted-foreground space-y-0.5 font-mono">
+        <div>circulating = minted ({fmtZbx(minted)}) + premine ({fmtZbx(premine)}) + pool_seed ({fmtZbx(poolSeed)}) − burned ({fmtZbx(burned)}) = <span className="text-foreground font-semibold">{fmtZbx(circulating)} ZBX</span></div>
+        {priceUsd > 0 && (
+          <div>market_cap = {fmtZbx(circulating)} ZBX × ${formatPrice(priceUsd)} = <span className="text-violet-400 font-semibold">{fmtUsd(circulating * priceUsd)}</span>{poolUninit && " (target)"}</div>
+        )}
+        <div className="text-[10px] opacity-70">Note: Pool TVL ($20M post-seed) counts BOTH ZBX side + zUSD side, so it appears double the ZBX market cap. This is standard AMM accounting.</div>
+      </div>
+    </div>
+  );
+}
+
 function Kpi({ icon: Icon, tone, label, value, sub, flash }: {
   icon: any; tone: string; label: string; value: React.ReactNode; sub?: string; flash?: boolean;
 }) {
@@ -353,6 +444,7 @@ function Kpi({ icon: Icon, tone, label, value, sub, flash }: {
     emerald: "text-emerald-400 bg-emerald-500/10",
     violet: "text-violet-400 bg-violet-500/10",
     amber: "text-amber-400 bg-amber-500/10",
+    sky: "text-sky-400 bg-sky-500/10",
   };
   return (
     <div className={`p-4 rounded-xl border border-border bg-card transition-all ${flash ? "ring-2 ring-emerald-500/40 scale-[1.02]" : ""}`}>
