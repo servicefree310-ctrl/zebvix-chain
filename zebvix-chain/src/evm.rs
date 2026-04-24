@@ -327,7 +327,7 @@ pub struct EvmContext {
 impl EvmContext {
     pub fn zebvix_default(block_number: u64, timestamp: u64, coinbase: Address, base_fee: u128) -> Self {
         Self {
-            chain_id: crate::rpc::CHAIN_ID,
+            chain_id: crate::tokenomics::CHAIN_ID,
             block_number,
             block_timestamp: timestamp,
             block_gas_limit: DEFAULT_BLOCK_GAS_LIMIT,

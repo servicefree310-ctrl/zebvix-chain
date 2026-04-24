@@ -24,7 +24,7 @@
 #![allow(dead_code, clippy::needless_range_loop, clippy::too_many_lines)]
 
 use crate::evm::{
-    bytes_to_u256, create2_address, create_address, keccak256, u256_to_bytes, EvmAccount,
+    create2_address, create_address, keccak256, u256_to_bytes, EvmAccount,
     EvmContext, EvmDb, EvmLog, ExecResult, StateJournal, CALL_DEPTH_LIMIT, KECCAK_EMPTY,
     MAX_CODE_SIZE, MAX_INITCODE_SIZE, STACK_LIMIT,
 };
