@@ -1,0 +1,77 @@
+root@srv1266996:/home/zebvix-chain# sudo bash /home/zebvix-chain/scripts/deploy_pool_genesis_seed.sh
+
+▶ Step 1/6 — Verify constants are correct (20M ZBX + 10M zUSD)
+210:pub const GENESIS_POOL_ZBX_WEI: u128 = 20_000_000u128 * WEI_PER_ZBX;
+216:pub const GENESIS_POOL_ZUSD_LOAN: u128 = 10_000_000u128 * WEI_PER_ZBX;
+✔ Constants OK (20M ZBX + 10M zUSD = $0.50/ZBX)
+
+▶ Step 2/6 — Build release binary with EVM feature
+/home/zebvix-chain/scripts/deploy_pool_genesis_seed.sh: line 73: cargo: command not found
+root@srv1266996:/home/zebvix-chain# source $HOME/.cargo/env 2>/dev/null || source /root/.cargo/env 2>/dev/null; \
+which cargo && cargo --version && \
+bash /home/zebvix-chain/scripts/deploy_pool_genesis_seed.sh
+/root/.cargo/bin/cargo
+cargo 1.95.0 (f2d3ce0bd 2026-03-21)
+
+▶ Step 1/6 — Verify constants are correct (20M ZBX + 10M zUSD)
+210:pub const GENESIS_POOL_ZBX_WEI: u128 = 20_000_000u128 * WEI_PER_ZBX;
+216:pub const GENESIS_POOL_ZUSD_LOAN: u128 = 10_000_000u128 * WEI_PER_ZBX;
+✔ Constants OK (20M ZBX + 10M zUSD = $0.50/ZBX)
+
+▶ Step 2/6 — Build release binary with EVM feature
+   Compiling zebvix-node v0.1.0 (/home/zebvix-chain)
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:393:4
+    |
+393 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 1m 36s
+✔ Build complete
+
+▶ Step 3/6 — Stop running chain service (required for RocksDB lock during seed)
+
+▶ Step 4/6 — Preserving existing data dir (/home/zebvix-chain/.zebvix) — no --reset flag
+✔ Skipping wipe; pool will seed on top of existing state
+
+▶ Step 5/6 — Install new binary
+✔ Binary installed at /usr/local/bin/zebvix-node
+
+▶ Step 6a — Run admin-pool-genesis (mints 20M ZBX + 10M zUSD into AMM)
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+✅ Pool genesis complete — permissionless AMM is LIVE!
+
+   Pool address  : 0x7a73776170000000000000000000000000000000  ⚠️  no private key — controlled by chain logic
+   Admin address : 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315
+
+   ZBX reserve   : 20000000 ZBX  (minted to pool, not admin)
+   zUSD reserve  : 10000000 zUSD (minted as liquidity loan)
+   Loan to repay : 10000000 zUSD ← will be repaid via 0.3% swap fees
+   LP locked     : 14142135623730950488016887 (held by POOL_ADDRESS, permanent)
+
+   Spot price    : 1 ZBX = $0.500000
+
+   ┌─ How users swap ─────────────────────────────────────┐
+   │  Send ZBX → 0x7a73776170000000000000000000000000000000  │
+   │  → auto-swapped to zUSD, returned to your wallet     │
+   └──────────────────────────────────────────────────────┘
+
+▶ Step 6b — Restart chain service
+✔ Service running
+
+▶ Verification — query live RPC
+  File "<string>", line 1
+    import json,sys; r=json.load(sys.stdin)["result"]; print(f"  initialized      : {r[\"initialized\"]}\n  zbx_reserve_wei  : {r[\"zbx_reserve_wei\"]}\n  zusd_reserve     : {r[\"zusd_reserve\"]}\n  spot_price_usd   : {r[\"spot_price_usd_per_zbx\"]}\n  loan_outstanding : {r[\"loan_outstanding_zusd\"]}")
+                                                                                        ^
+SyntaxError: unexpected character after line continuation character
+root@srv1266996:/home/zebvix-chain# 

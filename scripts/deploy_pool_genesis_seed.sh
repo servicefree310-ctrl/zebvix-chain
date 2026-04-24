@@ -122,9 +122,15 @@ sleep 4
 systemctl is-active --quiet "$SERVICE" && ok "Service running"
 
 say "Verification — query live RPC"
-curl -s http://127.0.0.1:8545 \
+RAW=$(curl -s http://127.0.0.1:8545 \
   -H 'content-type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"zbx_getPool","params":[]}' \
-  | python3 -c 'import json,sys; r=json.load(sys.stdin)["result"]; print(f"  initialized      : {r[\"initialized\"]}\n  zbx_reserve_wei  : {r[\"zbx_reserve_wei\"]}\n  zusd_reserve     : {r[\"zusd_reserve\"]}\n  spot_price_usd   : {r[\"spot_price_usd_per_zbx\"]}\n  loan_outstanding : {r[\"loan_outstanding_zusd\"]}")'
+  -d '{"jsonrpc":"2.0","id":1,"method":"zbx_getPool","params":[]}')
+if command -v jq >/dev/null 2>&1; then
+  echo "$RAW" | jq -r '.result | "  initialized      : \(.initialized)\n  zbx_reserve_wei  : \(.zbx_reserve_wei)\n  zusd_reserve     : \(.zusd_reserve)\n  spot_price_usd   : \(.spot_price_usd_per_zbx)\n  loan_outstanding : \(.loan_outstanding_zusd)"'
+else
+  # Fallback: dump raw JSON if jq is missing.
+  echo "$RAW"
+  warn "jq not installed — install with: apt-get install -y jq"
+fi
 
 ok "Pool seed deploy complete — dashboard will switch from BOOTSTRAP PENDING to LIVE within 5s."
