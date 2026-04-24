@@ -53,6 +53,53 @@ Standalone Rust crate building Zebvix L1 — token ZBX, chain-id 7878, EVM-style
 - `src/crypto.rs` — `sign_tx`, `verify_tx`, `tx_hash`, `tx_signing_bytes` (low-level). `transaction.rs` wraps these as inherent methods.
 - `src/mempool.rs`, `src/state.rs`, `src/rpc.rs`, `src/consensus.rs` — consume `SignedTx` via the existing `crate::types::*` import path; no churn needed.
 
+### Phase B.11.1 — AMM pool genesis seed: $0.50 / ZBX opening (Apr 24, 2026) ✅ chain code; VPS deploy pending
+
+**Problem**: VPS pe `zbx_getPool` returns `initialized=false`; `zbx_getPriceUSD` returns
+`{"source":"uninitialized","zbx_usd":"0.000000"}` → home dashboard price card was blank,
+swap calls rejected with "pool not yet initialized". Root cause: `pool_init_genesis()`
+is wired ONLY behind admin CLI command `zbx admin pool-genesis`
+(`main.rs:cmd_admin_pool_genesis` → `state.rs:pool_init_genesis`); admin never ran it on
+the live VPS, so pool stayed empty.
+
+**Fix in chain code** (`zebvix-chain/src/tokenomics.rs:199-219`):
+- `GENESIS_POOL_ZBX_WEI`: 10M → **20M ZBX**
+- `GENESIS_POOL_ZUSD_LOAN`: stays 10M zUSD
+- Implied opening spot: `10M / 20M = $0.50 per ZBX`
+- Implied FDV @ launch: `150M ZBX × $0.50 = $75M`
+- Doc comments updated in `state.rs:pool_init_genesis`, `rpc.rs:zbx_supply` to reference
+  the new seed.
+
+**Dashboard work** (Replit side, fully shipped):
+- New page `/pool-explorer` (`pages/pool-explorer.tsx`) — registered in `App.tsx`, added
+  to LIVE_NAV in `sidebar.tsx`. Shows live `zbx_getPool` + `zbx_poolStats` + `zbx_recentSwaps`,
+  handles uninitialized state with prominent "BOOTSTRAP REQUIRED" banner including the VPS
+  run-book (rebuild → reset data → `zbx admin pool-genesis`). Once pool is live, shows
+  reserves/k-invariant/loan repayment progress/quote calculator/recent swaps.
+- `home.tsx` updated: detects `pool.initialized === false` (or `price.source === "uninitialized"`)
+  and shows amber "Pool Bootstrap Pending" banner + replaces blank `$0` price with
+  `$0.50* (target)` so users see future valuation. Market Cap / FDV tiles re-labeled as
+  `(target)` while uninitialized.
+- Quick Access grid: new "Pool / AMM" tile linking to `/pool-explorer`.
+
+**Deploy script** (`scripts/deploy_pool_genesis_seed.sh`): one-shot bash for VPS root that
+verifies constants, builds release binary, backs up + resets data dir (genesis change is
+incompatible with existing chain state), installs binary, restarts service, runs
+`zbx admin pool-genesis`, and verifies via local `zbx_getPool`. Destructive — wipes all
+existing accounts/validators/history. Until this script runs on VPS, pool stays uninitialized
+and dashboard keeps showing the bootstrap-pending UX.
+
+**Verification path post-deploy**:
+```bash
+curl -s http://93.127.213.192:8545 -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"zbx_getPool","params":[]}' | jq '.result | {initialized, zbx_reserve_wei, zusd_reserve, spot_price_usd_per_zbx}'
+# Expected:
+#   initialized: true
+#   zbx_reserve_wei: "20000000000000000000000000"
+#   zusd_reserve:    "10000000000000000000000000"
+#   spot_price_usd_per_zbx: "0.500000"
+```
+
 ### Phase B.10 — Advanced on-chain Buy/Sell (Apr 24, 2026) ✅ (Replit-side; VPS deploy pending)
 
 Promotes the AMM swap from an admin-only CLI path to a first-class user transaction with on-chain slippage protection — the explicit "Buy ZBX / Sell ZBX" flow.

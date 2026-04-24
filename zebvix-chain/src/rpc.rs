@@ -283,10 +283,12 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
             let burn_addr = crate::state::burn_address();
             let burned = ctx.state.account(&burn_addr).balance;
             // Pool genesis seed: when the admin runs `pool-init-genesis`,
-            // GENESIS_POOL_ZBX_WEI (10M ZBX) is minted DIRECTLY into the AMM
-            // pool reserves. This mint is NOT counted by `cumulative_supply()`
-            // (which tracks block rewards only), so we add it back here once
-            // the pool is initialized. Before pool init, this is 0.
+            // GENESIS_POOL_ZBX_WEI (20M ZBX, Phase B.11.1) is minted DIRECTLY
+            // into the AMM pool reserves alongside 10M zUSD loan, giving an
+            // opening spot price of $0.50 / ZBX. This mint is NOT counted by
+            // `cumulative_supply()` (which tracks block rewards only), so we
+            // add it back here once the pool is initialized. Before pool
+            // init, this is 0.
             let pool = ctx.state.pool();
             let pool_seed = if pool.is_initialized() {
                 crate::tokenomics::GENESIS_POOL_ZBX_WEI

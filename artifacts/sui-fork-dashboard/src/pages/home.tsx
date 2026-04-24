@@ -15,6 +15,12 @@ interface BlockInfo {
   hash: string; height: number; proposer: string; timestamp_ms: number; tx_count: number;
 }
 interface PriceInfo { zbx_usd: string; source: string; }
+interface PoolMini {
+  initialized: boolean;
+  zbx_reserve_wei?: string;
+  zusd_reserve?: string;
+  spot_price_usd_per_zbx?: string;
+}
 interface SupplyInfo {
   height: number; minted_wei: string; max_wei: string;
   burned_wei?: string; premine_wei?: string;
@@ -41,6 +47,7 @@ export default function Home() {
   const [fee, setFee] = useState<FeeBounds | null>(null);
   const [evmChainHex, setEvmChainHex] = useState<string | null>(null);
   const [evmGasPriceHex, setEvmGasPriceHex] = useState<string | null>(null);
+  const [poolMini, setPoolMini] = useState<PoolMini | null>(null);
   const [msCount, setMsCount] = useState<number | null>(null);
   const [payIdCount, setPayIdCount] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -91,7 +98,8 @@ export default function Home() {
           rpc<{ total: number }>("zbx_payIdCount").catch(() => null),
           rpc<string>("eth_chainId").catch(() => null),
           rpc<string>("eth_gasPrice").catch(() => null),
-        ]).then(([pr, sup, va, fb, ms, pid, ec, eg]) => {
+          rpc<PoolMini>("zbx_getPool").catch(() => null),
+        ]).then(([pr, sup, va, fb, ms, pid, ec, eg, pm]) => {
           if (!mounted) return;
           if (pr) setPrice(pr);
           if (sup) setSupply(sup);
@@ -101,6 +109,7 @@ export default function Home() {
           if (pid) setPayIdCount(pid.total);
           if (ec) setEvmChainHex(ec);
           if (eg) setEvmGasPriceHex(eg);
+          if (pm) setPoolMini(pm);
         });
       } catch (e) {
         if (mounted) setErr(e instanceof Error ? e.message : String(e));
@@ -115,15 +124,22 @@ export default function Home() {
   }, []);
 
   const priceNum = price ? parseFloat(price.zbx_usd) : 0;
+  const poolUninit = poolMini ? !poolMini.initialized : (price?.source === "uninitialized");
+  // When the AMM pool isn't seeded yet, the on-chain oracle returns $0.
+  // For valuation tiles we project against the LAUNCH-TARGET price ($0.50)
+  // so users see what the chain will be worth post-bootstrap, clearly
+  // labeled as a target.
+  const TARGET_LAUNCH_PRICE_USD = 0.5;
+  const effectivePrice = priceNum > 0 ? priceNum : (poolUninit ? TARGET_LAUNCH_PRICE_USD : 0);
   const circulating = supply?.circulating_wei ?? "0";
-  const marketCap = priceNum && supply ? weiToUsd(circulating, priceNum) : 0;
-  const fdvCap = priceNum && supply ? weiToUsd(supply.max_wei, priceNum) : 0;
+  const marketCap = effectivePrice && supply ? weiToUsd(circulating, effectivePrice) : 0;
+  const fdvCap = effectivePrice && supply ? weiToUsd(supply.max_wei, effectivePrice) : 0;
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <Hero tip={tip} flash={flash} err={err} loading={loading} price={price}
         validatorCount={vals?.validators?.length ?? 0}
-        evmChainHex={evmChainHex} />
+        evmChainHex={evmChainHex} poolUninit={poolUninit} />
 
       {err && (
         <div className="p-4 rounded-xl border border-red-500/40 bg-red-500/5 text-sm flex gap-2 backdrop-blur">
@@ -138,6 +154,9 @@ export default function Home() {
         </div>
       )}
 
+      {/* POOL BOOTSTRAP BANNER — only when pool is uninitialized */}
+      {poolUninit && <PoolBootstrapBanner />}
+
       {/* PHASE STATUS BANNER */}
       <PhaseBanner />
 
@@ -147,12 +166,12 @@ export default function Home() {
           value={tip ? `#${tip.height.toLocaleString()}` : "—"}
           sub={tip ? `proposer ${shortAddr(tip.proposer, 4, 4)}` : "loading"} flash={flash} />
         <Kpi icon={TrendingUp} tone="emerald" label="ZBX Price"
-          value={price ? `$${formatPrice(parseFloat(price.zbx_usd))}` : "—"}
-          sub={price?.source ?? ""} />
-        <Kpi icon={Coins} tone="violet" label="Market Cap"
+          value={priceNum > 0 ? `$${formatPrice(priceNum)}` : (poolUninit ? `$${TARGET_LAUNCH_PRICE_USD.toFixed(2)}*` : "—")}
+          sub={priceNum > 0 ? (price?.source ?? "") : (poolUninit ? "* target — pool not seeded yet" : "")} />
+        <Kpi icon={Coins} tone="violet" label={poolUninit ? "Market Cap (target)" : "Market Cap"}
           value={marketCap ? fmtUsd(marketCap) : "—"}
           sub={supply ? `circ ${weiHexToZbx(circulating)} ZBX` : ""} />
-        <Kpi icon={Layers} tone="amber" label="FDV"
+        <Kpi icon={Layers} tone="amber" label={poolUninit ? "FDV (target)" : "FDV"}
           value={fdvCap ? fmtUsd(fdvCap) : "—"}
           sub={supply ? `max ${weiHexToZbx(supply.max_wei)}` : ""} />
       </div>
@@ -192,10 +211,11 @@ export default function Home() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Hero
 // ─────────────────────────────────────────────────────────────────────────────
-function Hero({ tip, flash, err, loading, price, validatorCount, evmChainHex }: {
+function Hero({ tip, flash, err, loading, price, validatorCount, evmChainHex, poolUninit }: {
   tip: BlockInfo | null; flash: boolean; err: string | null; loading: boolean;
-  price: PriceInfo | null; validatorCount: number; evmChainHex: string | null;
+  price: PriceInfo | null; validatorCount: number; evmChainHex: string | null; poolUninit: boolean;
 }) {
+  const priceNum = price ? parseFloat(price.zbx_usd) : 0;
   return (
     <div className="relative overflow-hidden rounded-2xl border border-border bg-gradient-to-br from-primary/15 via-violet-500/5 to-cyan-500/10 p-6">
       <div className="absolute inset-0 opacity-40 pointer-events-none" style={{
@@ -241,11 +261,16 @@ function Hero({ tip, flash, err, loading, price, validatorCount, evmChainHex }: 
             {tip ? `#${tip.height.toLocaleString()}` : "—"}
           </div>
           <div className="text-xs text-muted-foreground">current block · {evmChainHex ?? "—"}</div>
-          {price && (
+          {priceNum > 0 ? (
             <div className="text-xl font-semibold tabular-nums mt-2">
-              ${formatPrice(parseFloat(price.zbx_usd))}<span className="text-xs text-muted-foreground ml-1.5">/ ZBX</span>
+              ${formatPrice(priceNum)}<span className="text-xs text-muted-foreground ml-1.5">/ ZBX</span>
             </div>
-          )}
+          ) : poolUninit ? (
+            <div className="text-xs text-amber-300 mt-2 text-right max-w-[180px]">
+              <span className="font-bold">Pool bootstrap pending</span><br />
+              <span className="text-amber-400/70">target: $0.50 / ZBX</span>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -285,6 +310,34 @@ function PhaseBanner() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pool bootstrap banner — only renders when pool is uninitialized on the chain
+// ─────────────────────────────────────────────────────────────────────────────
+function PoolBootstrapBanner() {
+  return (
+    <div className="rounded-xl border-2 border-amber-500/50 bg-gradient-to-br from-amber-500/10 to-orange-500/10 p-4 flex items-start gap-3">
+      <Droplets className="h-5 w-5 text-amber-400 mt-0.5 shrink-0 animate-pulse" />
+      <div className="flex-1 space-y-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm font-bold text-amber-100">Pool Bootstrap Pending</span>
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+            ADMIN ACTION REQUIRED
+          </span>
+        </div>
+        <p className="text-xs text-amber-200/80 leading-relaxed">
+          AMM pool VPS pe initialize nahi hua — isiliye on-chain price <code className="px-1 py-0.5 bg-amber-950/40 rounded text-amber-300">$0.000000</code> aa
+          raha hai aur swap calls reject ho rahe hain. Chain code update ho gaya hai (target seed: <strong>20M ZBX + 10M zUSD = $0.50/ZBX</strong>); admin ko VPS pe rebuild + <code className="px-1 py-0.5 bg-amber-950/40 rounded text-amber-300">zbx admin pool-genesis</code> run karna hoga.
+        </p>
+      </div>
+      <Link href="/pool-explorer">
+        <span className="px-3 py-1.5 rounded-md border border-amber-500/40 hover:bg-amber-500/10 text-xs flex items-center gap-1.5 text-amber-200 cursor-pointer shrink-0">
+          Open run-book <ExternalLink className="h-3 w-3" />
+        </span>
+      </Link>
     </div>
   );
 }
@@ -380,6 +433,7 @@ function QuickAccessGrid() {
   const items = [
     { href: "/live-chain", icon: Activity, title: "Live Chain", desc: "Real-time telemetry, blocks, validators, economy", tone: "emerald" },
     { href: "/evm-explorer", icon: Cpu, title: "EVM Explorer", desc: "Phase C.2 native eth_* RPC playground", tone: "violet" },
+    { href: "/pool-explorer", icon: Droplets, title: "Pool / AMM", desc: "ZBX/zUSD reserves, spot, loan, swaps", tone: "cyan" },
     { href: "/block-explorer", icon: Search, title: "Block Explorer", desc: "Browse blocks, txs, addresses", tone: "cyan" },
     { href: "/wallet", icon: Wallet, title: "ZBX Wallet", desc: "Web wallet — send, receive, sign", tone: "amber" },
     { href: "/swap", icon: ArrowUpDown, title: "Swap", desc: "AMM ZBX/zUSD trading", tone: "emerald" },

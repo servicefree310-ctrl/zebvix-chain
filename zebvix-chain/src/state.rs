@@ -2103,9 +2103,13 @@ impl State {
         Ok(())
     }
 
-    /// **Genesis pool init** — mints 10M ZBX + 10M zUSD directly into pool reserves.
-    /// No admin debit. LP tokens are locked permanently to POOL_ADDRESS (nobody can withdraw).
-    /// Sets `loan_outstanding = 10M zUSD` to be repaid via swap fees.
+    /// **Genesis pool init** — mints `GENESIS_POOL_ZBX_WEI` (20M ZBX) +
+    /// `GENESIS_POOL_ZUSD_LOAN` (10M zUSD) directly into pool reserves.
+    /// Opening spot = 10M / 20M = **$0.50 per ZBX** (Phase B.11.1).
+    /// No admin debit. LP tokens are locked permanently to POOL_ADDRESS
+    /// (nobody can withdraw). Sets `loan_outstanding = 10M zUSD` to be
+    /// repaid via swap fees; once repaid, future fees split 50/50 between
+    /// admin payout and pool reinvestment.
     pub fn pool_init_genesis(&self) -> Result<u128> {
         let mut p = self.pool();
         if p.is_initialized() {

@@ -194,14 +194,25 @@ pub const POOL_ADDRESS_HEX: &str = "0x7a73776170000000000000000000000000000000";
 pub const BRIDGE_LOCK_ADDRESS_HEX: &str = "0x7a62726467000000000000000000000000000000";
 
 // ───────── Genesis pool seed (minted at first pool init) ─────────
+//
+// Phase B.11.1 (2026-04-24) — opening price set to **$0.50 / ZBX**.
+// Doubled the ZBX side of the pool from 10M → 20M while keeping the
+// zUSD loan at 10M. By constant-product invariant, opening spot is:
+//
+//      price = zusd_reserve / zbx_reserve = 10M / 20M = 0.5 USDT per ZBX
+//
+// This gives the chain a clearly defined launch valuation
+// (FDV = 150M ZBX × $0.50 = $75M target) while still keeping the loan
+// repayable from organic swap volume.
 
-/// 10M ZBX minted directly INTO the pool's ZBX reserve at pool genesis.
+/// 20M ZBX minted directly INTO the pool's ZBX reserve at pool genesis.
 /// Admin does NOT receive these tokens — they are pool-owned permanent liquidity.
-pub const GENESIS_POOL_ZBX_WEI: u128 = 10_000_000u128 * WEI_PER_ZBX;
+pub const GENESIS_POOL_ZBX_WEI: u128 = 20_000_000u128 * WEI_PER_ZBX;
 
 /// 10M zUSD minted into the pool's zUSD reserve as a "liquidity loan".
 /// The loan balance decreases as swap fees accumulate; once fully repaid,
 /// future fees split 50/50 between admin payout and pool liquidity.
+/// 10M zUSD ÷ 20M ZBX → opening spot price = $0.50 / ZBX.
 pub const GENESIS_POOL_ZUSD_LOAN: u128 = 10_000_000u128 * WEI_PER_ZBX;
 
 /// Pool fee in basis-points-of-input (0.30%).

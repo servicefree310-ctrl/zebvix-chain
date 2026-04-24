@@ -135,7 +135,9 @@ enum Cmd {
         amount: String,
     },
     /// Admin: initialize the AMM pool with **genesis liquidity** (node must be stopped).
-    /// Mints 10M ZBX + 10M zUSD directly into pool reserves (no admin debit).
+    /// Mints `GENESIS_POOL_ZBX_WEI` (20M ZBX) + `GENESIS_POOL_ZUSD_LOAN` (10M zUSD)
+    /// directly into pool reserves (no admin debit). Opening spot price = $0.50 per ZBX
+    /// (Phase B.11.1 — see tokenomics.rs).
     /// LP tokens are locked permanently to POOL_ADDRESS — nobody can withdraw.
     /// The 10M zUSD is a "loan" repaid via accumulated swap fees.
     AdminPoolGenesis {
