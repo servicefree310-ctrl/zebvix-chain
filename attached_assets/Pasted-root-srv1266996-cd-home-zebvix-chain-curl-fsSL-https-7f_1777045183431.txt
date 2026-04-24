@@ -1,0 +1,45 @@
+root@srv1266996:~# cd /home/zebvix-chain && \
+curl -fsSL "https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/api/download/newchain" -o newchain.tgz && \
+ls -la newchain.tgz
+-rw-r--r-- 1 root root 188241 Apr 24 15:38 newchain.tgz
+root@srv1266996:/home/zebvix-chain# cd /home/zebvix-chain
+# 1) backup current source (safe)
+tar -czf /root/zebvix-chain-backup-$(date +%Y%m%d-%H%M%S).tgz \
+  --exclude=target --exclude=.git src Cargo.toml
+# 2) latest code download (fresh tarball, includes Phase D)
+curl -fsSL "https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/api/download/newchain" \
+  -o newchain.tgz
+ls -la newchain.tgz
+# 3) verify Phase D files inside before extracting
+tar -tzf newchain.tgz | grep -E 'proposal\.rs|state\.rs|rpc\.rs|main\.rs' | head
+# 4) extract OVER current source (target/ aur .git preserve hote hain — tarball mein hain hi nahi)
+tar -xzf newchain.tgz
+# 5) rebuild release with EVM feature
+cargo build --release --features evm 2>&1 | tail -30
+# 6) restart node service
+systemctl restart zebvix-node      # ya jo bhi unit name hai
+sleep 3
+systemctl status zebvix-node --no-pager | head -20
+# 7) sanity check — naye RPC methods live hain
+curl -s -X POST http://127.0.0.1:8545 -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"zbx_proposalsList","params":[]}' | head
+-rw-r--r-- 1 root root 188241 Apr 24 15:39 newchain.tgz
+zebvix-chain/src/evm_state.rs
+zebvix-chain/src/evm_rpc.rs
+zebvix-chain/src/main.rs
+zebvix-chain/src/proposal.rs
+zebvix-chain/src/rpc.rs
+zebvix-chain/src/state.rs
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:393:4
+    |
+393 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 0.61s
+Failed to restart zebvix-node.service: Unit zebvix-node.service not found.
+Unit zebvix-node.service could not be found.
+{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"method not found: zbx_proposalsList"}}root@srv1266996:/home/zebvix-chain# 
