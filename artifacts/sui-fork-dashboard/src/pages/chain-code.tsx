@@ -37,6 +37,7 @@ interface FileResp {
 
 function fileIcon(name: string) {
   if (name.endsWith(".rs")) return <FileCode2 className="h-3.5 w-3.5 text-orange-400" />;
+  if (name.endsWith(".sol")) return <FileCode2 className="h-3.5 w-3.5 text-purple-400" />;
   if (name.endsWith(".toml")) return <FileText className="h-3.5 w-3.5 text-yellow-400" />;
   if (name.endsWith(".json")) return <FileJson className="h-3.5 w-3.5 text-blue-400" />;
   if (name.endsWith(".md")) return <FileText className="h-3.5 w-3.5 text-emerald-400" />;

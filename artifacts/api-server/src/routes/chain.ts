@@ -8,6 +8,7 @@ const CHAIN_ROOT = "/home/runner/workspace/zebvix-chain";
 
 const ALLOWED_EXT = new Set([
   ".rs",
+  ".sol",
   ".toml",
   ".md",
   ".lock",
