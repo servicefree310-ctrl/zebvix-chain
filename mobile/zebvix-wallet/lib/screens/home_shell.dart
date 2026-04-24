@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../theme.dart';
 import 'wallet_tab.dart';
 import 'swap_tab.dart';
+import 'history_screen.dart';
 import 'multisig_tab.dart';
 import 'connect_tab.dart';
 import 'settings_screen.dart';
@@ -16,6 +17,7 @@ class _HomeShellState extends State<HomeShell> {
   int idx = 0;
   late final pages = const [
     WalletTab(),
+    HistoryScreen(),
     SwapTab(),
     MultisigTab(),
     ConnectTab(),
@@ -23,6 +25,7 @@ class _HomeShellState extends State<HomeShell> {
   ];
   static const items = [
     (Icons.account_balance_wallet, 'Wallet'),
+    (Icons.receipt_long, 'History'),
     (Icons.swap_vert, 'Swap'),
     (Icons.shield_outlined, 'Multisig'),
     (Icons.qr_code_scanner, 'Connect'),

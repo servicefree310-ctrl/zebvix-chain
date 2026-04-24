@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -5,6 +6,61 @@ import '../services/rpc.dart';
 import '../services/wallet_service.dart';
 import '../services/pairing_service.dart';
 import '../utils/format.dart';
+
+/// One on-device transaction history entry. Persisted as JSON.
+enum TxStatus { pending, success, failed, invalid }
+
+class TxRecord {
+  final String? hash;     // null until/unless RPC accepted
+  final String from;
+  final String to;
+  final String kind;      // 'transfer' / 'swap' / 'multisig' …
+  final double amountZbx;
+  final double feeZbx;
+  final int timestampMs;
+  TxStatus status;
+  String? error;
+
+  TxRecord({
+    required this.from,
+    required this.to,
+    required this.kind,
+    required this.amountZbx,
+    required this.feeZbx,
+    required this.timestampMs,
+    required this.status,
+    this.hash,
+    this.error,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'hash': hash,
+        'from': from,
+        'to': to,
+        'kind': kind,
+        'amount': amountZbx,
+        'fee': feeZbx,
+        'ts': timestampMs,
+        'status': status.name,
+        'error': error,
+      };
+
+  static TxRecord fromJson(Map<String, dynamic> j) => TxRecord(
+        hash: j['hash'] as String?,
+        from: (j['from'] ?? '') as String,
+        to: (j['to'] ?? '') as String,
+        kind: (j['kind'] ?? 'transfer') as String,
+        amountZbx: (j['amount'] as num?)?.toDouble() ?? 0,
+        feeZbx: (j['fee'] as num?)?.toDouble() ?? 0,
+        timestampMs: (j['ts'] as num?)?.toInt() ??
+            DateTime.now().millisecondsSinceEpoch,
+        status: TxStatus.values.firstWhere(
+          (s) => s.name == j['status'],
+          orElse: () => TxStatus.pending,
+        ),
+        error: j['error'] as String?,
+      );
+}
 
 class BalanceSnapshot {
   final double liquidZbx;
@@ -42,6 +98,8 @@ class AppState extends ChangeNotifier {
   static const _kRpc = 'cfg.rpc';
   static const _kRelay = 'cfg.relay';
   static const _kBio = 'cfg.bio';
+  static const _kTxHist = 'tx.history.v1';
+  static const _kMaxHist = 200;
 
   String rpcEndpoint = 'http://93.127.213.192:8545';
   String relayBase =
@@ -60,6 +118,9 @@ class AppState extends ChangeNotifier {
 
   BalanceSnapshot balance = BalanceSnapshot.empty();
   int blockHeight = 0;
+
+  /// On-device tx log (newest first). Persisted to SharedPreferences.
+  List<TxRecord> txHistory = [];
 
   ZebvixWallet? get activeWallet {
     if (address == null) return null;
@@ -90,6 +151,7 @@ class AppState extends ChangeNotifier {
     if (wallets.isNotEmpty) {
       address = active ?? wallets.first.address;
     }
+    await _loadHistory();
     bootstrapped = true;
     notifyListeners();
     if (address != null) refresh();
@@ -194,6 +256,45 @@ class AppState extends ChangeNotifier {
 
   Future<ZebvixWallet?> currentWallet() => wallet.load();
 
+  // ── Tx history persistence ─────────────────────────────────────────────
+  Future<void> _loadHistory() async {
+    final p = await SharedPreferences.getInstance();
+    final s = p.getString(_kTxHist);
+    if (s == null || s.isEmpty) return;
+    try {
+      final list = (jsonDecode(s) as List)
+          .whereType<Map<String, dynamic>>()
+          .map(TxRecord.fromJson)
+          .toList();
+      txHistory = list;
+    } catch (_) {/* ignore corrupted entries */}
+  }
+
+  Future<void> _saveHistory() async {
+    final p = await SharedPreferences.getInstance();
+    final clipped = txHistory.length > _kMaxHist
+        ? txHistory.sublist(0, _kMaxHist)
+        : txHistory;
+    await p.setString(
+        _kTxHist, jsonEncode(clipped.map((r) => r.toJson()).toList()));
+  }
+
+  Future<void> _recordTx(TxRecord r) async {
+    txHistory.insert(0, r);
+    if (txHistory.length > _kMaxHist) {
+      txHistory = txHistory.sublist(0, _kMaxHist);
+    }
+    notifyListeners();
+    await _saveHistory();
+  }
+
+  Future<void> clearHistory() async {
+    txHistory = [];
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.remove(_kTxHist);
+  }
+
   // ── Balance refresh ────────────────────────────────────────────────────
   Future<void> refresh() async {
     if (address == null) return;
@@ -260,18 +361,49 @@ class AppState extends ChangeNotifier {
   }) async {
     final w = activeWallet ?? await wallet.load();
     if (w == null) throw Exception('no wallet');
-    final hexTx = wallet.signTransferRaw(
-      from: w.address,
-      to: to,
-      amountWei: zbxToWei(amountZbx),
-      nonce: balance.nonce,
-      feeWei: zbxToWei(feeZbx),
-      chainId: 7878,
-      seed: w.privateKey,
-    );
-    final res = await rpc.sendRawHex(hexTx);
-    refresh();
-    return res?.toString() ?? '';
+    final ts = DateTime.now().millisecondsSinceEpoch;
+
+    // Local validation — record an "invalid" entry instead of broadcasting
+    // garbage to the chain.
+    final addrOk = RegExp(r'^0x[0-9a-fA-F]{40}$').hasMatch(to);
+    if (!addrOk || amountZbx <= 0) {
+      await _recordTx(TxRecord(
+        from: w.address, to: to, kind: 'transfer',
+        amountZbx: amountZbx, feeZbx: feeZbx,
+        timestampMs: ts, status: TxStatus.invalid,
+        error: !addrOk ? 'invalid address' : 'amount must be > 0',
+      ));
+      throw Exception(!addrOk ? 'invalid address' : 'amount must be > 0');
+    }
+
+    try {
+      final hexTx = wallet.signTransferRaw(
+        from: w.address,
+        to: to,
+        amountWei: zbxToWei(amountZbx),
+        nonce: balance.nonce,
+        feeWei: zbxToWei(feeZbx),
+        chainId: 7878,
+        seed: w.privateKey,
+      );
+      final res = await rpc.sendRawHex(hexTx);
+      final hash = res?.toString() ?? '';
+      await _recordTx(TxRecord(
+        from: w.address, to: to, kind: 'transfer',
+        amountZbx: amountZbx, feeZbx: feeZbx,
+        timestampMs: ts, status: TxStatus.success, hash: hash,
+      ));
+      refresh();
+      return hash;
+    } catch (e) {
+      await _recordTx(TxRecord(
+        from: w.address, to: to, kind: 'transfer',
+        amountZbx: amountZbx, feeZbx: feeZbx,
+        timestampMs: ts, status: TxStatus.failed,
+        error: e.toString(),
+      ));
+      rethrow;
+    }
   }
 
   Future<String> swapZbxToZusd({required double amountZbx}) async {
