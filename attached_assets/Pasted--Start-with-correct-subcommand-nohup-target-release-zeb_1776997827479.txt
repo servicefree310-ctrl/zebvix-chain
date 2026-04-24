@@ -1,0 +1,32 @@
+
+# Start with correct subcommand
+nohup ./target/release/zebvix-node start --rpc 0.0.0.0:8545 > /tmp/zebvix.log 2>&1 &
+sleep 4
+tail -30 /tmp/zebvix.log
+
+# Block number badh raha hai check
+curl -s http://127.0.0.1:8545 -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"zbx_blockNumber","params":[]}'
+
+# Naya RPC method registered hai test
+curl -s http://127.0.0.1:8545 -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"zbx_sendRawTransaction","params":["00"]}'
+total 20
+drwxr-xr-x  3 root   root   4096 Apr 22 14:20 .
+drwxr-xr-x 23 ubuntu ubuntu 4096 Apr 23 18:00 ..
+drwxr-xr-x  2 root   root   4096 Apr 23 04:18 data
+-rw-r--r--  1 root   root    277 Apr 22 14:20 genesis.json
+-rw-r--r--  1 root   root     62 Apr 22 14:20 node.json
+default dir mil gaya
+[1] 3921483
+[1]+  Exit 1                  nohup ./target/release/zebvix-node start --rpc 0.0.0.0:8545 > /tmp/zebvix.log 2>&1
+nohup: ignoring input
+2026-04-24T02:29:53.811333Z  INFO zebvix_node: 🚀 Zebvix node starting
+2026-04-24T02:29:53.811354Z  INFO zebvix_node:    chain_id  : 7878
+2026-04-24T02:29:53.811358Z  INFO zebvix_node:    proposer  : 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+2026-04-24T02:29:53.811386Z  INFO zebvix_node:    tip       : height=2212 hash=0x4705724d5127bf99d0d4210a0dbe6fe32cfd4a1369dbf6351816ea383822c517
+2026-04-24T02:29:53.811390Z  INFO zebvix_node:    rpc       : http://0.0.0.0:8545
+2026-04-24T02:29:53.811872Z  INFO zebvix_node:    p2p       : tcp/30333  peer_id=12D3KooWAvw3Z9fjn4CFXWYvNAG4HKfmJsXdzRoMp7FBV3CPFsgD
+2026-04-24T02:29:53.812096Z  INFO zebvix_node::consensus: ⛏  producer started: my_address=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc, mode=ROUND_ROBIN+TIMEOUTS (B.3.2.2) pacing=5s propose_timeout=8s tick=500ms
+Error: Address already in use (os error 98)
+{"jsonrpc":"2.0","id":1,"result":{"hash":"0xce163f7a9aa100520b57643ded884f7638efb5705f499b0085208e1fb3ddf14b","height":14072,"hex":"0x36f8","proposer":"0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc","timestamp_ms":1776997796076}}{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"method not found: zbx_sendRawTransaction"}}root@srv1266996:/home/zebvix-chain# 
