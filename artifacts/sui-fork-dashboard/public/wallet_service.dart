@@ -3,24 +3,25 @@ import 'dart:typed_data';
 import 'package:bip39/bip39.dart' as bip39;
 import 'package:convert/convert.dart' show hex;
 import 'package:crypto/crypto.dart' show sha256;
+import 'package:ed25519_edwards/ed25519_edwards.dart' as ed;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:pointycastle/api.dart';
 import 'package:pointycastle/digests/keccak.dart';
-import 'package:pointycastle/ecc/api.dart';
-import 'package:pointycastle/ecc/curves/secp256k1.dart';
 import 'package:pointycastle/random/fortuna_random.dart';
-import 'package:pointycastle/signers/ecdsa_signer.dart';
-import 'package:pointycastle/macs/hmac.dart';
-import 'package:pointycastle/digests/sha256.dart';
 
-/// In-memory representation (with secrets) of a single wallet.
+/// Single wallet record (kept entirely in memory once unlocked).
+///
+/// Crypto: Ed25519 (matches the Zebvix chain `crypto.rs`):
+///   secret  = 32-byte seed
+///   pubkey  = ed25519_pub(seed)        (32 bytes)
+///   address = keccak256(pubkey)[12..]  (last 20 bytes, EVM-style)
 class ZebvixWallet {
   final String name;
-  final String mnemonic; // empty if imported via private key
-  final Uint8List privateKey;
-  final Uint8List publicKey;
-  final String address;
-  final String source; // 'mnemonic' | 'privkey'
+  final String mnemonic;          // empty if imported via private key
+  final Uint8List privateKey;     // 32-byte ed25519 seed
+  final Uint8List publicKey;      // 32-byte ed25519 verifying key
+  final String address;           // 0x-prefixed 20-byte hex
+  final String source;            // 'mnemonic' | 'privkey'
 
   ZebvixWallet({
     required this.name,
@@ -32,6 +33,7 @@ class ZebvixWallet {
   });
 
   String get privateKeyHex => hex.encode(privateKey);
+  String get publicKeyHex => hex.encode(publicKey);
 
   Map<String, dynamic> toJson() => {
         'name': name,
@@ -43,13 +45,16 @@ class ZebvixWallet {
 
   static ZebvixWallet fromJson(Map<String, dynamic> j) {
     final priv = Uint8List.fromList(hex.decode(j['privKey'] as String));
-    final pub = WalletService._derivePublic(priv);
+    final pub = WalletService.derivePublic(priv);
+    // Always re-derive address from the current crypto so wallets persisted
+    // by older builds (which used secp256k1) get auto-corrected on load.
+    final addr = WalletService.addressFromPublic(pub);
     return ZebvixWallet(
       name: (j['name'] as String?) ?? 'Wallet',
       mnemonic: (j['mnemonic'] as String?) ?? '',
       privateKey: priv,
       publicKey: pub,
-      address: j['address'] as String,
+      address: addr,
       source: (j['source'] as String?) ?? 'mnemonic',
     );
   }
@@ -60,13 +65,12 @@ class WalletService {
   static const _kWallets = 'zbx.wallets.v2';
   static const _kActive = 'zbx.active';
 
-  // legacy v1 single-wallet keys (for migration)
+  // legacy v1 single-wallet keys
   static const _kLegacyMnemonic = 'zbx.mnemonic';
   static const _kLegacyPrivKey = 'zbx.privkey';
   static const _kLegacyAddress = 'zbx.address';
 
   final _secure = const FlutterSecureStorage();
-  static final _curve = ECCurve_secp256k1();
 
   // ── Generation ──────────────────────────────────────────────────────────
   String generateMnemonic({int strength = 128}) =>
@@ -74,14 +78,15 @@ class WalletService {
 
   bool isValidMnemonic(String m) => bip39.validateMnemonic(m.trim());
 
+  /// Derive a deterministic 32-byte ed25519 seed from a BIP-39 mnemonic.
+  /// We use SHA-256("zbx-seed" || bip39_seed) → 32 bytes.
   ZebvixWallet fromMnemonic(String mnemonic, {String name = 'Wallet'}) {
     final seed = bip39.mnemonicToSeed(mnemonic.trim());
-    final h = HMac(SHA256Digest(), 64)..init(KeyParameter(_utf8('zbx-seed')));
-    final priv = Uint8List(32);
-    h.update(seed, 0, seed.length);
-    h.doFinal(priv, 0);
-
-    final pub = _derivePublic(priv);
+    final mixed = <int>[]
+      ..addAll(utf8.encode('zbx-seed'))
+      ..addAll(seed);
+    final priv = Uint8List.fromList(sha256.convert(mixed).bytes);
+    final pub = derivePublic(priv);
     final addr = _addressFromPublic(pub);
     return ZebvixWallet(
       name: name,
@@ -105,12 +110,7 @@ class WalletService {
       throw Exception('private key must be valid hex');
     }
     final priv = Uint8List.fromList(hex.decode(clean));
-    // sanity range check 1 <= d < n
-    final d = _bigIntFromBytes(priv);
-    if (d <= BigInt.zero || d >= _curve.n) {
-      throw Exception('private key out of curve range');
-    }
-    final pub = _derivePublic(priv);
+    final pub = derivePublic(priv);
     final addr = _addressFromPublic(pub);
     return ZebvixWallet(
       name: name,
@@ -127,7 +127,6 @@ class WalletService {
 
   // ── Persistence (multi-wallet) ──────────────────────────────────────────
   Future<List<ZebvixWallet>> loadAll() async {
-    // migrate legacy if needed
     await _migrateLegacy();
     final raw = await _secure.read(key: _kWallets);
     if (raw == null || raw.isEmpty) return [];
@@ -148,7 +147,6 @@ class WalletService {
     await _secure.write(key: _kWallets, value: jsonEncode(arr));
   }
 
-  /// Add a wallet and make it active. Throws if address already exists.
   Future<List<ZebvixWallet>> addWallet(ZebvixWallet w) async {
     final all = await loadAll();
     if (all.any((x) => x.address.toLowerCase() == w.address.toLowerCase())) {
@@ -160,7 +158,8 @@ class WalletService {
     return all;
   }
 
-  Future<List<ZebvixWallet>> renameWallet(String address, String name) async {
+  Future<List<ZebvixWallet>> renameWallet(
+      String address, String name) async {
     final all = await loadAll();
     final idx = all.indexWhere(
         (w) => w.address.toLowerCase() == address.toLowerCase());
@@ -194,7 +193,6 @@ class WalletService {
     return all;
   }
 
-  /// Returns the currently active wallet, if any.
   Future<ZebvixWallet?> load() async {
     final all = await loadAll();
     if (all.isEmpty) return null;
@@ -206,13 +204,10 @@ class WalletService {
     );
   }
 
-  /// Backwards-compatible save: replaces the single legacy slot. New code
-  /// should use [addWallet] instead.
   Future<void> save(ZebvixWallet w) async {
     try {
       await addWallet(w);
     } catch (_) {
-      // already exists — just make it active
       await setActive(w.address);
     }
   }
@@ -227,71 +222,77 @@ class WalletService {
 
   Future<void> _migrateLegacy() async {
     final raw = await _secure.read(key: _kWallets);
-    if (raw != null && raw.isNotEmpty) return; // already on v2
+    if (raw != null && raw.isNotEmpty) return;
     final addr = await _secure.read(key: _kLegacyAddress);
     final pkHex = await _secure.read(key: _kLegacyPrivKey);
     if (addr == null || pkHex == null) return;
     final mn = await _secure.read(key: _kLegacyMnemonic);
     final priv = Uint8List.fromList(hex.decode(pkHex));
-    final pub = _derivePublic(priv);
+    final pub = derivePublic(priv);
+    final newAddr = _addressFromPublic(pub);
     final w = ZebvixWallet(
       name: 'Wallet 1',
       mnemonic: mn ?? '',
       privateKey: priv,
       publicKey: pub,
-      address: addr,
+      // re-derive address (legacy used wrong curve)
+      address: newAddr,
       source: (mn != null && mn.isNotEmpty) ? 'mnemonic' : 'privkey',
     );
     await _persist([w]);
-    await setActive(addr);
+    await setActive(newAddr);
     await _secure.delete(key: _kLegacyMnemonic);
     await _secure.delete(key: _kLegacyPrivKey);
     await _secure.delete(key: _kLegacyAddress);
   }
 
-  // ── Signing ─────────────────────────────────────────────────────────────
-  Map<String, String> sign(Uint8List data, Uint8List privateKey) {
-    final hash = _keccak256(data);
-    final pk = ECPrivateKey(_bigIntFromBytes(privateKey), _curve);
+  // ── Signing (Ed25519) ───────────────────────────────────────────────────
+  /// Raw Ed25519 sign. Returns 64-byte signature.
+  Uint8List signRaw(Uint8List data, Uint8List seed) {
+    final priv = ed.newKeyFromSeed(seed);
+    return Uint8List.fromList(ed.sign(priv, data));
+  }
 
-    final signer = ECDSASigner(null, HMac(SHA256Digest(), 64))
-      ..init(true, PrivateKeyParameter<ECPrivateKey>(pk));
-    final sig = signer.generateSignature(hash) as ECSignature;
-
-    var s = sig.s;
-    final n = _curve.n;
-    final halfN = n >> 1;
-    if (s.compareTo(halfN) > 0) s = n - s;
-
+  /// JSON-friendly transaction signature wrapper.
+  /// NOTE: the Zebvix node uses bincode for the canonical signing payload.
+  /// Until we add a full bincode encoder for [TxBody], this method signs the
+  /// canonical-JSON form so it's at least structurally usable for relays /
+  /// debugging. Broadcast endpoints that accept a raw-bytes payload should
+  /// use [signRaw] directly with the exact bincode bytes.
+  Map<String, dynamic> signTransaction(
+    Map<String, dynamic> body,
+    Uint8List seed,
+  ) {
+    final pub = derivePublic(seed);
+    final canonical = utf8.encode(_canonicalJson(body));
+    final sig = signRaw(Uint8List.fromList(canonical), seed);
     return {
-      'r': '0x${_bnToHex(sig.r, 32)}',
-      's': '0x${_bnToHex(s, 32)}',
-      'hash': '0x${hex.encode(hash)}',
+      'body': body,
+      'pubkey': '0x${hex.encode(pub)}',
+      'signature': '0x${hex.encode(sig)}',
     };
   }
 
-  Map<String, dynamic> signTransaction(
-    Map<String, dynamic> body,
-    Uint8List privateKey,
-  ) {
-    final canonical = utf8.encode(_canonicalJson(body));
-    final sig = sign(Uint8List.fromList(canonical), privateKey);
-    return {'body': body, 'signature': sig};
-  }
-
   // ── Crypto helpers ──────────────────────────────────────────────────────
-  static Uint8List _derivePublic(Uint8List priv) {
-    final d = _bigIntFromBytes(priv);
-    final q = _curve.G * d;
-    return Uint8List.fromList(q!.getEncoded(false));
+  /// Ed25519 verifying key (32 bytes) from a 32-byte seed.
+  static Uint8List derivePublic(Uint8List seed) {
+    if (seed.length != 32) {
+      throw Exception('ed25519 seed must be 32 bytes');
+    }
+    final priv = ed.newKeyFromSeed(seed);
+    final pub = ed.public(priv);
+    return Uint8List.fromList(pub.bytes);
   }
 
-  static String _addressFromPublic(Uint8List pub) {
-    final body = pub.length == 65 ? pub.sublist(1) : pub;
-    final h = _keccak256(body);
+  /// EVM-style 20-byte address: last 20 bytes of keccak256(pubkey).
+  static String addressFromPublic(Uint8List pub) {
+    final h = _keccak256(pub);
     final last20 = h.sublist(h.length - 20);
     return '0x${hex.encode(last20)}';
   }
+
+  // legacy alias
+  static String _addressFromPublic(Uint8List pub) => addressFromPublic(pub);
 
   static Uint8List _keccak256(Uint8List input) {
     final k = KeccakDigest(256);
@@ -300,19 +301,6 @@ class WalletService {
     k.doFinal(out, 0);
     return out;
   }
-
-  static BigInt _bigIntFromBytes(Uint8List b) =>
-      BigInt.parse(hex.encode(b), radix: 16);
-
-  static String _bnToHex(BigInt n, int padBytes) {
-    var s = n.toRadixString(16);
-    while (s.length < padBytes * 2) {
-      s = '0$s';
-    }
-    return s;
-  }
-
-  static Uint8List _utf8(String s) => Uint8List.fromList(utf8.encode(s));
 
   static String _canonicalJson(dynamic v) {
     if (v is Map) {
