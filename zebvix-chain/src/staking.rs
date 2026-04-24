@@ -137,7 +137,7 @@ pub enum StakingError {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StakeOp {
     CreateValidator {
-        pubkey: [u8; 32],
+        pubkey: [u8; 33],
         commission_bps: u64,
         self_bond: u128,
     },
@@ -174,7 +174,8 @@ pub enum StakeOp {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ValidatorState {
     pub address: Address,
-    pub pubkey: [u8; 32],
+    #[serde(with = "crate::types::hex_array_33")]
+    pub pubkey: [u8; 33],
     /// Operator (= the address that registered the validator). Earns commission.
     pub operator: Address,
     /// Sum of all bonded stake (self + delegators), in wei.
@@ -287,7 +288,7 @@ impl StakingModule {
     pub fn create_validator(
         &mut self,
         signer: Address,
-        pubkey: [u8; 32],
+        pubkey: [u8; 33],
         commission_bps: u64,
         self_bond: u128,
         min_self_bond_wei: u128,
@@ -980,8 +981,8 @@ mod tests {
         Address(a)
     }
 
-    fn pk(b: u8) -> [u8; 32] {
-        let mut p = [0u8; 32];
+    fn pk(b: u8) -> [u8; 33] {
+        let mut p = [0u8; 33];
         p[0] = b;
         p
     }

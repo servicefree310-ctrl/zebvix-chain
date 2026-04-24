@@ -1,14 +1,21 @@
-// Browser-side Zebvix wallet: ed25519 keypair + EVM-style 20-byte address
-// (last 20 bytes of keccak256(pubkey)), bincode-encoded SignedTx Transfer
-// matching the chain's wire format, sent via /api/rpc → zbx_sendRawTransaction.
+// Browser-side Zebvix wallet — **Phase B.11**: secp256k1 keys + ETH-style
+// address derivation. The same private key used in MetaMask now derives the
+// SAME 20-byte address on Zebvix:
+//
+//   addr = keccak256( uncompressed_pubkey[1..] )[12..]
+//
+// Signatures are ECDSA-secp256k1 with SHA-256 pre-hashing (matches Rust
+// `k256::ecdsa::SigningKey::sign` exactly). We hand-hash with SHA-256 here
+// so that what we sign on the wire matches what the chain verifies.
 //
 // Storage: keys live in localStorage as a JSON array under `zbx.wallets.v1`.
 // Active address is in `zbx.wallet.active`. Private keys are stored UNENCRYPTED
 // in the browser — this is a developer / hot-wallet flow only. Always export
 // the keystore JSON as a backup; losing localStorage = losing the funds.
 
-import { ed25519 } from "@noble/curves/ed25519.js";
+import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { keccak_256 } from "@noble/hashes/sha3.js";
+import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, hexToBytes, randomBytes } from "@noble/hashes/utils.js";
 import { rpc } from "./zbx-rpc";
 
@@ -16,9 +23,9 @@ const STORAGE_KEY = "zbx.wallets.v1";
 const ACTIVE_KEY = "zbx.wallet.active";
 
 export interface StoredWallet {
-  address: string;          // 0x + 40 hex
-  publicKey: string;        // 0x + 64 hex
-  privateKey: string;       // 0x + 64 hex (32-byte seed)
+  address: string;          // 0x + 40 hex (ETH-style)
+  publicKey: string;        // 0x + 66 hex (33-byte compressed secp256k1)
+  privateKey: string;       // 0x + 64 hex (32-byte secret — ETH/MetaMask compatible)
   label: string;
   createdAt: number;
 }
@@ -26,18 +33,39 @@ export interface StoredWallet {
 // ── Address / key derivation ───────────────────────────────────────────────
 
 function ensureSeed(seed: Uint8Array): Uint8Array {
-  if (seed.length !== 32) throw new Error("ed25519 seed must be 32 bytes");
+  if (seed.length !== 32) throw new Error("secp256k1 secret must be 32 bytes");
   return seed;
 }
 
+/** Compressed secp256k1 public key (33 bytes, SEC1 `0x02|0x03 || X`). */
 export function publicKeyFromSeed(seed: Uint8Array): Uint8Array {
-  return ed25519.getPublicKey(ensureSeed(seed));
+  return secp256k1.getPublicKey(ensureSeed(seed), true);
 }
 
-/// EVM-style 20-byte address: last 20 bytes of keccak256(pubkey).
+/** Uncompressed secp256k1 public key (65 bytes, `0x04 || X || Y`). */
+export function uncompressedPublicKeyFromSeed(seed: Uint8Array): Uint8Array {
+  return secp256k1.getPublicKey(ensureSeed(seed), false);
+}
+
+/// **ETH-standard** 20-byte address:
+///   `keccak256( uncompressed_pubkey[1..] )[12..]` — drop the `0x04` SEC1
+/// prefix, hash the 64-byte (X||Y) concatenation, take the last 20 bytes.
+/// Accepts EITHER a 33-byte compressed pubkey (we decompress it via the
+/// secp256k1 curve point) OR an already-uncompressed 65-byte key.
 export function addressFromPublic(pub: Uint8Array): string {
-  if (pub.length !== 32) throw new Error("ed25519 pubkey must be 32 bytes");
-  const h = keccak_256(pub);
+  let uncompressed: Uint8Array;
+  if (pub.length === 65 && pub[0] === 0x04) {
+    uncompressed = pub;
+  } else if (pub.length === 33 && (pub[0] === 0x02 || pub[0] === 0x03)) {
+    // Decompress via the curve point.
+    const point = secp256k1.Point.fromBytes(pub);
+    uncompressed = point.toBytes(false); // 65 bytes, 0x04 || X || Y
+  } else {
+    throw new Error(
+      `secp256k1 pubkey must be 33 bytes (compressed) or 65 bytes (uncompressed); got ${pub.length}`,
+    );
+  }
+  const h = keccak_256(uncompressed.slice(1)); // hash X||Y (skip the 0x04 prefix)
   return "0x" + bytesToHex(h.slice(12, 32));
 }
 
@@ -307,8 +335,12 @@ export async function sendTransfer(opts: {
     chainId,
   });
 
-  const sig = ed25519.sign(body, seed);            // 64 bytes
-  const signed = concat(body, pub, sig);           // 152 + 32 + 64 = 248
+  // ECDSA-secp256k1 (matches Rust `k256::ecdsa::SigningKey::sign`):
+  //   sk.sign(msg) == ECDSA(sha256(msg)) — so we pre-hash with SHA-256 and
+  //   sign the digest. `secp256k1.sign` returns a 64-byte `Uint8Array` in
+  //   compact `r || s` form (low-S normalized) directly.
+  const sig = secp256k1.sign(sha256(body), seed, { lowS: true });
+  const signed = concat(body, pub, sig);           // 152 + 33 + 64 = 249
   const hexHex = "0x" + bytesToHex(signed);
 
   const res = await rpc<string>("zbx_sendRawTransaction", [hexHex]);
@@ -357,8 +389,8 @@ export async function sendSwap(opts: {
     chainId,
   });
 
-  const sig = ed25519.sign(body, seed);
-  const signed = concat(body, pub, sig);  // 172 + 32 + 64 = 268
+  const sig = secp256k1.sign(sha256(body), seed, { lowS: true });
+  const signed = concat(body, pub, sig);  // 172 + 33 + 64 = 269
   const hexHex = "0x" + bytesToHex(signed);
 
   const res = await rpc<string>("zbx_sendRawTransaction", [hexHex]);

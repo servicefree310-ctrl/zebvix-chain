@@ -216,7 +216,7 @@ mod tests {
 
     fn mk_validator(addr_byte: u8) -> Validator {
         let addr = crate::types::Address([addr_byte; 20]);
-        Validator { address: addr, pubkey: [addr_byte; 32], voting_power: 1 }
+        Validator { address: addr, pubkey: [addr_byte; 33], voting_power: 1 }
     }
 
     #[test]

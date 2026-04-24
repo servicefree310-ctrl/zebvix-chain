@@ -50,7 +50,7 @@ use serde_big_array::BigArray;
 pub enum TxKind {
     #[default]
     Transfer,
-    ValidatorAdd { pubkey: [u8; 32], power: u64 },
+    ValidatorAdd { pubkey: [u8; 33], power: u64 },
     ValidatorRemove { address: Address },
     /// Phase B.3.2 — change an existing validator's voting power **without**
     /// remove+add (which would briefly drop total power below quorum and risk
@@ -224,7 +224,7 @@ impl TxBody {
         bincode::serialize(self).expect("body serialization cannot fail")
     }
 
-    /// Sign this body with `secret` (32-byte ed25519 secret) and return a
+    /// Sign this body with `secret` (32-byte secp256k1 secret) and return a
     /// fully-formed [`SignedTx`] ready to broadcast.
     pub fn sign(self, secret: &[u8; 32]) -> SignedTx {
         crate::crypto::sign_tx(secret, self)
@@ -235,7 +235,8 @@ impl TxBody {
 // SignedTx — what travels on the wire and ends up in blocks.
 // ──────────────────────────────────────────────────────────────────────────
 
-/// Signed transaction. Ed25519 signature of `bincode(body)` by `pubkey`.
+/// Signed transaction. **Phase B.11** — secp256k1 ECDSA signature of
+/// `bincode(body)` by `pubkey`.
 ///
 /// `from` (inside `body`) MUST equal `address_from_pubkey(&pubkey)` — the
 /// network rejects any tx where the binding is wrong, before even verifying
@@ -243,9 +244,13 @@ impl TxBody {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SignedTx {
     pub body: TxBody,
-    /// Compressed ed25519 public key of sender (32 bytes).
-    pub pubkey: [u8; 32],
-    /// Ed25519 signature (64 bytes) over `bincode(body)`.
+    /// **Phase B.11** — compressed secp256k1 public key of the sender
+    /// (33 bytes, SEC1 `0x02|0x03 || X`). The 20-byte address is derived as
+    /// `keccak256(uncompressed_pubkey[1..])[12..]` — same as Ethereum.
+    #[serde(with = "crate::types::hex_array_33")]
+    pub pubkey: [u8; 33],
+    /// ECDSA-secp256k1 compact signature (64 bytes, `r || s`) over
+    /// `bincode(body)`.
     #[serde(with = "BigArray")]
     pub signature: [u8; 64],
 }
@@ -265,7 +270,7 @@ impl SignedTx {
     }
 
     /// Verify (a) `from == address_from_pubkey(pubkey)` and (b) signature is
-    /// valid ed25519 over `bincode(body)`. Returns `false` on any mismatch.
+    /// valid ECDSA-secp256k1 over `bincode(body)`. Returns `false` on any mismatch.
     pub fn verify(&self) -> bool {
         crate::crypto::verify_tx(self)
     }

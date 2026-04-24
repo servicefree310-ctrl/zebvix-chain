@@ -81,15 +81,23 @@ pub const BOOTSTRAP_MAX_FEE_WEI: u128 =
 
 /// Admin / founder address. Also receives 50% of swap fees after the
 /// genesis liquidity loan (10M zUSD) is repaid.
-pub const ADMIN_ADDRESS_HEX: &str = "0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc";
+/// **Phase B.11** — secp256k1 founder address (ETH-derived from
+/// `FOUNDER_PUBKEY_HEX`). The matching private key is the keccak256 of
+/// `"zebvix-genesis-founder-v1"`:
+///   `0xa8674e60d95ec1fa2b37f264b01b8407d2fbb0789bd836382472d181973ebbf8`.
+/// Import this hex into MetaMask/MEW to control the founder/admin/governor
+/// roles. **Rotate to your own ETH key on production** via env-var override.
+pub const ADMIN_ADDRESS_HEX: &str = "0x40907000ac0a1a73e4cd89889b4d7ee8980c0315";
 
-/// Founder's Ed25519 public key (32 bytes, hex). This is the pubkey whose
-/// last-20-byte address equals `ADMIN_ADDRESS_HEX`. Used by `cmd_init` to seed
+/// **Phase B.11** — Founder's compressed secp256k1 public key (33 bytes, hex).
+/// Address derivation matches Ethereum: the same private key in MetaMask
+/// gives the same 20-byte address on Zebvix. This is the pubkey whose
+/// ETH-derived address equals `ADMIN_ADDRESS_HEX`. Used by `cmd_init` to seed
 /// the genesis validator set deterministically — every node, regardless of its
 /// local `--validator-key`, starts with exactly this one validator at genesis.
 /// Post-genesis additions go through `validator-add` txs (B.3.1).
 pub const FOUNDER_PUBKEY_HEX: &str =
-    "0xaa9f6c1f047126b58bdfe62d7adc2ad04ec36d83b9391d313022fbd50cb5d097";
+    "0x035a3d7a0a8ce0607fa8a2ac3f36d4239ad9f582ca044a125d262f42eff3bcf9d3";
 
 /// Maximum number of times the admin/founder address may be rotated.
 /// After 3 changes, the admin address is permanently locked. Each change must

@@ -601,7 +601,7 @@ fn parse_zbx_amount(s: &str) -> Result<u128> {
     }
 }
 
-fn write_keyfile(path: &PathBuf, secret: &[u8; 32], pubkey: &[u8; 32]) -> Result<()> {
+fn write_keyfile(path: &PathBuf, secret: &[u8; 32], pubkey: &[u8; 33]) -> Result<()> {
     let addr = address_from_pubkey(pubkey);
     let kf = KeyFile {
         secret_hex: hex::encode(secret),
@@ -613,7 +613,7 @@ fn write_keyfile(path: &PathBuf, secret: &[u8; 32], pubkey: &[u8; 32]) -> Result
     Ok(())
 }
 
-fn read_keyfile(path: &PathBuf) -> Result<([u8; 32], [u8; 32])> {
+fn read_keyfile(path: &PathBuf) -> Result<([u8; 32], [u8; 33])> {
     let s = std::fs::read_to_string(path)?;
     let kf: KeyFile = serde_json::from_str(&s)?;
     let sk = hex::decode(&kf.secret_hex)?;
@@ -711,7 +711,7 @@ fn cmd_init(home: PathBuf, validator_key: PathBuf, alloc: Vec<String>, no_defaul
         // Post-genesis additions (e.g., Node-2's own key) come via
         // `validator-add` txs, which replicate via block-apply (B.3.1).
         let founder_pk = parse_pubkey_hex(tokenomics::FOUNDER_PUBKEY_HEX)
-            .expect("FOUNDER_PUBKEY_HEX must be valid 32-byte hex");
+            .expect("FOUNDER_PUBKEY_HEX must be valid 33-byte compressed secp256k1 hex");
         let founder_val = Validator::new(founder_pk, 1);
         let founder_addr = founder_val.address;
         state.put_validator(&founder_val)?;
@@ -1875,11 +1875,11 @@ fn print_validators<I: Iterator<Item = (String, u64, String)>>(
     }
 }
 
-fn parse_pubkey_hex(s: &str) -> Result<[u8; 32]> {
+fn parse_pubkey_hex(s: &str) -> Result<[u8; 33]> {
     let s = s.strip_prefix("0x").unwrap_or(s);
     let bytes = hex::decode(s)?;
-    if bytes.len() != 32 { return Err(anyhow!("pubkey must be 32 bytes")); }
-    let mut a = [0u8; 32];
+    if bytes.len() != 33 { return Err(anyhow!("pubkey must be 33 bytes (compressed secp256k1)")); }
+    let mut a = [0u8; 33];
     a.copy_from_slice(&bytes);
     Ok(a)
 }

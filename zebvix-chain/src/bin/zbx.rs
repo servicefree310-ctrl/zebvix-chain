@@ -175,7 +175,7 @@ fn format_zbx(wei: u128) -> String {
     }
 }
 
-fn write_keyfile(path: &PathBuf, secret: &[u8; 32], pubkey: &[u8; 32], force: bool) -> Result<Address> {
+fn write_keyfile(path: &PathBuf, secret: &[u8; 32], pubkey: &[u8; 33], force: bool) -> Result<Address> {
     if path.exists() && !force {
         return Err(anyhow!("{} already exists. Use --force to overwrite.", path.display()));
     }
@@ -192,7 +192,7 @@ fn write_keyfile(path: &PathBuf, secret: &[u8; 32], pubkey: &[u8; 32], force: bo
     Ok(addr)
 }
 
-fn read_keyfile(path: &PathBuf) -> Result<([u8; 32], [u8; 32])> {
+fn read_keyfile(path: &PathBuf) -> Result<([u8; 32], [u8; 33])> {
     let s = std::fs::read_to_string(path)
         .map_err(|e| anyhow!("can't read {}: {}", path.display(), e))?;
     let kf: KeyFile = serde_json::from_str(&s)?;

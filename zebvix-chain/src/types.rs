@@ -94,14 +94,16 @@ pub struct Block {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Validator {
     pub address: Address,
-    /// Ed25519 public key (32 bytes).
-    pub pubkey: [u8; 32],
+    /// **Phase B.11** — secp256k1 compressed public key (33 bytes, SEC1 `0x02|0x03 || X`).
+    /// Address = `keccak256(uncompressed[1..])[12..]` (ETH-standard).
+    #[serde(with = "hex_array_33")]
+    pub pubkey: [u8; 33],
     /// Voting power. Must be > 0. Removed validators are deleted, not zeroed.
     pub voting_power: u64,
 }
 
 impl Validator {
-    pub fn new(pubkey: [u8; 32], voting_power: u64) -> Self {
+    pub fn new(pubkey: [u8; 33], voting_power: u64) -> Self {
         let address = crate::crypto::address_from_pubkey(&pubkey);
         Self { address, pubkey, voting_power }
     }
@@ -139,6 +141,25 @@ mod hex_array_32 {
             return Err(serde::de::Error::custom("expected 32 bytes"));
         }
         let mut a = [0u8; 32];
+        a.copy_from_slice(&bytes);
+        Ok(a)
+    }
+}
+
+/// **Phase B.11** — serde adapter for 33-byte compressed secp256k1 pubkeys.
+pub mod hex_array_33 {
+    use serde::{Deserialize, Deserializer, Serializer};
+    pub fn serialize<S: Serializer>(v: &[u8; 33], s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&format!("0x{}", hex::encode(v)))
+    }
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<[u8; 33], D::Error> {
+        let s = String::deserialize(d)?;
+        let s = s.strip_prefix("0x").unwrap_or(&s);
+        let bytes = hex::decode(s).map_err(serde::de::Error::custom)?;
+        if bytes.len() != 33 {
+            return Err(serde::de::Error::custom("expected 33 bytes"));
+        }
+        let mut a = [0u8; 33];
         a.copy_from_slice(&bytes);
         Ok(a)
     }

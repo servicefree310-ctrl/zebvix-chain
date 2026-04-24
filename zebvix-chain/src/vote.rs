@@ -59,11 +59,15 @@ pub struct VoteData {
 }
 
 /// Signed vote message gossiped over P2P.
+///
+/// **Phase B.11** — `pubkey` is now a 33-byte compressed secp256k1 pubkey
+/// (was 32-byte Ed25519 in B.10).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Vote {
     pub data: VoteData,
     pub validator_address: Address,
-    pub pubkey: [u8; 32],
+    #[serde(with = "crate::types::hex_array_33")]
+    pub pubkey: [u8; 33],
     #[serde(with = "BigArray")]
     pub signature: [u8; 64],
 }
@@ -75,7 +79,7 @@ pub fn vote_signing_bytes(data: &VoteData) -> Vec<u8> {
     out
 }
 
-pub fn sign_vote(secret: &[u8; 32], pubkey: [u8; 32], data: VoteData) -> Vote {
+pub fn sign_vote(secret: &[u8; 32], pubkey: [u8; 33], data: VoteData) -> Vote {
     let validator_address = address_from_pubkey(&pubkey);
     let signature = sign_bytes(secret, &vote_signing_bytes(&data));
     Vote { data, validator_address, pubkey, signature }
@@ -249,7 +253,7 @@ mod tests {
     use super::*;
     use crate::crypto::generate_keypair;
 
-    fn mk_validator(power: u64) -> ([u8; 32], [u8; 32], Validator) {
+    fn mk_validator(power: u64) -> ([u8; 32], [u8; 33], Validator) {
         let (sk, pk) = generate_keypair();
         let v = Validator::new(pk, power);
         (sk, pk, v)
@@ -275,7 +279,7 @@ mod tests {
         let set = vec![v1, v2, v3, v4];
         let pool = VotePool::new(7878);
         let target = Some(Hash([7u8; 32]));
-        let mk = |sk: &[u8;32], pk: [u8;32]| sign_vote(sk, pk, VoteData {
+        let mk = |sk: &[u8;32], pk: [u8;33]| sign_vote(sk, pk, VoteData {
             chain_id: 7878, height: 1, round: 0,
             vote_type: VoteType::Prevote, block_hash: target,
         });

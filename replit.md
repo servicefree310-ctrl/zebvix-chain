@@ -123,3 +123,60 @@ Eliminates the need for dashboards/wallets to scan thousands of blocks just to d
 - **Pending**: real BLS / chain-spec verification of the canonical-json signing
   format vs `zebvix-chain` `tx.rs`; fiat on-ramp (Buy/Sell currently routes
   through swap pool only).
+
+## Phase B.11 — secp256k1 / ETH-compatible address cutover (2026-04-24)
+
+**Goal:** one ETH private key (e.g. MetaMask) → same 20-byte address on both
+Ethereum and Zebvix. Removes the friction of users having to manage two
+separate keypairs.
+
+**What changed (BREAKING — VPS chain re-genesis required, no backward compat):**
+
+- Crypto curve: **Ed25519 → secp256k1 (ECDSA)**.
+  - Rust: `ed25519-dalek` removed, `k256 = "0.13"` added.
+  - JS dashboard: `@noble/curves/ed25519` → `@noble/curves/secp256k1`.
+- Address derivation: now ETH-standard
+  `keccak256(uncompressed_pubkey[1..])[12..]` (was: `keccak256(ed_pubkey)[12..]`).
+- Wire format: `SignedTx.pubkey` and `Vote.pubkey` grew **32B → 33B** (compressed
+  SEC1, `0x02|0x03 || X`). Signature stays 64-byte compact (`r || s`, low-S
+  normalized via RFC6979 deterministic k — both `k256` and noble agree).
+  - Transfer signed length: 248 → **249 bytes** (152 + 33 + 64).
+  - Swap signed length: 268 → **269 bytes** (172 + 33 + 64).
+- New deterministic founder (dev only — rotate to real ETH key on production):
+  - secret    = `keccak256("zebvix-genesis-founder-v1")` =
+    `0xa8674e60d95ec1fa2b37f264b01b8407d2fbb0789bd836382472d181973ebbf8`
+  - pubC (33) = `0x035a3d7a0a8ce0607fa8a2ac3f36d4239ad9f582ca044a125d262f42eff3bcf9d3`
+  - address   = `0x40907000ac0a1a73e4cd89889b4d7ee8980c0315`  (= new
+    `tokenomics::ADMIN_ADDRESS_HEX` = founder = admin = governor at genesis)
+  - This sk hex can be pasted directly into MetaMask to control the genesis admin.
+
+**Files touched (chain):** `Cargo.toml`, `src/crypto.rs` (full rewrite, includes
+embedded ETH test vector for sk=`0x46…46` → `0x9d8a…5a4f` — Vitalik's standard
+addr), `src/types.rs` (added `pub mod hex_array_33`), `src/transaction.rs`,
+`src/staking.rs`, `src/vote.rs`, `src/consensus.rs`, `src/main.rs`,
+`src/bin/zbx.rs`, `src/tokenomics.rs`.
+
+**Files touched (dashboard):** `artifacts/sui-fork-dashboard/src/lib/web-wallet.ts`
+— `publicKeyFromSeed` returns 33B compressed; new
+`uncompressedPublicKeyFromSeed`; `addressFromPublic` decompresses via
+`secp256k1.Point.fromBytes(pub).toBytes(false)` then keccak; signing uses
+`secp256k1.sign(sha256(body), seed, { lowS: true })` (Rust k256's
+`SigningKey::sign` pre-hashes with SHA-256 internally — JS must match).
+
+**Verification done locally (the Rust crate could not be `cargo build`-ed in
+this env — libclang issue — but is structurally consistent and must be built
+on the VPS):**
+- ETH test vector: sk=`0x4646…4646` → `0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f` ✓
+- Founder seed deterministically derives `0x40907000…0315` matching tokenomics.rs ✓
+- TS dashboard: `tsc --noEmit` clean ✓
+- Sign+verify roundtrip + RFC6979 determinism + low-S confirmed ✓
+
+**VPS deploy steps (next, when shell access available):**
+1. Stop both nodes.
+2. `cargo build --release` on srv1266996.
+3. `rm -rf ~/.zebvix/<chain-data-dir>` on every node (state is incompatible).
+4. Run `zbx init --validator-key …` then start nodes — genesis seeds the new
+   founder validator at `0x40907000…0315` with power=1 deterministically.
+5. Browser users will see new addresses (their old Ed25519-derived addresses
+   are gone with the chain wipe). Importing an existing ETH private key in
+   the /wallet page now yields the SAME address as MetaMask.
