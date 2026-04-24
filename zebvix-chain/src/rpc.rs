@@ -578,7 +578,7 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
             let stripped = h.strip_prefix("0x").unwrap_or(h);
             let bytes = match hex::decode(stripped) {
                 Ok(b) if b.len() == 32 => b,
-                _ => return err(id, -32602, "source_tx_hash must be 0x + 64 hex chars (32 bytes)".into()),
+                _ => return axum::Json(err(id, -32602, "source_tx_hash must be 0x + 64 hex chars (32 bytes)".into())),
             };
             let mut h32 = [0u8; 32];
             h32.copy_from_slice(&bytes);

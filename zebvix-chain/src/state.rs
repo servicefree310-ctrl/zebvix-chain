@@ -1353,7 +1353,7 @@ impl State {
                             dest_address: dest_address.trim().to_string(),
                             amount: tx.body.amount,
                             height: current_height,
-                            ts: self.current_block_ts_ms.load(Ordering::SeqCst),
+                            ts: self.current_block_ts_ms.load(Ordering::SeqCst) as i64,
                             tx_hash: tx.hash().0,
                         };
                         self.bridge_record_out_event(&ev)?;

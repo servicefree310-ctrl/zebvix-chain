@@ -1,0 +1,54 @@
+# 6. Register BNB Chain (network_id=56 — matches BSC's real chain_id)
+./target/release/zbx bridge-stats    --rpc-url http://127.0.0.1:8545
+-rw-r--r-- 1 root root 114098 Apr 24 08:57 newchain.tgz
+   Compiling keccak v0.1.6
+   Compiling iana-time-zone v0.1.65
+   Compiling chrono v0.4.44
+   Compiling sha3 v0.10.9
+   Compiling axum v0.7.9
+   Compiling tracing-subscriber v0.3.23
+   Compiling primitive-types v0.13.1
+   Compiling clap v4.6.1
+   Compiling libp2p v0.54.1
+   Compiling rayon v1.12.0
+   Compiling k256 v0.13.4
+   Compiling tower-http v0.5.2
+   Compiling serde-big-array v0.5.1
+   Compiling bincode v1.3.3
+   Compiling rocksdb v0.22.0
+   Compiling zebvix-node v0.1.0 (/home/zebvix-chain)
+error[E0308]: mismatched types
+   --> src/rpc.rs:581:29
+    |
+ 83 | async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<RpcResp> {
+    |                                                                            ------------- expected `Json<RpcResp>` because of return type
+...
+581 |                 _ => return err(id, -32602, "source_tx_hash must be 0x + 64 hex chars (32 bytes)".into()),
+    |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Json<RpcResp>`, found `RpcResp`
+    |
+    = note: expected struct `Json<RpcResp>`
+               found struct `RpcResp`
+help: try wrapping the expression in `axum::Json`
+    |
+581 |                 _ => return axum::Json(err(id, -32602, "source_tx_hash must be 0x + 64 hex chars (32 bytes)".into())),
+    |                             +++++++++++                                                                             +
+
+error[E0308]: mismatched types
+    --> src/state.rs:1356:33
+     |
+1356 | ...                   ts: self.current_block_ts_ms.load(Ordering::SeqCst),
+     |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `i64`, found `u64`
+
+For more information about this error, try `rustc --explain E0308`.
+error: could not compile `zebvix-node` (lib) due to 2 previous errors
+Failed to stop zebvix-node-1.service: Unit zebvix-node-1.service not loaded.
+bash: ./target/release/zebvix-node: No such file or directory
+Failed to start zebvix-node-1.service: Unit zebvix-node-1.service not found.
+Unit zebvix-node-1.service could not be found.
+{"jsonrpc":"2.0","id":1,"result":{"block_time_secs":5,"chain_id":7878,"decimals":18,"name":"Zebvix","token":"ZBX"}}bash: ./target/release/zbx: No such file or directory
+bash: ./target/release/zbx: No such file or directory
+bash: ./target/release/zbx: No such file or directory
+bash: ./target/release/zbx: No such file or directory
+bash: ./target/release/zbx: No such file or directory
+bash: ./target/release/zbx: No such file or directory
+root@srv1266996:/home/zebvix-chain# 
