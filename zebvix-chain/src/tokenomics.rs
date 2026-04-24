@@ -6,8 +6,9 @@ pub const WEI_PER_ZBX: u128 = 1_000_000_000_000_000_000u128;
 
 /// Total max supply = 150,000,000 ZBX.
 /// Breakdown:
-///   - Founder pre-mine (genesis allocation):  10,000,000 ZBX
-///   - Block rewards over time:               140,000,000 ZBX
+///   - Foundation pre-mine (genesis allocation): 9,990,000 ZBX  (6.66%)
+///   - AMM pool genesis seed:                   20,000,000 ZBX  (13.33%)
+///   - Block rewards over time:                120,010,000 ZBX  (80.01%)
 pub const TOTAL_SUPPLY_ZBX: u128 = 150_000_000u128;
 pub const TOTAL_SUPPLY_WEI: u128 = TOTAL_SUPPLY_ZBX * WEI_PER_ZBX;
 

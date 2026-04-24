@@ -75,10 +75,11 @@ enum Cmd {
         #[arg(long)]
         validator_key: PathBuf,
         /// Pre-mine allocation: `addr:amount_zbx` (repeatable).
-        /// If empty, the validator address gets the default founder pre-mine (10,000,000 ZBX).
+        /// If empty, the validator address gets the default Foundation pre-mine
+        /// (9,990,000 ZBX = 6.66% of max supply, used for development & operations).
         #[arg(long)]
         alloc: Vec<String>,
-        /// Disable the default 10M ZBX founder pre-mine when no --alloc is given.
+        /// Disable the default 9.99M ZBX Foundation pre-mine when no --alloc is given.
         #[arg(long)]
         no_default_premine: bool,
     },
@@ -876,17 +877,18 @@ fn cmd_init(home: PathBuf, validator_key: PathBuf, alloc: Vec<String>, no_defaul
         alloc_serialized.push((address.to_hex(), wei.to_string()));
     }
 
-    // Founder pre-mine is now 0 by default — admin earns only via block rewards & swap fees.
-    // Honor explicit `--alloc` entries (already collected above). The legacy
-    // `--no_default_premine` flag is now redundant (default is 0) but preserved
-    // for compatibility.
+    // Foundation pre-mine = 9.99M ZBX (6.66% of max supply) credited to the
+    // validator/admin address at genesis for development, operations, marketing,
+    // and team expenses. Honor explicit `--alloc` entries when provided; otherwise
+    // apply the default Foundation allocation. Pass `--no_default_premine` to
+    // skip (admin then earns only via block rewards + swap fees).
     if alloc_pairs.is_empty() && !no_default_premine && FOUNDER_PREMINE_WEI > 0 {
         alloc_pairs.push((validator_addr, FOUNDER_PREMINE_WEI));
         alloc_serialized.push((validator_addr.to_hex(), FOUNDER_PREMINE_WEI.to_string()));
-        println!("ℹ️  Default founder pre-mine: {} ZBX → {}",
+        println!("ℹ️  Foundation pre-mine: {} ZBX (6.66%) → {}",
             FOUNDER_PREMINE_WEI / WEI_PER_ZBX, validator_addr);
     } else {
-        println!("ℹ️  No founder pre-mine — admin earns ZBX only via block rewards & swap fees.");
+        println!("ℹ️  No Foundation pre-mine — admin earns ZBX only via block rewards & swap fees.");
     }
 
     // Init state with allocations

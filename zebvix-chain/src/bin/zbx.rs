@@ -483,7 +483,7 @@ async fn cmd_block(rpc: &str, height: u64, quiet: bool) -> Result<()> {
 
 async fn cmd_supply(rpc: &str, quiet: bool) -> Result<()> {
     let total: u128 = 150_000_000;
-    let premine: u128 = 10_000_000;
+    let premine: u128 = 9_990_000;
     let h = rpc_call(rpc, "eth_blockNumber", serde_json::json!([])).await?;
     let height = hex_to_u128(h.as_str().unwrap_or("0x0"))? as u64;
     // Bitcoin-style halving every ~210k blocks; initial reward 50 ZBX/block.

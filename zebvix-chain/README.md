@@ -12,8 +12,9 @@
 | Crypto | Ed25519 signatures |
 | Block time | 5 seconds |
 | Total supply cap | 150,000,000 ZBX |
-| Founder pre-mine | 10,000,000 ZBX (genesis allocation) |
-| Block-mined supply | 140,000,000 ZBX over time |
+| Foundation pre-mine | 9,990,000 ZBX (6.66% — development & operations) |
+| AMM pool genesis seed | 20,000,000 ZBX (13.33% — liquidity) |
+| Block-mined supply | 120,010,000 ZBX over time (80.01%) |
 | Initial block reward | 3 ZBX |
 | Halving interval | 25,000,000 blocks (~3.96 years) |
 | Consensus (v0.1) | Single-validator PoA |
