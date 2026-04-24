@@ -171,6 +171,51 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 Err(e) => err(id, -32000, format!("{e}")),
             }
         }
+        "zbx_mempoolStatus" => {
+            // Cheap: just sizes, no tx bodies. Safe to poll frequently.
+            ok(id, json!({
+                "size": ctx.mempool.len(),
+                "max_size": ctx.mempool.max_size(),
+            }))
+        }
+        "zbx_mempoolPending" => {
+            // Optional `?limit=N` (default 50, cap 500). Returns a summary list
+            // of the pending txs currently sitting in the mempool — hash,
+            // from/to, amount, fee, nonce, kind tag. Never returns full tx
+            // bodies (signatures/pubkeys stripped) to keep the payload small.
+            let limit = req.params.get(0)
+                .and_then(|v| v.as_u64())
+                .unwrap_or(50)
+                .min(500) as usize;
+            let snap = ctx.mempool.snapshot();
+            let total = snap.len();
+            let kind_name = |i: u32| match i {
+                0 => "Transfer",
+                1 => "ValidatorAdd",
+                2 => "ValidatorRemove",
+                3 => "ValidatorEdit",
+                4 => "GovernorChange",
+                5 => "Staking",
+                6 => "RegisterPayId",
+                7 => "Multisig",
+                _ => "Unknown",
+            };
+            let txs: Vec<Value> = snap.into_iter().take(limit).map(|(h, from, to, amount, fee, nonce, kind)| json!({
+                "hash":   format!("0x{}", hex::encode(h)),
+                "from":   from.to_hex(),
+                "to":     to.to_hex(),
+                "amount": amount.to_string(),
+                "fee":    fee.to_string(),
+                "nonce":  nonce,
+                "kind":   kind_name(kind),
+            })).collect();
+            ok(id, json!({
+                "size":     total,
+                "max_size": ctx.mempool.max_size(),
+                "returned": txs.len(),
+                "txs":      txs,
+            }))
+        }
         "zbx_getBlockByNumber" => {
             let height = req.params.get(0).and_then(|v| v.as_u64()).unwrap_or(0);
             match ctx.state.block_at(height) {

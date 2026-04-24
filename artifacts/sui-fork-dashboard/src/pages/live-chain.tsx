@@ -9,7 +9,7 @@ import {
   Activity, Box, Users, Zap, AlertCircle, TrendingUp, Coins,
   ArrowLeftRight, Gauge, Timer, Flame, Layers, Wifi, ShieldCheck,
   Hash, Clock, Cpu, Droplet, ArrowUpRight, ChevronDown, ChevronUp,
-  Sparkles, BarChart3, Search, Inbox, Send, Check, RefreshCw,
+  Sparkles, BarChart3, Search, Inbox, Send, Check, RefreshCw, Hourglass,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -62,6 +62,8 @@ export default function LiveChain() {
   const [vals, setVals] = useState<ValidatorInfo | null>(null);
   const [msCount, setMsCount] = useState<number | null>(null);
   const [payIdCount, setPayIdCount] = useState<number | null>(null);
+  const [mempool, setMempool] = useState<{ size: number; max_size: number } | null>(null);
+  const [mempoolUnsupported, setMempoolUnsupported] = useState(false);
   const [price, setPrice] = useState<PriceInfo | null>(null);
   const [supply, setSupply] = useState<SupplyInfo | null>(null);
   const [pool, setPool] = useState<PoolInfo | null>(null);
@@ -108,7 +110,11 @@ export default function LiveChain() {
           rpc<PriceInfo>("zbx_getPriceUSD").catch(() => null),
           rpc<SupplyInfo>("zbx_supply").catch(() => null),
           rpc<PoolInfo>("zbx_getPool").catch(() => null),
-        ]).then(([v, va, ms, pid, pr, sup, po]) => {
+          rpc<{ size: number; max_size: number }>("zbx_mempoolStatus").then(
+            (r) => ({ ok: true as const, data: r }),
+            (e) => ({ ok: false as const, err: String(e?.message || e) }),
+          ),
+        ]).then(([v, va, ms, pid, pr, sup, po, mp]) => {
           if (!mounted) return;
           if (v) setVotes(v);
           if (va) setVals(va);
@@ -121,6 +127,12 @@ export default function LiveChain() {
           }
           if (sup) setSupply(sup);
           if (po) setPool(po);
+          if (mp.ok) {
+            setMempool(mp.data);
+            setMempoolUnsupported(false);
+          } else if (/method not found|method.*not.*supported|not.*whitelisted/i.test(mp.err)) {
+            setMempoolUnsupported(true);
+          }
         });
 
         const WINDOW = 20;
@@ -302,6 +314,8 @@ export default function LiveChain() {
           supply={supply}
           price={price}
           flashHeight={flashHeight}
+          mempool={mempool}
+          mempoolUnsupported={mempoolUnsupported}
         />
       )}
       {tab === "blocks" && <BlocksTab recent={recent} flashHeight={flashHeight} />}
@@ -378,7 +392,7 @@ function Hero({
 // ─────────────────────────────────────────────────────────────────────────────
 function OverviewTab({
   stats, tpsHist, blockTimeHist, recent, fee, votes, vals, msCount, payIdCount,
-  supply, price, flashHeight,
+  supply, price, flashHeight, mempool, mempoolUnsupported,
 }: any) {
   const priceNum = price ? parseFloat(price.zbx_usd) : 0;
   return (
@@ -408,8 +422,26 @@ function OverviewTab({
       </div>
 
       {/* Counters row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         <MiniStat icon={ArrowLeftRight} label="Total Txs (est)" value={stats ? stats.estimatedTotalTxs.toLocaleString() : "—"} sub={stats ? `${stats.totalTxsWindow} in last ${stats.windowSize}` : ""} />
+        <MiniStat
+          icon={Hourglass}
+          label="Mempool"
+          value={
+            mempoolUnsupported
+              ? "n/a"
+              : mempool
+                ? mempool.size.toLocaleString()
+                : "—"
+          }
+          sub={
+            mempoolUnsupported
+              ? "RPC not on this node"
+              : mempool
+                ? `pending · cap ${mempool.max_size.toLocaleString()}`
+                : "loading…"
+          }
+        />
         <MiniStat icon={Users} label="Validators" value={vals?.validators?.length ?? "—"} sub={vals?.quorum ? `quorum ${vals.quorum}` : ""} />
         <MiniStat icon={Zap} label="Multisigs" value={msCount ?? "—"} />
         <MiniStat icon={Sparkles} label="Pay-IDs" value={payIdCount ?? "—"} />

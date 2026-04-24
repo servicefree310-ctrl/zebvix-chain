@@ -38,6 +38,8 @@ const ALLOWED_METHODS = new Set<string>([
   "zbx_listMultisigsByOwner",
   "zbx_multisigCount",
   "zbx_sendRawTransaction",
+  "zbx_mempoolStatus",
+  "zbx_mempoolPending",
   "eth_chainId",
   "eth_blockNumber",
   "eth_getBalance",

@@ -56,4 +56,28 @@ impl Mempool {
     }
 
     pub fn len(&self) -> usize { self.inner.read().len() }
+
+    pub fn max_size(&self) -> usize { self.max_size }
+
+    /// Cheap snapshot for RPC: (hash, from, to, amount, fee, nonce, kind_index).
+    /// Cloning the inner Vec keeps the read lock window small.
+    pub fn snapshot(&self) -> Vec<([u8; 32], crate::types::Address, crate::types::Address, u128, u128, u64, u32)> {
+        let g = self.inner.read();
+        let mut out: Vec<_> = g.iter().map(|(h, t)| {
+            let kind_idx = match &t.body.kind {
+                crate::types::TxKind::Transfer             => 0u32,
+                crate::types::TxKind::ValidatorAdd { .. }  => 1,
+                crate::types::TxKind::ValidatorRemove { .. } => 2,
+                crate::types::TxKind::ValidatorEdit { .. } => 3,
+                crate::types::TxKind::GovernorChange { .. } => 4,
+                crate::types::TxKind::Staking(_)           => 5,
+                crate::types::TxKind::RegisterPayId { .. } => 6,
+                crate::types::TxKind::Multisig(_)          => 7,
+            };
+            (*h, t.body.from, t.body.to, t.body.amount, t.body.fee, t.body.nonce, kind_idx)
+        }).collect();
+        // Sort by (sender, nonce) for stable display.
+        out.sort_by_key(|(_, from, _, _, _, n, _)| (from.0, *n));
+        out
+    }
 }
