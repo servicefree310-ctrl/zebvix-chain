@@ -1,0 +1,48 @@
+
+── 4. all rocksdb CURRENT files ──
+/home/zebvix-chain.bak-prebll-1777010304/.zebvix.before-mathfix-121520/data/CURRENT
+/home/zebvix-chain.bak-prebll-1777010304/.zebvix2/data/CURRENT
+/home/zebvix-chain.bak-prebll-1777010304/.zebvix/data/CURRENT
+/home/zebvix-chain.bak-prebll-1777010304/.zebvix.bk-132952/data/CURRENT
+/home/zebvix-chain.bak-prebll-1777010304/data/CURRENT
+root@srv1266996:/home/zebvix-chain# systemctl stop zebvix.service && \
+source $HOME/.cargo/env && \
+zebvix-node admin-pool-genesis --home /root/.zebvix && \
+systemctl start zebvix.service && \
+sleep 4 && \
+curl -s http://127.0.0.1:8545 -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"zbx_getPool","params":[]}' \
+  | jq '.result | {initialized, zbx_reserve_wei, zusd_reserve, spot_price_usd_per_zbx, lp_supply, loan_outstanding_zusd}'
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+✅ Pool genesis complete — permissionless AMM is LIVE!
+
+   Pool address  : 0x7a73776170000000000000000000000000000000  ⚠️  no private key — controlled by chain logic
+   Admin address : 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315
+
+   ZBX reserve   : 20000000 ZBX  (minted to pool, not admin)
+   zUSD reserve  : 10000000 zUSD (minted as liquidity loan)
+   Loan to repay : 10000000 zUSD ← will be repaid via 0.3% swap fees
+   LP locked     : 14142135623730950488016887 (held by POOL_ADDRESS, permanent)
+
+   Spot price    : 1 ZBX = $0.500000
+
+   ┌─ How users swap ─────────────────────────────────────┐
+   │  Send ZBX → 0x7a73776170000000000000000000000000000000  │
+   │  → auto-swapped to zUSD, returned to your wallet     │
+   └──────────────────────────────────────────────────────┘
+{
+  "initialized": true,
+  "zbx_reserve_wei": "20000000000000000000000000",
+  "zusd_reserve": "10000000000000000000000000",
+  "spot_price_usd_per_zbx": "0.500000",
+  "lp_supply": "14142135623730950488016887",
+  "loan_outstanding_zusd": "10000000000000000000000000"
+}
+root@srv1266996:/home/zebvix-chain# 

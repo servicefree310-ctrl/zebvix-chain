@@ -53,9 +53,36 @@ Standalone Rust crate building Zebvix L1 — token ZBX, chain-id 7878, EVM-style
 - `src/crypto.rs` — `sign_tx`, `verify_tx`, `tx_hash`, `tx_signing_bytes` (low-level). `transaction.rs` wraps these as inherent methods.
 - `src/mempool.rs`, `src/state.rs`, `src/rpc.rs`, `src/consensus.rs` — consume `SignedTx` via the existing `crate::types::*` import path; no churn needed.
 
-### Phase B.11.1 — AMM pool genesis seed: $0.50 / ZBX opening (Apr 24, 2026) ✅ chain code; VPS deploy pending
+### Phase B.11.1 — AMM pool genesis seed: $0.50 / ZBX opening (Apr 24, 2026) ✅ LIVE on VPS
 
-**Problem**: VPS pe `zbx_getPool` returns `initialized=false`; `zbx_getPriceUSD` returns
+**FINAL STATUS (Apr 24, 2026, 13:14 UTC):** Pool seeded successfully on `93.127.213.192:8545`.
+Live verification:
+```
+initialized:               true
+zbx_reserve_wei:           20,000,000.000000 ZBX
+zusd_reserve:              10,000,000.000000 zUSD
+spot_price_usd_per_zbx:    $0.500000
+lp_supply:                 14,142,135.62...   (= sqrt(20M × 10M), constant-product)
+loan_outstanding_zusd:     10,000,000 zUSD     (will be repaid via 0.3% swap fees)
+zbx_getPriceUSD.source:    "amm-pool-spot"     (was: "uninitialized")
+```
+
+**Critical bug found mid-deploy** (logged for future ops): the deploy script's
+default `DATA_DIR=/home/zebvix-chain/.zebvix` did NOT match the systemd service's
+`--home /root/.zebvix` flag. First seed write went to wrong RocksDB → live RPC
+kept reporting `initialized=false` even though admin command printed success.
+**Fix shipped to script**: `detect_data_dir()` now parses the systemd unit and
+extracts the `--home <path>` argument automatically, so the seed write always
+goes to the same DB the live node reads from. Fallback is `/root/.zebvix` to
+match the production VPS.
+
+**Other deploy-time fixes applied:**
+- Script now auto-sources `$HOME/.cargo/env` if `cargo` not on PATH (rustup
+  installs it under root's home but sudo strips PATH).
+- Verification block switched from a brittle Python heredoc (broken by bash
+  backslash-quote escaping) to a clean `jq` filter with raw-JSON fallback.
+
+**Original problem**: VPS pe `zbx_getPool` returns `initialized=false`; `zbx_getPriceUSD` returns
 `{"source":"uninitialized","zbx_usd":"0.000000"}` → home dashboard price card was blank,
 swap calls rejected with "pool not yet initialized". Root cause: `pool_init_genesis()`
 is wired ONLY behind admin CLI command `zbx admin pool-genesis`
