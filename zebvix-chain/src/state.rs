@@ -202,6 +202,15 @@ impl State {
 
     pub fn tip(&self) -> (u64, Hash) { *self.tip.read() }
 
+    /// Phase C.2 — expose the raw RocksDB handle so the EVM layer
+    /// (`evm_state::CfEvmDb`) can be constructed against the same database.
+    /// Used by `rpc.rs` to wire `eth_*` JSON-RPC methods through to the
+    /// EVM dispatcher without duplicating storage state.
+    #[cfg(feature = "evm")]
+    pub fn raw_db(&self) -> Arc<DB> {
+        self.db.clone()
+    }
+
     pub fn account(&self, a: &Address) -> Account {
         let cf = self.db.cf_handle(CF_ACCOUNTS).unwrap();
         match self.db.get_cf(cf, a.0).ok().flatten() {

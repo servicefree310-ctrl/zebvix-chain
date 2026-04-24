@@ -41,6 +41,12 @@ pub struct RpcCtx {
     pub p2p_out: Option<tokio::sync::mpsc::UnboundedSender<P2PMsg>>,
     /// Phase B.2: shared in-memory vote pool. `None` only in legacy --no-p2p mode.
     pub votes: Option<Arc<VotePool>>,
+    /// Phase C.2 — shared EVM state DB. When `Some`, the RPC layer routes
+    /// any unhandled `eth_*` / `net_*` / `web3_*` method through
+    /// `crate::evm_rpc::dispatch` so MetaMask/Foundry/ethers.js can speak
+    /// the standard JSON-RPC dialect against this node.
+    #[cfg(feature = "evm")]
+    pub evm_db: Option<Arc<crate::evm_state::CfEvmDb>>,
 }
 
 #[derive(Deserialize)]
@@ -1074,9 +1080,67 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
             }
         }
         "zbx_multisigCount" => ok(id, json!({ "total": ctx.state.multisig_count() })),
-        m => err(id, -32601, format!("method not found: {m}")),
+        m => {
+            // Phase C.2 — Standard EVM JSON-RPC fallthrough. Any `eth_*`,
+            // `net_*`, or `web3_*` method that the legacy native dispatcher
+            // above did not handle is routed to `evm_rpc::dispatch` so the
+            // node speaks Geth-compatible JSON-RPC for wallets and tooling.
+            #[cfg(feature = "evm")]
+            if m.starts_with("eth_") || m.starts_with("net_") || m.starts_with("web3_") {
+                if let Some(resp) = try_evm_dispatch(&ctx, &id, m, &req.params) {
+                    return Json(resp);
+                }
+            }
+            err(id, -32601, format!("method not found: {m}"))
+        }
     };
     Json(resp)
+}
+
+/// Phase C.2 — bridge between the legacy native RPC dispatcher and the
+/// EVM JSON-RPC handler in `evm_rpc::dispatch`. Returns `None` when the
+/// EVM DB is not configured (so the catch-all can return `method not found`).
+#[cfg(feature = "evm")]
+fn try_evm_dispatch(
+    ctx: &RpcCtx,
+    id: &Value,
+    method: &str,
+    params: &Value,
+) -> Option<RpcResp> {
+    let db = ctx.evm_db.as_ref()?.clone();
+    let (height, _) = ctx.state.tip();
+    let block_ts_ms = ctx.state.block_at(height)
+        .map(|b| b.header.timestamp_ms)
+        .unwrap_or(0);
+
+    let pool = ctx.state.pool();
+    let base_fee = crate::pool::dynamic_gas_price_wei(
+        &pool,
+        TARGET_FEE_USD_MICRO,
+        MIN_GAS_UNITS,
+        DYNAMIC_GAS_FLOOR_GWEI,
+        DYNAMIC_GAS_CAP_GWEI,
+    );
+
+    let evm_ctx = crate::evm_rpc::EvmRpcCtx {
+        db,
+        chain_id: CHAIN_ID,
+        current_height: height,
+        current_timestamp: block_ts_ms / 1000,
+        coinbase: Address::from_bytes([0u8; 20]),
+        base_fee,
+    };
+
+    let params_arr: Vec<Value> = match params {
+        Value::Array(a) => a.clone(),
+        Value::Null => vec![],
+        other => vec![other.clone()],
+    };
+
+    Some(match crate::evm_rpc::dispatch(&evm_ctx, method, &params_arr) {
+        Ok(v) => ok(id.clone(), v),
+        Err(e) => err(id.clone(), -32000, e),
+    })
 }
 
 pub fn router(ctx: RpcCtx) -> Router {
