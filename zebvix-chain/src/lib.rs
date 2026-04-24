@@ -29,3 +29,5 @@ pub mod evm_state;
 pub mod evm_precompiles;
 #[cfg(feature = "evm")]
 pub mod evm_rpc;
+#[cfg(feature = "evm")]
+pub mod evm_rlp;

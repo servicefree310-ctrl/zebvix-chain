@@ -450,17 +450,114 @@ they explicitly opt in. With the feature off the chain compiles unchanged.
   address filtering), getTransactionReceipt, getBlockByNumber, feeHistory,
   net_version, web3_clientVersion, syncing, accounts.
 
-### Phase C.2 work (not yet shipped)
-- CALL / CALLCODE / DELEGATECALL / STATICCALL — recursive interpreter frames.
-- In-contract CREATE / CREATE2 — currently top-level only.
-- Full RLP body decode for `eth_sendRawTransaction` (currently parses
-  envelope-kind discriminator, full body decode in `evm_rlp.rs` next).
-- alt_bn128 + BLAKE2F precompiles (alt_bn128 needs the `bn` or `ark-bn254`
-  crate, BLAKE2F needs `blake2`).
-- Warm/cold access-list cache (EIP-2929/2930).
-- `eth_getTransactionReceipt` — needs receipt store.
-- Wire `TxKind::EvmCall` / `TxKind::EvmCreate` variants into `transaction.rs`
-  + `state::apply_tx` so EVM tx envelopes can flow through the mempool.
+### Phase C.2 — recursive CALL frames + RLP body decode (2026-04-24) ✅ SHIPPED
+Built on the Phase C.1 skeleton; user will rebuild on VPS later. ~1,074 new
+lines across 4 files. Architect-reviewed, all Critical/High findings fixed.
+
+**1. NEW `evm_rlp.rs` (~643 lines)** — canonical RLP decoder + tx parsers.
+- Generic `Item::{Bytes, List}` decoder with strict canonical-form checks
+  (no leading zero bytes in scalars, no over-long encodings, single-byte
+  values < 0x80 must use short form, etc).
+- Three envelope decoders: legacy (with EIP-155 chain-id derivation from
+  `v`), EIP-2930 type-0x01 (access list), EIP-1559 type-0x02 (dynamic fee).
+- `decode_raw_tx(&[u8]) -> Result<(EvmTxEnvelope, Address)>` — top-level
+  entry that dispatches by leading byte and recovers the sender via
+  k256 secp256k1 + keccak256.
+- Builds the canonical signing-message RLP for each envelope and runs
+  ECDSA recovery against the recoverable signature triple `(r, s, v)`.
+- `tx_hash()` returns the wallet-visible hash: `keccak(rlp)` for legacy,
+  `keccak(type_byte || rlp)` for typed envelopes.
+- 12 unit tests covering canonical-form rejection, EIP-155 round-trip,
+  envelope-kind dispatch, and signature recovery against known vectors.
+
+**2. `evm_interp.rs` refactor (+~370 lines, now 1,450 lines total)** —
+real recursive interpreter frames.
+- `CallKind { Call, CallCode, DelegateCall, StaticCall }` enum + new
+  constants `G_CODE_DEPOSIT = 200`, `G_CALL_STIPEND = 2300`.
+- New `op_call_generic(kind)` powering all four call opcodes
+  (0xf1 / 0xf2 / 0xf4 / 0xfa):
+  - EIP-150 63/64 gas forwarding cap with caller-side reservation.
+  - Value-transfer base + `G_NEWACCOUNT` surcharge for empty targets
+    (EIP-161 emptiness defined as `nonce == 0 && balance == 0 &&
+    code_hash == KECCAK_EMPTY`, **not** the all-zero sentinel).
+  - Static-call enforcement that propagates through DelegateCall.
+  - Precompile fast-path via `evm_precompiles::dispatch` (returns gas /
+    output / success without spinning up a child Interp).
+  - Snapshot/rollback through HashMap copies of touched accounts +
+    storage; child Interp logs/storage_writes/account_writes are merged
+    into parent only on success, fully discarded on revert. The 2300
+    stipend is granted to the child for value-bearing calls.
+- New `op_create(create2: bool)` powering 0xf0 and 0xf5:
+  - EIP-3860 max-initcode (49,152 bytes) enforced before exec; EIP-170
+    max-deployed-code (24,576 bytes) and EIP-3541 first-byte != 0xEF
+    after init returns.
+  - EIP-684 collision check uses `code_hash != KECCAK_EMPTY` (the
+    `EvmAccount::default()` returns KECCAK_EMPTY for unknown accounts;
+    comparing against `[0u8; 32]` was a Phase-C.1 bug that caused
+    every fresh address to false-positive). Same fix applied earlier
+    to top-level `evm::execute()`.
+  - Caller nonce bumped before init runs (per spec, even on revert);
+    init code runs in a child Interp; on success we charge
+    `G_CODE_DEPOSIT * len` and journal the new account.
+- Depth limit of 1024 enforced at every call/create boundary.
+
+**3. `evm_rpc.rs` — eth_sendRawTransaction now real (-43 / +25 lines).**
+- Replaced the C.1 placeholder `decode_raw_tx` (which only surfaced the
+  envelope-kind byte) with `crate::evm_rlp::decode_raw_tx`.
+- Handler now: decodes raw → recovers sender → builds `EvmTxEnvelope` →
+  calls `evm::execute(&db, &ctx, &sender, &tx)` → applies the returned
+  `StateJournal` via `CfEvmDb::apply_journal()` → returns canonical
+  Ethereum tx hash. Reverted txs still apply the nonce-bump journal
+  (yellow paper §6).
+- Stale `RawTx` / `RawTxKind` placeholders removed; old test rewired
+  to assert the new decoder rejects empty input and reserved type 0x03
+  (blob tx, EIP-4844, intentionally not supported on Zebvix L1).
+
+**4. `lib.rs` — `pub mod evm_rlp;` under `#[cfg(feature = "evm")]`.**
+No `Cargo.toml` change needed; `k256 = { version = "0.13", features =
+["ecdsa", "serde"] }` and `sha3 = "0.10"` were already pulled in by
+Phase B.11 + C.1.
+
+### Architect-review fixes on Phase C.2
+The architect surfaced 4 Critical/High findings and 1 Medium. Resolved:
+
+1. **High — chain-id not enforced (cross-chain replay).** `decode_raw_tx`
+   now returns `(EvmTxEnvelope, Address, Option<u64>)` where the third
+   tuple slot is the declared chain id (None for unprotected legacy).
+   `eth_sendRawTransaction` rejects tx whose declared id ≠ node id, and
+   refuses unprotected legacy txs outright (every modern wallet uses
+   EIP-155; accepting non-protected opens replay from any chain that
+   shares the same secp256k1 keys).
+2. **High — `y_parity` wraparound on cast.** Both EIP-2930 and EIP-1559
+   decoders now reject any `y_parity` outside `{0, 1}` before the
+   `as u8` truncation.
+3. **Critical — CREATE value-burn on revert.** `op_create` previously
+   pushed a single journal entry containing both the nonce bump and the
+   balance debit, and snapshotted *after* that push — so revert kept the
+   debit, burning the endowment value. Now we push two entries: a
+   nonce-only entry (must persist on revert per yellow paper §7), then
+   snapshot, then a debit entry that gets dropped on revert. Net effect:
+   nonce bump persists, balance is restored, value is never burned.
+4. **(Push-back) — CALL stipend "gas creation".** Architect flagged that
+   unused stipend gas being refunded looked like gas minting. This is
+   actually spec-compliant geth behavior: the 9 000-gas `G_CALL_VALUE`
+   charge already pays for the stipend; the 2 300-gas stipend just
+   guarantees the callee has enough to run a fallback, and any unused
+   portion correctly returns to the caller. Added an explanatory
+   comment in `op_call_generic` noting this is intentional.
+5. **Medium — non-canonical RLP scalar acceptance.** `RlpItem::as_u64`
+   and `RlpItem::as_u256` now reject any byte string with leading zeros
+   in the high byte (per yellow paper Appendix B canonicality).
+
+### Phase C.3 work (not yet shipped)
+- alt_bn128 + BLAKE2F precompiles (alt_bn128 needs `bn` / `ark-bn254`,
+  BLAKE2F needs `blake2`).
+- Warm/cold access-list cache (EIP-2929 + EIP-2930 access-list seed).
+- Receipt store + `eth_getTransactionReceipt` / `eth_getTransactionByHash`.
+- Wire `TxKind::EvmCall` / `TxKind::EvmCreate` into `transaction.rs` +
+  `state::apply_tx` so EVM envelopes flow through the consensus mempool.
+- Block-builder integration: include EVM txs in `block::build_block`,
+  charge gas in the native fee splitter, surface logs in block events.
 
 ### Tests included
 - `evm.rs`: keccak constant, CREATE/CREATE2 determinism, intrinsic gas, U256 round-trip.

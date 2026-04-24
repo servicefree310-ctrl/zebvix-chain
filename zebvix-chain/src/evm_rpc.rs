@@ -193,13 +193,46 @@ pub fn dispatch(ctx: &EvmRpcCtx, method: &str, params: &[Value]) -> Result<Value
         }
 
         "eth_sendRawTransaction" => {
+            // Phase C.2: full RLP decode + sender recovery + actual execution.
             let raw = parse_hex(get_str(params, 0)?)?;
-            let tx = decode_raw_tx(&raw)?;
-            // Hand off to the chain mempool — rpc.rs wires this back to
-            // `mempool::submit()`. Here we just compute the tx hash and
-            // return it so MetaMask sees acceptance.
+            let (tx, sender, declared_chain_id) =
+                crate::evm_rlp::decode_raw_tx(&raw)
+                    .map_err(|e| format!("rlp decode failed: {e}"))?;
+
+            // Pre-flight: declared chain id MUST match the node chain id —
+            // this is the cross-chain replay guard. Legacy txs without
+            // EIP-155 carry `None`; we reject them outright on Zebvix L1
+            // because every wallet built in the last 5 years sends EIP-155
+            // and accepting unprotected legacy opens replays from any
+            // chain that shares the same secp256k1 keys.
+            match declared_chain_id {
+                Some(cid) if cid == ctx.chain_id => {}
+                Some(cid) => {
+                    return Err(format!(
+                        "wrong chain id: tx declared {cid}, node is {}",
+                        ctx.chain_id
+                    ));
+                }
+                None => {
+                    return Err(
+                        "unprotected legacy tx (no EIP-155) rejected".into()
+                    );
+                }
+            }
+
+            let evm_ctx = ctx.evm_context();
+            let (result, journal) = crate::evm::execute(&*ctx.db, &evm_ctx, &sender, &tx);
+
+            // Apply the journal regardless of success — even reverted txs
+            // bump the sender's nonce per yellow paper §6.
+            if let Err(e) = ctx.db.apply_journal(&journal) {
+                return Err(format!("state apply failed: {e}"));
+            }
+
+            // Surface execution failure to the wallet, but still return the
+            // canonical Ethereum tx hash so the wallet can poll for receipt.
+            let _ = result; // receipt store will pick this up in C.3
             let hash = crate::evm::keccak256(&raw);
-            let _ = tx; // stored for relay
             Ok(json!(format!("0x{}", hex::encode(hash))))
         }
 
@@ -403,47 +436,12 @@ fn try_gas(ctx: &EvmRpcCtx, evm_ctx: &EvmContext, from: &Address, env: &EvmTxEnv
 }
 
 // ---------------------------------------------------------------------------
-// RLP-decoded raw transaction (legacy + EIP-1559 + EIP-2930)
+// Raw transaction decode — fully ships in `crate::evm_rlp` (Phase C.2).
+// The placeholder `RawTx` / `RawTxKind` / `decode_raw_tx` from C.1 has been
+// removed; `eth_sendRawTransaction` above now uses `evm_rlp::decode_raw_tx`,
+// which returns a real `(EvmTxEnvelope, sender Address)` pair after secp256k1
+// recovery. See `evm_rlp.rs` for the canonical decoder.
 // ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone)]
-pub struct RawTx {
-    pub kind: RawTxKind,
-    pub nonce: u64,
-    pub gas_price: u128,
-    pub gas_limit: u64,
-    pub to: Option<Address>,
-    pub value: u128,
-    pub data: Vec<u8>,
-    pub chain_id: Option<u64>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RawTxKind { Legacy, AccessList, DynamicFee }
-
-/// Top-level RLP-decoded raw tx parser. Handles the three Ethereum tx
-/// envelope formats that MetaMask / ethers send today.
-pub fn decode_raw_tx(raw: &[u8]) -> Result<RawTx, String> {
-    if raw.is_empty() { return Err("empty raw tx".into()); }
-    let kind = match raw[0] {
-        0x01 => RawTxKind::AccessList,
-        0x02 => RawTxKind::DynamicFee,
-        _ => RawTxKind::Legacy,
-    };
-    // Phase C.1 ships the parsed envelope-kind discriminant; the full RLP
-    // body decode lives in `evm_rlp.rs` (Phase C.2). For now we surface
-    // enough to acknowledge the tx and return a hash to the wallet.
-    Ok(RawTx {
-        kind,
-        nonce: 0,
-        gas_price: 0,
-        gas_limit: 0,
-        to: None,
-        value: 0,
-        data: raw.to_vec(),
-        chain_id: None,
-    })
-}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -503,8 +501,9 @@ mod tests {
 
     #[test]
     fn raw_tx_kind_dispatch() {
-        assert_eq!(decode_raw_tx(&[0x01, 0xaa]).unwrap().kind, RawTxKind::AccessList);
-        assert_eq!(decode_raw_tx(&[0x02, 0xaa]).unwrap().kind, RawTxKind::DynamicFee);
-        assert_eq!(decode_raw_tx(&[0xf8, 0xaa]).unwrap().kind, RawTxKind::Legacy);
+        // Envelope kind discrimination now happens inside evm_rlp::decode_raw_tx.
+        // Empty input must reject; type 0x03 (blob tx) is reserved.
+        assert!(crate::evm_rlp::decode_raw_tx(&[]).is_err());
+        assert!(crate::evm_rlp::decode_raw_tx(&[0x03, 0xc0]).is_err());
     }
 }

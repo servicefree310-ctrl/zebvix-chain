@@ -398,17 +398,24 @@ pub fn execute<D: EvmDb>(
                 );
             }
 
-            // Architect-review Medium fix: yellow paper §7 forbids deploying
-            // over an account that already has a non-zero nonce or non-empty
-            // code (EIP-684 / Spurious Dragon). Pre-existing balance is
-            // allowed and inherited per spec.
-            let existing = db.account(&new_addr).unwrap_or_default();
-            if existing.nonce != 0 || existing.code_hash != [0u8; 32] {
-                return (
-                    ExecResult::revert("address collision: account already has code/nonce", tx.gas_limit()),
-                    journal,
-                );
-            }
+            // Architect-review Medium fix: yellow paper §7 / EIP-684 forbids
+            // deploying over an account that already has a non-zero nonce or
+            // non-empty code. Pre-existing balance is preserved per spec.
+            //
+            // NB: `EvmAccount::default()` reports `code_hash = KECCAK_EMPTY`
+            // for accounts the DB doesn't know about, so the "has code"
+            // predicate must be `code_hash != KECCAK_EMPTY`, *not* the all-zero
+            // sentinel — otherwise every fresh address would falsely collide.
+            let existing = match db.account(&new_addr) {
+                Some(a) if a.nonce != 0 || a.code_hash != KECCAK_EMPTY => {
+                    return (
+                        ExecResult::revert("address collision: account already has code/nonce", tx.gas_limit()),
+                        journal,
+                    );
+                }
+                Some(a) => a,
+                None => EvmAccount::default(),
+            };
 
             // Credit value to new contract (existing balance preserved).
             let mut new_acct = existing;

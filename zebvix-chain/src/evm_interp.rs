@@ -24,9 +24,11 @@
 #![allow(dead_code, clippy::needless_range_loop, clippy::too_many_lines)]
 
 use crate::evm::{
-    bytes_to_u256, keccak256, u256_to_bytes, EvmAccount, EvmContext, EvmDb, EvmLog, ExecResult,
-    StateJournal, CALL_DEPTH_LIMIT, KECCAK_EMPTY, STACK_LIMIT,
+    bytes_to_u256, create2_address, create_address, keccak256, u256_to_bytes, EvmAccount,
+    EvmContext, EvmDb, EvmLog, ExecResult, StateJournal, CALL_DEPTH_LIMIT, KECCAK_EMPTY,
+    MAX_CODE_SIZE, MAX_INITCODE_SIZE, STACK_LIMIT,
 };
+use crate::evm_precompiles::dispatch as precompile_dispatch;
 use crate::types::Address;
 use primitive_types::{H256, U256};
 use std::collections::HashMap;
@@ -162,6 +164,23 @@ const G_CALL: u64 = 2_600;
 const G_CALL_VALUE: u64 = 9_000;
 const G_NEW_ACCOUNT: u64 = 25_000;
 const G_CREATE: u64 = 32_000;
+const G_CODE_DEPOSIT: u64 = 200; // per byte of deployed runtime code
+const G_CALL_STIPEND: u64 = 2_300; // free gas given to callee on value xfer
+
+/// Phase C.2 — discriminator for the four CALL-family opcodes. Determines
+/// caller / callee / value-transfer / static-flag rules per EIP-7 (DELEGATECALL),
+/// EIP-2200 (STATICCALL), and the original yellow-paper CALLCODE semantics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallKind {
+    /// Regular CALL — `to` becomes the new code & storage context, value transferred.
+    Call,
+    /// CALLCODE — execute `to`'s code in **caller's** storage context, value transferred to caller (no-op).
+    CallCode,
+    /// DELEGATECALL — execute `to`'s code in caller's context with caller's caller/value preserved.
+    DelegateCall,
+    /// STATICCALL — like CALL but state-modifying opcodes revert.
+    StaticCall,
+}
 
 // ---------------------------------------------------------------------------
 // Interpreter state
@@ -519,16 +538,17 @@ impl<'db, D: EvmDb> Interp<'db, D> {
             // Logging
             0xa0..=0xa4 => self.op_log((op - 0xa0) as usize),
 
-            // System
+            // System — Phase C.2 ships real recursive frames for all of these.
             0xf0 => self.op_create(false),
             0xf5 => self.op_create(true),
             0xf3 => self.op_return(),
             0xfd => self.op_revert(),
             0xfe => StepResult::Error("INVALID opcode"),
             0xff => StepResult::Error("SELFDESTRUCT disabled (post-Cancun deprecation)"),
-            0xf1 => self.op_call_stub(),
-            0xf4 => self.op_call_stub(),
-            0xfa => self.op_call_stub(),
+            0xf1 => self.op_call_generic(CallKind::Call),
+            0xf2 => self.op_call_generic(CallKind::CallCode),
+            0xf4 => self.op_call_generic(CallKind::DelegateCall),
+            0xfa => self.op_call_generic(CallKind::StaticCall),
 
             _ => StepResult::Error("unknown opcode"),
         }
@@ -886,26 +906,447 @@ impl<'db, D: EvmDb> Interp<'db, D> {
         }
     }
 
-    fn op_create(&mut self, _create2: bool) -> StepResult {
-        if self.is_static { return StepResult::Error("static call: CREATE forbidden"); }
-        if let Err(e) = self.use_gas(G_CREATE) { return StepResult::Error(e); }
-        // Sub-call CREATE/CREATE2 require recursive Interp::new + child journal merge.
-        // Phase C.1 ships top-level CREATE only (via state.rs::apply_tx); the
-        // in-contract opcode form returns 0 to indicate creation refused.
-        let _ = self.pop(); let _ = self.pop(); let _ = self.pop();
-        let _ = self.push(U256::zero());
+    // -----------------------------------------------------------------------
+    // Phase C.2 — In-contract CREATE / CREATE2 with recursive init code
+    // -----------------------------------------------------------------------
+    //
+    // Yellow Paper §7 + EIP-1014 (CREATE2) + EIP-3860 (init-code limit) +
+    // EIP-684 (collision check) + EIP-170 (runtime code limit).
+    //
+    // Stack layout:
+    //   CREATE:  [value, in_off, in_size]                    -> [addr_or_0]
+    //   CREATE2: [value, in_off, in_size, salt]              -> [addr_or_0]
+
+    fn op_create(&mut self, create2: bool) -> StepResult {
+        if self.is_static {
+            return StepResult::Error("static call: CREATE forbidden");
+        }
+        if let Err(e) = self.use_gas(G_CREATE) {
+            return StepResult::Error(e);
+        }
+        let value = match self.pop() { Ok(v) => v.low_u128(), Err(e) => return StepResult::Error(e) };
+        let in_off = match self.pop() { Ok(v) => v.as_usize(), Err(e) => return StepResult::Error(e) };
+        let in_size = match self.pop() { Ok(v) => v.as_usize(), Err(e) => return StepResult::Error(e) };
+        let salt: Option<[u8; 32]> = if create2 {
+            let s = match self.pop() { Ok(v) => v, Err(e) => return StepResult::Error(e) };
+            Some(u256_to_bytes(s))
+        } else {
+            None
+        };
+
+        // Read init code from memory (also charges expansion gas).
+        let init_code = match self.mem_read(in_off, in_size) {
+            Ok(d) => d,
+            Err(e) => return StepResult::Error(e),
+        };
+        if init_code.len() > MAX_INITCODE_SIZE {
+            // EIP-3860: init code over limit → push 0, no further gas charged.
+            let _ = self.push(U256::zero());
+            return StepResult::Continue;
+        }
+
+        // Depth check (no return data on overflow).
+        if self.depth + 1 > CALL_DEPTH_LIMIT {
+            self.return_data.clear();
+            let _ = self.push(U256::zero());
+            return StepResult::Continue;
+        }
+
+        // Caller balance check.
+        let mut caller_acct = self.db.account(&self.address).unwrap_or_default();
+        if caller_acct.balance < value {
+            self.return_data.clear();
+            let _ = self.push(U256::zero());
+            return StepResult::Continue;
+        }
+
+        // Compute new contract address.
+        let nonce = caller_acct.nonce;
+        let new_addr = match salt {
+            Some(s) => create2_address(&self.address, &s, &init_code),
+            None => create_address(&self.address, nonce),
+        };
+
+        // EIP-684 collision: existing account must have nonce 0 AND no code.
+        // Note: `EvmAccount::default()` reports `code_hash = KECCAK_EMPTY` for
+        // accounts the DB doesn't know about — must compare against
+        // KECCAK_EMPTY, not the all-zero sentinel.
+        let existing = match self.db.account(&new_addr) {
+            Some(a) if a.nonce != 0 || a.code_hash != KECCAK_EMPTY => {
+                self.return_data.clear();
+                let _ = self.push(U256::zero());
+                return StepResult::Continue;
+            }
+            Some(a) => a,
+            None => EvmAccount::default(),
+        };
+
+        // Per yellow paper §7 / EIP-684: nonce bump on the caller MUST
+        // persist even when the CREATE reverts. The value transfer, by
+        // contrast, MUST be rolled back on revert. We split into two
+        // journal entries so the snapshot/truncate logic below can drop
+        // the value-transfer entry while keeping the nonce-only entry.
+        //
+        // 1. Push nonce-only state (balance unchanged).
+        caller_acct.nonce = nonce.saturating_add(1);
+        let caller_balance_before = caller_acct.balance;
+        self.journal.touched_accounts.push((self.address, caller_acct.clone()));
+
+        // EIP-150: forward all but 1/64 of remaining gas.
+        let avail = self.gas;
+        let forward = avail.saturating_sub(avail / 64);
+        if let Err(e) = self.use_gas(forward) {
+            return StepResult::Error(e);
+        }
+
+        // 2. Snapshot AFTER the nonce-only push but BEFORE the value
+        //    transfer. On revert, truncating to this index drops the
+        //    debit entry, restoring the original balance while keeping
+        //    the bumped nonce as the last write for the caller.
+        let snap_writes = self.storage_writes.clone();
+        let snap_trans = self.transient_storage.clone();
+        let snap_logs_len = self.logs.len();
+        let snap_refunded = self.gas_refunded;
+        let snap_journal_touched = self.journal.touched_accounts.len();
+        let snap_journal_code = self.journal.new_code.len();
+
+        // 3. Apply the value transfer (debit caller; new contract is
+        //    credited at the success-path account-write below).
+        if value > 0 {
+            caller_acct.balance = caller_balance_before.saturating_sub(value);
+            self.journal.touched_accounts.push((self.address, caller_acct.clone()));
+        }
+
+        // Build child interpreter inheriting current pending state.
+        let mut child = Interp::new(self.db, &self.ctx, forward);
+        child.address = new_addr;
+        child.caller = self.address;
+        child.origin = self.origin;
+        child.value = value;
+        child.calldata = vec![];
+        child.depth = self.depth + 1;
+        child.is_static = false;
+        child.storage_writes = self.storage_writes.clone();
+        child.transient_storage = self.transient_storage.clone();
+
+        // Run init code → return data is the runtime bytecode.
+        let res = child.run(&init_code);
+        // Refund unused gas to parent.
+        self.gas = self.gas.saturating_add(forward.saturating_sub(res.gas_used));
+
+        if !res.success {
+            // Restore snapshot, push 0.
+            self.storage_writes = snap_writes;
+            self.transient_storage = snap_trans;
+            self.logs.truncate(snap_logs_len);
+            self.gas_refunded = snap_refunded;
+            self.journal.touched_accounts.truncate(snap_journal_touched);
+            self.journal.new_code.truncate(snap_journal_code);
+            self.return_data = res.return_data;
+            let _ = self.push(U256::zero());
+            return StepResult::Continue;
+        }
+
+        let runtime_code = res.return_data;
+
+        // EIP-170 runtime size + EIP-3541 leading-0xEF rejection.
+        if runtime_code.len() > MAX_CODE_SIZE
+            || (!runtime_code.is_empty() && runtime_code[0] == 0xef)
+        {
+            self.storage_writes = snap_writes;
+            self.transient_storage = snap_trans;
+            self.logs.truncate(snap_logs_len);
+            self.gas_refunded = snap_refunded;
+            self.journal.touched_accounts.truncate(snap_journal_touched);
+            self.journal.new_code.truncate(snap_journal_code);
+            self.return_data.clear();
+            let _ = self.push(U256::zero());
+            return StepResult::Continue;
+        }
+
+        // Charge code-deposit gas. If we cannot afford it, treat as failed CREATE.
+        let deposit = (runtime_code.len() as u64).saturating_mul(G_CODE_DEPOSIT);
+        if self.gas < deposit {
+            self.storage_writes = snap_writes;
+            self.transient_storage = snap_trans;
+            self.logs.truncate(snap_logs_len);
+            self.gas_refunded = snap_refunded;
+            self.journal.touched_accounts.truncate(snap_journal_touched);
+            self.journal.new_code.truncate(snap_journal_code);
+            self.return_data.clear();
+            let _ = self.push(U256::zero());
+            return StepResult::Continue;
+        }
+        self.gas -= deposit;
+
+        // Commit: adopt child buffers and register the new contract.
+        self.storage_writes = std::mem::take(&mut child.storage_writes);
+        self.transient_storage = std::mem::take(&mut child.transient_storage);
+        self.logs.append(&mut child.logs);
+        self.gas_refunded = self.gas_refunded.saturating_add(res.gas_refunded);
+        self.return_data.clear();
+
+        let code_hash = keccak256(&runtime_code);
+        let new_acct = EvmAccount {
+            nonce: 1,
+            balance: existing.balance.saturating_add(value),
+            code_hash,
+            ..Default::default()
+        };
+        // Pull child journal entries for any further nested CREATE that
+        // happened during init code execution.
+        let mut child_touched = std::mem::take(&mut child.journal.touched_accounts);
+        let mut child_codes = std::mem::take(&mut child.journal.new_code);
+        self.journal.touched_accounts.append(&mut child_touched);
+        self.journal.new_code.append(&mut child_codes);
+        self.journal.touched_accounts.push((new_addr, new_acct));
+        self.journal.new_code.push((code_hash, runtime_code));
+
+        // Push the 20-byte address as a U256 (top 12 bytes zero).
+        let _ = self.push(U256::from_big_endian(new_addr.as_bytes()));
         StepResult::Continue
     }
 
-    fn op_call_stub(&mut self) -> StepResult {
-        // CALL/DELEGATECALL/STATICCALL — Phase C.2 will recursively invoke
-        // a child Interp. C.1 returns success=true with empty return data
-        // to allow basic contracts to deploy without aborting on initializers.
+    // -----------------------------------------------------------------------
+    // Phase C.2 — Generic CALL / CALLCODE / DELEGATECALL / STATICCALL
+    // -----------------------------------------------------------------------
+    //
+    // Stack layout:
+    //   CALL / CALLCODE:        [gas, to, value, in_off, in_size, out_off, out_size]
+    //   DELEGATECALL / STATIC:  [gas, to,        in_off, in_size, out_off, out_size]
+    //
+    // Gas accounting (simplified — we treat all addresses as warm):
+    //   base       = G_CALL                                  (2_600)
+    //   value xfer = G_CALL_VALUE if value > 0               (9_000)
+    //   new acct   = G_NEW_ACCOUNT if value > 0 && empty     (25_000)
+    //   forward    = min(gas_arg, available - available/64)  (EIP-150)
+    //   stipend    = G_CALL_STIPEND added to forwarded gas if value > 0
+
+    fn op_call_generic(&mut self, kind: CallKind) -> StepResult {
+        // Pop stack arguments.
+        let gas_arg = match self.pop() { Ok(v) => v, Err(e) => return StepResult::Error(e) };
+        let to_word = match self.pop() { Ok(v) => v, Err(e) => return StepResult::Error(e) };
+        let to = address_from_u256(to_word);
+
+        let value = match kind {
+            CallKind::Call | CallKind::CallCode => {
+                match self.pop() { Ok(v) => v.low_u128(), Err(e) => return StepResult::Error(e) }
+            }
+            CallKind::DelegateCall | CallKind::StaticCall => 0u128,
+        };
+
+        let in_off = match self.pop() { Ok(v) => v.as_usize(), Err(e) => return StepResult::Error(e) };
+        let in_size = match self.pop() { Ok(v) => v.as_usize(), Err(e) => return StepResult::Error(e) };
+        let out_off = match self.pop() { Ok(v) => v.as_usize(), Err(e) => return StepResult::Error(e) };
+        let out_size = match self.pop() { Ok(v) => v.as_usize(), Err(e) => return StepResult::Error(e) };
+
+        // Static-call enforcement: a CALL with value > 0 inside a static context
+        // is forbidden (the value transfer is the state mutation).
+        if self.is_static && matches!(kind, CallKind::Call) && value > 0 {
+            return StepResult::Error("static call: value transfer forbidden");
+        }
+
+        // Read calldata for sub-call (charges memory expansion).
+        let sub_calldata = match self.mem_read(in_off, in_size) {
+            Ok(d) => d,
+            Err(e) => return StepResult::Error(e),
+        };
+        // Pre-charge output region too so revert path can still copy returndata.
+        if let Err(e) = self.mem_expand(out_off, out_size) {
+            return StepResult::Error(e);
+        }
+
+        // Base call cost.
         if let Err(e) = self.use_gas(G_CALL) { return StepResult::Error(e); }
-        for _ in 0..7 { let _ = self.pop(); }
-        let _ = self.push(U256::one());
+
+        // Value-transfer surcharges (CALL / CALLCODE only).
+        // "Empty" per EIP-161: no account record, OR account exists with
+        // (nonce == 0 && balance == 0 && code_hash == KECCAK_EMPTY).
+        let target_is_empty = match self.db.account(&to) {
+            None => true,
+            Some(a) => a.nonce == 0 && a.balance == 0 && a.code_hash == KECCAK_EMPTY,
+        };
+
+        if matches!(kind, CallKind::Call | CallKind::CallCode) && value > 0 {
+            if let Err(e) = self.use_gas(G_CALL_VALUE) { return StepResult::Error(e); }
+            if matches!(kind, CallKind::Call) && target_is_empty {
+                if let Err(e) = self.use_gas(G_NEW_ACCOUNT) { return StepResult::Error(e); }
+            }
+        }
+
+        // Depth check.
+        if self.depth + 1 > CALL_DEPTH_LIMIT {
+            self.return_data.clear();
+            let _ = self.push(U256::zero());
+            return StepResult::Continue;
+        }
+
+        // Caller balance check (CALL / CALLCODE with value).
+        if matches!(kind, CallKind::Call | CallKind::CallCode) && value > 0 {
+            let caller_acct = self.db.account(&self.address).unwrap_or_default();
+            if caller_acct.balance < value {
+                self.return_data.clear();
+                let _ = self.push(U256::zero());
+                return StepResult::Continue;
+            }
+        }
+
+        // EIP-150 gas forwarding.
+        let avail = self.gas;
+        let max_forward = avail.saturating_sub(avail / 64);
+        let mut forward = std::cmp::min(gas_arg.low_u64(), max_forward);
+        // Stipend on value transfer is *added* to the forwarded gas (and is
+        // **not** charged from the caller; it lives on top of `forward`).
+        let stipend = if matches!(kind, CallKind::Call | CallKind::CallCode) && value > 0 {
+            G_CALL_STIPEND
+        } else {
+            0
+        };
+        if let Err(e) = self.use_gas(forward) { return StepResult::Error(e); }
+        // Stipend is added on top of the forwarded budget AFTER caller has
+        // paid `forward`. Per yellow paper / geth, any unused stipend is
+        // refunded back to caller — this is intentional spec behavior, not
+        // gas creation. The 9000-gas G_CALL_VALUE charge already paid for
+        // it; the stipend just guarantees the callee can run a fallback.
+        forward = forward.saturating_add(stipend);
+
+        // Snapshot for rollback on revert.
+        let snap_writes = self.storage_writes.clone();
+        let snap_trans = self.transient_storage.clone();
+        let snap_logs_len = self.logs.len();
+        let snap_refunded = self.gas_refunded;
+        let snap_journal_touched = self.journal.touched_accounts.len();
+        let snap_journal_code = self.journal.new_code.len();
+
+        // Apply value transfer (CALL only — CALLCODE keeps funds with caller).
+        if matches!(kind, CallKind::Call) && value > 0 {
+            let mut caller_acct = self.db.account(&self.address).unwrap_or_default();
+            let mut target_acct = self.db.account(&to).unwrap_or_default();
+            caller_acct.balance = caller_acct.balance.saturating_sub(value);
+            target_acct.balance = target_acct.balance.saturating_add(value);
+            self.journal.touched_accounts.push((self.address, caller_acct));
+            self.journal.touched_accounts.push((to, target_acct));
+        }
+
+        // ---- Precompile dispatch ----
+        if let Some(out) = precompile_dispatch(&to, &sub_calldata, forward) {
+            // Refund unused gas.
+            self.gas = self.gas.saturating_add(forward.saturating_sub(out.gas_used));
+            if out.success {
+                self.return_data = out.return_data.clone();
+                let copy_len = std::cmp::min(out_size, out.return_data.len());
+                if copy_len > 0 {
+                    self.memory[out_off..out_off + copy_len]
+                        .copy_from_slice(&out.return_data[..copy_len]);
+                }
+                let _ = self.push(U256::one());
+            } else {
+                // Failed precompile → rollback value transfer too.
+                self.storage_writes = snap_writes;
+                self.transient_storage = snap_trans;
+                self.logs.truncate(snap_logs_len);
+                self.gas_refunded = snap_refunded;
+                self.journal.touched_accounts.truncate(snap_journal_touched);
+                self.journal.new_code.truncate(snap_journal_code);
+                self.return_data.clear();
+                let _ = self.push(U256::zero());
+            }
+            return StepResult::Continue;
+        }
+
+        // ---- Bytecode dispatch ----
+        let target_acct = self.db.account(&to).unwrap_or_default();
+        let target_code = if target_acct.code_hash == [0u8; 32]
+            || target_acct.code_hash == KECCAK_EMPTY
+        {
+            vec![]
+        } else {
+            self.db.code(&target_acct.code_hash).unwrap_or_default()
+        };
+
+        // No code at target with no value xfer → success with empty return.
+        if target_code.is_empty() && value == 0 {
+            self.gas = self.gas.saturating_add(forward);
+            self.return_data.clear();
+            let _ = self.push(U256::one());
+            return StepResult::Continue;
+        }
+
+        // Build child interpreter. Frame state depends on kind.
+        let (sub_address, sub_caller, sub_value) = match kind {
+            CallKind::Call | CallKind::StaticCall => (to, self.address, value),
+            CallKind::CallCode => (self.address, self.address, value),
+            CallKind::DelegateCall => (self.address, self.caller, self.value),
+        };
+        let sub_static = self.is_static || matches!(kind, CallKind::StaticCall);
+
+        let mut child = Interp::new(self.db, &self.ctx, forward);
+        child.address = sub_address;
+        child.caller = sub_caller;
+        child.origin = self.origin;
+        child.value = sub_value;
+        child.calldata = sub_calldata;
+        child.depth = self.depth + 1;
+        child.is_static = sub_static;
+        child.storage_writes = self.storage_writes.clone();
+        child.transient_storage = self.transient_storage.clone();
+
+        let res = child.run(&target_code);
+        // Refund unused gas from the forwarded budget.
+        self.gas = self.gas.saturating_add(forward.saturating_sub(res.gas_used));
+
+        if res.success {
+            // Adopt child mutations.
+            self.storage_writes = std::mem::take(&mut child.storage_writes);
+            self.transient_storage = std::mem::take(&mut child.transient_storage);
+            self.logs.append(&mut child.logs);
+            self.gas_refunded = self.gas_refunded.saturating_add(res.gas_refunded);
+            // Merge child's journal entries (e.g. nested CREATEs).
+            let mut t = std::mem::take(&mut child.journal.touched_accounts);
+            let mut c = std::mem::take(&mut child.journal.new_code);
+            self.journal.touched_accounts.append(&mut t);
+            self.journal.new_code.append(&mut c);
+
+            // Copy return data into caller's memory window.
+            self.return_data = res.return_data.clone();
+            let copy_len = std::cmp::min(out_size, res.return_data.len());
+            if copy_len > 0 {
+                self.memory[out_off..out_off + copy_len]
+                    .copy_from_slice(&res.return_data[..copy_len]);
+            }
+            let _ = self.push(U256::one());
+        } else {
+            // Roll back: snapshot already captured *before* the value transfer,
+            // so restoring it implicitly reverts that too.
+            self.storage_writes = snap_writes;
+            self.transient_storage = snap_trans;
+            self.logs.truncate(snap_logs_len);
+            self.gas_refunded = snap_refunded;
+            self.journal.touched_accounts.truncate(snap_journal_touched);
+            self.journal.new_code.truncate(snap_journal_code);
+
+            // Return data still copied per yellow paper §9.4.
+            self.return_data = res.return_data.clone();
+            let copy_len = std::cmp::min(out_size, res.return_data.len());
+            if copy_len > 0 {
+                self.memory[out_off..out_off + copy_len]
+                    .copy_from_slice(&res.return_data[..copy_len]);
+            }
+            let _ = self.push(U256::zero());
+        }
+
         StepResult::Continue
     }
+}
+
+/// Convert a U256 stack word into a 20-byte EVM address by taking the
+/// lower 160 bits (top 96 bits ignored per yellow paper §9.4).
+fn address_from_u256(v: U256) -> Address {
+    let mut buf = [0u8; 32];
+    v.to_big_endian(&mut buf);
+    let mut addr = [0u8; 20];
+    addr.copy_from_slice(&buf[12..]);
+    Address::from_bytes(addr)
 }
 
 #[derive(Debug)]
