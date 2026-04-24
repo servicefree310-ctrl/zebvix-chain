@@ -46,6 +46,18 @@ const META_MS_PREFIX: &[u8] = b"ms/";
 const META_MS_PROPOSAL_PREFIX: &[u8] = b"mspr/";
 const META_MS_OWNER_PREFIX: &[u8] = b"mso/";
 
+// Phase B.9 — Recent-Tx index. Maintained automatically by `apply_block` so
+// dashboards/wallets can fetch the last N transactions in O(1) per record
+// instead of scanning thousands of blocks.
+//   - `rtx/<seq_be8>`            → bincode(RecentTxRecord)  (the entry)
+//   - `rtx_seq`                  → u64 BE next-seq counter (monotonic)
+// Ring eviction: when seq >= RECENT_TX_CAP, the entry at `seq - CAP` is
+// deleted so total stored entries are bounded by CAP.
+const META_RTX_PREFIX: &[u8] = b"rtx/";
+const META_RTX_SEQ: &[u8] = b"rtx_seq";
+/// Maximum number of recent transactions retained on-chain (rolling window).
+pub const RECENT_TX_CAP: u64 = 1000;
+
 /// Validate a Pay-ID string. Returns the lowercased canonical form.
 /// Rules: must end with `@zbx`; the handle (before `@zbx`) must be 3-25 chars,
 /// `[a-z0-9_]` only.
@@ -87,6 +99,33 @@ pub struct Account {
     pub nonce: u64,
     #[serde(default)]
     pub zusd: u128,
+}
+
+/// Phase B.9 — A compact, self-describing summary of an applied transaction
+/// stored in the on-chain recent-tx ring buffer. Every field is stable wire
+/// format: dashboards / mobile clients can decode this without needing to
+/// fetch and re-parse full blocks.
+///
+/// `kind_index` matches the bincode discriminator order of `TxKind`
+/// (0=Transfer, 1=ValidatorAdd, 2=ValidatorRemove, 3=ValidatorEdit,
+/// 4=GovernorChange, 5=Staking, 6=RegisterPayId, 7=Multisig). Keep this
+/// table in sync with `TxKind::tag_index()`.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct RecentTxRecord {
+    /// Monotonic sequence number assigned at insertion. Newer = larger.
+    pub seq: u64,
+    /// Block height in which this tx was committed.
+    pub height: u64,
+    /// Block timestamp (ms since epoch) — same value for all txs in a block.
+    pub timestamp_ms: u64,
+    /// 32-byte tx hash (Keccak256 of bincode(TxBody) — see `crypto::tx_hash`).
+    pub hash: [u8; 32],
+    pub from: Address,
+    pub to: Address,
+    pub amount: u128,
+    pub fee: u128,
+    pub nonce: u64,
+    pub kind_index: u32,
 }
 
 pub struct State {
@@ -860,6 +899,80 @@ impl State {
         Ok(())
     }
 
+    // ───────── Phase B.9 — Recent-Tx index (rolling ring buffer) ─────────
+
+    fn rtx_key(seq: u64) -> Vec<u8> {
+        let mut k = META_RTX_PREFIX.to_vec();
+        k.extend_from_slice(&seq.to_be_bytes());
+        k
+    }
+
+    /// Read the next-seq counter from CF_META (0 if uninitialized).
+    fn rtx_next_seq(&self) -> u64 {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.get_cf(cf, META_RTX_SEQ).ok().flatten()
+            .map(|b| {
+                let mut a = [0u8; 8];
+                if b.len() == 8 { a.copy_from_slice(&b); }
+                u64::from_be_bytes(a)
+            })
+            .unwrap_or(0)
+    }
+
+    /// Push a single applied-tx summary into the ring buffer. Caller passes
+    /// a partially-filled record (`seq` is ignored and overwritten with the
+    /// freshly-assigned sequence number). Evicts the oldest entry once the
+    /// ring exceeds `RECENT_TX_CAP` so storage is bounded.
+    ///
+    /// Errors are non-fatal at the caller site (logging only) — losing a
+    /// recent-tx index entry must NEVER fail block apply. See `apply_block`.
+    fn push_recent_tx(&self, mut rec: RecentTxRecord) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let next = self.rtx_next_seq();
+        rec.seq = next;
+        self.db.put_cf(cf, Self::rtx_key(next), bincode::serialize(&rec)?)?;
+        // Evict the entry that just fell out of the rolling window.
+        if next >= RECENT_TX_CAP {
+            let evict = next - RECENT_TX_CAP;
+            let _ = self.db.delete_cf(cf, Self::rtx_key(evict));
+        }
+        self.db.put_cf(cf, META_RTX_SEQ, (next + 1).to_be_bytes())?;
+        Ok(())
+    }
+
+    /// Total number of transactions ever indexed in the ring buffer (monotonic).
+    /// May be larger than the actual stored count once eviction kicks in.
+    pub fn recent_tx_total(&self) -> u64 {
+        self.rtx_next_seq()
+    }
+
+    /// Fetch the most recent `limit` transactions, newest first. Cap is
+    /// `RECENT_TX_CAP` (1000). Returns `[]` if the ring is empty.
+    ///
+    /// O(limit) RocksDB point lookups — no block-scan required. Designed for
+    /// dashboards/wallets that previously had to scan thousands of blocks.
+    pub fn recent_txs(&self, limit: usize) -> Vec<RecentTxRecord> {
+        let next = self.rtx_next_seq();
+        if next == 0 || limit == 0 { return Vec::new(); }
+        let cap = (RECENT_TX_CAP as usize).min(limit);
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let mut out = Vec::with_capacity(cap);
+        let oldest_kept = next.saturating_sub(RECENT_TX_CAP);
+        let stop = next.saturating_sub(cap as u64).max(oldest_kept);
+        let mut seq = next - 1;
+        loop {
+            if let Some(bytes) = self.db.get_cf(cf, Self::rtx_key(seq)).ok().flatten() {
+                if let Ok(r) = bincode::deserialize::<RecentTxRecord>(&bytes) {
+                    out.push(r);
+                }
+            }
+            if seq == stop { break; }
+            if seq == 0 { break; }
+            seq -= 1;
+        }
+        out
+    }
+
     pub fn apply_block(&self, block: &Block) -> Result<()> {
         let (h, last) = self.tip();
         if block.header.height != h + 1 {
@@ -884,6 +997,25 @@ impl State {
         for tx in &block.txs {
             self.apply_tx(tx)?;
             total_fees = total_fees.saturating_add(tx.body.fee);
+            // Phase B.9 — index this tx into the recent-tx ring buffer.
+            // Failure here is logged but does NOT roll back the tx (the
+            // index is best-effort metadata, not consensus state).
+            let kind_index = tx.body.kind.tag_index();
+            let rec = RecentTxRecord {
+                seq: 0, // overwritten by push_recent_tx
+                height: block.header.height,
+                timestamp_ms: block.header.timestamp_ms,
+                hash: tx_hash(tx).0,
+                from: tx.body.from,
+                to: tx.body.to,
+                amount: tx.body.amount,
+                fee: tx.body.fee,
+                nonce: tx.body.nonce,
+                kind_index,
+            };
+            if let Err(e) = self.push_recent_tx(rec) {
+                tracing::warn!("recent-tx index push failed (non-fatal): {e}");
+            }
         }
         // ── Phase B.6: per-block mint accumulates in REWARDS_POOL ──
         // The 3 ZBX (or current halving value) flows into a holding address

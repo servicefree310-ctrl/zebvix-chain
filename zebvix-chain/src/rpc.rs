@@ -216,6 +216,51 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 "txs":      txs,
             }))
         }
+        "zbx_recentTxs" => {
+            // Phase B.9 — Direct read of the on-chain recent-tx ring buffer.
+            // Returns the most recent N transactions (default 15, cap 1000)
+            // newest first. Backed by `State::recent_txs` (O(N) point lookups,
+            // no block scan). Frontends should prefer this over scanning
+            // `zbx_getBlockByNumber` in a loop.
+            let limit = req.params.get(0)
+                .and_then(|v| v.as_u64())
+                .unwrap_or(15)
+                .min(crate::state::RECENT_TX_CAP) as usize;
+            let kind_name = |i: u32| match i {
+                0 => "Transfer",
+                1 => "ValidatorAdd",
+                2 => "ValidatorRemove",
+                3 => "ValidatorEdit",
+                4 => "GovernorChange",
+                5 => "Staking",
+                6 => "RegisterPayId",
+                7 => "Multisig",
+                _ => "Unknown",
+            };
+            let recs = ctx.state.recent_txs(limit);
+            let total = ctx.state.recent_tx_total();
+            let stored = total.min(crate::state::RECENT_TX_CAP);
+            let txs: Vec<Value> = recs.into_iter().map(|r| json!({
+                "seq":          r.seq,
+                "height":       r.height,
+                "timestamp_ms": r.timestamp_ms,
+                "hash":         format!("0x{}", hex::encode(r.hash)),
+                "from":         r.from.to_hex(),
+                "to":           r.to.to_hex(),
+                "amount":       r.amount.to_string(),
+                "fee":          r.fee.to_string(),
+                "nonce":        r.nonce,
+                "kind":         kind_name(r.kind_index),
+                "kind_index":   r.kind_index,
+            })).collect();
+            ok(id, json!({
+                "returned":      txs.len(),
+                "stored":        stored,
+                "total_indexed": total,
+                "max_cap":       crate::state::RECENT_TX_CAP,
+                "txs":           txs,
+            }))
+        }
         "zbx_getBlockByNumber" => {
             let height = req.params.get(0).and_then(|v| v.as_u64()).unwrap_or(0);
             match ctx.state.block_at(height) {

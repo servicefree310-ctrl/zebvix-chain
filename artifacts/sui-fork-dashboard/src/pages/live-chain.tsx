@@ -1248,11 +1248,41 @@ function RecentTxsPanel({
   const [err, setErr] = useState<string | null>(null);
   const [autoScanned, setAutoScanned] = useState(false);
   const [completed, setCompleted] = useState(false);
+  // Phase B.9 — when the chain serves zbx_recentTxs (on-chain index),
+  // we use that fast path instead of block-scanning. This flag tells the
+  // UI which mode produced the current results so we can label correctly.
+  const [source, setSource] = useState<"index" | "scan" | null>(null);
+  const [indexTotal, setIndexTotal] = useState<number | null>(null);
   const cancelRef = useRef(false);
+
+  // Phase B.9 — Fast path: ask the chain directly for the recent-tx ring buffer
+  // populated server-side by `apply_block`. This is O(N) point lookups on the
+  // node and avoids the dashboard fetching thousands of blocks. Returns null if
+  // the RPC isn't available (older node), letting the caller fall back to scan.
+  async function fetchRecentFromIndex(): Promise<{ txs: OnchainTx[]; total: number } | null> {
+    try {
+      const r = await rpc<any>("zbx_recentTxs", [TARGET_TX_COUNT]);
+      if (!r || !Array.isArray(r.txs)) return null;
+      const list: OnchainTx[] = r.txs.map((t: any) => ({
+        height: Number(t.height ?? 0),
+        ts: Number(t.timestamp_ms ?? 0),
+        from: t.from ?? "",
+        to: t.to ?? "",
+        amount_wei: String(t.amount ?? "0"),
+        fee_wei: String(t.fee ?? "0"),
+        kind: t.kind ?? "Unknown",
+      }));
+      return { txs: list, total: Number(r.total_indexed ?? r.stored ?? list.length) };
+    } catch {
+      // Method not whitelisted or not implemented → caller falls back to scan.
+      return null;
+    }
+  }
 
   // Scan blocks backwards from tip in fixed chunks, stopping as soon as we
   // collect TARGET_TX_COUNT transactions, hit genesis, or hit the safety cap.
   // UI streams results as they're found so the user sees progress live.
+  // This is now a FALLBACK — primary path is `fetchRecentFromIndex()`.
   async function scan(maxBlocks = MAX_SCAN_BLOCKS) {
     if (!tipHeight || scanning) return;
     cancelRef.current = false;
@@ -1324,19 +1354,52 @@ function RecentTxsPanel({
     cancelRef.current = true;
   }
 
+  // Phase B.9 — Try the on-chain index first; only fall back to a full block
+  // scan when the chain doesn't expose the index (older binary, RPC blocked, etc).
+  async function refresh() {
+    if (!tipHeight || scanning) return;
+    setErr(null);
+    const fast = await fetchRecentFromIndex();
+    if (fast) {
+      setSource("index");
+      setIndexTotal(fast.total);
+      setTxs(fast.txs);
+      setCompleted(true);
+      setScannedRange(0);
+      return;
+    }
+    // Fallback path — chain didn't return an index (older node).
+    setSource("scan");
+    setIndexTotal(null);
+    await scan();
+  }
+
   useEffect(() => {
     if (tipHeight && !autoScanned) {
       setAutoScanned(true);
-      scan();
+      refresh();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tipHeight]);
 
-  // Re-scan whenever the parent bumps refreshKey (e.g. after a Quick Send).
+  // Re-fetch whenever the parent bumps refreshKey (e.g. after a Quick Send).
   useEffect(() => {
-    if (refreshKey > 0 && tipHeight) scan();
+    if (refreshKey > 0 && tipHeight) refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
+
+  // Phase B.9 — When using the fast index path, poll periodically so new txs
+  // appear within ~3s without manually clicking re-scan. We only poll while
+  // the panel is using the index (cheap RPC); the legacy scan path keeps its
+  // explicit "re-scan" button to avoid hammering the chain.
+  useEffect(() => {
+    if (source !== "index") return;
+    const id = setInterval(() => {
+      if (!scanning) refresh();
+    }, 3000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source, tipHeight, scanning]);
 
   // Cancel any in-flight scan on unmount.
   useEffect(() => () => { cancelRef.current = true; }, []);
@@ -1350,7 +1413,12 @@ function RecentTxsPanel({
         <h2 className="text-sm font-semibold flex items-center gap-2">
           <ArrowLeftRight className="h-4 w-4 text-primary" />
           Last {TARGET_TX_COUNT} Transactions
-          {scannedRange > 0 && (
+          {source === "index" && (
+            <span className="text-[10px] font-normal text-emerald-400/80">
+              · on-chain index{indexTotal !== null ? ` (${indexTotal.toLocaleString()} indexed)` : ""}
+            </span>
+          )}
+          {source === "scan" && scannedRange > 0 && (
             <span className="text-[10px] font-normal text-muted-foreground">
               (found {txs.length}/{TARGET_TX_COUNT} · scanned {scannedRange.toLocaleString()} blocks{scanning ? "…" : ""})
             </span>
@@ -1366,21 +1434,27 @@ function RecentTxsPanel({
             </button>
           ) : (
             <button
-              onClick={() => scan()}
+              onClick={() => refresh()}
               className="text-[11px] px-2 py-1 rounded bg-primary/20 text-primary hover:bg-primary/30"
             >
-              re-scan
+              {source === "index" ? "refresh" : "re-scan"}
             </button>
           )}
         </div>
       </div>
       {err && <div className="p-3 text-xs text-red-400">{err}</div>}
-      {completed && reachedTarget && (
+      {completed && source === "index" && txs.length > 0 && (
+        <div className="px-3 py-1.5 text-[10px] text-emerald-400/80 bg-emerald-500/5 border-b border-border">
+          ⚡ served from on-chain recent-tx index — no block scan needed
+          {indexTotal !== null && ` · ${indexTotal.toLocaleString()} txs ever indexed`}
+        </div>
+      )}
+      {completed && source === "scan" && reachedTarget && (
         <div className="px-3 py-1.5 text-[10px] text-emerald-400/80 bg-emerald-500/5 border-b border-border">
           ✓ found {TARGET_TX_COUNT} most recent txs (scanned back {scannedRange.toLocaleString()} blocks)
         </div>
       )}
-      {completed && !reachedTarget && reachedCap && txs.length > 0 && (
+      {completed && source === "scan" && !reachedTarget && reachedCap && txs.length > 0 && (
         <div className="px-3 py-1.5 text-[10px] text-amber-400/80 bg-amber-500/5 border-b border-border">
           stopped at safety cap of {MAX_SCAN_BLOCKS.toLocaleString()} blocks · only {txs.length} tx{txs.length === 1 ? "" : "s"} found
         </div>
@@ -1391,11 +1465,13 @@ function RecentTxsPanel({
           <div className="text-xs text-muted-foreground">
             {scanning
               ? `scanning blocks for transactions… (${scannedRange.toLocaleString()} so far)`
-              : completed && reachedCap
+              : completed && source === "index"
+              ? "on-chain recent-tx index is empty — no transactions have been committed yet."
+              : completed && source === "scan" && reachedCap
               ? `no transactions found in last ${MAX_SCAN_BLOCKS.toLocaleString()} blocks — chain is essentially idle.`
-              : completed
+              : completed && source === "scan"
               ? `no transactions found across ${scannedRange.toLocaleString()} scanned blocks — chain may have just started.`
-              : "ready to scan…"}
+              : "loading recent transactions…"}
           </div>
         </div>
       ) : (

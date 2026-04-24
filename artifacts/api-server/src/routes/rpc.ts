@@ -40,6 +40,7 @@ const ALLOWED_METHODS = new Set<string>([
   "zbx_sendRawTransaction",
   "zbx_mempoolStatus",
   "zbx_mempoolPending",
+  "zbx_recentTxs",
   "eth_chainId",
   "eth_blockNumber",
   "eth_getBalance",

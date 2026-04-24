@@ -53,6 +53,15 @@ Standalone Rust crate building Zebvix L1 — token ZBX, chain-id 7878, EVM-style
 - `src/crypto.rs` — `sign_tx`, `verify_tx`, `tx_hash`, `tx_signing_bytes` (low-level). `transaction.rs` wraps these as inherent methods.
 - `src/mempool.rs`, `src/state.rs`, `src/rpc.rs`, `src/consensus.rs` — consume `SignedTx` via the existing `crate::types::*` import path; no churn needed.
 
+### Phase B.9 — On-chain Recent-Tx Index (Apr 24, 2026) ✅
+
+Eliminates the need for dashboards/wallets to scan thousands of blocks just to display the last N transactions.
+
+- **`state.rs`** — New `RecentTxRecord` struct (seq, height, ts, hash, from, to, amount, fee, nonce, kind_index). RocksDB-backed ring buffer in `CF_META` under `rtx/<seq_be8>` keys with monotonic counter `rtx_seq`. Capacity `RECENT_TX_CAP = 1000` (rolling — oldest is auto-evicted on insert past cap). Methods: `State::recent_txs(limit)`, `State::recent_tx_total()`, internal `push_recent_tx()`. `apply_block` automatically pushes one record per applied tx (failure logs but does NOT abort block apply — index is best-effort metadata, not consensus state).
+- **`rpc.rs`** — New `zbx_recentTxs(limit=15, max=1000)` returns `{ returned, stored, total_indexed, max_cap, txs[] }`. O(N) point lookups, sub-millisecond response.
+- **`api-server/src/routes/rpc.ts`** — Whitelisted `zbx_recentTxs`.
+- **Dashboard `RecentTxsPanel`** — Now fast-path tries `zbx_recentTxs` first (auto-polls every 3s when on index path); falls back to legacy block-scan only if RPC unavailable. Header label distinguishes "on-chain index" vs "scanned X blocks". Existing scan logic kept as resilience fallback.
+
 ### Known follow-ups
 
 - **B.3.1.5 VPS re-init COMPLETE (Apr 22, 2026)**: backups taken (`/root/zebvix-backups/preB315-*`), `.zebvix` and `.zebvix2` data dirs wiped, both re-init'd with deterministic genesis. Node-2's `validator.key` was inside `.zebvix2/` and got wiped — restored from backup tarball (same pubkey `0xde996e74...` so the earlier `validator-add` tx still matches). Both nodes now on identical chain, genuine 2/2 quorum.
