@@ -44,7 +44,8 @@ class AppState extends ChangeNotifier {
   static const _kBio = 'cfg.bio';
 
   String rpcEndpoint = 'https://93.127.213.192:8545';
-  String relayBase = 'https://example.replit.app/api';
+  String relayBase =
+      'https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/api';
   bool biometricEnabled = false;
 
   late ZbxRpc rpc;
