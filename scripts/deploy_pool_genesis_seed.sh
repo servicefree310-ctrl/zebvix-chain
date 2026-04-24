@@ -32,9 +32,26 @@
 set -euo pipefail
 
 CHAIN_DIR="${CHAIN_DIR:-/home/zebvix-chain}"
-DATA_DIR="${DATA_DIR:-/home/zebvix-chain/.zebvix}"
 SERVICE="${SERVICE:-zebvix.service}"
 BIN_TARGET="${BIN_TARGET:-/usr/local/bin/zebvix-node}"
+
+# Auto-detect the actual --home flag the systemd service uses, so the seed
+# write goes to the SAME RocksDB the running node will read from. Without
+# this, an admin write to /home/zebvix-chain/.zebvix is invisible to a
+# service started with --home /root/.zebvix (real bug from Phase B.11.1).
+detect_data_dir() {
+  if command -v systemctl >/dev/null 2>&1; then
+    local from_unit
+    from_unit=$(systemctl cat "$SERVICE" 2>/dev/null \
+      | grep -oP -- '--home\s+\K[^\s]+' | head -1 || true)
+    if [[ -n "$from_unit" ]]; then
+      echo "$from_unit"
+      return
+    fi
+  fi
+  echo "/root/.zebvix"     # fallback matches the live VPS unit default
+}
+DATA_DIR="${DATA_DIR:-$(detect_data_dir)}"
 
 RESET=0
 for arg in "$@"; do

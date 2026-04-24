@@ -1,0 +1,56 @@
+root@srv1266996:/home/zebvix-chain# echo "── 1. systemd unit ──"
+systemctl cat zebvix.service
+
+echo "── 2. live process cmdline + cwd ──"
+ps -ef | grep zebvix-node | grep -v grep
+ls -la /proc/$(pgrep -f zebvix-node | head -1)/cwd 2>/dev/null
+
+echo "── 3. candidate data dirs ──"
+for d in /home/zebvix-chain/.zebvix /var/lib/zebvix /root/.zebvix /opt/zebvix; do
+  if [ -d "$d" ]; then echo "EXISTS: $d"; ls -la "$d" 2>/dev/null | head -5; echo; fi
+done
+
+echo "── 4. all rocksdb CURRENT files ──"
+find / -name "CURRENT" -path "*/data/*" 2>/dev/null | head -5
+── 1. systemd unit ──
+# /etc/systemd/system/zebvix.service
+[Unit]
+Description=Zebvix L1 Blockchain Node
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/zebvix-chain
+ExecStart=/usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333 --no-mdns
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+── 2. live process cmdline + cwd ──
+root     4099827       1  0 13:09 ?        00:00:00 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333 --no-mdns
+lrwxrwxrwx 1 root root 0 Apr 24 13:12 /proc/4099827/cwd -> /home/zebvix-chain
+── 3. candidate data dirs ──
+EXISTS: /home/zebvix-chain/.zebvix
+total 12
+drwxr-xr-x 3 root   root   4096 Apr 24 13:09 .
+drwxr-xr-x 7 ubuntu ubuntu 4096 Apr 24 13:09 ..
+drwxr-xr-x 2 root   root   4096 Apr 24 13:09 data
+
+EXISTS: /root/.zebvix
+total 44
+drwxr-xr-x  3 root root 4096 Apr 24 09:29 .
+drwx------ 26 root root 4096 Apr 24 13:12 ..
+drwxr-xr-x  2 root root 4096 Apr 24 13:09 data
+-rw-r--r--  1 root root  231 Apr 24 09:25 founder.key
+
+── 4. all rocksdb CURRENT files ──
+/home/zebvix-chain.bak-prebll-1777010304/.zebvix.before-mathfix-121520/data/CURRENT
+/home/zebvix-chain.bak-prebll-1777010304/.zebvix2/data/CURRENT
+/home/zebvix-chain.bak-prebll-1777010304/.zebvix/data/CURRENT
+/home/zebvix-chain.bak-prebll-1777010304/.zebvix.bk-132952/data/CURRENT
+/home/zebvix-chain.bak-prebll-1777010304/data/CURRENT
+root@srv1266996:/home/zebvix-chain# 
