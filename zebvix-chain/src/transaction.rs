@@ -97,6 +97,17 @@ pub enum TxKind {
         direction: SwapDirection,
         min_out: u128,
     },
+    /// Phase B.12 — cross-chain bridge dispatch.
+    ///
+    /// Carries one of [`crate::bridge::BridgeOp`] (network/asset registry
+    /// management by admin, plus user `BridgeOut` and admin/oracle
+    /// `BridgeIn`). See `bridge.rs` for the full trust model.
+    ///
+    /// `body.amount` is interpreted op-specifically:
+    /// - `BridgeOut`: amount of the native asset to lock.
+    /// - All others: ignored (refunded).
+    /// `body.fee` is always paid in ZBX wei.
+    Bridge(crate::bridge::BridgeOp),
 }
 
 /// Phase B.10 — direction of an AMM [`TxKind::Swap`].
@@ -145,6 +156,7 @@ impl TxKind {
             TxKind::RegisterPayId { .. } => "register_pay_id",
             TxKind::Multisig(_) => "multisig",
             TxKind::Swap { .. } => "swap",
+            TxKind::Bridge(_) => "bridge",
         }
     }
 
@@ -162,6 +174,7 @@ impl TxKind {
             TxKind::RegisterPayId { .. } => 6,
             TxKind::Multisig(_) => 7,
             TxKind::Swap { .. } => 8,
+            TxKind::Bridge(_) => 9,
         }
     }
 

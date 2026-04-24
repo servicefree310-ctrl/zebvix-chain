@@ -489,6 +489,119 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 "window_swap_amount_sum":       volume_in_amount_total.to_string(),
             }))
         }
+        // ───────── Phase B.12 — bridge RPCs ─────────
+        "zbx_listBridgeNetworks" => {
+            let nets = ctx.state.bridge_list_networks();
+            let arr: Vec<Value> = nets.into_iter().map(|n| json!({
+                "id":                n.id,
+                "name":              n.name,
+                "kind":              format!("{:?}", n.kind).to_lowercase(),
+                "active":            n.active,
+                "registered_height": n.registered_height,
+            })).collect();
+            ok(id, json!({ "count": arr.len(), "networks": arr }))
+        }
+        "zbx_getBridgeNetwork" => {
+            let nid = req.params.get(0).and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            match ctx.state.bridge_get_network(nid) {
+                Some(n) => ok(id, json!({
+                    "id":                n.id,
+                    "name":              n.name,
+                    "kind":              format!("{:?}", n.kind).to_lowercase(),
+                    "active":            n.active,
+                    "registered_height": n.registered_height,
+                })),
+                None => err(id, -32004, format!("network {} not found", nid)),
+            }
+        }
+        "zbx_listBridgeAssets" => {
+            // Optional filter: params[0] = network_id (u32). Empty = all.
+            let filter = req.params.get(0).and_then(|v| v.as_u64()).map(|x| x as u32);
+            let assets = ctx.state.bridge_list_assets();
+            let arr: Vec<Value> = assets.into_iter()
+                .filter(|a| filter.map(|f| a.network_id == f).unwrap_or(true))
+                .map(|a| json!({
+                    "asset_id":          a.asset_id.to_string(),
+                    "network_id":        a.network_id,
+                    "native":            a.native.symbol(),
+                    "native_decimals":   a.native.decimals(),
+                    "contract":          a.contract,
+                    "decimals":          a.decimals,
+                    "active":            a.active,
+                    "registered_height": a.registered_height,
+                })).collect();
+            ok(id, json!({ "count": arr.len(), "assets": arr }))
+        }
+        "zbx_getBridgeAsset" => {
+            let aid = req.params.get(0)
+                .and_then(|v| v.as_str().and_then(|s| s.parse::<u64>().ok())
+                    .or_else(|| v.as_u64()))
+                .unwrap_or(0);
+            match ctx.state.bridge_get_asset(aid) {
+                Some(a) => ok(id, json!({
+                    "asset_id":          a.asset_id.to_string(),
+                    "network_id":        a.network_id,
+                    "native":            a.native.symbol(),
+                    "native_decimals":   a.native.decimals(),
+                    "contract":          a.contract,
+                    "decimals":          a.decimals,
+                    "active":            a.active,
+                    "registered_height": a.registered_height,
+                })),
+                None => err(id, -32004, format!("asset {} not found", aid)),
+            }
+        }
+        "zbx_recentBridgeOutEvents" => {
+            // Params: [limit?: u64 (default 50, cap 500)]
+            let limit = req.params.get(0).and_then(|v| v.as_u64()).unwrap_or(50)
+                .min(500) as usize;
+            let events = ctx.state.bridge_recent_out_events(limit);
+            let arr: Vec<Value> = events.into_iter().map(|e| json!({
+                "seq":           e.seq,
+                "asset_id":      e.asset_id.to_string(),
+                "native_symbol": e.native_symbol,
+                "from":          e.from.to_hex(),
+                "dest_address":  e.dest_address,
+                "amount":        e.amount.to_string(),
+                "height":        e.height,
+                "tx_hash":       format!("0x{}", hex::encode(e.tx_hash)),
+            })).collect();
+            ok(id, json!({
+                "returned": arr.len(),
+                "total":    ctx.state.bridge_total_out_events(),
+                "events":   arr,
+            }))
+        }
+        "zbx_isBridgeClaimUsed" => {
+            // Params: [source_tx_hash: 0x… (32 bytes hex)]
+            let h = req.params.get(0).and_then(|v| v.as_str()).unwrap_or("");
+            let stripped = h.strip_prefix("0x").unwrap_or(h);
+            let bytes = match hex::decode(stripped) {
+                Ok(b) if b.len() == 32 => b,
+                _ => return err(id, -32602, "source_tx_hash must be 0x + 64 hex chars (32 bytes)".into()),
+            };
+            let mut h32 = [0u8; 32];
+            h32.copy_from_slice(&bytes);
+            ok(id, json!({
+                "source_tx_hash": format!("0x{}", hex::encode(h32)),
+                "claimed":        ctx.state.bridge_is_claim_used(&h32),
+            }))
+        }
+        "zbx_bridgeStats" => {
+            let nets = ctx.state.bridge_list_networks();
+            let assets = ctx.state.bridge_list_assets();
+            ok(id, json!({
+                "networks_count":   nets.len(),
+                "assets_count":     assets.len(),
+                "active_networks":  nets.iter().filter(|n| n.active).count(),
+                "active_assets":    assets.iter().filter(|a| a.active).count(),
+                "locked_zbx_wei":   ctx.state.bridge_locked_zbx().to_string(),
+                "locked_zusd":      ctx.state.bridge_locked_zusd().to_string(),
+                "out_events_total": ctx.state.bridge_total_out_events(),
+                "claims_used":      ctx.state.bridge_claims_used(),
+                "lock_address":     crate::tokenomics::BRIDGE_LOCK_ADDRESS_HEX,
+            }))
+        }
         "zbx_getAdmin" => {
             ok(id, json!({
                 "current_admin": ctx.state.current_admin().to_hex(),

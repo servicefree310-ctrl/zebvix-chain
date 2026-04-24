@@ -1,4 +1,5 @@
 pub mod block_stm;
+pub mod bridge;
 pub mod consensus;
 pub mod crypto;
 pub mod mempool;

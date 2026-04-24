@@ -15,6 +15,7 @@ use parking_lot::RwLock;
 use rocksdb::{ColumnFamilyDescriptor, Options, DB};
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 const CF_ACCOUNTS: &str = "accounts";
 const CF_BLOCKS: &str = "blocks";
@@ -131,6 +132,11 @@ pub struct RecentTxRecord {
 pub struct State {
     db: Arc<DB>,
     tip: RwLock<(u64, Hash)>,
+    /// Phase B.12 — block timestamp (ms since epoch) of the block currently
+    /// being applied. Set at the top of `apply_block`, read by `apply_tx`
+    /// inside the Bridge arm to stamp `BridgeOutEvent.ts` deterministically.
+    /// Defaults to 0 outside of `apply_block`.
+    current_block_ts_ms: AtomicU64,
 }
 
 /// Parse the pool's magic address (constant — no private key).
@@ -187,7 +193,11 @@ impl State {
             .get_cf(db.cf_handle(CF_META).unwrap(), META_LAST_HASH)?
             .map(|b| { let mut a = [0u8; 32]; a.copy_from_slice(&b); Hash(a) })
             .unwrap_or(Hash::ZERO);
-        Ok(Self { db: Arc::new(db), tip: RwLock::new((height, last)) })
+        Ok(Self {
+            db: Arc::new(db),
+            tip: RwLock::new((height, last)),
+            current_block_ts_ms: AtomicU64::new(0),
+        })
     }
 
     pub fn tip(&self) -> (u64, Hash) { *self.tip.read() }
@@ -328,6 +338,188 @@ impl State {
         let cf = self.db.cf_handle(CF_ACCOUNTS).unwrap();
         self.db.put_cf(cf, a.0, bincode::serialize(acc)?)?;
         Ok(())
+    }
+
+    // ───────── Phase B.12 — bridge state helpers (CF_META prefixes) ─────────
+
+    fn br_net_key(id: u32) -> Vec<u8> {
+        let mut k = b"b/n/".to_vec();
+        k.extend_from_slice(&id.to_be_bytes());
+        k
+    }
+    fn br_asset_key(id: u64) -> Vec<u8> {
+        let mut k = b"b/a/".to_vec();
+        k.extend_from_slice(&id.to_be_bytes());
+        k
+    }
+    fn br_claim_key(h: &[u8; 32]) -> Vec<u8> {
+        let mut k = b"b/c/".to_vec();
+        k.extend_from_slice(h);
+        k
+    }
+    fn br_event_key(seq: u64) -> Vec<u8> {
+        let mut k = b"b/e/".to_vec();
+        k.extend_from_slice(&seq.to_be_bytes());
+        k
+    }
+    fn br_aid_key(network_id: u32) -> Vec<u8> {
+        let mut k = b"b/m/aid/".to_vec();
+        k.extend_from_slice(&network_id.to_be_bytes());
+        k
+    }
+    const BR_META_SEQ: &'static [u8]      = b"b/m/seq";
+    const BR_META_LOCKED_ZBX: &'static [u8]  = b"b/m/lz";
+    const BR_META_LOCKED_ZUSD: &'static [u8] = b"b/m/lu";
+    const BR_META_CLAIMS_USED: &'static [u8] = b"b/m/cu";
+
+    pub fn bridge_get_network(&self, id: u32) -> Option<crate::bridge::BridgeNetwork> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.get_cf(cf, Self::br_net_key(id)).ok().flatten()
+            .and_then(|b| bincode::deserialize(&b).ok())
+    }
+    pub fn bridge_put_network(&self, n: &crate::bridge::BridgeNetwork) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.put_cf(cf, Self::br_net_key(n.id), bincode::serialize(n)?)?;
+        Ok(())
+    }
+    pub fn bridge_list_networks(&self) -> Vec<crate::bridge::BridgeNetwork> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let mut out = Vec::new();
+        let prefix: &[u8] = b"b/n/";
+        let it = self.db.prefix_iterator_cf(cf, prefix);
+        for item in it {
+            if let Ok((k, v)) = item {
+                if !k.starts_with(prefix) { break; }
+                if let Ok(n) = bincode::deserialize::<crate::bridge::BridgeNetwork>(&v) {
+                    out.push(n);
+                }
+            }
+        }
+        out.sort_by_key(|n| n.id);
+        out
+    }
+
+    pub fn bridge_get_asset(&self, asset_id: u64) -> Option<crate::bridge::BridgeAsset> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.get_cf(cf, Self::br_asset_key(asset_id)).ok().flatten()
+            .and_then(|b| bincode::deserialize(&b).ok())
+    }
+    pub fn bridge_put_asset(&self, a: &crate::bridge::BridgeAsset) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.put_cf(cf, Self::br_asset_key(a.asset_id), bincode::serialize(a)?)?;
+        Ok(())
+    }
+    pub fn bridge_list_assets(&self) -> Vec<crate::bridge::BridgeAsset> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let mut out = Vec::new();
+        let prefix: &[u8] = b"b/a/";
+        let it = self.db.prefix_iterator_cf(cf, prefix);
+        for item in it {
+            if let Ok((k, v)) = item {
+                if !k.starts_with(prefix) { break; }
+                if let Ok(a) = bincode::deserialize::<crate::bridge::BridgeAsset>(&v) {
+                    out.push(a);
+                }
+            }
+        }
+        out.sort_by_key(|a| a.asset_id);
+        out
+    }
+
+    pub fn bridge_next_local_asset_seq(&self, network_id: u32) -> Result<u32> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let key = Self::br_aid_key(network_id);
+        let cur = self.db.get_cf(cf, &key).ok().flatten()
+            .and_then(|b| <[u8;4]>::try_from(b.as_slice()).ok().map(u32::from_be_bytes))
+            .unwrap_or(0);
+        let next = cur.checked_add(1).ok_or_else(|| anyhow!("asset seq overflow"))?;
+        self.db.put_cf(cf, &key, next.to_be_bytes())?;
+        Ok(cur)
+    }
+
+    pub fn bridge_is_claim_used(&self, h: &[u8; 32]) -> bool {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.get_cf(cf, Self::br_claim_key(h)).ok().flatten().is_some()
+    }
+    pub fn bridge_mark_claim(&self, h: &[u8; 32]) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.put_cf(cf, Self::br_claim_key(h), [1u8])?;
+        let cur = self.db.get_cf(cf, Self::BR_META_CLAIMS_USED).ok().flatten()
+            .and_then(|b| <[u8;8]>::try_from(b.as_slice()).ok().map(u64::from_be_bytes))
+            .unwrap_or(0);
+        self.db.put_cf(cf, Self::BR_META_CLAIMS_USED, (cur + 1).to_be_bytes())?;
+        Ok(())
+    }
+    pub fn bridge_claims_used(&self) -> u64 {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.get_cf(cf, Self::BR_META_CLAIMS_USED).ok().flatten()
+            .and_then(|b| <[u8;8]>::try_from(b.as_slice()).ok().map(u64::from_be_bytes))
+            .unwrap_or(0)
+    }
+
+    pub fn bridge_locked_zbx(&self) -> u128 {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.get_cf(cf, Self::BR_META_LOCKED_ZBX).ok().flatten()
+            .and_then(|b| <[u8;16]>::try_from(b.as_slice()).ok().map(u128::from_be_bytes))
+            .unwrap_or(0)
+    }
+    pub fn bridge_locked_zusd(&self) -> u128 {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.get_cf(cf, Self::BR_META_LOCKED_ZUSD).ok().flatten()
+            .and_then(|b| <[u8;16]>::try_from(b.as_slice()).ok().map(u128::from_be_bytes))
+            .unwrap_or(0)
+    }
+    fn bridge_set_locked(&self, native: crate::bridge::NativeAsset, val: u128) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let key: &[u8] = match native {
+            crate::bridge::NativeAsset::Zbx  => Self::BR_META_LOCKED_ZBX,
+            crate::bridge::NativeAsset::Zusd => Self::BR_META_LOCKED_ZUSD,
+        };
+        self.db.put_cf(cf, key, val.to_be_bytes())?;
+        Ok(())
+    }
+
+    fn bridge_next_event_seq(&self) -> Result<u64> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let cur = self.db.get_cf(cf, Self::BR_META_SEQ).ok().flatten()
+            .and_then(|b| <[u8;8]>::try_from(b.as_slice()).ok().map(u64::from_be_bytes))
+            .unwrap_or(0);
+        self.db.put_cf(cf, Self::BR_META_SEQ, (cur + 1).to_be_bytes())?;
+        Ok(cur)
+    }
+    pub fn bridge_total_out_events(&self) -> u64 {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.get_cf(cf, Self::BR_META_SEQ).ok().flatten()
+            .and_then(|b| <[u8;8]>::try_from(b.as_slice()).ok().map(u64::from_be_bytes))
+            .unwrap_or(0)
+    }
+    fn bridge_record_out_event(&self, ev: &crate::bridge::BridgeOutEvent) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.put_cf(cf, Self::br_event_key(ev.seq), bincode::serialize(ev)?)?;
+        // Cap on-chain history — evict oldest beyond MAX_OUT_EVENTS.
+        let max = crate::bridge::MAX_OUT_EVENTS;
+        if ev.seq >= max {
+            let _ = self.db.delete_cf(cf, Self::br_event_key(ev.seq - max));
+        }
+        Ok(())
+    }
+    /// Most-recent N outbound bridge events, newest first.
+    pub fn bridge_recent_out_events(&self, limit: usize) -> Vec<crate::bridge::BridgeOutEvent> {
+        let total = self.bridge_total_out_events();
+        if total == 0 { return Vec::new(); }
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let mut out = Vec::with_capacity(limit);
+        let mut seq = total - 1;
+        loop {
+            if let Some(b) = self.db.get_cf(cf, Self::br_event_key(seq)).ok().flatten() {
+                if let Ok(ev) = bincode::deserialize::<crate::bridge::BridgeOutEvent>(&b) {
+                    out.push(ev);
+                }
+            }
+            if out.len() >= limit || seq == 0 { break; }
+            seq -= 1;
+        }
+        out
     }
 
     pub fn genesis_credit(&self, alloc: &[(Address, u128)]) -> Result<()> {
@@ -984,6 +1176,262 @@ impl State {
                     }
                 }
             }
+            crate::types::TxKind::Bridge(op) => {
+                // ── Phase B.12 — cross-chain bridge dispatch ──
+                use crate::bridge::{
+                    BridgeAsset, BridgeNetwork, BridgeOp, BridgeOutEvent, NativeAsset,
+                    validate_contract, validate_dest_address, validate_network_name,
+                };
+
+                let bridge_lock_addr = Address::from_hex(crate::tokenomics::BRIDGE_LOCK_ADDRESS_HEX)
+                    .map_err(|e| anyhow!("invalid BRIDGE_LOCK_ADDRESS_HEX: {}", e))?;
+                let current_height = self.tip().0;
+
+                match op {
+                    BridgeOp::RegisterNetwork { id, name, kind } => {
+                        if tx.body.from != admin {
+                            return refund(&mut from, format!(
+                                "bridge-register-network: only admin {} may submit", admin
+                            ));
+                        }
+                        if let Err(e) = validate_network_name(name) {
+                            return refund(&mut from, format!("bridge-register-network: {}", e));
+                        }
+                        if self.bridge_get_network(*id).is_some() {
+                            return refund(&mut from, format!(
+                                "bridge-register-network: network id {} already registered", id
+                            ));
+                        }
+                        let net = BridgeNetwork {
+                            id: *id,
+                            name: name.trim().to_string(),
+                            kind: *kind,
+                            active: true,
+                            registered_height: current_height,
+                        };
+                        self.bridge_put_network(&net)?;
+                        // Refund principal — only fee consumed.
+                        from.balance = from.balance.saturating_add(tx.body.amount);
+                        self.put_account(&tx.body.from, &from)?;
+                        tracing::info!(
+                            "🌉 bridge-network registered: id={} name=\"{}\" kind={:?}",
+                            net.id, net.name, net.kind
+                        );
+                        return Ok(());
+                    }
+                    BridgeOp::SetNetworkActive { id, active } => {
+                        if tx.body.from != admin {
+                            return refund(&mut from, format!(
+                                "bridge-set-network-active: only admin {} may submit", admin));
+                        }
+                        let mut net = match self.bridge_get_network(*id) {
+                            Some(n) => n,
+                            None => return refund(&mut from, format!(
+                                "bridge-set-network-active: network {} not found", id)),
+                        };
+                        net.active = *active;
+                        self.bridge_put_network(&net)?;
+                        from.balance = from.balance.saturating_add(tx.body.amount);
+                        self.put_account(&tx.body.from, &from)?;
+                        tracing::info!("🌉 bridge-network {} active={}", id, active);
+                        return Ok(());
+                    }
+                    BridgeOp::RegisterAsset { network_id, native, contract, decimals } => {
+                        if tx.body.from != admin {
+                            return refund(&mut from, format!(
+                                "bridge-register-asset: only admin {} may submit", admin));
+                        }
+                        let net = match self.bridge_get_network(*network_id) {
+                            Some(n) => n,
+                            None => return refund(&mut from, format!(
+                                "bridge-register-asset: network {} not found", network_id)),
+                        };
+                        if let Err(e) = validate_contract(contract, net.kind) {
+                            return refund(&mut from, format!("bridge-register-asset: {}", e));
+                        }
+                        let local_seq = match self.bridge_next_local_asset_seq(*network_id) {
+                            Ok(s) => s,
+                            Err(e) => return refund(&mut from,
+                                format!("bridge-register-asset: {}", e)),
+                        };
+                        let asset_id = BridgeAsset::make_id(*network_id, local_seq);
+                        let asset = BridgeAsset {
+                            asset_id,
+                            network_id: *network_id,
+                            native: *native,
+                            contract: contract.trim().to_string(),
+                            decimals: *decimals,
+                            active: true,
+                            registered_height: current_height,
+                        };
+                        self.bridge_put_asset(&asset)?;
+                        from.balance = from.balance.saturating_add(tx.body.amount);
+                        self.put_account(&tx.body.from, &from)?;
+                        tracing::info!(
+                            "🌉 bridge-asset registered: id={} network={} native={} contract={}",
+                            asset.asset_id, asset.network_id, asset.native.symbol(), asset.contract
+                        );
+                        return Ok(());
+                    }
+                    BridgeOp::SetAssetActive { asset_id, active } => {
+                        if tx.body.from != admin {
+                            return refund(&mut from, format!(
+                                "bridge-set-asset-active: only admin {} may submit", admin));
+                        }
+                        let mut a = match self.bridge_get_asset(*asset_id) {
+                            Some(a) => a,
+                            None => return refund(&mut from, format!(
+                                "bridge-set-asset-active: asset {} not found", asset_id)),
+                        };
+                        a.active = *active;
+                        self.bridge_put_asset(&a)?;
+                        from.balance = from.balance.saturating_add(tx.body.amount);
+                        self.put_account(&tx.body.from, &from)?;
+                        tracing::info!("🌉 bridge-asset {} active={}", asset_id, active);
+                        return Ok(());
+                    }
+                    BridgeOp::BridgeOut { asset_id, dest_address } => {
+                        // User op — locks `tx.body.amount` of the asset's native token.
+                        let asset = match self.bridge_get_asset(*asset_id) {
+                            Some(a) if a.active => a,
+                            Some(_) => return refund(&mut from, format!(
+                                "bridge-out: asset {} is disabled", asset_id)),
+                            None => return refund(&mut from, format!(
+                                "bridge-out: asset {} not found", asset_id)),
+                        };
+                        let net = match self.bridge_get_network(asset.network_id) {
+                            Some(n) if n.active => n,
+                            Some(_) => return refund(&mut from, format!(
+                                "bridge-out: network {} is disabled", asset.network_id)),
+                            None => return refund(&mut from, format!(
+                                "bridge-out: network {} not found", asset.network_id)),
+                        };
+                        if let Err(e) = validate_dest_address(dest_address, net.kind) {
+                            return refund(&mut from, format!("bridge-out: {}", e));
+                        }
+                        if tx.body.amount == 0 {
+                            return refund(&mut from, "bridge-out: amount must be > 0".into());
+                        }
+                        // Native-asset-specific lock. Pre-debit took (amount+fee) from
+                        // from.balance — for ZBX that IS the lock; for zUSD we must
+                        // refund the wei amount and instead debit from from.zusd.
+                        match asset.native {
+                            NativeAsset::Zbx => {
+                                let mut lock_acc = self.account(&bridge_lock_addr);
+                                lock_acc.balance = lock_acc.balance.saturating_add(tx.body.amount);
+                                self.put_account(&bridge_lock_addr, &lock_acc)?;
+                                let new_locked = self.bridge_locked_zbx()
+                                    .saturating_add(tx.body.amount);
+                                self.bridge_set_locked(NativeAsset::Zbx, new_locked)?;
+                            }
+                            NativeAsset::Zusd => {
+                                from.balance = from.balance.saturating_add(tx.body.amount);
+                                if from.zusd < tx.body.amount {
+                                    self.put_account(&tx.body.from, &from)?;
+                                    return Err(anyhow!(
+                                        "bridge-out: insufficient zUSD ({} < {})",
+                                        from.zusd, tx.body.amount
+                                    ));
+                                }
+                                from.zusd -= tx.body.amount;
+                                let mut lock_acc = self.account(&bridge_lock_addr);
+                                lock_acc.zusd = lock_acc.zusd.saturating_add(tx.body.amount);
+                                self.put_account(&bridge_lock_addr, &lock_acc)?;
+                                let new_locked = self.bridge_locked_zusd()
+                                    .saturating_add(tx.body.amount);
+                                self.bridge_set_locked(NativeAsset::Zusd, new_locked)?;
+                            }
+                        }
+                        self.put_account(&tx.body.from, &from)?;
+
+                        let seq = self.bridge_next_event_seq()?;
+                        let ev = BridgeOutEvent {
+                            seq,
+                            asset_id: asset.asset_id,
+                            native_symbol: asset.native.symbol().to_string(),
+                            from: tx.body.from,
+                            dest_address: dest_address.trim().to_string(),
+                            amount: tx.body.amount,
+                            height: current_height,
+                            ts: self.current_block_ts_ms.load(Ordering::SeqCst),
+                            tx_hash: tx.hash().0,
+                        };
+                        self.bridge_record_out_event(&ev)?;
+                        tracing::info!(
+                            "🌉 bridge-out: seq={} asset={} {} {} from {} → network {} dest {}",
+                            ev.seq, ev.asset_id, ev.amount, ev.native_symbol,
+                            ev.from, asset.network_id, ev.dest_address
+                        );
+                        return Ok(());
+                    }
+                    BridgeOp::BridgeIn { asset_id, source_tx_hash, recipient, amount } => {
+                        if tx.body.from != admin {
+                            return refund(&mut from, format!(
+                                "bridge-in: only admin {} may submit", admin));
+                        }
+                        let asset = match self.bridge_get_asset(*asset_id) {
+                            Some(a) if a.active => a,
+                            Some(_) => return refund(&mut from, format!(
+                                "bridge-in: asset {} is disabled", asset_id)),
+                            None => return refund(&mut from, format!(
+                                "bridge-in: asset {} not found", asset_id)),
+                        };
+                        if *amount == 0 {
+                            return refund(&mut from, "bridge-in: amount must be > 0".into());
+                        }
+                        if self.bridge_is_claim_used(source_tx_hash) {
+                            return refund(&mut from, format!(
+                                "bridge-in: source tx 0x{} already claimed (replay protection)",
+                                hex::encode(source_tx_hash)
+                            ));
+                        }
+                        match asset.native {
+                            NativeAsset::Zbx => {
+                                let locked = self.bridge_locked_zbx();
+                                if locked < *amount {
+                                    return refund(&mut from, format!(
+                                        "bridge-in: locked ZBX ({}) < release amount ({})",
+                                        locked, amount
+                                    ));
+                                }
+                                let mut lock_acc = self.account(&bridge_lock_addr);
+                                lock_acc.balance = lock_acc.balance.saturating_sub(*amount);
+                                self.put_account(&bridge_lock_addr, &lock_acc)?;
+                                let mut rec = self.account(recipient);
+                                rec.balance = rec.balance.saturating_add(*amount);
+                                self.put_account(recipient, &rec)?;
+                                self.bridge_set_locked(NativeAsset::Zbx, locked - *amount)?;
+                            }
+                            NativeAsset::Zusd => {
+                                let locked = self.bridge_locked_zusd();
+                                if locked < *amount {
+                                    return refund(&mut from, format!(
+                                        "bridge-in: locked zUSD ({}) < release amount ({})",
+                                        locked, amount
+                                    ));
+                                }
+                                let mut lock_acc = self.account(&bridge_lock_addr);
+                                lock_acc.zusd = lock_acc.zusd.saturating_sub(*amount);
+                                self.put_account(&bridge_lock_addr, &lock_acc)?;
+                                let mut rec = self.account(recipient);
+                                rec.zusd = rec.zusd.saturating_add(*amount);
+                                self.put_account(recipient, &rec)?;
+                                self.bridge_set_locked(NativeAsset::Zusd, locked - *amount)?;
+                            }
+                        }
+                        self.bridge_mark_claim(source_tx_hash)?;
+                        // Admin doesn't supply funds — refund body.amount.
+                        from.balance = from.balance.saturating_add(tx.body.amount);
+                        self.put_account(&tx.body.from, &from)?;
+                        tracing::info!(
+                            "🌉 bridge-in: asset={} {} {} → {} (src 0x{}…)",
+                            asset.asset_id, amount, asset.native.symbol(), recipient,
+                            &hex::encode(source_tx_hash)[..16]
+                        );
+                        return Ok(());
+                    }
+                }
+            }
             crate::types::TxKind::Transfer => { /* fall through to legacy logic */ }
         }
 
@@ -1134,6 +1582,8 @@ impl State {
         if block.header.parent_hash != last {
             return Err(anyhow!("parent hash mismatch"));
         }
+        // Phase B.12 — expose block timestamp to apply_tx (Bridge arm reads it).
+        self.current_block_ts_ms.store(block.header.timestamp_ms, Ordering::SeqCst);
         if block.txs.len() >= 4 {
             if !verify_txs_batch(&block.txs) {
                 return Err(anyhow!("bad tx signature in block (batch verify failed)"));

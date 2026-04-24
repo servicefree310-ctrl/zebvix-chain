@@ -561,6 +561,117 @@ enum Cmd {
         #[arg(long, default_value = "http://127.0.0.1:8545")]
         rpc_url: String,
     },
+    // ─────────── Phase B.12 — bridge CLI ───────────
+    /// Admin: register a new foreign network in the bridge registry.
+    BridgeRegisterNetwork {
+        #[arg(long)]
+        signer_key: PathBuf,
+        /// Foreign chain id (e.g. 56 for BSC, 1 for Ethereum, 137 for Polygon).
+        #[arg(long)]
+        id: u32,
+        /// Human-readable name (e.g. "BSC", "Ethereum-Mainnet").
+        #[arg(long)]
+        name: String,
+        /// Network kind: "evm" or "other".
+        #[arg(long, default_value = "evm")]
+        kind: String,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+        #[arg(long, default_value = "auto")]
+        fee: String,
+    },
+    /// Admin: enable/disable a registered network.
+    BridgeSetNetworkActive {
+        #[arg(long)]
+        signer_key: PathBuf,
+        #[arg(long)]
+        id: u32,
+        #[arg(long)]
+        active: bool,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+        #[arg(long, default_value = "auto")]
+        fee: String,
+    },
+    /// Admin: register a native asset mapping on a foreign network
+    /// (e.g. "ZBX on BSC = BEP-20 0xABC…").
+    BridgeRegisterAsset {
+        #[arg(long)]
+        signer_key: PathBuf,
+        #[arg(long)]
+        network_id: u32,
+        /// Native Zebvix asset: "zbx" or "zusd".
+        #[arg(long)]
+        native: String,
+        /// Foreign-chain token contract (BEP-20 / ERC-20 hex address).
+        #[arg(long)]
+        contract: String,
+        /// Decimals on the foreign chain (e.g. 18 for BEP-20 wZBX).
+        #[arg(long, default_value_t = 18)]
+        decimals: u8,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+        #[arg(long, default_value = "auto")]
+        fee: String,
+    },
+    /// User: lock native tokens on Zebvix → emit BridgeOut event for off-chain
+    /// oracle to mint wrapped tokens on the foreign chain.
+    BridgeOut {
+        #[arg(long)]
+        signer_key: PathBuf,
+        /// asset_id from `bridge-assets` (decimal u64).
+        #[arg(long)]
+        asset_id: u64,
+        /// Destination address on the foreign chain (0x… for EVM).
+        #[arg(long)]
+        dest: String,
+        /// Amount in Zebvix-native units. ZBX uses ZBX (e.g. "1.5"), zUSD uses
+        /// zUSD (e.g. "100").
+        #[arg(long)]
+        amount: String,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+        #[arg(long, default_value = "auto")]
+        fee: String,
+    },
+    /// Admin/oracle: prove a foreign-chain deposit and credit the recipient
+    /// with the equivalent native amount. Replay-protected per source_tx_hash.
+    BridgeIn {
+        #[arg(long)]
+        signer_key: PathBuf,
+        #[arg(long)]
+        asset_id: u64,
+        /// 32-byte hash of the foreign-chain originating tx (0x + 64 hex).
+        #[arg(long)]
+        source_tx_hash: String,
+        /// Zebvix recipient address.
+        #[arg(long)]
+        recipient: String,
+        /// Amount in Zebvix-native units (ZBX or zUSD depending on asset).
+        #[arg(long)]
+        amount: String,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+        #[arg(long, default_value = "auto")]
+        fee: String,
+    },
+    /// Read-only: list registered bridge networks.
+    BridgeNetworks {
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+    },
+    /// Read-only: list registered bridge assets (optional --network-id filter).
+    BridgeAssets {
+        #[arg(long)]
+        network_id: Option<u32>,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+    },
+    /// Read-only: aggregate bridge statistics (locked totals, event counts).
+    BridgeStats {
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -1251,6 +1362,20 @@ async fn main() -> Result<()> {
         Cmd::LookupPayId { pay_id, rpc_url } => cmd_lookup_pay_id(pay_id, rpc_url).await,
         Cmd::Whois { address, rpc_url } => cmd_whois(address, rpc_url).await,
         Cmd::ChainStatus { rpc_url } => cmd_chain_status(rpc_url).await,
+        // ─── Phase B.12 — bridge dispatch ───
+        Cmd::BridgeRegisterNetwork { signer_key, id, name, kind, rpc_url, fee } =>
+            cmd_bridge_register_network(signer_key, id, name, kind, rpc_url, fee).await,
+        Cmd::BridgeSetNetworkActive { signer_key, id, active, rpc_url, fee } =>
+            cmd_bridge_set_network_active(signer_key, id, active, rpc_url, fee).await,
+        Cmd::BridgeRegisterAsset { signer_key, network_id, native, contract, decimals, rpc_url, fee } =>
+            cmd_bridge_register_asset(signer_key, network_id, native, contract, decimals, rpc_url, fee).await,
+        Cmd::BridgeOut { signer_key, asset_id, dest, amount, rpc_url, fee } =>
+            cmd_bridge_out(signer_key, asset_id, dest, amount, rpc_url, fee).await,
+        Cmd::BridgeIn { signer_key, asset_id, source_tx_hash, recipient, amount, rpc_url, fee } =>
+            cmd_bridge_in(signer_key, asset_id, source_tx_hash, recipient, amount, rpc_url, fee).await,
+        Cmd::BridgeNetworks { rpc_url } => cmd_bridge_networks(rpc_url).await,
+        Cmd::BridgeAssets { network_id, rpc_url } => cmd_bridge_assets(network_id, rpc_url).await,
+        Cmd::BridgeStats { rpc_url } => cmd_bridge_stats(rpc_url).await,
     }
 }
 
@@ -2260,5 +2385,277 @@ async fn cmd_burn_stats(rpc_url: String) -> Result<()> {
     println!("     • {} bps → delegators (stake-prop)", res["fee_split"]["delegators_bps"]);
     println!("     • {} bps → admin treasury", res["fee_split"]["treasury_bps"]);
     println!("     • {} bps → burn / liquidity", res["fee_split"]["burn_or_liquidity_bps"]);
+    Ok(())
+}
+
+// ─────────── Phase B.12 — bridge CLI helpers ───────────
+
+fn parse_network_kind(s: &str) -> Result<zebvix_node::bridge::NetworkKind> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "evm" | "eth" | "bsc" | "polygon" | "ethereum" | "binance" =>
+            Ok(zebvix_node::bridge::NetworkKind::Evm),
+        "other" | "non-evm" => Ok(zebvix_node::bridge::NetworkKind::Other),
+        _ => Err(anyhow!(
+            "unknown network kind '{}': expected 'evm' or 'other'", s
+        )),
+    }
+}
+
+fn parse_native_asset(s: &str) -> Result<zebvix_node::bridge::NativeAsset> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "zbx" => Ok(zebvix_node::bridge::NativeAsset::Zbx),
+        "zusd" | "z_usd" | "usd" => Ok(zebvix_node::bridge::NativeAsset::Zusd),
+        _ => Err(anyhow!(
+            "unknown native asset '{}': expected 'zbx' or 'zusd'", s
+        )),
+    }
+}
+
+fn parse_zusd_amount(s: &str) -> Result<u128> {
+    let t = s.trim();
+    let f: f64 = t.parse().map_err(|_| anyhow!("invalid zUSD amount '{}'", s))?;
+    if !f.is_finite() || f < 0.0 {
+        return Err(anyhow!("zUSD amount must be a non-negative number"));
+    }
+    // zUSD has 6 decimals (micro-units).
+    Ok((f * 1_000_000.0) as u128)
+}
+
+fn parse_source_tx_hash(s: &str) -> Result<[u8; 32]> {
+    let t = s.trim().strip_prefix("0x").unwrap_or(s.trim());
+    if t.len() != 64 {
+        return Err(anyhow!(
+            "source_tx_hash must be 0x + 64 hex chars (got {} chars)", t.len()
+        ));
+    }
+    let bytes = hex::decode(t).map_err(|e| anyhow!("invalid hex: {}", e))?;
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&bytes);
+    Ok(out)
+}
+
+async fn cmd_bridge_register_network(
+    signer_key: PathBuf, id: u32, name: String, kind: String,
+    rpc_url: String, fee: String,
+) -> Result<()> {
+    let (sk, pk) = read_keyfile(&signer_key)?;
+    let from = address_from_pubkey(&pk);
+    let net_kind = parse_network_kind(&kind)?;
+    let fee_wei = resolve_fee(&rpc_url, &fee).await?;
+    let nonce = reqwest_get_nonce(&rpc_url, &from).await?;
+    let body = TxBody {
+        from, to: Address::ZERO, amount: 0, nonce, fee: fee_wei,
+        chain_id: CHAIN_ID,
+        kind: TxKind::Bridge(zebvix_node::bridge::BridgeOp::RegisterNetwork {
+            id, name: name.clone(), kind: net_kind,
+        }),
+    };
+    let tx = sign_tx(&sk, body);
+    let req = serde_json::json!({
+        "jsonrpc":"2.0","id":1,"method":"zbx_sendTransaction","params":[tx]
+    });
+    let resp = http_post(&rpc_url, &req).await?;
+    println!("{C_CYAN_B}🌉 Bridge register-network{C_RESET}");
+    println!("   id      : {}", id);
+    println!("   name    : {}", name);
+    println!("   kind    : {:?}", net_kind);
+    println!("   admin   : {}", from);
+    println!("{}", serde_json::to_string_pretty(&resp)?);
+    Ok(())
+}
+
+async fn cmd_bridge_set_network_active(
+    signer_key: PathBuf, id: u32, active: bool, rpc_url: String, fee: String,
+) -> Result<()> {
+    let (sk, pk) = read_keyfile(&signer_key)?;
+    let from = address_from_pubkey(&pk);
+    let fee_wei = resolve_fee(&rpc_url, &fee).await?;
+    let nonce = reqwest_get_nonce(&rpc_url, &from).await?;
+    let body = TxBody {
+        from, to: Address::ZERO, amount: 0, nonce, fee: fee_wei,
+        chain_id: CHAIN_ID,
+        kind: TxKind::Bridge(zebvix_node::bridge::BridgeOp::SetNetworkActive { id, active }),
+    };
+    let tx = sign_tx(&sk, body);
+    let req = serde_json::json!({
+        "jsonrpc":"2.0","id":1,"method":"zbx_sendTransaction","params":[tx]
+    });
+    let resp = http_post(&rpc_url, &req).await?;
+    println!("{C_CYAN_B}🌉 Bridge set-network-active{C_RESET} id={} active={}", id, active);
+    println!("{}", serde_json::to_string_pretty(&resp)?);
+    Ok(())
+}
+
+async fn cmd_bridge_register_asset(
+    signer_key: PathBuf, network_id: u32, native: String, contract: String,
+    decimals: u8, rpc_url: String, fee: String,
+) -> Result<()> {
+    let (sk, pk) = read_keyfile(&signer_key)?;
+    let from = address_from_pubkey(&pk);
+    let nat = parse_native_asset(&native)?;
+    let fee_wei = resolve_fee(&rpc_url, &fee).await?;
+    let nonce = reqwest_get_nonce(&rpc_url, &from).await?;
+    let body = TxBody {
+        from, to: Address::ZERO, amount: 0, nonce, fee: fee_wei,
+        chain_id: CHAIN_ID,
+        kind: TxKind::Bridge(zebvix_node::bridge::BridgeOp::RegisterAsset {
+            network_id, native: nat, contract: contract.clone(), decimals,
+        }),
+    };
+    let tx = sign_tx(&sk, body);
+    let req = serde_json::json!({
+        "jsonrpc":"2.0","id":1,"method":"zbx_sendTransaction","params":[tx]
+    });
+    let resp = http_post(&rpc_url, &req).await?;
+    println!("{C_CYAN_B}🌉 Bridge register-asset{C_RESET}");
+    println!("   network_id : {}", network_id);
+    println!("   native     : {}", nat.symbol());
+    println!("   contract   : {}", contract);
+    println!("   decimals   : {}", decimals);
+    println!("{}", serde_json::to_string_pretty(&resp)?);
+    Ok(())
+}
+
+async fn cmd_bridge_out(
+    signer_key: PathBuf, asset_id: u64, dest: String, amount: String,
+    rpc_url: String, fee: String,
+) -> Result<()> {
+    let (sk, pk) = read_keyfile(&signer_key)?;
+    let from = address_from_pubkey(&pk);
+    // Look up asset to determine ZBX vs zUSD scaling.
+    let lookup = serde_json::json!({
+        "jsonrpc":"2.0","id":1,"method":"zbx_getBridgeAsset","params":[asset_id.to_string()]
+    });
+    let asset_resp = http_post(&rpc_url, &lookup).await?;
+    let result = asset_resp.get("result")
+        .ok_or_else(|| anyhow!("asset {} lookup failed: {}", asset_id, asset_resp))?;
+    let native_sym = result.get("native").and_then(|v| v.as_str()).unwrap_or("");
+    let amount_units: u128 = match native_sym {
+        "ZBX"  => parse_zbx_amount(&amount)?,
+        "zUSD" => parse_zusd_amount(&amount)?,
+        other  => return Err(anyhow!("unknown asset native '{}'", other)),
+    };
+    let fee_wei = resolve_fee(&rpc_url, &fee).await?;
+    let nonce = reqwest_get_nonce(&rpc_url, &from).await?;
+    let body = TxBody {
+        from, to: Address::ZERO, amount: amount_units, nonce, fee: fee_wei,
+        chain_id: CHAIN_ID,
+        kind: TxKind::Bridge(zebvix_node::bridge::BridgeOp::BridgeOut {
+            asset_id, dest_address: dest.clone(),
+        }),
+    };
+    let tx = sign_tx(&sk, body);
+    let req = serde_json::json!({
+        "jsonrpc":"2.0","id":1,"method":"zbx_sendTransaction","params":[tx]
+    });
+    let resp = http_post(&rpc_url, &req).await?;
+    println!("{C_CYAN_B}🌉 Bridge OUT (lock){C_RESET}");
+    println!("   asset_id : {}", asset_id);
+    println!("   native   : {}", native_sym);
+    println!("   amount   : {} ({} units)", amount, amount_units);
+    println!("   from     : {}", from);
+    println!("   dest     : {}", dest);
+    println!("{}", serde_json::to_string_pretty(&resp)?);
+    Ok(())
+}
+
+async fn cmd_bridge_in(
+    signer_key: PathBuf, asset_id: u64, source_tx_hash: String,
+    recipient: String, amount: String, rpc_url: String, fee: String,
+) -> Result<()> {
+    let (sk, pk) = read_keyfile(&signer_key)?;
+    let from = address_from_pubkey(&pk);
+    let src_hash = parse_source_tx_hash(&source_tx_hash)?;
+    let recipient_addr = Address::from_hex(&recipient)?;
+    // Scale amount by asset native.
+    let lookup = serde_json::json!({
+        "jsonrpc":"2.0","id":1,"method":"zbx_getBridgeAsset","params":[asset_id.to_string()]
+    });
+    let asset_resp = http_post(&rpc_url, &lookup).await?;
+    let result = asset_resp.get("result")
+        .ok_or_else(|| anyhow!("asset {} lookup failed: {}", asset_id, asset_resp))?;
+    let native_sym = result.get("native").and_then(|v| v.as_str()).unwrap_or("");
+    let amount_units: u128 = match native_sym {
+        "ZBX"  => parse_zbx_amount(&amount)?,
+        "zUSD" => parse_zusd_amount(&amount)?,
+        other  => return Err(anyhow!("unknown asset native '{}'", other)),
+    };
+    let fee_wei = resolve_fee(&rpc_url, &fee).await?;
+    let nonce = reqwest_get_nonce(&rpc_url, &from).await?;
+    let body = TxBody {
+        from, to: Address::ZERO, amount: 0, nonce, fee: fee_wei,
+        chain_id: CHAIN_ID,
+        kind: TxKind::Bridge(zebvix_node::bridge::BridgeOp::BridgeIn {
+            asset_id, source_tx_hash: src_hash, recipient: recipient_addr,
+            amount: amount_units,
+        }),
+    };
+    let tx = sign_tx(&sk, body);
+    let req = serde_json::json!({
+        "jsonrpc":"2.0","id":1,"method":"zbx_sendTransaction","params":[tx]
+    });
+    let resp = http_post(&rpc_url, &req).await?;
+    println!("{C_CYAN_B}🌉 Bridge IN (release){C_RESET}");
+    println!("   asset_id  : {}", asset_id);
+    println!("   src_tx    : 0x{}", hex::encode(src_hash));
+    println!("   recipient : {}", recipient_addr);
+    println!("   amount    : {} ({} units)", amount, amount_units);
+    println!("{}", serde_json::to_string_pretty(&resp)?);
+    Ok(())
+}
+
+async fn cmd_bridge_networks(rpc_url: String) -> Result<()> {
+    let req = serde_json::json!({
+        "jsonrpc":"2.0","id":1,"method":"zbx_listBridgeNetworks","params":[]
+    });
+    let resp = http_post(&rpc_url, &req).await?;
+    let result = resp.get("result").ok_or_else(|| anyhow!("rpc error: {}", resp))?;
+    let count = result.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
+    let nets = result.get("networks").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    println!("{C_CYAN_B}🌉 Bridge networks{C_RESET}  (count={})", count);
+    for n in nets {
+        println!("   id={:<8} name={:<24} kind={:<6} active={}",
+            n["id"], n["name"].as_str().unwrap_or(""),
+            n["kind"].as_str().unwrap_or(""), n["active"]);
+    }
+    Ok(())
+}
+
+async fn cmd_bridge_assets(network_id: Option<u32>, rpc_url: String) -> Result<()> {
+    let params = match network_id {
+        Some(n) => serde_json::json!([n]),
+        None    => serde_json::json!([]),
+    };
+    let req = serde_json::json!({
+        "jsonrpc":"2.0","id":1,"method":"zbx_listBridgeAssets","params": params
+    });
+    let resp = http_post(&rpc_url, &req).await?;
+    let result = resp.get("result").ok_or_else(|| anyhow!("rpc error: {}", resp))?;
+    let count = result.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
+    let assets = result.get("assets").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    println!("{C_CYAN_B}🌉 Bridge assets{C_RESET}  (count={})", count);
+    for a in assets {
+        println!("   asset_id={:<22} net={:<6} {:<5} contract={} decimals={} active={}",
+            a["asset_id"].as_str().unwrap_or(""),
+            a["network_id"], a["native"].as_str().unwrap_or(""),
+            a["contract"].as_str().unwrap_or(""), a["decimals"], a["active"]);
+    }
+    Ok(())
+}
+
+async fn cmd_bridge_stats(rpc_url: String) -> Result<()> {
+    let req = serde_json::json!({
+        "jsonrpc":"2.0","id":1,"method":"zbx_bridgeStats","params":[]
+    });
+    let resp = http_post(&rpc_url, &req).await?;
+    let r = resp.get("result").ok_or_else(|| anyhow!("rpc error: {}", resp))?;
+    println!("{C_CYAN_B}🌉 Bridge stats{C_RESET}");
+    println!("   networks      : {} (active {})", r["networks_count"], r["active_networks"]);
+    println!("   assets        : {} (active {})", r["assets_count"], r["active_assets"]);
+    println!("   locked ZBX    : {} wei", r["locked_zbx_wei"].as_str().unwrap_or("0"));
+    println!("   locked zUSD   : {}", r["locked_zusd"].as_str().unwrap_or("0"));
+    println!("   out events    : {}", r["out_events_total"]);
+    println!("   claims used   : {}", r["claims_used"]);
+    println!("   lock address  : {}", r["lock_address"].as_str().unwrap_or(""));
     Ok(())
 }

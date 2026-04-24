@@ -184,6 +184,15 @@ pub const GAS_FEE_BURN_BPS: u64 = 1_000;
 /// reserve as single-sided liquidity (no swap, no LP mint).
 pub const POOL_ADDRESS_HEX: &str = "0x7a73776170000000000000000000000000000000";
 
+// ───────── Phase B.12 — bridge lock vault address ─────────
+
+/// **Phase B.12** — sentinel address that holds tokens currently locked
+/// in the cross-chain bridge (BridgeOut destination, BridgeIn source).
+/// Bytes spell "zbrdg" (7a 62 72 64 67) followed by 15 zero bytes.
+/// This is an accounting address — funds are released back to users when
+/// the admin/oracle submits a corresponding `BridgeIn`.
+pub const BRIDGE_LOCK_ADDRESS_HEX: &str = "0x7a62726467000000000000000000000000000000";
+
 // ───────── Genesis pool seed (minted at first pool init) ─────────
 
 /// 10M ZBX minted directly INTO the pool's ZBX reserve at pool genesis.

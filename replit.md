@@ -197,3 +197,102 @@ Compile fixes applied during VPS build (all merged into live tarball at
 MetaMask → switch network to chain_id 7878 RPC `http://93.127.213.192:8545`
 → admin/governor controls (validator-add, pool genesis, swap, payid registry)
 all signable from the same ETH key.
+
+## Phase B.12 — BEP20 / EVM bridge module (2026-04-24) ✅ (Replit-side; VPS deploy pending)
+
+**Goal:** make Zebvix bridge-able to BNB Chain (BEP20), Ethereum, Polygon and
+arbitrary external networks via an admin-extensible on-chain registry +
+lock/release pattern. No off-chain hard-coding — admin can add new networks
+and assets purely via signed CLI/RPC tx.
+
+**Design (single-trusted-oracle, lock/release):**
+- New on-chain `bridge` module with two registries (`BridgeNetwork`,
+  `BridgeAsset`), one events log (`BridgeOutEvent`), and one used-claim set
+  (replay protection for inbound).
+- `asset_id = (network_id as u64) << 32 | local_seq` — 64-bit deterministic id.
+- Outbound (`BridgeOut`): user signs tx, chain debits `from.{zbx|zusd}`, credits
+  the system **lock vault** at address `0x7a62726467…0000` (constant
+  `BRIDGE_LOCK_ADDRESS_HEX`), and emits a `BridgeOutEvent` indexed by
+  `b/e/<seq>` for the off-chain relayer to mint on the destination chain.
+- Inbound (`BridgeIn`): admin/oracle signs tx with `(asset_id,
+  source_tx_hash[32], recipient, amount)`. Chain checks `b/c/<asset_id>/<hash>`
+  is unused (replay protection), debits the lock vault, credits recipient,
+  marks the claim used. The admin's own gas fee is refunded inside the same
+  apply, so the oracle is fee-neutral.
+- Single trusted oracle: only `tokenomics::ADMIN_ADDRESS_HEX` may
+  Register/SetActive/BridgeIn. Multi-sig oracle is a future upgrade (phase B.13).
+
+**On-chain TxKind extension (consensus-breaking — re-genesis required):**
+- Added `TxKind::Bridge(BridgeOp)` at end of enum (tag_index=9, variant_name
+  `"bridge"`); preserves bincode discriminants for prior 0–8 variants so old
+  signed-tx decoding stays byte-identical.
+- `BridgeOp` enum variants: `RegisterNetwork`, `SetNetworkActive`,
+  `RegisterAsset`, `SetAssetActive`, `BridgeOut`, `BridgeIn`.
+
+**Storage layout (`CF_META`):**
+- `b/n/<network_id_be>` → `BridgeNetwork`
+- `b/a/<asset_id_be>`   → `BridgeAsset`
+- `b/c/<asset_id_be>/<source_tx_hash>` → `[1]` (claim used marker)
+- `b/e/<event_seq_be>`  → `BridgeOutEvent`
+- `b/m/seq`             → next event seq (u64 BE)
+- `b/m/lz`, `b/m/lu`    → locked ZBX wei (u128 BE) / locked zUSD (u128 BE)
+- `b/m/cu`              → claims-used counter
+- `b/m/aid/<network_id_be>` → next local-seq for that network (u32 BE)
+
+**RPCs (7 read-only):** `zbx_listBridgeNetworks`, `zbx_getBridgeNetwork`,
+`zbx_listBridgeAssets` (optional `network_id` filter), `zbx_getBridgeAsset`,
+`zbx_recentBridgeOutEvents` (capped 100), `zbx_isBridgeClaimUsed`,
+`zbx_bridgeStats` (totals + lock vault address).
+
+**CLI (8 verbs):** `bridge-register-network`, `bridge-set-network-active`,
+`bridge-register-asset`, `bridge-out`, `bridge-in`, `bridge-networks`,
+`bridge-assets`, `bridge-stats`. Outbound/inbound auto-scale amount based on
+asset's `native` (ZBX→18 dec wei, zUSD→6 dec micro-units) via a one-shot
+`zbx_getBridgeAsset` lookup.
+
+**Files touched (chain):**
+- NEW: `src/bridge.rs` (~430 lines: types, validators, helpers, unit tests).
+- `src/lib.rs` — `pub mod bridge`.
+- `src/transaction.rs` — `TxKind::Bridge(BridgeOp)` variant; tag_index=9.
+- `src/mempool.rs` — match arm `Bridge(_) => 9`.
+- `src/tokenomics.rs` — `BRIDGE_LOCK_ADDRESS_HEX`.
+- `src/state.rs` — storage helper methods + apply_tx Bridge arm (~250 lines)
+  handling all 6 ops (admin gating, zUSD pre-debit refund pattern, lock vault
+  accounting, replay protection).
+- `src/rpc.rs` — 7 bridge endpoints.
+- `src/main.rs` — 8 `Cmd::Bridge*` variants + dispatch arms + 8 async
+  `cmd_bridge_*` functions, plus parsers (`parse_network_kind`,
+  `parse_native_asset`, `parse_zusd_amount`, `parse_source_tx_hash`).
+
+**Verification (Replit-side):**
+- Local cargo check could not run (libclang issue, same as B.11) — relies on
+  VPS build. Code is structurally consistent with prior modules (multisig,
+  swap, payid all use identical `prefix_iterator_cf` + `bincode` patterns).
+- Tarball at `/api/download/newchain` (113 KB) confirmed to include
+  `bridge.rs`, modified `state.rs`, `tokenomics.rs`.
+
+**VPS deploy commands (next session, on srv1266996):**
+```bash
+# 1. fetch new tarball
+cd ~ && rm -rf zebvix-chain-old && mv zebvix-chain zebvix-chain-old || true
+curl -sL "https://<replit-domain>/api/download/newchain" -o newchain.tgz
+tar xzf newchain.tgz && cd zebvix-chain
+# 2. rebuild
+cargo build --release
+# 3. re-genesis (consensus-breaking — TxKind extended)
+sudo systemctl stop zebvix-node-1
+rm -rf ~/.zebvix/data ~/.zebvix/genesis.json
+./target/release/zebvix-node init --chain-id 7878 \
+  --founder-secret 0xa8674e60d95ec1fa2b37f264b01b8407d2fbb0789bd836382472d181973ebbf8
+sudo systemctl start zebvix-node-1
+# 4. smoke-test bridge
+./target/release/zbx bridge-stats --rpc-url http://127.0.0.1:8545
+./target/release/zbx bridge-register-network \
+  --signer-key ~/.zebvix/founder.key --id 56 --name "BNB Chain" \
+  --kind evm --rpc-url http://127.0.0.1:8545 --fee auto
+./target/release/zbx bridge-register-asset \
+  --signer-key ~/.zebvix/founder.key --network-id 56 --native zbx \
+  --contract 0x0000000000000000000000000000000000000000 --decimals 18 \
+  --rpc-url http://127.0.0.1:8545 --fee auto
+./target/release/zbx bridge-networks --rpc-url http://127.0.0.1:8545
+```
