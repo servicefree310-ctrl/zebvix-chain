@@ -1,0 +1,71 @@
+root@srv1266996:/home/zebvix-chain# # On VPS (root@srv1266996)
+cd /home/zebvix-chain
+
+# 1. Backup current source
+mkdir -p .backups
+tar -czf .backups/zebvix-chain-$(date +%Y%m%d-%H%M%S).pre-no-usd-peg.tgz src/ Cargo.toml 2>/dev/null
+ls -la .backups/ | tail -3
+
+# 2. Pull fresh source (USD peg removed)
+curl -fsSL "https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/api/download/newchain" -o newchain.tgz
+ls -la newchain.tgz   # ~188 KB
+
+# 3. Extract in place
+tar -xzf newchain.tgz
+rm newchain.tgz
+
+# 4. Verify USD peg is gone, fixed-token design landed
+grep -nE 'MIN_SELF_BOND_WEI: u128|MIN_DELEGATION_WEI: u128' src/staking.rs
+echo '--- these MUST be empty (USD peg removed): ---'
+grep -nE 'MIN_SELF_BOND_USD_MICRO|dynamic_min_self_bond_wei' src/staking.rs src/state.rs src/rpc.rs
+
+# 5. Build (~1.5 minutes)
+cargo build --release 2>&1 | tail -10
+
+# 6. Restart node
+systemctl restart zebvix.service
+sleep 5
+systemctl status zebvix.service --no-pager | head -10
+
+# 7. Verify new RPC payload — should NOT contain usd_micro / dynamic_wei
+curl -s -X POST http://127.0.0.1:8545 -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"zbx_getStaking","params":[]}' \
+  | grep -oE 'min_(self_bond|delegation|self_bond_usd|self_bond_dynamic)[a-z_]*":"?[^,}"]+' | head -10
+
+# 8. Confirm chain producing blocks
+sleep 10
+for i in 1 2 3; do
+doneeep 3a '{"jsonrpc":"2.0","id":1,"method":"zbx_blockNumber","params":[]}'\
+drwxr-xr-x 8 ubuntu ubuntu   4096 Apr 24 18:50 ..
+-rw-r--r-- 1 root   root   169990 Apr 24 18:50 zebvix-chain-20260424-185054.pre-min-update.tgz
+-rw-r--r-- 1 root   root   170806 Apr 24 19:08 zebvix-chain-20260424-190859.pre-no-usd-peg.tgz
+-rw-r--r-- 1 root root 188216 Apr 24 19:09 newchain.tgz
+58:pub const MIN_SELF_BOND_WEI: u128 = 100u128 * 1_000_000_000_000_000_000u128;
+62:pub const MIN_DELEGATION_WEI: u128 = 10u128 * 1_000_000_000_000_000_000u128;
+--- these MUST be empty (USD peg removed): ---
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:393:4
+    |
+393 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 1m 41s
+● zebvix.service - Zebvix L1 Blockchain Node
+     Loaded: loaded (/etc/systemd/system/zebvix.service; enabled; preset: enabled)
+     Active: active (running) since Fri 2026-04-24 19:10:41 UTC; 5s ago
+   Main PID: 4189797 (zebvix-node)
+      Tasks: 7 (limit: 9483)
+     Memory: 3.0M (peak: 3.4M)
+        CPU: 35ms
+     CGroup: /system.slice/zebvix.service
+             └─4189797 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333 --no-mdns
+
+min_delegation_wei":"10000000000000000000
+min_self_bond_wei":"100000000000000000000
+{"jsonrpc":"2.0","id":1,"result":{"hash":"0x4e426431532cb28641f970266f01a8409e166fa54f113e62c578fbb53f90138f","height":6014,"hex":"0x177e","proposer":"0x40907000ac0a1a73e4cd89889b4d7ee8980c0315","timestamp_ms":1777057853027}}
+{"jsonrpc":"2.0","id":1,"result":{"hash":"0xf38dff4d80fea0dcecd6e55cc0fa20063093baa2b2b6701750c71a5f00c4f8f2","height":6015,"hex":"0x177f","proposer":"0x40907000ac0a1a73e4cd89889b4d7ee8980c0315","timestamp_ms":1777057858527}}
+{"jsonrpc":"2.0","id":1,"result":{"hash":"0xf38dff4d80fea0dcecd6e55cc0fa20063093baa2b2b6701750c71a5f00c4f8f2","height":6015,"hex":"0x177f","proposer":"0x40907000ac0a1a73e4cd89889b4d7ee8980c0315","timestamp_ms":1777057858527}}
+root@srv1266996:/home/zebvix-chain# 
