@@ -34,6 +34,10 @@ interface FeeBounds {
   min_fee_wei: string; max_fee_wei: string; recommended_fee_wei: string;
   min_usd?: number; max_usd?: number; source?: string;
 }
+interface BurnStats {
+  burn_address: string; total_burned_wei: string; burn_cap_wei: string;
+  phase: "burn" | "liquidity" | string; progress_bps: number;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mission Control (Home)
@@ -43,6 +47,7 @@ export default function Home() {
   const [recent, setRecent] = useState<BlockInfo[]>([]);
   const [price, setPrice] = useState<PriceInfo | null>(null);
   const [supply, setSupply] = useState<SupplyInfo | null>(null);
+  const [burn, setBurn] = useState<BurnStats | null>(null);
   const [vals, setVals] = useState<ValidatorInfo | null>(null);
   const [fee, setFee] = useState<FeeBounds | null>(null);
   const [evmChainHex, setEvmChainHex] = useState<string | null>(null);
@@ -99,7 +104,8 @@ export default function Home() {
           rpc<string>("eth_chainId").catch(() => null),
           rpc<string>("eth_gasPrice").catch(() => null),
           rpc<PoolMini>("zbx_getPool").catch(() => null),
-        ]).then(([pr, sup, va, fb, ms, pid, ec, eg, pm]) => {
+          rpc<BurnStats>("zbx_getBurnStats").catch(() => null),
+        ]).then(([pr, sup, va, fb, ms, pid, ec, eg, pm, bn]) => {
           if (!mounted) return;
           if (pr) setPrice(pr);
           if (sup) setSupply(sup);
@@ -110,6 +116,7 @@ export default function Home() {
           if (ec) setEvmChainHex(ec);
           if (eg) setEvmGasPriceHex(eg);
           if (pm) setPoolMini(pm);
+          if (bn) setBurn(bn);
         });
       } catch (e) {
         if (mounted) setErr(e instanceof Error ? e.message : String(e));
@@ -142,6 +149,13 @@ export default function Home() {
     if (zbx >= 1_000) return `${(zbx / 1_000).toFixed(2)}K`;
     return zbx.toFixed(2);
   };
+  // % of max-supply: e.g. circulating / max_wei
+  const pctOfMax = (numWei: string, maxWei: string): string => {
+    const a = parseFloat(weiHexToZbx(numWei).replace(/,/g, ""));
+    const b = parseFloat(weiHexToZbx(maxWei).replace(/,/g, ""));
+    if (!b || !isFinite(a) || !isFinite(b)) return "0.00";
+    return ((a / b) * 100).toFixed(2);
+  };
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -168,28 +182,40 @@ export default function Home() {
       {/* PHASE STATUS BANNER */}
       <PhaseBanner />
 
-      {/* KPI ROW */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+      {/* KPI ROW — top: chain telemetry + price */}
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
         <Kpi icon={Box} tone="cyan" label="Block Height"
           value={tip ? `#${tip.height.toLocaleString()}` : "—"}
           sub={tip ? `proposer ${shortAddr(tip.proposer, 4, 4)}` : "loading"} flash={flash} />
         <Kpi icon={TrendingUp} tone="emerald" label="ZBX Price"
           value={priceNum > 0 ? `$${formatPrice(priceNum)}` : (poolUninit ? `$${TARGET_LAUNCH_PRICE_USD.toFixed(2)}*` : "—")}
           sub={priceNum > 0 ? (price?.source ?? "") : (poolUninit ? "* target — pool not seeded yet" : "")} />
-        <Kpi icon={Database} tone="sky" label="Total Supply"
-          value={supply ? `${fmtZbxCompact(circulating)} ZBX` : "—"}
-          sub={supply ? `${weiHexToZbx(circulating)} ZBX (pool + minted − burn)` : ""} />
         <Kpi icon={Coins} tone="violet" label={poolUninit ? "Market Cap (target)" : "Market Cap"}
           value={marketCap ? fmtUsd(marketCap) : "—"}
           sub={supply && effectivePrice ? `= ${fmtZbxCompact(circulating)} ZBX × $${formatPrice(effectivePrice)}` : ""} />
-        <Kpi icon={Layers} tone="amber" label={poolUninit ? "FDV (target)" : "FDV"}
+      </div>
+
+      {/* SUPPLY ROW — Total / Circulating / Burn cap / FDV */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Kpi icon={Database} tone="amber" label="Total Supply (max cap)"
+          value={supply ? `${fmtZbxCompact(supply.max_wei)} ZBX` : "—"}
+          sub={supply ? `${weiHexToZbx(supply.max_wei)} ZBX hard cap` : ""} />
+        <Kpi icon={Coins} tone="sky" label="Circulating"
+          value={supply ? `${fmtZbxCompact(circulating)} ZBX` : "—"}
+          sub={supply ? `${pctOfMax(circulating, supply.max_wei)}% of total · pool + minted − burn` : ""} />
+        <Kpi icon={Flame} tone="violet" label="Burn Cap (50%)"
+          value={burn ? `${fmtZbxCompact(burn.burn_cap_wei)} ZBX` : "—"}
+          sub={burn
+            ? `burned ${weiHexToZbx(burn.total_burned_wei)} / ${(burn.progress_bps / 100).toFixed(2)}% to cap · ${burn.phase === "liquidity" ? "→ liquidity phase" : "burn phase"}`
+            : ""} />
+        <Kpi icon={Layers} tone="emerald" label={poolUninit ? "FDV (target)" : "FDV"}
           value={fdvCap ? fmtUsd(fdvCap) : "—"}
-          sub={supply ? `max ${weiHexToZbx(supply.max_wei)}` : ""} />
+          sub={effectivePrice ? `= max supply × $${formatPrice(effectivePrice)}` : ""} />
       </div>
 
       {/* SUPPLY BREAKDOWN — answers "where is the ZBX?" */}
       {supply && (
-        <SupplyBreakdownCard supply={supply} priceUsd={effectivePrice} poolUninit={poolUninit} />
+        <SupplyBreakdownCard supply={supply} burn={burn} priceUsd={effectivePrice} poolUninit={poolUninit} />
       )}
 
       {/* SECONDARY KPIS */}
@@ -365,8 +391,8 @@ function PoolBootstrapBanner() {
 // Supply Breakdown — explains "where is the ZBX?" so users see that
 // circulating × price = market cap is the correct math.
 // ─────────────────────────────────────────────────────────────────────────────
-function SupplyBreakdownCard({ supply, priceUsd, poolUninit }: {
-  supply: SupplyInfo; priceUsd: number; poolUninit: boolean;
+function SupplyBreakdownCard({ supply, burn, priceUsd, poolUninit }: {
+  supply: SupplyInfo; burn: BurnStats | null; priceUsd: number; poolUninit: boolean;
 }) {
   const toZbx = (w?: string) => parseFloat(weiHexToZbx(w ?? "0").replace(/,/g, "")) || 0;
   const minted = toZbx(supply.minted_wei);
@@ -376,36 +402,49 @@ function SupplyBreakdownCard({ supply, priceUsd, poolUninit }: {
   const burned = toZbx(supply.burned_wei);
   const circulating = toZbx(supply.circulating_wei);
   const max = toZbx(supply.max_wei);
+  const burnCap = burn ? toZbx(burn.burn_cap_wei) : max / 2;
+  const burnProgressPct = burn ? burn.progress_bps / 100 : 0;
 
-  // Bucket: pool reserve (current, dynamic) + treasury (everything outside the pool).
-  // poolReserve == poolSeed at genesis; diverges once swaps execute.
+  // Bucket totals always sum to MAX SUPPLY (150M), so the bar shows a true
+  // "of total supply" view: pool reserve + (treasury+users) + burned + yet-to-mint = max.
+  // poolReserve is the LIVE reserve (== poolSeed at genesis, diverges with swaps).
   const treasuryAndUsers = Math.max(0, circulating - poolReserve);
   const remainingMint = Math.max(0, max - circulating - burned);
 
   const buckets = [
-    { label: "AMM Pool reserve",          zbx: poolReserve,        color: "bg-cyan-500",    note: "locked LP, drives price" },
-    { label: "Treasury + validators + users", zbx: treasuryAndUsers, color: "bg-violet-500",  note: "block rewards + premine" },
-    { label: "Burned (forever)",          zbx: burned,             color: "bg-red-500",     note: "removed from supply" },
-    { label: "Yet to mint",               zbx: remainingMint,      color: "bg-zinc-700",    note: `up to ${max.toLocaleString()} max cap` },
+    { label: "AMM Pool reserve",              zbx: poolReserve,      color: "bg-cyan-500",   note: "locked LP, drives price" },
+    { label: "Treasury + validators + users", zbx: treasuryAndUsers, color: "bg-violet-500", note: "block rewards + premine" },
+    { label: "Burned (forever)",              zbx: burned,           color: "bg-red-500",    note: `cap ${burnCap.toLocaleString()} ZBX (50% of total)` },
+    { label: "Yet to mint",                   zbx: remainingMint,    color: "bg-zinc-700",   note: `unminted, up to ${max.toLocaleString()} cap` },
   ];
-  const total = buckets.reduce((a, b) => a + b.zbx, 0);
+  const total = max > 0 ? max : buckets.reduce((a, b) => a + b.zbx, 0);
   const fmtZbx = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(3)}M` : n >= 1_000 ? `${(n / 1_000).toFixed(2)}K` : n.toFixed(4);
 
   return (
     <div className="p-4 rounded-xl border border-border bg-card/60">
-      <div className="flex items-center gap-2 mb-3">
+      <div className="flex flex-wrap items-center gap-2 mb-3">
         <PieChart className="h-4 w-4 text-sky-400" />
         <span className="text-sm font-semibold">Supply Breakdown</span>
-        <span className="text-[11px] text-muted-foreground">— where every ZBX is right now</span>
+        <span className="text-[11px] text-muted-foreground">— every ZBX of the {fmtZbx(max)} total supply</span>
+        {burn && (
+          <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full border border-border bg-card text-muted-foreground">
+            phase: <span className={burn.phase === "liquidity" ? "text-emerald-400" : "text-amber-400"}>{burn.phase}</span>
+          </span>
+        )}
       </div>
 
-      {/* Stacked bar */}
-      <div className="flex h-3 rounded-full overflow-hidden bg-zinc-900 border border-border mb-3">
+      {/* Stacked bar — total spans full max-supply (150M ZBX) */}
+      <div className="flex h-3 rounded-full overflow-hidden bg-zinc-900 border border-border mb-1">
         {buckets.map((b, i) => (
           <div key={i} className={b.color}
             style={{ width: total > 0 ? `${(b.zbx / total) * 100}%` : "0%" }}
-            title={`${b.label}: ${fmtZbx(b.zbx)} ZBX`} />
+            title={`${b.label}: ${fmtZbx(b.zbx)} ZBX (${total > 0 ? ((b.zbx / total) * 100).toFixed(2) : "0"}% of total)`} />
         ))}
+      </div>
+      <div className="flex justify-between text-[10px] text-muted-foreground mb-3">
+        <span>0</span>
+        <span className="text-amber-400/70">↑ 50% burn cap ({fmtZbx(burnCap)} ZBX)</span>
+        <span>{fmtZbx(max)} max</span>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
@@ -416,9 +455,12 @@ function SupplyBreakdownCard({ supply, priceUsd, poolUninit }: {
               <span className="text-muted-foreground truncate">{b.label}</span>
             </div>
             <div className="font-mono font-semibold tabular-nums">{fmtZbx(b.zbx)} ZBX</div>
-            <div className="text-[10px] text-muted-foreground truncate">{b.note}</div>
+            <div className="text-[10px] text-muted-foreground truncate" title={b.note}>{b.note}</div>
             {priceUsd > 0 && b.zbx > 0 && (
               <div className="text-[10px] text-emerald-400 mt-0.5">≈ {fmtUsd(b.zbx * priceUsd)}</div>
+            )}
+            {b.label === "Burned (forever)" && burn && (
+              <div className="text-[10px] text-red-400/80 mt-0.5">{burnProgressPct.toFixed(2)}% of cap</div>
             )}
           </div>
         ))}
@@ -426,11 +468,13 @@ function SupplyBreakdownCard({ supply, priceUsd, poolUninit }: {
 
       {/* Math footer */}
       <div className="mt-3 pt-3 border-t border-border text-[11px] text-muted-foreground space-y-0.5 font-mono">
-        <div>circulating = minted ({fmtZbx(minted)}) + premine ({fmtZbx(premine)}) + pool_seed ({fmtZbx(poolSeed)}) − burned ({fmtZbx(burned)}) = <span className="text-foreground font-semibold">{fmtZbx(circulating)} ZBX</span></div>
+        <div>total_supply = <span className="text-amber-400 font-semibold">{fmtZbx(max)} ZBX</span> (hard cap, enforced on-chain)</div>
+        <div>circulating = minted ({fmtZbx(minted)}) + premine ({fmtZbx(premine)}) + pool_seed ({fmtZbx(poolSeed)}) − burned ({fmtZbx(burned)}) = <span className="text-sky-400 font-semibold">{fmtZbx(circulating)} ZBX</span> ({((circulating / Math.max(max, 1)) * 100).toFixed(2)}% of total)</div>
         {priceUsd > 0 && (
-          <div>market_cap = {fmtZbx(circulating)} ZBX × ${formatPrice(priceUsd)} = <span className="text-violet-400 font-semibold">{fmtUsd(circulating * priceUsd)}</span>{poolUninit && " (target)"}</div>
+          <div>market_cap = circulating × ${formatPrice(priceUsd)} = <span className="text-violet-400 font-semibold">{fmtUsd(circulating * priceUsd)}</span>{poolUninit && " (target)"}</div>
         )}
-        <div className="text-[10px] opacity-70">Note: Pool TVL ($20M post-seed) counts BOTH ZBX side + zUSD side, so it appears double the ZBX market cap. This is standard AMM accounting.</div>
+        <div>burn_cap = <span className="text-red-400 font-semibold">{fmtZbx(burnCap)} ZBX</span> (50% of total) — once reached, fee burn flips to AMM liquidity reinvestment</div>
+        <div className="text-[10px] opacity-70">Note: Pool TVL counts BOTH ZBX side + zUSD side, so it shows ~2× the ZBX market cap. Standard AMM accounting.</div>
       </div>
     </div>
   );
