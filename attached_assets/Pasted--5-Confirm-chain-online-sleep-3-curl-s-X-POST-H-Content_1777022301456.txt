@@ -1,0 +1,68 @@
+# 5. Confirm chain online
+sleep 3
+curl -s -X POST -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"zbx_chainInfo","params":[]}' \
+  http://127.0.0.1:8545
+echo ""
+
+# 6. Bridge smoke tests
+echo "=== bridge-stats (should be empty) ==="
+./target/release/zbx bridge-stats --rpc-url http://127.0.0.1:8545
+
+echo "=== register BNB Chain ==="
+./target/release/zbx bridge-register-network \
+./target/release/zbx bridge-stats    --rpc-url http://127.0.0.1:8545
+port 8545 free
+error: unexpected argument '--chain-id' found
+
+Usage: zebvix-node init [OPTIONS] --validator-key <VALIDATOR_KEY>
+
+For more information, try '--help'.
+total 24
+drwxr-xr-x  2 root root 4096 Apr 24 09:08 .
+drwx------ 26 root root 4096 Apr 24 06:49 ..
+-rw-r--r--  1 root root   57 Apr 23 03:52 node.json
+-rw-r--r--  1 root root  229 Apr 23 18:12 owner2.key
+-rw-r--r--  1 root root  229 Apr 23 18:12 owner3.key
+-rw-r--r--  1 root root  229 Apr 23 03:52 validator.key
+error: unrecognized subcommand 'run'
+
+Usage: zebvix-node <COMMAND>
+
+For more information, try '--help'.
+
+=== bridge-stats (should be empty) ===
+error: unrecognized subcommand 'bridge-stats'
+
+Usage: zbx [OPTIONS] <COMMAND>
+
+For more information, try '--help'.
+=== register BNB Chain ===
+error: unrecognized subcommand 'bridge-register-network'
+
+Usage: zbx [OPTIONS] <COMMAND>
+
+For more information, try '--help'.
+=== register ZBX↔BEP20 asset ===
+error: unrecognized subcommand 'bridge-register-asset'
+
+Usage: zbx [OPTIONS] <COMMAND>
+
+For more information, try '--help'.
+=== final state ===
+error: unrecognized subcommand 'bridge-networks'
+
+Usage: zbx [OPTIONS] <COMMAND>
+
+For more information, try '--help'.
+error: unrecognized subcommand 'bridge-assets'
+
+Usage: zbx [OPTIONS] <COMMAND>
+
+For more information, try '--help'.
+error: unrecognized subcommand 'bridge-stats'
+
+Usage: zbx [OPTIONS] <COMMAND>
+
+For more information, try '--help'.
+root@srv1266996:/home/zebvix-chain# 
