@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { rpc, weiHexToZbx, weiToUsd, fmtUsd, shortAddr } from "@/lib/zbx-rpc";
-import { Search, Wallet, Lock, TrendingUp, AlertCircle, ArrowLeftRight, Inbox } from "lucide-react";
+import { Search, Wallet, Lock, TrendingUp, AlertCircle, ArrowLeftRight, Inbox, Droplets, Info, Gift } from "lucide-react";
 
 interface DelegationsRes {
   total_value_wei?: string;
@@ -12,6 +12,29 @@ interface LockedRes {
   released_wei?: string;
   unlock_per_block_wei?: string;
   unlock_at_height?: number;
+}
+
+interface PoolStateRes {
+  initialized?: boolean;
+  zbx_reserve_wei?: string;
+  zusd_reserve?: string;
+  lp_supply?: string;
+  spot_price_usd_per_zbx?: string;
+  init_height?: number;
+  fee_pct?: string;
+  loan_outstanding_zusd?: string;
+  loan_repaid?: boolean;
+  permissionless?: boolean;
+}
+
+const AMM_POOL_ADDRESS = "0x7a73776170000000000000000000000000000000";
+const REWARDS_POOL_ADDRESS = "0x7277647300000000000000000000000000000000";
+
+function isAmmPoolAddress(a: string): boolean {
+  return a.trim().toLowerCase() === AMM_POOL_ADDRESS;
+}
+function isRewardsPoolAddress(a: string): boolean {
+  return a.trim().toLowerCase() === REWARDS_POOL_ADDRESS;
 }
 
 function readQueryAddr(): string | null {
@@ -39,6 +62,8 @@ export default function BalanceLookup() {
     payId: string | null;
     zusd: string;
     priceUsd: number;
+    lpBalance: string;
+    poolState: PoolStateRes | null;
   } | null>(null);
 
   // Tx scan state
@@ -52,7 +77,8 @@ export default function BalanceLookup() {
     setErr(null);
     setData(null);
     try {
-      const [bal, delegations, locked, nonce, payId, zusd, price] = await Promise.all([
+      const isAmm = isAmmPoolAddress(addr);
+      const [bal, delegations, locked, nonce, payId, zusd, price, lpBal, poolState] = await Promise.all([
         rpc<string>("zbx_getBalance", [addr]).catch(() => "0x0"),
         rpc<DelegationsRes>("zbx_getDelegationsByDelegator", [addr]).catch(() => null),
         rpc<LockedRes>("zbx_getLockedRewards", [addr]).catch(() => null),
@@ -64,8 +90,12 @@ export default function BalanceLookup() {
         rpc<{ zbx_usd: string }>("zbx_getPriceUSD")
           .then((r) => parseFloat(r?.zbx_usd ?? "0"))
           .catch(() => 0),
+        rpc<string>("zbx_getLpBalance", [addr]).catch(() => "0"),
+        isAmm
+          ? rpc<PoolStateRes>("zbx_getPool").catch(() => null)
+          : Promise.resolve<PoolStateRes | null>(null),
       ]);
-      setData({ liquid: bal, delegations, locked, nonce, payId, zusd, priceUsd: price });
+      setData({ liquid: bal, delegations, locked, nonce, payId, zusd, priceUsd: price, lpBalance: lpBal, poolState });
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -251,6 +281,15 @@ export default function BalanceLookup() {
             </div>
           </div>
 
+          {/* SPECIAL ADDRESS BANNER — protocol-reserved magic addresses */}
+          {(isAmmPoolAddress(addr) || isRewardsPoolAddress(addr)) && (
+            <SpecialAddressBanner
+              kind={isAmmPoolAddress(addr) ? "amm" : "rewards"}
+              poolState={data.poolState}
+              priceUsd={data.priceUsd}
+            />
+          )}
+
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3">
             <BalCard icon={Wallet} label="Liquid ZBX" wei={data.liquid} color="text-blue-400" priceUsd={data.priceUsd} />
             <BalCard
@@ -269,6 +308,32 @@ export default function BalanceLookup() {
             />
             <BalCard icon={Wallet} label="zUSD" wei={data.zusd} color="text-purple-400" priceUsd={1} unit="zUSD" />
           </div>
+
+          {/* LP tokens — surface when held (always shown for POOL_ADDRESS since LP supply locks here) */}
+          {(data.lpBalance && data.lpBalance !== "0" && data.lpBalance !== "0x0") && (
+            <div className="p-4 rounded-lg border border-cyan-500/30 bg-cyan-500/5">
+              <div className="flex items-center gap-2 text-xs text-cyan-300 mb-1">
+                <Droplets className="h-3.5 w-3.5" />
+                LP TOKENS HELD
+                {isAmmPoolAddress(addr) && (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-cyan-500/20 text-cyan-300">
+                    permanent lock
+                  </span>
+                )}
+              </div>
+              <div className="text-2xl font-bold tabular-nums text-cyan-300">
+                {Number(BigInt(data.lpBalance)) / 1e18 < 0.0001
+                  ? new Intl.NumberFormat("en-US", { maximumFractionDigits: 6 }).format(Number(BigInt(data.lpBalance)) / 1e18)
+                  : new Intl.NumberFormat("en-US", { maximumFractionDigits: 4 }).format(Number(BigInt(data.lpBalance)) / 1e18)}
+                <span className="text-sm text-muted-foreground ml-1">LP</span>
+              </div>
+              {isAmmPoolAddress(addr) && data.poolState?.lp_supply && (
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  100% of total LP supply ({new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(Number(BigInt(data.poolState.lp_supply)) / 1e18)} LP) — provably locked, never redeemable
+                </div>
+              )}
+            </div>
+          )}
 
           {/* RECENT TRANSACTIONS involving this address */}
           <div className="rounded-lg border border-border bg-card overflow-hidden">
@@ -410,6 +475,111 @@ function BalCard({ icon: Icon, label, wei, color, priceUsd, unit = "ZBX" }: { ic
         <span>{unit}</span>
         <span className="font-mono">≈ {fmtUsd(weiToUsd(wei, priceUsd))}</span>
       </div>
+    </div>
+  );
+}
+
+function SpecialAddressBanner({ kind, poolState, priceUsd }: {
+  kind: "amm" | "rewards"; poolState: PoolStateRes | null; priceUsd: number;
+}) {
+  const isAmm = kind === "amm";
+  const Icon = isAmm ? Droplets : Gift;
+  const wrapClass = isAmm
+    ? "p-5 rounded-lg border-2 border-cyan-500/30 bg-cyan-500/5"
+    : "p-5 rounded-lg border-2 border-amber-500/30 bg-amber-500/5";
+  const iconClass = isAmm
+    ? "h-6 w-6 text-cyan-400 shrink-0 mt-0.5"
+    : "h-6 w-6 text-amber-400 shrink-0 mt-0.5";
+  const titleClass = isAmm
+    ? "text-sm font-semibold text-cyan-300 mb-0.5"
+    : "text-sm font-semibold text-amber-300 mb-0.5";
+  const title = isAmm ? "AMM Pool — protocol-reserved address" : "Block-reward Pool — protocol-reserved address";
+  const note = isAmm
+    ? "Yeh pool ka magic address hai (`zswap` ASCII bytes). Liquidity reserves yahan account-balance ke roop mein store nahi hote — wo Pool struct (alag column family) mein hain. `getBalance` 0 dikhata hai by design. Real reserves neeche dikhaye gaye hain."
+    : "Yeh block-reward pool ka magic address hai (`rwds` ASCII bytes). Validator rewards yahan se mint hote hain — yeh emission source hai, regular wallet nahi.";
+
+  // Compute pool reserves (only for AMM)
+  let zbxReserveZbx = 0;
+  let zusdReserve = 0;
+  let lpSupply = 0;
+  let spotPrice = 0;
+  if (isAmm && poolState) {
+    try {
+      zbxReserveZbx = Number(BigInt(poolState.zbx_reserve_wei ?? "0")) / 1e18;
+      zusdReserve = Number(BigInt(poolState.zusd_reserve ?? "0")) / 1e18;
+      lpSupply = Number(BigInt(poolState.lp_supply ?? "0")) / 1e18;
+      spotPrice = parseFloat(poolState.spot_price_usd_per_zbx ?? "0");
+    } catch { /* keep zeros */ }
+  }
+  const zbxValueUsd = zbxReserveZbx * (spotPrice || priceUsd);
+  const tvlUsd = zbxValueUsd + zusdReserve;
+  const fmt = (n: number, d = 2) =>
+    new Intl.NumberFormat("en-US", { maximumFractionDigits: d }).format(n);
+
+  return (
+    <div className={wrapClass}>
+      <div className="flex items-start gap-3">
+        <Icon className={iconClass} />
+        <div className="flex-1">
+          <div className={titleClass}>{title}</div>
+          <div className="text-xs text-muted-foreground leading-relaxed flex items-start gap-1.5">
+            <Info className="h-3 w-3 mt-0.5 shrink-0 opacity-70" />
+            <span>{note}</span>
+          </div>
+        </div>
+      </div>
+
+      {isAmm && poolState && (
+        <>
+          <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+            <ReserveStat label="ZBX reserve" value={`${fmt(zbxReserveZbx, 0)}`} unit="ZBX" sub={`≈ ${fmtUsd(zbxValueUsd)}`} tone="cyan" />
+            <ReserveStat label="zUSD reserve" value={`${fmt(zusdReserve, 0)}`} unit="zUSD" sub={`≈ ${fmtUsd(zusdReserve)}`} tone="violet" />
+            <ReserveStat label="Pool TVL" value={fmtUsd(tvlUsd)} sub="ZBX+zUSD combined" tone="emerald" />
+            <ReserveStat label="Spot price" value={`$${fmt(spotPrice, 6)}`} unit="/ ZBX" sub={poolState.permissionless ? "permissionless swaps ON" : ""} tone="amber" />
+          </div>
+          <div className="mt-3 grid grid-cols-2 md:grid-cols-3 gap-3 text-xs">
+            <Field label="LP supply (locked)" value={fmt(lpSupply, 2)} />
+            <Field label="Init height" value={poolState.init_height ? `#${poolState.init_height}` : "—"} />
+            <Field label="Fee" value={poolState.fee_pct ? `${poolState.fee_pct}%` : "—"} />
+          </div>
+        </>
+      )}
+
+      {isAmm && !poolState && (
+        <div className="mt-4 text-xs text-amber-400/80">
+          Pool state load nahi ho saka — RPC unreachable ya pool initialized nahi.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReserveStat({ label, value, unit, sub, tone }: {
+  label: string; value: string; unit?: string; sub?: string; tone: "cyan" | "violet" | "emerald" | "amber";
+}) {
+  const colorMap: Record<string, string> = {
+    cyan: "text-cyan-300",
+    violet: "text-violet-300",
+    emerald: "text-emerald-300",
+    amber: "text-amber-300",
+  };
+  return (
+    <div className="rounded-md bg-background/40 border border-border/50 p-3">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className={`text-xl font-bold tabular-nums ${colorMap[tone]}`}>
+        {value}
+        {unit && <span className="text-xs text-muted-foreground ml-1">{unit}</span>}
+      </div>
+      {sub && <div className="text-[10px] text-muted-foreground mt-0.5">{sub}</div>}
+    </div>
+  );
+}
+
+function Field({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+      <div className="font-mono text-sm">{value}</div>
     </div>
   );
 }
