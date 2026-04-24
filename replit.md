@@ -331,13 +331,13 @@ side of the bridge (Phase B.13 deploy targets). Browseable in dashboard
 project; no Rust dependency).
 
 ### Files
-- `ZBX_BEP20.sol` (328 lines) — wrapped ZBX BEP-20 token, EIP-2612 permit,
+- `ZBX20.sol` (328 lines) — wrapped ZBX BEP-20 token, EIP-2612 permit,
   multisig-only `bridgeMint` / `bridgeBurnFrom`, founder pause.
 - `BridgeVault.sol` (242 lines) — lock/release vault on BSC, reentrancy
   guard, replay-protected `executeMint(seq)`, EIP-2612 `lockWithPermit`,
   founder stray-token recovery (cannot drain ZBX).
 - `BridgeMultisig.sol` (254 lines) — N-of-M oracle multisig, EIP-191
-  personal-sign signatures, transient-storage seq passthrough to ZBX_BEP20,
+  personal-sign signatures, transient-storage seq passthrough to ZBX20,
   batch submit, rotatable relayer set.
 - `interfaces/IZBX.sol` (55 lines) + `interfaces/IBridgeVault.sol` (78 lines).
 - `README.md` — architecture diagram, deploy order, audit checklist.
@@ -345,10 +345,10 @@ project; no Rust dependency).
 ### Deploy order (Phase B.13)
 1. Deploy `BridgeMultisig(vault=0x0, relayers, threshold, founder)` — vault
    placeholder, fix in step 4.
-2. Deploy `ZBX_BEP20(minter=multisig, founder)`.
-3. Deploy `BridgeVault(token=ZBX_BEP20, multisig, founder)`.
+2. Deploy `ZBX20(minter=multisig, founder)`.
+3. Deploy `BridgeVault(token=ZBX20, multisig, founder)`.
 4. Re-deploy `BridgeMultisig` with real `vault` address (or use a proxy).
-5. Update Zebvix `bridge-register-asset` with `--contract <ZBX_BEP20.addr>`.
+5. Update Zebvix `bridge-register-asset` with `--contract <ZBX20.addr>`.
 
 ### Browser support
 - `artifacts/api-server/src/routes/chain.ts` ALLOWED_EXT now includes `.sol`.
@@ -359,12 +359,12 @@ project; no Rust dependency).
 1. **Mint authority broken** → token's bridge minter is now `vault` (not multisig);
    multisig calls `vault.executeMint` which calls `token.bridgeMint` correctly.
 2. **`bridgeBurnFrom` was unauthorized** (any spender could drain a holder) →
-   added `onlyVault` modifier in `ZBX_BEP20`.
+   added `onlyVault` modifier in `ZBX20`.
 3. **TSTORE/TLOAD across contracts is unsafe** (transient storage is contract-local;
    would have returned 0 + may not be supported on BSC) → removed entirely; `zebvixSeq`
    is now an explicit param of `bridgeMint(to, amount, seq)` and `bridgeBurnFrom`.
 4. **Constructor deadlock** (Multisig ↔ Vault circular addresses) → both `vault` on
-   `BridgeMultisig` and on `ZBX_BEP20` are mutable until founder calls `lockVault()`,
+   `BridgeMultisig` and on `ZBX20` are mutable until founder calls `lockVault()`,
    then permanent. Deploy order is now Multisig → Token → Vault → setVault×2 → test → lockVault×2.
 5. **`totalLocked` accounting wrong** (only incremented on mint, never decremented on
    lock — diverged from `token.totalSupply()`) → now `+= amount` on `executeMint` and

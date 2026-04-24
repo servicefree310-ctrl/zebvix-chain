@@ -7,7 +7,7 @@ Polygon, …) and on the **Zebvix EVM layer** (Phase C).
 
 ```
 contracts/
-├── ZBX_BEP20.sol          BEP-20 / ERC-20 ZBX token (deploys to BSC)
+├── ZBX20.sol          BEP-20 / ERC-20 ZBX token (deploys to BSC)
 ├── BridgeVault.sol        Lock / release vault (deploys to BSC)
 ├── BridgeMultisig.sol     N-of-M oracle multisig (deploys to BSC)
 ├── interfaces/
@@ -38,7 +38,7 @@ contracts/
 3. Chain emits sequenced `BridgeOutEvent { seq, asset_id, dest, amount }`.
 4. Off-chain relayer polls `zbx_recentBridgeOutEvents`.
 5. Relayer signs `BridgeMultisig.executeMint(seq, dest, amount)` on BSC.
-6. Once threshold reached, `ZBX_BEP20.mint(dest, amount)` is called.
+6. Once threshold reached, `ZBX20.mint(dest, amount)` is called.
 7. User now holds wrapped ZBX on BSC.
 
 ### Inbound (BSC → Zebvix)
@@ -72,23 +72,23 @@ contracts/
 
 The constructor cycle Multisig ↔ Vault ↔ Token is broken using a
 **set-once-then-lock** pattern. `vault` on both `BridgeMultisig` and
-`ZBX_BEP20` is mutable until `lockVault()` is called by the founder, after
+`ZBX20` is mutable until `lockVault()` is called by the founder, after
 which it is permanently fixed.
 
 1. Deploy `BridgeMultisig(initialRelayers, threshold, founder)`. Vault is
    left unset (`address(0)`) — `submitMint` will revert until it is set.
-2. Deploy `ZBX_BEP20(founder)`. Vault is left unset — bridge-mint/burn will
+2. Deploy `ZBX20(founder)`. Vault is left unset — bridge-mint/burn will
    revert until it is set.
-3. Deploy `BridgeVault(token=ZBX_BEP20.address, multisig=BridgeMultisig.address, founder)`.
+3. Deploy `BridgeVault(token=ZBX20.address, multisig=BridgeMultisig.address, founder)`.
    Both peer addresses are real and immutable on this side.
 4. Founder tx: `BridgeMultisig.setVault(BridgeVault.address)`.
-5. Founder tx: `ZBX_BEP20.setVault(BridgeVault.address)`.
+5. Founder tx: `ZBX20.setVault(BridgeVault.address)`.
 6. Verify with a small test mint (e.g. submit 1 wei via the relayer key on a
    BSC testnet fork). Confirm `Locked` + `Minted` event flow.
 7. Founder tx: `BridgeMultisig.lockVault()` — vault address becomes permanent.
-8. Founder tx: `ZBX_BEP20.lockVault()` — token's bridge minter becomes permanent.
+8. Founder tx: `ZBX20.lockVault()` — token's bridge minter becomes permanent.
 9. Update Zebvix `bridge-register-network 56` if not already done.
-10. Update Zebvix `bridge-register-asset` with `--contract <ZBX_BEP20.addr>`.
+10. Update Zebvix `bridge-register-asset` with `--contract <ZBX20.addr>`.
 
 > **Important:** steps 7 and 8 are irreversible. Do them only after you've
 > tested an end-to-end mint + lock round-trip on testnet.
@@ -116,7 +116,7 @@ module.exports = {
 
 - [ ] Reentrancy protection on `BridgeVault.lock()` and `release()`
 - [ ] Integer overflow protection (Solidity 0.8+ built-in checked math)
-- [ ] Access control: only `BridgeMultisig` can mint/burn ZBX_BEP20
+- [ ] Access control: only `BridgeMultisig` can mint/burn ZBX20
 - [ ] Replay protection: nonce / source_tx_hash uniqueness
 - [ ] Pause + emergency-recovery flows
 - [ ] No `tx.origin` usage; `msg.sender` everywhere

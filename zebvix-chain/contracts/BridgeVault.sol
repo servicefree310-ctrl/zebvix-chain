@@ -26,7 +26,7 @@ contract BridgeVault is IBridgeVault {
     // Immutable wiring
     // ---------------------------------------------------------------------
 
-    address public immutable override token;     // ZBX_BEP20
+    address public immutable override token;     // ZBX20
     address public immutable override multisig;  // BridgeMultisig
 
     // ---------------------------------------------------------------------

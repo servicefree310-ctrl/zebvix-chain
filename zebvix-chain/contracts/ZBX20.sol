@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import { IZBX } from "./interfaces/IZBX.sol";
 
-/// @title ZBX_BEP20 — Wrapped Zebvix (ZBX) on BNB Chain
+/// @title ZBX20 — Wrapped Zebvix (ZBX) on BNB Chain
 /// @author Zebvix Technologies Pvt Ltd
 /// @notice Canonical BEP-20 / ERC-20 representation of native Zebvix L1 ZBX,
 ///         minted/burned only by the BridgeVault contract. Total supply on
@@ -19,7 +19,7 @@ import { IZBX } from "./interfaces/IZBX.sol";
 ///         - All bridge events carry the Zebvix sequence number explicitly
 ///           — no transient storage / EIP-1153 cross-contract assumptions.
 ///         Solidity 0.8+ checked math used throughout.
-contract ZBX_BEP20 is IZBX {
+contract ZBX20 is IZBX {
     // ---------------------------------------------------------------------
     // Token metadata
     // ---------------------------------------------------------------------
