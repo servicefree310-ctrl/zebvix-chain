@@ -1,0 +1,67 @@
+root@srv1266996:/home/zebvix-chain# echo "=== 1) Running zebvix processes ==="
+ps -ef | grep -i zebvix | grep -v grep
+
+echo "=== 2) Who owns port 8545 ==="
+ss -ltnp | grep ':8545'
+lsof -i :8545 2>/dev/null
+
+echo "=== 3) systemd units ==="
+systemctl list-units --type=service --all 2>/dev/null | grep -iE 'zebvix|chain|node' | head
+ls /etc/systemd/system/ 2>/dev/null | grep -iE 'zebvix|chain|node'
+
+echo "=== 4) tmux/screen sessions ==="
+tmux ls 2>/dev/null
+screen -ls 2>/dev/null
+
+echo "=== 5) Launch scripts ==="
+ls /home/zebvix-chain/*.sh 2>/dev/null
+ls /root/*.sh 2>/dev/null
+
+echo "=== 6) Anything referencing the binary in startup configs ==="
+grep -rE 'zebvix-node|target/release/zebvix' /etc/systemd/system/ /etc/rc.local /etc/cron.d /root /home/zebvix-chain 2>/dev/null | head -20
+
+echo "=== 7) Currently listening sockets owned by current binary ==="
+fuser -v 8545/tcp 2>&1 | head
+=== 1) Running zebvix processes ===
+zebvix   3466049 3465932  0 Apr22 ?        00:00:00 php-fpm: pool 1775669736182499
+zebvix   3466053 3465932  0 Apr22 ?        00:00:00 php-fpm: pool 1775669736182499
+root     3921084  228188  0 02:28 ?        00:01:34 node /home/zebvix/b/dist/server.js
+root     4100962       1  0 13:13 ?        00:00:14 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333 --no-mdns
+=== 2) Who owns port 8545 ===
+LISTEN 0      128                             0.0.0.0:8545       0.0.0.0:*    users:(("zebvix-node",pid=4100962,fd=28))                                               
+COMMAND       PID USER   FD   TYPE   DEVICE SIZE/OFF NODE NAME
+zebvix-no 4100962 root   28u  IPv4 15843706      0t0  TCP *:8545 (LISTEN)
+=== 3) systemd units ===
+  kmod-static-nodes.service                      loaded    active   exited  Create List of Static Device Nodes
+  systemd-tmpfiles-setup-dev-early.service       loaded    active   exited  Create Static Device Nodes in /dev gracefully
+  systemd-tmpfiles-setup-dev.service             loaded    active   exited  Create Static Device Nodes in /dev
+  zebvix.service                                 loaded    active   running Zebvix L1 Blockchain Node
+  zebvix2.service                                loaded    inactive dead    Zebvix L1 Blockchain Node-2
+zebvix.service
+zebvix2.service
+=== 4) tmux/screen sessions ===
+No Sockets found in /run/screen/S-root.
+
+=== 5) Launch scripts ===
+/root/virtualmin-install.sh
+=== 6) Anything referencing the binary in startup configs ===
+/etc/systemd/system/zebvix.service:ExecStart=/usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333 --no-mdns
+/etc/systemd/system/zebvix2.service:ExecStart=/usr/local/bin/zebvix-node start --home /home/zebvix-chain/.zebvix2 --rpc 127.0.0.1:8546 --p2p-port 30334 --peer /ip4/127.0.0.1/tcp/30333 --no-mdns --follower
+/root/zebvix-full-source/crates/sui-node/Cargo.toml:name = "zebvix-node"
+/root/zebvix-full-source/crates/sui-node/Cargo.toml:  name       = "zebvix-node"
+/root/zebvix-full-source/ZEBVIX_INSTALL.md:**Token:** ZBX (9 decimals) | **Binary:** `zebvix-node`  
+/root/zebvix-full-source/ZEBVIX_INSTALL.md:│   │   └── Cargo.toml         ← Binary renamed to zebvix-node
+/root/zebvix-full-source/ZEBVIX_INSTALL.md:  ~/zebvix-node
+/root/zebvix-full-source/ZEBVIX_INSTALL.md:bash ~/zebvix-chain-patches/scripts/apply_patches.sh ~/zebvix-node
+/root/zebvix-full-source/ZEBVIX_INSTALL.md:- `Cargo.toml` — zebvix-node binary
+/root/zebvix-full-source/ZEBVIX_INSTALL.md:cd ~/zebvix-node
+/root/zebvix-full-source/ZEBVIX_INSTALL.md:cargo build --release --bin zebvix-node
+/root/zebvix-full-source/ZEBVIX_INSTALL.md:ls -lh target/release/zebvix-node
+/root/zebvix-full-source/ZEBVIX_INSTALL.md:~/zebvix-node/target/release/zebvix-node \
+/root/zebvix-full-source/ZEBVIX_INSTALL.md:cd ~/zebvix-node/crates/sui-framework/packages/zebvix
+/root/zebvix-full-source/ZEBVIX_INSTALL.md:~/zebvix-node/target/release/zebvix-node \
+/root/zebvix-full-source/ZEBVIX_INSTALL.md:cat > /etc/systemd/system/zebvix-node.service << 'EOF'
+/root/zebvix-full-source/ZEBVIX_INSTALL.md:ExecStart=/root/zebvix-node/target/release/zebvix-node \
+/root/zebvix-full-source/ZEBVIX_INSTALL.md:systemctl enable zebvix-node
+/root/zebvix-full-source/ZEBVIX_INSTALL.md:systemctl start zebvix-node
+/root/zebvix-full-source/ZEBVIX_INSTALL.md:systemctl status zebvix-node
