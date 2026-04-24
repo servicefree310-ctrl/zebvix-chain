@@ -2,10 +2,14 @@ import React, { useEffect, useRef, useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { rpc, weiHexToZbx, shortAddr, weiToUsd, fmtUsd } from "@/lib/zbx-rpc";
 import {
+  loadWallets, getActiveAddress, getWallet, sendTransfer, parseNonce,
+  type StoredWallet,
+} from "@/lib/web-wallet";
+import {
   Activity, Box, Users, Zap, AlertCircle, TrendingUp, Coins,
   ArrowLeftRight, Gauge, Timer, Flame, Layers, Wifi, ShieldCheck,
   Hash, Clock, Cpu, Droplet, ArrowUpRight, ChevronDown, ChevronUp,
-  Sparkles, BarChart3, Search, Inbox,
+  Sparkles, BarChart3, Search, Inbox, Send, Check, RefreshCw,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -451,8 +455,8 @@ function OverviewTab({
         </Panel>
       </div>
 
-      {/* Recent Transactions (scans wider window) */}
-      <RecentTxsPanel tipHeight={recent[0]?.height ?? 0} />
+      {/* Quick send + Recent Transactions */}
+      <QuickSendAndRecent tipHeight={recent[0]?.height ?? 0} />
 
       {/* Supply ring */}
       {supply && <SupplyOverview supply={supply} />}
@@ -1194,7 +1198,13 @@ interface OnchainTx {
   kind: string;
 }
 
-function RecentTxsPanel({ tipHeight }: { tipHeight: number }) {
+function RecentTxsPanel({
+  tipHeight,
+  refreshKey = 0,
+}: {
+  tipHeight: number;
+  refreshKey?: number;
+}) {
   const [scanning, setScanning] = useState(false);
   const [scannedRange, setScannedRange] = useState(0);
   const [txs, setTxs] = useState<OnchainTx[]>([]);
@@ -1262,6 +1272,12 @@ function RecentTxsPanel({ tipHeight }: { tipHeight: number }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tipHeight]);
+
+  // Re-scan whenever the parent bumps refreshKey (e.g. after a Quick Send).
+  useEffect(() => {
+    if (refreshKey > 0 && tipHeight) scan(200);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey]);
 
   return (
     <div className="rounded-xl border border-border bg-card overflow-hidden">
@@ -1334,6 +1350,256 @@ function RecentTxsPanel({ tipHeight }: { tipHeight: number }) {
           </tbody>
         </table>
       )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// QuickSendAndRecent — broadcast a tx using the active web wallet, then auto
+// re-scan the recent tx list so the new tx shows up as soon as a block lands.
+// ─────────────────────────────────────────────────────────────────────────────
+function QuickSendAndRecent({ tipHeight }: { tipHeight: number }) {
+  const [refreshKey, setRefreshKey] = useState(0);
+  const handleSent = () => {
+    // Bump immediately, then again after ~7s to catch the next block.
+    setRefreshKey((k) => k + 1);
+    window.setTimeout(() => setRefreshKey((k) => k + 1), 7000);
+  };
+  return (
+    <div className="space-y-4">
+      <QuickSendPanel tipHeight={tipHeight} onSent={handleSent} />
+      <RecentTxsPanel tipHeight={tipHeight} refreshKey={refreshKey} />
+    </div>
+  );
+}
+
+function QuickSendPanel({
+  tipHeight,
+  onSent,
+}: {
+  tipHeight: number;
+  onSent: () => void;
+}) {
+  const [, setLoc] = useLocation();
+  const [wallets, setWallets] = useState<StoredWallet[]>([]);
+  const [activeAddr, setActiveAddr] = useState<string | null>(null);
+  const [balance, setBalance] = useState<string>("—");
+  const [nonce, setNonce] = useState<number | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const [to, setTo] = useState("");
+  const [amount, setAmount] = useState("");
+  const [fee, setFee] = useState("0.002");
+  const [busy, setBusy] = useState(false);
+  const [okHash, setOkHash] = useState<string | null>(null);
+  const [errMsg, setErrMsg] = useState<string | null>(null);
+
+  // Pick up wallets from localStorage on mount + whenever localStorage changes.
+  const reload = () => {
+    const ws = loadWallets();
+    setWallets(ws);
+    const a = getActiveAddress();
+    setActiveAddr(a && ws.some((w) => w.address === a) ? a : ws[0]?.address ?? null);
+  };
+  useEffect(() => {
+    reload();
+    const onStorage = (e: StorageEvent) => {
+      if (e.key && e.key.startsWith("zbx.")) reload();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
+  const refreshBalance = async (addr: string | null) => {
+    if (!addr) {
+      setBalance("—");
+      setNonce(null);
+      return;
+    }
+    setRefreshing(true);
+    try {
+      const [bal, n] = await Promise.all([
+        rpc<string>("zbx_getBalance", [addr]),
+        rpc<unknown>("zbx_getNonce", [addr]),
+      ]);
+      setBalance(weiHexToZbx(bal));
+      setNonce(parseNonce(n));
+    } catch {
+      setBalance("error");
+    } finally {
+      setRefreshing(false);
+    }
+  };
+  useEffect(() => {
+    refreshBalance(activeAddr);
+  }, [activeAddr, tipHeight]);
+
+  const validAddr = /^0x[0-9a-fA-F]{40}$/.test(to.trim());
+  const validAmt = /^\d+(\.\d+)?$/.test(amount.trim()) && parseFloat(amount) > 0;
+  const active = activeAddr ? getWallet(activeAddr) : null;
+  const canSend = !!active && validAddr && validAmt && !busy;
+
+  const submit = async () => {
+    if (!active) return;
+    setBusy(true);
+    setOkHash(null);
+    setErrMsg(null);
+    try {
+      const r = await sendTransfer({
+        privateKeyHex: active.privateKey,
+        to: to.trim(),
+        amountZbx: amount,
+        feeZbx: fee || "0.002",
+      });
+      setOkHash(r.hash);
+      setTo("");
+      setAmount("");
+      onSent();
+      setTimeout(() => refreshBalance(activeAddr), 7000);
+    } catch (e: any) {
+      setErrMsg(e?.message ?? String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // ── No wallets at all ──
+  if (wallets.length === 0) {
+    return (
+      <div className="rounded-xl border border-border bg-card p-5 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="rounded-lg bg-primary/15 p-2.5">
+            <Send className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold">Add a transaction to the chain</h3>
+            <p className="text-xs text-muted-foreground">
+              You don't have any browser wallet yet. Create or import one to broadcast a tx from here.
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={() => setLoc("/wallet")}
+          className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition flex items-center gap-1"
+          data-testid="button-goto-wallet"
+        >
+          Open wallet <ArrowUpRight className="h-3 w-3" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-gradient-to-br from-primary/5 via-card to-card overflow-hidden">
+      <div className="p-3 border-b border-border bg-muted/30 flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold flex items-center gap-2">
+          <Send className="h-4 w-4 text-primary" />
+          Quick Send — broadcast a transaction
+        </h2>
+        <button
+          onClick={() => refreshBalance(activeAddr)}
+          disabled={refreshing}
+          className="text-[11px] px-2 py-1 rounded bg-muted hover:bg-muted/70 disabled:opacity-40 flex items-center gap-1"
+          title="Refresh balance"
+        >
+          <RefreshCw className={`h-3 w-3 ${refreshing ? "animate-spin" : ""}`} /> refresh
+        </button>
+      </div>
+
+      <div className="p-4 space-y-4">
+        {/* From + balance row */}
+        <div className="grid md:grid-cols-[1fr_auto_auto] gap-3 items-end">
+          <div>
+            <label className="text-[11px] text-muted-foreground">From wallet</label>
+            <select
+              value={activeAddr ?? ""}
+              onChange={(e) => setActiveAddr(e.target.value)}
+              className="mt-1 w-full bg-card border border-border rounded-md px-2 py-1.5 text-xs font-mono"
+              data-testid="select-quick-send-from"
+            >
+              {wallets.map((w) => (
+                <option key={w.address} value={w.address}>
+                  {w.label} — {shortAddr(w.address, 8, 6)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="text-right">
+            <div className="text-[10px] text-muted-foreground">Balance</div>
+            <div className="text-sm font-bold text-primary tabular-nums">
+              {balance} <span className="text-[10px] font-normal text-muted-foreground">ZBX</span>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-[10px] text-muted-foreground">Total tx</div>
+            <div className="text-sm font-bold tabular-nums" data-testid="text-quick-send-nonce">
+              {nonce ?? "—"}
+            </div>
+          </div>
+        </div>
+
+        {/* Form row */}
+        <div className="grid md:grid-cols-[1fr_140px_120px_auto] gap-2">
+          <input
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            placeholder="Recipient 0x… (40 hex)"
+            className={`bg-card border rounded-md px-3 py-2 text-xs font-mono outline-none transition ${
+              to && !validAddr ? "border-red-500/50" : "border-border focus:border-primary"
+            }`}
+            data-testid="input-quick-send-to"
+          />
+          <input
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="amount (ZBX)"
+            type="number"
+            min="0"
+            step="0.0001"
+            className="bg-card border border-border rounded-md px-3 py-2 text-xs outline-none focus:border-primary transition"
+            data-testid="input-quick-send-amount"
+          />
+          <input
+            value={fee}
+            onChange={(e) => setFee(e.target.value)}
+            placeholder="fee"
+            type="number"
+            min="0"
+            step="0.0001"
+            className="bg-card border border-border rounded-md px-3 py-2 text-xs outline-none focus:border-primary transition"
+            data-testid="input-quick-send-fee"
+            title="Fee in ZBX"
+          />
+          <button
+            onClick={submit}
+            disabled={!canSend}
+            className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition disabled:opacity-40 flex items-center gap-1.5"
+            data-testid="button-quick-send"
+          >
+            {busy ? "Sending…" : <><Send className="h-3.5 w-3.5" /> Sign &amp; broadcast</>}
+          </button>
+        </div>
+
+        {/* Status */}
+        {okHash && (
+          <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-2.5 text-xs flex items-start gap-2">
+            <Check className="h-3.5 w-3.5 text-emerald-400 mt-0.5 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <div className="text-emerald-400 font-semibold">Submitted to mempool — refreshing block list…</div>
+              <code className="font-mono text-[10px] break-all text-muted-foreground">{okHash}</code>
+            </div>
+          </div>
+        )}
+        {errMsg && (
+          <div className="rounded-md border border-red-500/30 bg-red-500/5 p-2.5 text-xs flex items-start gap-2">
+            <AlertCircle className="h-3.5 w-3.5 text-red-400 mt-0.5 shrink-0" />
+            <span className="text-red-300">{errMsg}</span>
+          </div>
+        )}
+        {to && !validAddr && (
+          <div className="text-[10px] text-red-400">Address must be 0x + 40 hex chars.</div>
+        )}
+      </div>
     </div>
   );
 }
