@@ -11,10 +11,13 @@ pub const WEI_PER_ZBX: u128 = 1_000_000_000_000_000_000u128;
 pub const TOTAL_SUPPLY_ZBX: u128 = 150_000_000u128;
 pub const TOTAL_SUPPLY_WEI: u128 = TOTAL_SUPPLY_ZBX * WEI_PER_ZBX;
 
-/// Default founder pre-mine = 0 ZBX. Admin/founder earns ZBX **only** through
-/// block rewards (proposer reward + tx fees) and the post-loan 50% swap-fee
-/// share. No genesis allocation to the founder.
-pub const FOUNDER_PREMINE_ZBX: u128 = 0u128;
+/// Foundation pre-mine = 9.99M ZBX (6.66% of max supply). This allocation is
+/// credited to the founder/admin address at genesis via `--alloc` and is used
+/// for development, operations, marketing, community grants, and team salaries.
+/// It is publicly disclosed and counted in `circulating_wei` so on-chain supply
+/// reporting reflects the true spendable balance held by the foundation.
+/// Industry context: Ethereum ~10%, Solana ~25%, Sui ~30% — Zebvix at ~6.66%.
+pub const FOUNDER_PREMINE_ZBX: u128 = 9_990_000u128;
 pub const FOUNDER_PREMINE_WEI: u128 = FOUNDER_PREMINE_ZBX * WEI_PER_ZBX;
 
 /// Initial block reward = 3 ZBX.
