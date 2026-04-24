@@ -43,37 +43,19 @@ pub const UNBONDING_EPOCHS: u64 = 7;
 /// Maximum size of the active validator set (top-N by total stake).
 pub const MAX_ACTIVE_VALIDATORS: usize = 100;
 
-/// Fallback minimum self-bond in ZBX wei when the AMM pool is uninitialized
-/// (no spot price available). Used as the floor for tests and pre-pool bootstrap.
+/// Minimum self-bond required to register a validator (100 ZBX, fixed).
+///
+/// Earlier versions derived this dynamically from a USD target ($50) via the
+/// chain's own AMM spot price. That design was removed because the AMM pool
+/// is the chain's own oracle (reflexive), shallow at bootstrap, and trivially
+/// flash-loan-manipulable — an attacker could pump the spot price to lower
+/// the validator min in ZBX terms and spawn cheap Sybil validators.
+///
+/// We now use a fixed token amount, matching industry standard
+/// (Ethereum 32 ETH, Solana ~5,000 SOL, Sui 30M SUI, Aptos 1M APT, etc.).
+/// USD-aware logic, if ever reintroduced, must use an external TWAP oracle
+/// (Chainlink/Pyth) and remain `max(MIN_SELF_BOND_WEI, oracle_value)`.
 pub const MIN_SELF_BOND_WEI: u128 = 100u128 * 1_000_000_000_000_000_000u128;
-
-/// Target USD value of the minimum self-bond, in micro-USD ($50 = 50_000_000).
-/// Once the pool is initialized, the actual on-chain minimum is derived
-/// dynamically from this constant + the pool's current spot price.
-pub const MIN_SELF_BOND_USD_MICRO: u128 = 50_000_000;
-
-/// Compute the dynamic minimum self-bond in ZBX wei required to be worth
-/// `MIN_SELF_BOND_USD_MICRO` at the given pool's spot price.
-///
-/// Returns `MIN_SELF_BOND_WEI` (the static fallback) when the pool isn't
-/// initialized — this lets the chain bootstrap before any AMM liquidity exists.
-///
-/// `spot_price_q18` is zUSD-wei per ZBX-wei × 10^18 (matches `Pool::spot_price_zusd_per_zbx`).
-/// `MIN_SELF_BOND_USD_MICRO` is dollars × 10^6, and 1 zUSD = 10^18 wei,
-/// so the target zUSD-wei value is `usd_micro * 10^12`.
-pub fn dynamic_min_self_bond_wei(spot_price_q18: u128) -> u128 {
-    if spot_price_q18 == 0 {
-        return MIN_SELF_BOND_WEI;
-    }
-    // required_zbx_wei = target_zusd_wei * 1e18 / spot_price_q18
-    //                  = (usd_micro * 1e12) * 1e18 / spot_price_q18
-    //                  = usd_micro * 1e30 / spot_price_q18
-    use primitive_types::U256;
-    let target_zusd_wei = U256::from(MIN_SELF_BOND_USD_MICRO) * U256::from(1_000_000_000_000u128);
-    let scaled = target_zusd_wei * U256::from(1_000_000_000_000_000_000u128);
-    let result = scaled / U256::from(spot_price_q18);
-    if result.bits() > 128 { u128::MAX } else { result.as_u128() }
-}
 
 /// Minimum delegation amount (10 ZBX). Prevents share-precision dust and
 /// keeps the delegator UX honest (no tiny dust positions).

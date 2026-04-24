@@ -65,8 +65,6 @@ interface StakingResponse {
   epoch_reward_wei: string;
   unbonding_epochs: number;
   min_self_bond_wei: string;
-  min_self_bond_dynamic_wei: string;
-  min_self_bond_usd_micro: number;
   min_delegation_wei: string;
   max_commission_bps: number;
   max_commission_delta_bps: number;
@@ -479,20 +477,7 @@ export default function Validators() {
                   ? `${weiHexToZbx(staking.min_self_bond_wei)} ZBX`
                   : "—"
               }
-              hint="Validator's own ZBX collateral required to register"
-            />
-            <ParamRow
-              label="Min self-bond (USD-pegged)"
-              value={
-                staking
-                  ? `$${(staking.min_self_bond_usd_micro / 1_000_000).toFixed(2)}`
-                  : "—"
-              }
-              hint={
-                staking
-                  ? `Currently ≈ ${weiHexToZbx(staking.min_self_bond_dynamic_wei)} ZBX at spot price`
-                  : undefined
-              }
+              hint="Fixed token amount — every validator must self-bond at least this much ZBX to register. Industry-standard design (Ethereum 32 ETH, Sui 30M SUI, Aptos 1M APT) — no oracle or USD peg means no flash-loan manipulation surface."
             />
             <ParamRow
               label="Min delegation amount"
@@ -797,8 +782,8 @@ curl -s -X POST https://rpc.zebvix.io \\
               <span className="text-muted-foreground">Min self-bond</span>
               <code className="text-emerald-300 font-mono">
                 {staking
-                  ? `${weiHexToZbx(staking.min_self_bond_wei)} ZBX (or $${(staking.min_self_bond_usd_micro / 1_000_000).toFixed(0)} USD floor)`
-                  : "100 ZBX or $50 USD floor"}
+                  ? `${weiHexToZbx(staking.min_self_bond_wei)} ZBX`
+                  : "100 ZBX"}
               </code>
             </div>
             <div className="flex justify-between">

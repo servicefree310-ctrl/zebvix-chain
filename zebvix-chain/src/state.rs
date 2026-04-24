@@ -725,11 +725,12 @@ impl State {
                 // Helper: returns Ok(payout_wei_to_credit) on success.
                 let result: Result<u128> = match op {
                     StakeOp::CreateValidator { pubkey, commission_bps, self_bond } => {
-                        // Dynamic minimum self-bond: $50 worth of ZBX at the
-                        // current AMM spot price. Falls back to MIN_SELF_BOND_WEI
-                        // when the pool isn't initialized yet.
-                        let pool_price = self.pool().spot_price_zusd_per_zbx();
-                        let min_bond = crate::staking::dynamic_min_self_bond_wei(pool_price);
+                        // Fixed-token minimum self-bond. The earlier dynamic
+                        // USD-pegged design was removed (see comment on
+                        // `MIN_SELF_BOND_WEI` in staking.rs) because reading
+                        // economic security from the chain's own AMM is
+                        // reflexive and flash-loan-manipulable.
+                        let min_bond = crate::staking::MIN_SELF_BOND_WEI;
                         if from.balance < *self_bond {
                             Err(anyhow!(
                                 "create-validator: insufficient balance for self-bond {} wei",
@@ -741,7 +742,7 @@ impl State {
                                 Ok(()) => Ok(0u128),
                                 Err(e) => {
                                     from.balance = from.balance.saturating_add(*self_bond);
-                                    Err(anyhow!("create-validator: {} (min self-bond: {} wei ≈ $50)", e, min_bond))
+                                    Err(anyhow!("create-validator: {} (min self-bond: {} wei)", e, min_bond))
                                 }
                             }
                         }
