@@ -1,0 +1,113 @@
+root@srv1266996:/home/zebvix-chain# # 0) Backup old installed binary (rollback safety)
+cp -p /usr/local/bin/zebvix-node /root/zebvix-node.backup-$(date +%Y%m%d-%H%M%S)
+ls -la /root/zebvix-node.backup-*
+
+# 1) Verify naya binary mojud aur Phase D ready hai
+ls -la /home/zebvix-chain/target/release/zebvix-node
+/home/zebvix-chain/target/release/zebvix-node --help 2>&1 | grep -E 'propose|vote|proposals-list' || echo "WARN: propose/vote subcommands NOT visible — bad build"
+
+# 2) Atomic replace (running process ka inode preserve, file naam ka pointer naya inode pe)
+install -m 755 /home/zebvix-chain/target/release/zebvix-node /usr/local/bin/zebvix-node.new
+mv -f /usr/local/bin/zebvix-node.new /usr/local/bin/zebvix-node
+
+# 3) Confirm dono identical hain
+sha256sum /usr/local/bin/zebvix-node /home/zebvix-chain/target/release/zebvix-node
+ls -la /usr/local/bin/zebvix-node
+
+# 4) Restart service
+systemctl restart zebvix.service
+sleep 4
+systemctl status zebvix.service --no-pager | head -25
+
+# 5) Live logs (5 sec) for any panic on startup
+journalctl -u zebvix.service -n 40 --no-pager
+
+# 6) Sanity: chain still producing blocks
+curl -s -X POST http://127.0.0.1:8545 -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"zbx_blockNumber","params":[]}'; echo
+
+# 7) Phase D RPC live check
+echo "--- proposalsList ---"
+curl -s -X POST http://127.0.0.1:8545 -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"zbx_proposalsList","params":[]}'; echo
+
+echo "--- featureFlagsList ---"
+curl -s -X POST http://127.0.0.1:8545 -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":3,"method":"zbx_featureFlagsList","params":[]}'; echo
+
+  -d '{"jsonrpc":"2.0","id":4,"method":"zbx_proposerCheck","params":["0x0000000000000000000000000000000000000001"]}'; echo
+-rwxr-xr-x 1 root root 17146080 Apr 24 13:09 /root/zebvix-node.backup-20260424-155032
+-rwxr-xr-x 2 root root 17146080 Apr 24 15:46 /home/zebvix-chain/target/release/zebvix-node
+  multisig-propose           Propose a transfer FROM a multisig wallet. Caller must be an owner. Auto-counts as the first approval. Returns the new proposal_id
+  block-number               Show current chain tip (height, hash, timestamp, proposer). Queries the running node via RPC (`zbx_blockNumber`)
+7b55a5a57bfa601f5661d16640e15f07f2be395d6c9970690e581f029c318cbf  /usr/local/bin/zebvix-node
+7b55a5a57bfa601f5661d16640e15f07f2be395d6c9970690e581f029c318cbf  /home/zebvix-chain/target/release/zebvix-node
+-rwxr-xr-x 1 root root 17146080 Apr 24 15:50 /usr/local/bin/zebvix-node
+● zebvix.service - Zebvix L1 Blockchain Node
+     Loaded: loaded (/etc/systemd/system/zebvix.service; enabled; preset: enabled)
+     Active: active (running) since Fri 2026-04-24 15:50:32 UTC; 4s ago
+   Main PID: 4139288 (zebvix-node)
+      Tasks: 7 (limit: 9483)
+     Memory: 4.2M (peak: 6.3M)
+        CPU: 48ms
+     CGroup: /system.slice/zebvix.service
+             └─4139288 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333 --no-mdns
+
+Apr 24 15:50:32 srv1266996.hstgr.cloud zebvix-node[4139288]: 2026-04-24T15:50:32.936042Z  INFO zebvix_node: 🚀 Zebvix node starting
+Apr 24 15:50:32 srv1266996.hstgr.cloud zebvix-node[4139288]: 2026-04-24T15:50:32.936077Z  INFO zebvix_node:    chain_id  : 7878
+Apr 24 15:50:32 srv1266996.hstgr.cloud zebvix-node[4139288]: 2026-04-24T15:50:32.936082Z  INFO zebvix_node:    proposer  : 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315
+Apr 24 15:50:32 srv1266996.hstgr.cloud zebvix-node[4139288]: 2026-04-24T15:50:32.936118Z  INFO zebvix_node:    tip       : height=3907 hash=0x6cc57e804413b89a11aceb3cf8db068f649ca86c43d1a3bc6eed6a05013ed8a6
+Apr 24 15:50:32 srv1266996.hstgr.cloud zebvix-node[4139288]: 2026-04-24T15:50:32.936123Z  INFO zebvix_node:    rpc       : http://0.0.0.0:8545
+Apr 24 15:50:32 srv1266996.hstgr.cloud zebvix-node[4139288]: 2026-04-24T15:50:32.936677Z  INFO zebvix_node:    p2p       : tcp/30333  peer_id=12D3KooWJenvonCNvPtwE8WkXKgQ96DtFzoaNBJA2EkN91uigEHJ
+Apr 24 15:50:32 srv1266996.hstgr.cloud zebvix-node[4139288]: 2026-04-24T15:50:32.936694Z  INFO zebvix_node:    mdns      : DISABLED (--no-mdns)
+Apr 24 15:50:32 srv1266996.hstgr.cloud zebvix-node[4139288]: 2026-04-24T15:50:32.937114Z  INFO zebvix_node::consensus: ⛏  producer started: my_address=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315, mode=ROUND_ROBIN+TIMEOUTS (B.3.2.2) pacing=5s propose_timeout=8s tick=500ms
+Apr 24 15:50:32 srv1266996.hstgr.cloud zebvix-node[4139288]: 2026-04-24T15:50:32.938259Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWJenvonCNvPtwE8WkXKgQ96DtFzoaNBJA2EkN91uigEHJ
+Apr 24 15:50:32 srv1266996.hstgr.cloud zebvix-node[4139288]: 2026-04-24T15:50:32.938558Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/93.127.213.192/tcp/30333/p2p/12D3KooWJenvonCNvPtwE8WkXKgQ96DtFzoaNBJA2EkN91uigEHJ
+Apr 24 15:49:48 srv1266996.hstgr.cloud zebvix-node[4100962]: 2026-04-24T15:49:48.840871Z  INFO zebvix_node::state: 💰 dist-pool @h=3900 drained 300000000000000000000 wei → commission 0 wei (0 ops) | founder-liquid 0 wei | locked 0 wei
+Apr 24 15:49:48 srv1266996.hstgr.cloud zebvix-node[4100962]: 2026-04-24T15:49:48.841053Z  INFO zebvix_node::consensus: ⛏  block #3900 produced  proposer=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315  round=0  txs=0  hash=0x41c05e1b540482df496cb1f3bad7e5867b046f4a1e6377d1938edfc7e782b4b2
+Apr 24 15:49:48 srv1266996.hstgr.cloud zebvix-node[4100962]: 2026-04-24T15:49:48.954795Z  INFO zebvix_node: 🗳  emitted prevote h=3900 block=0x41c05e1b540482df496cb1f3bad7e5867b046f4a1e6377d1938edfc7e782b4b2  ✅ QUORUM
+Apr 24 15:49:48 srv1266996.hstgr.cloud zebvix-node[4100962]: 2026-04-24T15:49:48.955094Z  INFO zebvix_node: 🗳  emitted precommit h=3900 block=0x41c05e1b540482df496cb1f3bad7e5867b046f4a1e6377d1938edfc7e782b4b2  ✅ QUORUM
+Apr 24 15:49:54 srv1266996.hstgr.cloud zebvix-node[4100962]: 2026-04-24T15:49:54.340690Z  INFO zebvix_node::consensus: ⛏  block #3901 produced  proposer=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315  round=0  txs=0  hash=0xdc821d519c395b52614bb7cef161d109a9aaa7886c296edef7cd4cb3bce0bd95
+Apr 24 15:49:54 srv1266996.hstgr.cloud zebvix-node[4100962]: 2026-04-24T15:49:54.454689Z  INFO zebvix_node: 🗳  emitted prevote h=3901 block=0xdc821d519c395b52614bb7cef161d109a9aaa7886c296edef7cd4cb3bce0bd95  ✅ QUORUM
+Apr 24 15:49:54 srv1266996.hstgr.cloud zebvix-node[4100962]: 2026-04-24T15:49:54.455098Z  INFO zebvix_node: 🗳  emitted precommit h=3901 block=0xdc821d519c395b52614bb7cef161d109a9aaa7886c296edef7cd4cb3bce0bd95  ✅ QUORUM
+Apr 24 15:49:59 srv1266996.hstgr.cloud zebvix-node[4100962]: 2026-04-24T15:49:59.840980Z  INFO zebvix_node::consensus: ⛏  block #3902 produced  proposer=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315  round=0  txs=0  hash=0x1cd05593a107e89197c31f7c80b170d23083df601dff44004807d1caf275850a
+Apr 24 15:49:59 srv1266996.hstgr.cloud zebvix-node[4100962]: 2026-04-24T15:49:59.954849Z  INFO zebvix_node: 🗳  emitted prevote h=3902 block=0x1cd05593a107e89197c31f7c80b170d23083df601dff44004807d1caf275850a  ✅ QUORUM
+Apr 24 15:49:59 srv1266996.hstgr.cloud zebvix-node[4100962]: 2026-04-24T15:49:59.955201Z  INFO zebvix_node: 🗳  emitted precommit h=3902 block=0x1cd05593a107e89197c31f7c80b170d23083df601dff44004807d1caf275850a  ✅ QUORUM
+Apr 24 15:50:05 srv1266996.hstgr.cloud zebvix-node[4100962]: 2026-04-24T15:50:05.840594Z  INFO zebvix_node::consensus: ⛏  block #3903 produced  proposer=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315  round=0  txs=0  hash=0x4612fb435661de3ea06bd3d2dce95d3292fe3ef4fc70a2f8cf031e03020e463f
+Apr 24 15:50:05 srv1266996.hstgr.cloud zebvix-node[4100962]: 2026-04-24T15:50:05.954621Z  INFO zebvix_node: 🗳  emitted prevote h=3903 block=0x4612fb435661de3ea06bd3d2dce95d3292fe3ef4fc70a2f8cf031e03020e463f  ✅ QUORUM
+Apr 24 15:50:05 srv1266996.hstgr.cloud zebvix-node[4100962]: 2026-04-24T15:50:05.954983Z  INFO zebvix_node: 🗳  emitted precommit h=3903 block=0x4612fb435661de3ea06bd3d2dce95d3292fe3ef4fc70a2f8cf031e03020e463f  ✅ QUORUM
+Apr 24 15:50:11 srv1266996.hstgr.cloud zebvix-node[4100962]: 2026-04-24T15:50:11.340733Z  INFO zebvix_node::consensus: ⛏  block #3904 produced  proposer=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315  round=0  txs=0  hash=0x01969676d931d9598b9b599e07c3c6dfda0909f664fe65c26a8eb1578641c78e
+Apr 24 15:50:11 srv1266996.hstgr.cloud zebvix-node[4100962]: 2026-04-24T15:50:11.454173Z  INFO zebvix_node: 🗳  emitted prevote h=3904 block=0x01969676d931d9598b9b599e07c3c6dfda0909f664fe65c26a8eb1578641c78e  ✅ QUORUM
+Apr 24 15:50:11 srv1266996.hstgr.cloud zebvix-node[4100962]: 2026-04-24T15:50:11.454422Z  INFO zebvix_node: 🗳  emitted precommit h=3904 block=0x01969676d931d9598b9b599e07c3c6dfda0909f664fe65c26a8eb1578641c78e  ✅ QUORUM
+Apr 24 15:50:16 srv1266996.hstgr.cloud zebvix-node[4100962]: 2026-04-24T15:50:16.841170Z  INFO zebvix_node::consensus: ⛏  block #3905 produced  proposer=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315  round=0  txs=0  hash=0x18fd1396b020c0214b88da10a1d8b41e5d5d86c8c7477cb839c7151a9d7240c5
+Apr 24 15:50:16 srv1266996.hstgr.cloud zebvix-node[4100962]: 2026-04-24T15:50:16.955303Z  INFO zebvix_node: 🗳  emitted prevote h=3905 block=0x18fd1396b020c0214b88da10a1d8b41e5d5d86c8c7477cb839c7151a9d7240c5  ✅ QUORUM
+Apr 24 15:50:16 srv1266996.hstgr.cloud zebvix-node[4100962]: 2026-04-24T15:50:16.955813Z  INFO zebvix_node: 🗳  emitted precommit h=3905 block=0x18fd1396b020c0214b88da10a1d8b41e5d5d86c8c7477cb839c7151a9d7240c5  ✅ QUORUM
+Apr 24 15:50:22 srv1266996.hstgr.cloud zebvix-node[4100962]: 2026-04-24T15:50:22.341072Z  INFO zebvix_node::consensus: ⛏  block #3906 produced  proposer=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315  round=0  txs=0  hash=0x300e07f05b0dacff06586525fd3c8389671be21a3e3f35bb5e0a74b098b6a1c7
+Apr 24 15:50:22 srv1266996.hstgr.cloud zebvix-node[4100962]: 2026-04-24T15:50:22.454864Z  INFO zebvix_node: 🗳  emitted prevote h=3906 block=0x300e07f05b0dacff06586525fd3c8389671be21a3e3f35bb5e0a74b098b6a1c7  ✅ QUORUM
+Apr 24 15:50:22 srv1266996.hstgr.cloud zebvix-node[4100962]: 2026-04-24T15:50:22.455203Z  INFO zebvix_node: 🗳  emitted precommit h=3906 block=0x300e07f05b0dacff06586525fd3c8389671be21a3e3f35bb5e0a74b098b6a1c7  ✅ QUORUM
+Apr 24 15:50:27 srv1266996.hstgr.cloud zebvix-node[4100962]: 2026-04-24T15:50:27.840912Z  INFO zebvix_node::consensus: ⛏  block #3907 produced  proposer=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315  round=0  txs=0  hash=0x6cc57e804413b89a11aceb3cf8db068f649ca86c43d1a3bc6eed6a05013ed8a6
+Apr 24 15:50:27 srv1266996.hstgr.cloud zebvix-node[4100962]: 2026-04-24T15:50:27.954703Z  INFO zebvix_node: 🗳  emitted prevote h=3907 block=0x6cc57e804413b89a11aceb3cf8db068f649ca86c43d1a3bc6eed6a05013ed8a6  ✅ QUORUM
+Apr 24 15:50:27 srv1266996.hstgr.cloud zebvix-node[4100962]: 2026-04-24T15:50:27.955075Z  INFO zebvix_node: 🗳  emitted precommit h=3907 block=0x6cc57e804413b89a11aceb3cf8db068f649ca86c43d1a3bc6eed6a05013ed8a6  ✅ QUORUM
+Apr 24 15:50:32 srv1266996.hstgr.cloud systemd[1]: Stopping zebvix.service - Zebvix L1 Blockchain Node...
+Apr 24 15:50:32 srv1266996.hstgr.cloud systemd[1]: zebvix.service: Deactivated successfully.
+Apr 24 15:50:32 srv1266996.hstgr.cloud systemd[1]: Stopped zebvix.service - Zebvix L1 Blockchain Node.
+Apr 24 15:50:32 srv1266996.hstgr.cloud systemd[1]: zebvix.service: Consumed 14.370s CPU time, 5.9M memory peak, 0B memory swap peak.
+Apr 24 15:50:32 srv1266996.hstgr.cloud systemd[1]: Started zebvix.service - Zebvix L1 Blockchain Node.
+Apr 24 15:50:32 srv1266996.hstgr.cloud zebvix-node[4139288]: 2026-04-24T15:50:32.936042Z  INFO zebvix_node: 🚀 Zebvix node starting
+Apr 24 15:50:32 srv1266996.hstgr.cloud zebvix-node[4139288]: 2026-04-24T15:50:32.936077Z  INFO zebvix_node:    chain_id  : 7878
+Apr 24 15:50:32 srv1266996.hstgr.cloud zebvix-node[4139288]: 2026-04-24T15:50:32.936082Z  INFO zebvix_node:    proposer  : 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315
+Apr 24 15:50:32 srv1266996.hstgr.cloud zebvix-node[4139288]: 2026-04-24T15:50:32.936118Z  INFO zebvix_node:    tip       : height=3907 hash=0x6cc57e804413b89a11aceb3cf8db068f649ca86c43d1a3bc6eed6a05013ed8a6
+Apr 24 15:50:32 srv1266996.hstgr.cloud zebvix-node[4139288]: 2026-04-24T15:50:32.936123Z  INFO zebvix_node:    rpc       : http://0.0.0.0:8545
+Apr 24 15:50:32 srv1266996.hstgr.cloud zebvix-node[4139288]: 2026-04-24T15:50:32.936677Z  INFO zebvix_node:    p2p       : tcp/30333  peer_id=12D3KooWJenvonCNvPtwE8WkXKgQ96DtFzoaNBJA2EkN91uigEHJ
+Apr 24 15:50:32 srv1266996.hstgr.cloud zebvix-node[4139288]: 2026-04-24T15:50:32.936694Z  INFO zebvix_node:    mdns      : DISABLED (--no-mdns)
+Apr 24 15:50:32 srv1266996.hstgr.cloud zebvix-node[4139288]: 2026-04-24T15:50:32.937114Z  INFO zebvix_node::consensus: ⛏  producer started: my_address=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315, mode=ROUND_ROBIN+TIMEOUTS (B.3.2.2) pacing=5s propose_timeout=8s tick=500ms
+Apr 24 15:50:32 srv1266996.hstgr.cloud zebvix-node[4139288]: 2026-04-24T15:50:32.938259Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWJenvonCNvPtwE8WkXKgQ96DtFzoaNBJA2EkN91uigEHJ
+Apr 24 15:50:32 srv1266996.hstgr.cloud zebvix-node[4139288]: 2026-04-24T15:50:32.938558Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/93.127.213.192/tcp/30333/p2p/12D3KooWJenvonCNvPtwE8WkXKgQ96DtFzoaNBJA2EkN91uigEHJ
+{"jsonrpc":"2.0","id":1,"result":{"hash":"0x6cc57e804413b89a11aceb3cf8db068f649ca86c43d1a3bc6eed6a05013ed8a6","height":3907,"hex":"0xf43","proposer":"0x40907000ac0a1a73e4cd89889b4d7ee8980c0315","timestamp_ms":1777045827840}}
+--- proposalsList ---
+{"jsonrpc":"2.0","id":2,"error":{"code":-32601,"message":"method not found: zbx_proposalsList"}}
+--- featureFlagsList ---
+{"jsonrpc":"2.0","id":3,"error":{"code":-32601,"message":"method not found: zbx_featureFlagsList"}}
+--- proposerCheck (any random addr) ---
+{"jsonrpc":"2.0","id":4,"error":{"code":-32601,"message":"method not found: zbx_proposerCheck"}}
+root@srv1266996:/home/zebvix-chain# 

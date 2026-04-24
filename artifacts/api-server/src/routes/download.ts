@@ -25,8 +25,15 @@ const FILES: Record<string, { file: string; name: string; mime: string }> = {
 // state.rs / tokenomics.rs AND the latest deploy/admin scripts in one shot.
 //
 // Tarball layout (after `tar -xzf`):
-//   ./zebvix-chain/...        (full Rust source, no target/, no .git)
-//   ./scripts/*.sh            (deploy + post-merge + helper scripts)
+//   ./src/...           (full Rust source, no target/, no .git)
+//   ./Cargo.toml
+//   ./scripts/*.sh      (optional — only if a top-level scripts/ exists)
+//
+// IMPORTANT: paths inside the tarball are RELATIVE to /home/zebvix-chain
+// itself (i.e. `src/...`, NOT `zebvix-chain/src/...`). This matches the
+// canonical VPS layout where the source root is `/home/zebvix-chain`, so a
+// plain `cd /home/zebvix-chain && tar -xzf newchain.tgz` extracts in-place
+// without nesting and without needing `--strip-components`.
 function streamFreshTar(_req: any, res: any) {
   const chainDir = path.join(WORKSPACE, "zebvix-chain");
   if (!fs.existsSync(chainDir)) {
@@ -40,16 +47,22 @@ function streamFreshTar(_req: any, res: any) {
   );
   res.setHeader("Cache-Control", "no-store");
 
-  const args = [
+  // Single tar invocation with `--transform` to strip the leading
+  // `zebvix-chain/` prefix from chain entries while keeping `scripts/`
+  // entries unchanged. This produces ONE valid tar.gz stream (no
+  // multi-archive end-of-archive issues) that extracts in-place at
+  // /home/zebvix-chain.
+  const args: string[] = [
     "-czf", "-",
     "-C", WORKSPACE,
     "--exclude=zebvix-chain/target",
     "--exclude=zebvix-chain/.git",
     "--exclude=zebvix-chain/Cargo.lock",
     "--exclude=scripts/node_modules",
+    "--transform=s|^zebvix-chain/||",
+    "--transform=s|^zebvix-chain$|.|",
     "zebvix-chain",
   ];
-  // Only add scripts/ if it exists (avoids tar errors on minimal checkouts).
   if (fs.existsSync(path.join(WORKSPACE, "scripts"))) {
     args.push("scripts");
   }
