@@ -1,0 +1,96 @@
+root@srv1266996:/home/zebvix-chain# cd /home/zebvix-chain
+
+# 1. Stop running node
+pkill -f zebvix-node 2>/dev/null
+sleep 3
+ss -tlnp | grep :8545 || echo "port 8545 free"
+
+# 2. Re-init using founder.key as validator (so block signer == genesis validator == admin)
+rm -rf ~/.zebvix/data ~/.zebvix/genesis.json
+./target/release/zebvix-node init \
+  --home ~/.zebvix \
+  --validator-key ~/.zebvix/founder.key
+
+# Yeh init ab dikhana chahiye:
+#   ✅ Local validator IS the founder — full pre-mine + block production enabled
+#   chain_id : 7878
+#   validator address : 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315
+#   founder pre-mine  : 10,000,000 ZBX
+
+# 3. Start node with founder identity
+nohup ./target/release/zebvix-node start \
+  --home ~/.zebvix \
+  --rpc 0.0.0.0:8545 \
+  --p2p-port 30333 \
+  > /var/log/zebvix-node-1.log 2>&1 &
+sleep 6
+tail -20 /var/log/zebvix-node-1.log
+
+# 4. Confirm chain advancing (tip badhna chahiye)
+./target/release/zbx tip
+sleep 6
+./target/release/zbx tip   # height +1 hona chahiye
+sleep 6
+./target/release/zbx tip   # height +2
+
+# 5. Confirm founder pre-mine
+./target/release/zebvix-node bridge-stats    --rpc-url http://127.0.0.1:8545
+[1]+  Terminated              nohup ./target/release/zebvix-node start --home ~/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333 > /var/log/zebvix-node-1.log 2>&1
+port 8545 free
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+ℹ️  No founder pre-mine — admin earns ZBX only via block rewards & swap fees.
+ℹ️  Genesis validator (founder, deterministic): 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315 (power=1)
+✅ Initialized Zebvix chain at /root/.zebvix
+   chain_id          : 7878
+   validator address : 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315
+   genesis           : /root/.zebvix/genesis.json
+   data dir          : /root/.zebvix/data
+[1] 4043837
+nohup: ignoring input
+2026-04-24T09:27:30.410370Z  INFO zebvix_node: 🚀 Zebvix node starting
+2026-04-24T09:27:30.410396Z  INFO zebvix_node:    chain_id  : 7878
+2026-04-24T09:27:30.410399Z  INFO zebvix_node:    proposer  : 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315
+2026-04-24T09:27:30.410425Z  INFO zebvix_node:    tip       : height=0 hash=0x0000000000000000000000000000000000000000000000000000000000000000
+2026-04-24T09:27:30.410429Z  INFO zebvix_node:    rpc       : http://0.0.0.0:8545
+2026-04-24T09:27:30.410911Z  INFO zebvix_node:    p2p       : tcp/30333  peer_id=12D3KooWH1e6qaYW93QfR1jac7jYjLXYcvm3fFJdq7vFWCGVqiaE
+2026-04-24T09:27:30.411125Z  INFO zebvix_node::consensus: ⛏  producer started: my_address=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315, mode=ROUND_ROBIN+TIMEOUTS (B.3.2.2) pacing=5s propose_timeout=8s tick=500ms
+2026-04-24T09:27:30.411339Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWH1e6qaYW93QfR1jac7jYjLXYcvm3fFJdq7vFWCGVqiaE
+2026-04-24T09:27:30.411354Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/93.127.213.192/tcp/30333/p2p/12D3KooWH1e6qaYW93QfR1jac7jYjLXYcvm3fFJdq7vFWCGVqiaE
+2026-04-24T09:27:35.412640Z  INFO zebvix_node::consensus: ⛏  block #1 produced  proposer=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315  round=0  txs=0  hash=0x51ca9c428e94b4f466c3f5e49a6f5dc7cbd28ef3b40ae2f4e37499a01fb9f1d7
+2026-04-24T09:27:35.912229Z  INFO zebvix_node: 🗳  emitted prevote h=1 block=0x51ca9c428e94b4f466c3f5e49a6f5dc7cbd28ef3b40ae2f4e37499a01fb9f1d7  ✅ QUORUM
+2026-04-24T09:27:35.912709Z  INFO zebvix_node: 🗳  emitted precommit h=1 block=0x51ca9c428e94b4f466c3f5e49a6f5dc7cbd28ef3b40ae2f4e37499a01fb9f1d7  ✅ QUORUM
+  Tip height : 1
+  Tip hash   : ?
+  Tip height : 2
+  Tip hash   : ?
+  Tip height : 3
+  Tip hash   : ?
+  Address : 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315
+  ZBX     : 0 ZBX
+  zUSD    : 0 zUSD
+  Wei     : 0
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+🌉 Bridge register-network
+   id      : 56
+   name    : BNB Chain
+   kind    : Evm
+   admin   : 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315
+{
+  "id": 1,
+  "jsonrpc": "2.0",
+  "result": "0x86fa5d54de267bbfe8150d52e58a569d0aa00e1d3f36beb34490322c0a624e59"
+}
