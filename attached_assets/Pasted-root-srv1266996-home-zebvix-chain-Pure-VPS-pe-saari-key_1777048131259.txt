@@ -1,0 +1,57 @@
+root@srv1266996:/home/zebvix-chain# # Pure VPS pe saari .key files dhundo (read-only scan)
+sudo find / -type f -name '*.key' 2>/dev/null | grep -v -E 'ssh|ssl|cert|pki|/proc/|/sys/|node_modules' | head -20
+
+# Common spots
+ls -la /root/                    2>/dev/null | grep -i key
+ls -la /root/.zebvix/            2>/dev/null
+ls -la /home/zebvix-chain/       2>/dev/null | grep -iE 'key|wallet'
+ls -la /home/ubuntu/             2>/dev/null | grep -iE 'key|wallet'
+
+# Bash history se yaad karo — pichhle phases mein --signer-key ka path
+history | grep -E 'signer-key|--validator-key' | tail -20
+grep -hE 'signer-key|validator-key' /root/.bash_history /home/ubuntu/.bash_history 2>/dev/null | tail -10
+/var/cache/bind/srv1266996_hstgr_cloud.key
+/home/zebvix-chain.bak-prebll-1777010304/.zebvix2/validator.key
+/home/zebvix-chain.bak-prebll-1777010304/validator.key
+/home/zebvix-chain.bak-prebll-1777010304/alice.key
+/home/zebvix-chain.bak-prebll-1777010304/.zebvix2.backup-20260423-033910/validator.key
+/home/zebvix-chain.backup-20260423-032011/.zebvix2/validator.key
+/home/zebvix-chain.backup-20260423-032011/validator.key
+/home/zebvix-chain.backup-20260423-032011/alice.key
+/home/zebvix-chain.backup-20260423-032316/.zebvix2/validator.key
+/home/zebvix-chain.backup-20260423-032316/validator.key
+/home/zebvix-chain.backup-20260423-032316/alice.key
+/home/zebvix-chain.backup-20260423-032750/.zebvix2/validator.key
+/home/zebvix-chain.backup-20260423-032750/validator.key
+/home/zebvix-chain.backup-20260423-032750/alice.key
+/usr/share/dns/root.key
+/tmp/my-zbx-wallet.key
+/tmp/del.key
+/run/named/session.key
+/root/.zebvix.backup-20260423-033910/validator.key
+/root/.zebvix/owner3.key
+drwxr-xr-x  2 root   root       4096 Apr 24 06:49 zebvix-keys
+total 44
+drwxr-xr-x  3 root root 4096 Apr 24 09:29 .
+drwx------ 28 root root 4096 Apr 24 16:19 ..
+drwxr-xr-x  2 root root 4096 Apr 24 16:19 data
+-rw-r--r--  1 root root  231 Apr 24 09:25 founder.key
+-rw-r--r--  1 root root  379 Apr 24 09:29 genesis.json
+-rw-r--r--  1 root root   55 Apr 24 09:29 node.json
+-rw-r--r--  1 root root   57 Apr 24 09:21 node.json.bak
+-rw-r--r--  1 root root  229 Apr 23 18:12 owner2.key
+-rw-r--r--  1 root root  229 Apr 23 18:12 owner3.key
+-rw-r--r--  1 root root  229 Apr 23 03:52 validator.key
+-rw-r--r--  1 root root  229 Apr 24 09:21 validator.key.bak
+ 1305  sui genesis-ceremony --path . add-validator   --name "ZebvixOne"   --validator-key-file validator1/protocol.key   --worker-key-file     validator1/worker.key   --account-key-file    validator1/account.key   --network-key-file    validator1/network.key   --network-address         "/ip6/2a02:4780:c:beaf::1/tcp/8080/http"   --p2p-address             "/ip6/2a02:4780:c:beaf::1/udp/8084"   --narwhal-primary-address "/ip6/2a02:4780:c:beaf::1/udp/8081"   --narwhal-worker-address  "/ip6/2a02:4780:c:beaf::1/udp/8082"   --description "Zebvix founder validator"   --image-url   "https://zebvix.io/logo.png"   --project-url "https://zebvix.io" 2>&1
+ 1446  sui genesis-ceremony --path . add-validator   --name "ZebvixOne"   --validator-key-file validator1/protocol.key   --worker-key-file     validator1/worker.key   --account-key-file    validator1/account.key   --network-key-file    validator1/network.key   --network-address         "/ip6/2a02:4780:c:beaf::1/tcp/8080/http"   --p2p-address             "/ip6/2a02:4780:c:beaf::1/udp/8084"   --narwhal-primary-address "/ip6/2a02:4780:c:beaf::1/udp/8081"   --narwhal-worker-address  "/ip6/2a02:4780:c:beaf::1/udp/8082"   --description "Zebvix founder validator"   --image-url   "https://zebvix.io/logo.png"   --project-url "https://zebvix.io"   2>&1
+ 1648  zebvix-node propose   --signer-key $FOUNDER_KEY   --kind feature_flag   --key zswap_v2_enabled   --enabled true   --title "Enable zSwap v2 constant-product curves"   --description "Migrates the AMM from the current invariant to the audited v2 constant-product curve. Shadow-execution will validate quote math against existing reserves for 14 days before live activation."   --rpc-url http://127.0.0.1:8545
+ 1650  # zebvix-node propose --signer-key $FOUNDER_KEY --kind param_change \
+ 1655  # zebvix-node propose --signer-key $FOUNDER_KEY --kind contract_whitelist \
+ 1659  # zebvix-node propose --signer-key $FOUNDER_KEY --kind text_only \
+ 1662  zebvix-node propose   --signer-key $FOUNDER_KEY   --kind feature_flag   --key zswap_v2_enabled   --title "Enable zSwap v2 constant-product curves"   --description "Migrates the AMM from the current invariant to the audited v2 constant-product curve. Shadow-execution will validate quote math against existing reserves for 14 days before live activation."   --rpc-url http://127.0.0.1:8545
+ 1670  # Bash history se yaad karo — pichhle phases mein --signer-key ka path
+ 1671  history | grep -E 'signer-key|--validator-key' | tail -20
+sui genesis-ceremony --path . add-validator   --name "ZebvixOne"   --validator-key-file validator1/protocol.key   --worker-key-file     validator1/worker.key   --account-key-file    validator1/account.key   --network-key-file    validator1/network.key   --network-address         "/ip6/2a02:4780:c:beaf::1/tcp/8080/http"   --p2p-address             "/ip6/2a02:4780:c:beaf::1/udp/8084"   --narwhal-primary-address "/ip6/2a02:4780:c:beaf::1/udp/8081"   --narwhal-worker-address  "/ip6/2a02:4780:c:beaf::1/udp/8082"   --description "Zebvix founder validator"   --image-url   "https://zebvix.io/logo.png"   --project-url "https://zebvix.io" 2>&1
+sui genesis-ceremony --path . add-validator   --name "ZebvixOne"   --validator-key-file validator1/protocol.key   --worker-key-file     validator1/worker.key   --account-key-file    validator1/account.key   --network-key-file    validator1/network.key   --network-address         "/ip6/2a02:4780:c:beaf::1/tcp/8080/http"   --p2p-address             "/ip6/2a02:4780:c:beaf::1/udp/8084"   --narwhal-primary-address "/ip6/2a02:4780:c:beaf::1/udp/8081"   --narwhal-worker-address  "/ip6/2a02:4780:c:beaf::1/udp/8082"   --description "Zebvix founder validator"   --image-url   "https://zebvix.io/logo.png"   --project-url "https://zebvix.io"   2>&1
+root@srv1266996:/home/zebvix-chain# 
