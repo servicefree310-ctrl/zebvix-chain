@@ -1,0 +1,52 @@
+# ─────────────────────────────────────────────────────────────
+# Phase B.12 — Bridge module deploy on srv1266996
+# Run as user that has ~/zebvix-chain (jaha B.11 deploy hua tha)
+# ─────────────────────────────────────────────────────────────
+
+cd ~
+
+# 1. Backup B.11 source + fetch new B.12 tarball
+mv zebvix-chain zebvix-chain-b11.bak
+curl -sL "https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/api/download/newchain" -o newchain.tgz
+ls -la newchain.tgz                          # ~114 KB hona chahiye
+tar xzf newchain.tgz
+cd zebvix-chain
+
+# 2. Build (release optimized, libclang/rocksdb already setup from B.11)
+cargo build --release 2>&1 | tail -40
+
+# 3. Re-genesis (TxKind::Bridge variant added → consensus-breaking)
+sudo systemctl stop zebvix-node-1
+rm -rf ~/.zebvix/data ~/.zebvix/genesis.json
+./target/release/zebvix-node init --chain-id 7878 \
+  --founder-secret 0xa8674e60d95ec1fa2b37f264b01b8407d2fbb0789bd836382472d181973ebbf8
+sudo systemctl start zebvix-node-1
+sleep 5
+sudo systemctl status zebvix-node-1 --no-pager | head -15
+
+# 4. Verify chain back online
+curl -s -X POST -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"zbx_chainInfo","params":[]}' \
+  http://127.0.0.1:8545 | head -3
+
+# 5. Smoke test — bridge stats (empty registry expected)
+./target/release/zbx bridge-stats --rpc-url http://127.0.0.1:8545
+
+# 6. Register BNB Chain (network_id=56 — matches BSC's real chain_id)
+./target/release/zbx bridge-register-network \
+  --signer-key ~/.zebvix/founder.key \
+  --id 56 --name "BNB Chain" --kind evm \
+  --rpc-url http://127.0.0.1:8545 --fee auto
+
+# 7. Register ZBX↔BEP20-ZBX asset on that network
+./target/release/zbx bridge-register-asset \
+  --signer-key ~/.zebvix/founder.key \
+  --network-id 56 --native zbx \
+  --contract 0x0000000000000000000000000000000000000000 \
+  --decimals 18 \
+  --rpc-url http://127.0.0.1:8545 --fee auto
+
+# 8. List networks + assets to confirm registration
+./target/release/zbx bridge-networks --rpc-url http://127.0.0.1:8545
+./target/release/zbx bridge-assets   --rpc-url http://127.0.0.1:8545
+./target/release/zbx bridge-stats    --rpc-url http://127.0.0.1:8545
