@@ -1,0 +1,131 @@
+# 5. Bridge smoke tests (USE zebvix-node binary, NOT zbx)
+echo "=== bridge-stats (empty) ==="
+./target/release/zebvix-node bridge-stats --rpc-url http://127.0.0.1:8545
+
+./target/release/zebvix-node bridge-stats    --rpc-url http://127.0.0.1:8545
+port 8545 free
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+ℹ️  No founder pre-mine — admin earns ZBX only via block rewards & swap fees.
+ℹ️  Genesis validator (founder, deterministic): 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315 (power=1)
+ℹ️  Local validator key 0x92817ab4155b35e45337911111480cb5d725e1e6 is NOT the founder — it must be added post-genesis via `validator-add` tx (admin-signed).
+✅ Initialized Zebvix chain at /root/.zebvix
+   chain_id          : 7878
+   validator address : 0x92817ab4155b35e45337911111480cb5d725e1e6
+   genesis           : /root/.zebvix/genesis.json
+   data dir          : /root/.zebvix/data
+[1] 4042317
+nohup: ignoring input
+2026-04-24T09:21:22.730728Z  INFO zebvix_node: 🚀 Zebvix node starting
+2026-04-24T09:21:22.730754Z  INFO zebvix_node:    chain_id  : 7878
+2026-04-24T09:21:22.730758Z  INFO zebvix_node:    proposer  : 0x92817ab4155b35e45337911111480cb5d725e1e6
+2026-04-24T09:21:22.730791Z  INFO zebvix_node:    tip       : height=0 hash=0x0000000000000000000000000000000000000000000000000000000000000000
+2026-04-24T09:21:22.730796Z  INFO zebvix_node:    rpc       : http://0.0.0.0:8545
+2026-04-24T09:21:22.731339Z  INFO zebvix_node:    p2p       : tcp/30333  peer_id=12D3KooWHgZbo2uC38ouj8hKL5xtpjcxeZdjTWSqUy1mi3aAHpeR
+2026-04-24T09:21:22.731585Z  INFO zebvix_node::consensus: ⛏  producer started: my_address=0x92817ab4155b35e45337911111480cb5d725e1e6, mode=ROUND_ROBIN+TIMEOUTS (B.3.2.2) pacing=5s propose_timeout=8s tick=500ms
+2026-04-24T09:21:22.732335Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWHgZbo2uC38ouj8hKL5xtpjcxeZdjTWSqUy1mi3aAHpeR
+2026-04-24T09:21:22.732356Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/93.127.213.192/tcp/30333/p2p/12D3KooWHgZbo2uC38ouj8hKL5xtpjcxeZdjTWSqUy1mi3aAHpeR
+{"jsonrpc":"2.0","id":1,"result":{"block_time_secs":5,"chain_id":7878,"decimals":18,"name":"Zebvix","token":"ZBX"}}
+=== bridge-stats (empty) ===
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+🌉 Bridge stats
+   networks      : 0 (active 0)
+   assets        : 0 (active 0)
+   locked ZBX    : 0 wei
+   locked zUSD   : 0
+   out events    : 0
+   claims used   : 0
+   lock address  : 0x7a62726467000000000000000000000000000000
+=== register BNB Chain ===
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+🌉 Bridge register-network
+   id      : 56
+   name    : BNB Chain
+   kind    : Evm
+   admin   : 0x92817ab4155b35e45337911111480cb5d725e1e6
+{
+  "error": {
+    "code": -32000,
+    "message": "fee too low: 42000000000000 wei < min 1050000000000000 wei (0.001 ZBX)"
+  },
+  "id": 1,
+  "jsonrpc": "2.0"
+}
+=== register ZBX↔BEP20 asset ===
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+🌉 Bridge register-asset
+   network_id : 56
+   native     : ZBX
+   contract   : 0x0000000000000000000000000000000000000000
+   decimals   : 18
+{
+  "error": {
+    "code": -32000,
+    "message": "fee too low: 42000000000000 wei < min 1050000000000000 wei (0.001 ZBX)"
+  },
+  "id": 1,
+  "jsonrpc": "2.0"
+}
+=== final state ===
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+🌉 Bridge networks  (count=0)
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+🌉 Bridge assets  (count=0)
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+🌉 Bridge stats
+   networks      : 0 (active 0)
+   assets        : 0 (active 0)
+   locked ZBX    : 0 wei
+   locked zUSD   : 0
+   out events    : 0
+   claims used   : 0
+   lock address  : 0x7a62726467000000000000000000000000000000
+root@srv1266996:/home/zebvix-chain# 
