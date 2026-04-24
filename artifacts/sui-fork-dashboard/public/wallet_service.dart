@@ -13,24 +13,57 @@ import 'package:pointycastle/signers/ecdsa_signer.dart';
 import 'package:pointycastle/macs/hmac.dart';
 import 'package:pointycastle/digests/sha256.dart';
 
+/// In-memory representation (with secrets) of a single wallet.
 class ZebvixWallet {
-  final String mnemonic;
+  final String name;
+  final String mnemonic; // empty if imported via private key
   final Uint8List privateKey;
   final Uint8List publicKey;
   final String address;
+  final String source; // 'mnemonic' | 'privkey'
 
   ZebvixWallet({
+    required this.name,
     required this.mnemonic,
     required this.privateKey,
     required this.publicKey,
     required this.address,
+    required this.source,
   });
+
+  String get privateKeyHex => hex.encode(privateKey);
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'address': address,
+        'mnemonic': mnemonic,
+        'privKey': hex.encode(privateKey),
+        'source': source,
+      };
+
+  static ZebvixWallet fromJson(Map<String, dynamic> j) {
+    final priv = Uint8List.fromList(hex.decode(j['privKey'] as String));
+    final pub = WalletService._derivePublic(priv);
+    return ZebvixWallet(
+      name: (j['name'] as String?) ?? 'Wallet',
+      mnemonic: (j['mnemonic'] as String?) ?? '',
+      privateKey: priv,
+      publicKey: pub,
+      address: j['address'] as String,
+      source: (j['source'] as String?) ?? 'mnemonic',
+    );
+  }
 }
 
 class WalletService {
-  static const _kMnemonic = 'zbx.mnemonic';
-  static const _kPrivKey = 'zbx.privkey';
-  static const _kAddress = 'zbx.address';
+  // v2 multi-wallet keys
+  static const _kWallets = 'zbx.wallets.v2';
+  static const _kActive = 'zbx.active';
+
+  // legacy v1 single-wallet keys (for migration)
+  static const _kLegacyMnemonic = 'zbx.mnemonic';
+  static const _kLegacyPrivKey = 'zbx.privkey';
+  static const _kLegacyAddress = 'zbx.address';
 
   final _secure = const FlutterSecureStorage();
   static final _curve = ECCurve_secp256k1();
@@ -41,9 +74,8 @@ class WalletService {
 
   bool isValidMnemonic(String m) => bip39.validateMnemonic(m.trim());
 
-  ZebvixWallet fromMnemonic(String mnemonic) {
+  ZebvixWallet fromMnemonic(String mnemonic, {String name = 'Wallet'}) {
     final seed = bip39.mnemonicToSeed(mnemonic.trim());
-    // simple deterministic priv key: HMAC-SHA512("zbx-seed", seed) → first 32 bytes
     final h = HMac(SHA256Digest(), 64)..init(KeyParameter(_utf8('zbx-seed')));
     final priv = Uint8List(32);
     h.update(seed, 0, seed.length);
@@ -52,46 +84,172 @@ class WalletService {
     final pub = _derivePublic(priv);
     final addr = _addressFromPublic(pub);
     return ZebvixWallet(
-      mnemonic: mnemonic,
+      name: name,
+      mnemonic: mnemonic.trim(),
       privateKey: priv,
       publicKey: pub,
       address: addr,
+      source: 'mnemonic',
     );
   }
 
-  ZebvixWallet generate() => fromMnemonic(generateMnemonic());
-
-  // ── Persistence ─────────────────────────────────────────────────────────
-  Future<void> save(ZebvixWallet w) async {
-    await _secure.write(key: _kMnemonic, value: w.mnemonic);
-    await _secure.write(key: _kPrivKey, value: hex.encode(w.privateKey));
-    await _secure.write(key: _kAddress, value: w.address);
+  ZebvixWallet fromPrivateKeyHex(String pkHex, {String name = 'Wallet'}) {
+    var clean = pkHex.trim();
+    if (clean.startsWith('0x') || clean.startsWith('0X')) {
+      clean = clean.substring(2);
+    }
+    if (clean.length != 64) {
+      throw Exception('private key must be 32 bytes (64 hex chars)');
+    }
+    if (!RegExp(r'^[0-9a-fA-F]+$').hasMatch(clean)) {
+      throw Exception('private key must be valid hex');
+    }
+    final priv = Uint8List.fromList(hex.decode(clean));
+    // sanity range check 1 <= d < n
+    final d = _bigIntFromBytes(priv);
+    if (d <= BigInt.zero || d >= _curve.n) {
+      throw Exception('private key out of curve range');
+    }
+    final pub = _derivePublic(priv);
+    final addr = _addressFromPublic(pub);
+    return ZebvixWallet(
+      name: name,
+      mnemonic: '',
+      privateKey: priv,
+      publicKey: pub,
+      address: addr,
+      source: 'privkey',
+    );
   }
 
+  ZebvixWallet generate({String name = 'Wallet'}) =>
+      fromMnemonic(generateMnemonic(), name: name);
+
+  // ── Persistence (multi-wallet) ──────────────────────────────────────────
+  Future<List<ZebvixWallet>> loadAll() async {
+    // migrate legacy if needed
+    await _migrateLegacy();
+    final raw = await _secure.read(key: _kWallets);
+    if (raw == null || raw.isEmpty) return [];
+    final List arr = jsonDecode(raw) as List;
+    return arr
+        .map((e) => ZebvixWallet.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<String?> activeAddress() async => _secure.read(key: _kActive);
+
+  Future<void> setActive(String address) async {
+    await _secure.write(key: _kActive, value: address.toLowerCase());
+  }
+
+  Future<void> _persist(List<ZebvixWallet> ws) async {
+    final arr = ws.map((w) => w.toJson()).toList();
+    await _secure.write(key: _kWallets, value: jsonEncode(arr));
+  }
+
+  /// Add a wallet and make it active. Throws if address already exists.
+  Future<List<ZebvixWallet>> addWallet(ZebvixWallet w) async {
+    final all = await loadAll();
+    if (all.any((x) => x.address.toLowerCase() == w.address.toLowerCase())) {
+      throw Exception('wallet with this address already exists');
+    }
+    all.add(w);
+    await _persist(all);
+    await setActive(w.address);
+    return all;
+  }
+
+  Future<List<ZebvixWallet>> renameWallet(String address, String name) async {
+    final all = await loadAll();
+    final idx = all.indexWhere(
+        (w) => w.address.toLowerCase() == address.toLowerCase());
+    if (idx < 0) throw Exception('wallet not found');
+    final old = all[idx];
+    all[idx] = ZebvixWallet(
+      name: name,
+      mnemonic: old.mnemonic,
+      privateKey: old.privateKey,
+      publicKey: old.publicKey,
+      address: old.address,
+      source: old.source,
+    );
+    await _persist(all);
+    return all;
+  }
+
+  Future<List<ZebvixWallet>> removeWallet(String address) async {
+    final all = await loadAll();
+    all.removeWhere(
+        (w) => w.address.toLowerCase() == address.toLowerCase());
+    await _persist(all);
+    final cur = await activeAddress();
+    if (cur != null && cur.toLowerCase() == address.toLowerCase()) {
+      if (all.isNotEmpty) {
+        await setActive(all.first.address);
+      } else {
+        await _secure.delete(key: _kActive);
+      }
+    }
+    return all;
+  }
+
+  /// Returns the currently active wallet, if any.
   Future<ZebvixWallet?> load() async {
-    final addr = await _secure.read(key: _kAddress);
-    final pkHex = await _secure.read(key: _kPrivKey);
-    final mn = await _secure.read(key: _kMnemonic);
-    if (addr == null || pkHex == null) return null;
+    final all = await loadAll();
+    if (all.isEmpty) return null;
+    final active = await activeAddress();
+    if (active == null) return all.first;
+    return all.firstWhere(
+      (w) => w.address.toLowerCase() == active.toLowerCase(),
+      orElse: () => all.first,
+    );
+  }
+
+  /// Backwards-compatible save: replaces the single legacy slot. New code
+  /// should use [addWallet] instead.
+  Future<void> save(ZebvixWallet w) async {
+    try {
+      await addWallet(w);
+    } catch (_) {
+      // already exists — just make it active
+      await setActive(w.address);
+    }
+  }
+
+  Future<void> wipe() async {
+    await _secure.delete(key: _kWallets);
+    await _secure.delete(key: _kActive);
+    await _secure.delete(key: _kLegacyMnemonic);
+    await _secure.delete(key: _kLegacyPrivKey);
+    await _secure.delete(key: _kLegacyAddress);
+  }
+
+  Future<void> _migrateLegacy() async {
+    final raw = await _secure.read(key: _kWallets);
+    if (raw != null && raw.isNotEmpty) return; // already on v2
+    final addr = await _secure.read(key: _kLegacyAddress);
+    final pkHex = await _secure.read(key: _kLegacyPrivKey);
+    if (addr == null || pkHex == null) return;
+    final mn = await _secure.read(key: _kLegacyMnemonic);
     final priv = Uint8List.fromList(hex.decode(pkHex));
     final pub = _derivePublic(priv);
-    return ZebvixWallet(
+    final w = ZebvixWallet(
+      name: 'Wallet 1',
       mnemonic: mn ?? '',
       privateKey: priv,
       publicKey: pub,
       address: addr,
+      source: (mn != null && mn.isNotEmpty) ? 'mnemonic' : 'privkey',
     );
-  }
-
-  Future<void> wipe() async {
-    await _secure.delete(key: _kMnemonic);
-    await _secure.delete(key: _kPrivKey);
-    await _secure.delete(key: _kAddress);
+    await _persist([w]);
+    await setActive(addr);
+    await _secure.delete(key: _kLegacyMnemonic);
+    await _secure.delete(key: _kLegacyPrivKey);
+    await _secure.delete(key: _kLegacyAddress);
   }
 
   // ── Signing ─────────────────────────────────────────────────────────────
-  /// Signs `data` (raw bytes) with secp256k1 ECDSA over keccak256.
-  /// Returns 65-byte signature: r(32) || s(32) || v(1).
   Map<String, String> sign(Uint8List data, Uint8List privateKey) {
     final hash = _keccak256(data);
     final pk = ECPrivateKey(_bigIntFromBytes(privateKey), _curve);
@@ -118,21 +276,17 @@ class WalletService {
   ) {
     final canonical = utf8.encode(_canonicalJson(body));
     final sig = sign(Uint8List.fromList(canonical), privateKey);
-    return {
-      'body': body,
-      'signature': sig,
-    };
+    return {'body': body, 'signature': sig};
   }
 
   // ── Crypto helpers ──────────────────────────────────────────────────────
   static Uint8List _derivePublic(Uint8List priv) {
     final d = _bigIntFromBytes(priv);
     final q = _curve.G * d;
-    return Uint8List.fromList(q!.getEncoded(false)); // 0x04 || X(32) || Y(32)
+    return Uint8List.fromList(q!.getEncoded(false));
   }
 
   static String _addressFromPublic(Uint8List pub) {
-    // strip leading 0x04 prefix
     final body = pub.length == 65 ? pub.sublist(1) : pub;
     final h = _keccak256(body);
     final last20 = h.sublist(h.length - 20);
@@ -160,7 +314,6 @@ class WalletService {
 
   static Uint8List _utf8(String s) => Uint8List.fromList(utf8.encode(s));
 
-  /// Canonical JSON: sorted keys, no spaces.
   static String _canonicalJson(dynamic v) {
     if (v is Map) {
       final keys = v.keys.map((k) => k.toString()).toList()..sort();
@@ -174,11 +327,8 @@ class WalletService {
     return jsonEncode(v);
   }
 
-  /// SHA-256 helper for misc uses.
-  String sha256Hex(String s) =>
-      sha256.convert(utf8.encode(s)).toString();
+  String sha256Hex(String s) => sha256.convert(utf8.encode(s)).toString();
 
-  /// Secure RNG hex (used for nonces / IDs).
   String secureHex(int bytes) {
     final rng = FortunaRandom();
     final seed = Uint8List(32);

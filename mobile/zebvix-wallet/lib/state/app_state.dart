@@ -51,13 +51,24 @@ class AppState extends ChangeNotifier {
   final wallet = WalletService();
   PairingService? pairing;
 
-  String? address;
-  String? mnemonic;
+  /// All known wallets (multi-wallet support).
+  List<ZebvixWallet> wallets = [];
+  String? address; // active address
   bool bootstrapped = false;
   bool loading = false;
 
   BalanceSnapshot balance = BalanceSnapshot.empty();
   int blockHeight = 0;
+
+  ZebvixWallet? get activeWallet {
+    if (address == null) return null;
+    for (final w in wallets) {
+      if (w.address.toLowerCase() == address!.toLowerCase()) return w;
+    }
+    return null;
+  }
+
+  String? get mnemonic => activeWallet?.mnemonic;
 
   Future<void> init() async {
     final p = await SharedPreferences.getInstance();
@@ -67,10 +78,10 @@ class AppState extends ChangeNotifier {
     rpc = ZbxRpc(rpcEndpoint);
     pairing = PairingService(relayBase);
 
-    final w = await wallet.load();
-    if (w != null) {
-      address = w.address;
-      mnemonic = w.mnemonic;
+    wallets = await wallet.loadAll();
+    final active = await wallet.activeAddress();
+    if (wallets.isNotEmpty) {
+      address = active ?? wallets.first.address;
     }
     bootstrapped = true;
     notifyListeners();
@@ -102,40 +113,81 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<ZebvixWallet> createNewWallet() async {
-    final w = wallet.generate();
-    await wallet.save(w);
+  // ── Multi-wallet management ────────────────────────────────────────────
+  String _autoName() {
+    final n = wallets.length + 1;
+    return 'Wallet $n';
+  }
+
+  Future<ZebvixWallet> createNewWallet({String? name}) async {
+    final w = wallet.generate(name: name ?? _autoName());
+    wallets = await wallet.addWallet(w);
     address = w.address;
-    mnemonic = w.mnemonic;
+    balance = BalanceSnapshot.empty();
     notifyListeners();
     refresh();
     return w;
   }
 
-  Future<ZebvixWallet> importMnemonic(String m) async {
+  Future<ZebvixWallet> importMnemonic(String m, {String? name}) async {
     if (!wallet.isValidMnemonic(m)) {
       throw Exception('invalid mnemonic phrase');
     }
-    final w = wallet.fromMnemonic(m);
-    await wallet.save(w);
+    final w = wallet.fromMnemonic(m, name: name ?? _autoName());
+    wallets = await wallet.addWallet(w);
     address = w.address;
-    mnemonic = w.mnemonic;
+    balance = BalanceSnapshot.empty();
     notifyListeners();
     refresh();
     return w;
+  }
+
+  Future<ZebvixWallet> importPrivateKey(String hex, {String? name}) async {
+    final w =
+        wallet.fromPrivateKeyHex(hex, name: name ?? _autoName());
+    wallets = await wallet.addWallet(w);
+    address = w.address;
+    balance = BalanceSnapshot.empty();
+    notifyListeners();
+    refresh();
+    return w;
+  }
+
+  Future<void> switchWallet(String addr) async {
+    if (address?.toLowerCase() == addr.toLowerCase()) return;
+    await wallet.setActive(addr);
+    address = addr;
+    balance = BalanceSnapshot.empty();
+    notifyListeners();
+    refresh();
+  }
+
+  Future<void> renameWallet(String addr, String newName) async {
+    wallets = await wallet.renameWallet(addr, newName);
+    notifyListeners();
+  }
+
+  Future<void> removeWallet(String addr) async {
+    wallets = await wallet.removeWallet(addr);
+    final newActive = await wallet.activeAddress();
+    address = newActive;
+    balance = BalanceSnapshot.empty();
+    notifyListeners();
+    if (address != null) refresh();
   }
 
   Future<void> signOut() async {
     await wallet.wipe();
     await pairing?.disconnect();
+    wallets = [];
     address = null;
-    mnemonic = null;
     balance = BalanceSnapshot.empty();
     notifyListeners();
   }
 
   Future<ZebvixWallet?> currentWallet() => wallet.load();
 
+  // ── Balance refresh ────────────────────────────────────────────────────
   Future<void> refresh() async {
     if (address == null) return;
     loading = true;
@@ -193,13 +245,13 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// Build + sign a transfer transaction body and broadcast.
+  // ── Tx helpers (sign with active wallet) ───────────────────────────────
   Future<String> sendTransfer({
     required String to,
     required double amountZbx,
     double feeZbx = 0.002,
   }) async {
-    final w = await wallet.load();
+    final w = activeWallet ?? await wallet.load();
     if (w == null) throw Exception('no wallet');
     final body = {
       'from': w.address,
@@ -217,7 +269,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<String> swapZbxToZusd({required double amountZbx}) async {
-    final w = await wallet.load();
+    final w = activeWallet ?? await wallet.load();
     if (w == null) throw Exception('no wallet');
     final body = {
       'from': w.address,
@@ -226,7 +278,9 @@ class AppState extends ChangeNotifier {
       'fee': '0x${zbxToWei(0.002).toRadixString(16)}',
       'nonce': balance.nonce,
       'chain_id': 7878,
-      'kind': {'Swap': {'side': 'zbx_to_zusd'}},
+      'kind': {
+        'Swap': {'side': 'zbx_to_zusd'}
+      },
     };
     final signed = wallet.signTransaction(body, w.privateKey);
     final res = await rpc.sendRaw(signed);
@@ -235,7 +289,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<String> swapZusdToZbx({required double amountZusd}) async {
-    final w = await wallet.load();
+    final w = activeWallet ?? await wallet.load();
     if (w == null) throw Exception('no wallet');
     final body = {
       'from': w.address,
@@ -244,7 +298,9 @@ class AppState extends ChangeNotifier {
       'fee': '0x${zbxToWei(0.002).toRadixString(16)}',
       'nonce': balance.nonce,
       'chain_id': 7878,
-      'kind': {'Swap': {'side': 'zusd_to_zbx'}},
+      'kind': {
+        'Swap': {'side': 'zusd_to_zbx'}
+      },
     };
     final signed = wallet.signTransaction(body, w.privateKey);
     final res = await rpc.sendRaw(signed);
@@ -252,14 +308,11 @@ class AppState extends ChangeNotifier {
     return res?.toString() ?? '';
   }
 
-  /// Propose a multisig wallet creation tx. The deployed multisig address is
-  /// returned by the chain via the resulting tx receipt; we return whatever the
-  /// node responds.
   Future<String> createMultisig({
     required List<String> signers,
     required int threshold,
   }) async {
-    final w = await wallet.load();
+    final w = activeWallet ?? await wallet.load();
     if (w == null) throw Exception('no wallet');
     final body = {
       'from': w.address,
@@ -287,7 +340,7 @@ class AppState extends ChangeNotifier {
     required String multisig,
     required int proposalId,
   }) async {
-    final w = await wallet.load();
+    final w = activeWallet ?? await wallet.load();
     if (w == null) throw Exception('no wallet');
     final body = {
       'from': w.address,
