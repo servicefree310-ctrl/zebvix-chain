@@ -1,0 +1,75 @@
+2) Verify FLAT layout in new tarball (safety check before extract)
+echo "=== top of tarball ==="
+tar -tzf newchain.tgz | head -8
+echo "=== should be 0 — no zebvix-chain/ prefix ==="
+tar -tzf newchain.tgz | grep -c '^zebvix-chain/'
+
+# 3) Backup current src/ + Cargo.toml (safe rollback) — non-destructive copy
+mkdir -p /root/zebvix-src-backup-$TS
+cp -rp /home/zebvix-chain/src /root/zebvix-src-backup-$TS/
+cp -p  /home/zebvix-chain/Cargo.toml /root/zebvix-src-backup-$TS/
+ls /root/zebvix-src-backup-$TS/
+
+# 4) Extract IN-PLACE — tar overwrites existing files (no delete needed)
+tar -xzf newchain.tgz
+ls -la src/proposal.rs src/rpc.rs Cargo.toml
+grep -c 'zbx_proposalsList' src/rpc.rs           # expect: 1
+grep -cE 'Cmd::Propose|cmd_propose' src/main.rs  # expect: >= 2
+
+# 5) Force fresh mtimes + bust crate cache
+find src -type f -name '*.rs' -exec touch {} +
+touch Cargo.toml
+cargo clean -p zebvix-node
+cargo build --release --features evm 2>&1 | tail -40
+
+  -d '{"jsonrpc":"2.0","id":4,"method":"zbx_blockNumber","params":[]}'; echo7000ac0a1a73e4cd89889b4d7ee8980c0315"]}'; echo
+moved nested → /root/zebvix-chain.nested-backup-20260424-161751
+-rw-r--r-- 1 root root 188241 Apr 24 15:39 /root/newchain.old-20260424-161751.tgz
+-rw-r--r-- 1 root root 188199 Apr 24 16:17 newchain.tgz
+=== top of tarball ===
+./
+src/
+src/block_stm.rs
+src/bin/
+src/bin/zbx.rs
+src/p2p.rs
+src/pool.rs
+src/multisig.rs
+tar: stdout: write error
+=== should be 0 — no zebvix-chain/ prefix ===
+0
+Cargo.toml  src
+-rw-r--r-- 1 ubuntu ubuntu  1789 Apr 24 11:04 Cargo.toml
+-rw-r--r-- 1 ubuntu ubuntu 15412 Apr 24 15:30 src/proposal.rs
+-rw-r--r-- 1 ubuntu ubuntu 66514 Apr 24 15:30 src/rpc.rs
+1
+3
+     Removed 0 files
+   Compiling zebvix-node v0.1.0 (/home/zebvix-chain)
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:393:4
+    |
+393 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 1m 41s
+  propose                    Submit a governance proposal. Requires the signer wallet to hold ≥ 1 000 ZBX. Lifecycle: 14d shadow-execution test phase → 76d voting → auto-activate (90% positive + ≥5 quorum) or auto-reject. 1 wallet = 1 vote, no balance weighting
+  vote                       Cast a yes/no vote on an active proposal. 1 wallet = 1 vote. No re-vote allowed. Voter only pays gas; no balance threshold required
+  proposals-list             Read-only: list governance proposals (newest first)
+  feature-flags-list         Read-only: list all on-chain feature flags (the on-chain effect of approved proposals)
+OK Phase D subcommands present
+73b207b3585193391586f3a21e71859277db9eb92a894b2ebc5f7d9276cb4646  /usr/local/bin/zebvix-node
+73b207b3585193391586f3a21e71859277db9eb92a894b2ebc5f7d9276cb4646  target/release/zebvix-node
+active
+--- proposalsList ---
+{"jsonrpc":"2.0","id":1,"result":{"count":0,"min_proposer_balance_wei":"1000000000000000000000","min_quorum_votes":5,"pass_threshold_bps":9000,"proposals":[],"test_phase_blocks":201600,"tip_height":4209,"total_lifecycle_blocks":1296000,"vote_phase_blocks":1094400}}
+--- featureFlagsList ---
+{"jsonrpc":"2.0","id":2,"result":{"count":0,"flags":[]}}
+--- proposerCheck (founder) ---
+{"jsonrpc":"2.0","id":3,"result":{"active_proposals":0,"address":"0x40907000ac0a1a73e4cd89889b4d7ee8980c0315","balance_wei":"9999999999000000000000000","balance_zbx":"9999999.999000","can_submit":true,"has_min_balance":true,"max_active_proposals":3,"min_proposer_balance_wei":"1000000000000000000000","min_proposer_balance_zbx":"1000"}}
+--- chain still producing? ---
+{"jsonrpc":"2.0","id":4,"result":{"hash":"0x9dba6715a905825609b3289fed492571bfc0c604b80a10863b339275c2652aa2","height":4209,"hex":"0x1071","proposer":"0x40907000ac0a1a73e4cd89889b4d7ee8980c0315","timestamp_ms":1777047571105}}
+root@srv1266996:/home/zebvix-chain# 
