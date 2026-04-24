@@ -1230,6 +1230,11 @@ interface OnchainTx {
   kind: string;
 }
 
+const TARGET_TX_COUNT = 15;
+const MAX_SCAN_BLOCKS = 100_000; // 1 lakh blocks ka safety cap
+const CHUNK_SIZE = 200;
+const CONCURRENCY = 12;
+
 function RecentTxsPanel({
   tipHeight,
   refreshKey = 0,
@@ -1242,54 +1247,72 @@ function RecentTxsPanel({
   const [txs, setTxs] = useState<OnchainTx[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [autoScanned, setAutoScanned] = useState(false);
+  const [completed, setCompleted] = useState(false);
+  const cancelRef = useRef(false);
 
-  async function scan(window: number) {
+  // Scan blocks backwards from tip in fixed chunks, stopping as soon as we
+  // collect TARGET_TX_COUNT transactions, hit genesis, or hit the safety cap.
+  // UI streams results as they're found so the user sees progress live.
+  async function scan(maxBlocks = MAX_SCAN_BLOCKS) {
     if (!tipHeight || scanning) return;
+    cancelRef.current = false;
     setScanning(true);
+    setCompleted(false);
     setErr(null);
+    setTxs([]);
+    setScannedRange(0);
+    const found: OnchainTx[] = [];
+    let scannedSoFar = 0;
     try {
-      const heights: number[] = [];
-      for (let i = 0; i < window; i++) {
-        const h = tipHeight - i;
-        if (h >= 0) heights.push(h);
-      }
-      // Parallel with concurrency cap
-      const CONC = 12;
-      const found: OnchainTx[] = [];
-      for (let i = 0; i < heights.length; i += CONC) {
-        const slice = heights.slice(i, i + CONC);
-        const results = await Promise.all(
-          slice.map(async (h) => {
-            try {
-              const r = await rpc<any>("zbx_getBlockByNumber", [h]);
-              if (!r) return null;
-              const hdr = r.header ?? r;
-              const txs = Array.isArray(r.txs) ? r.txs : [];
-              return { h, ts: hdr.timestamp_ms ?? 0, txs };
-            } catch { return null; }
-          }),
-        );
-        for (const x of results) {
-          if (!x || !x.txs.length) continue;
-          for (const t of x.txs) {
-            const body = t.body ?? t;
-            found.push({
-              height: x.h,
-              ts: x.ts,
-              from: body.from ?? "",
-              to: body.to ?? "",
-              amount_wei: typeof body.amount === "number" ? body.amount.toString() : String(body.amount ?? "0"),
-              fee_wei: typeof body.fee === "number" ? body.fee.toString() : String(body.fee ?? "0"),
-              kind: kindLabel(body.kind),
-            });
+      while (found.length < TARGET_TX_COUNT && scannedSoFar < maxBlocks) {
+        if (cancelRef.current) break;
+        const start = tipHeight - scannedSoFar;
+        if (start < 0) break;
+        const end = Math.max(0, start - CHUNK_SIZE + 1);
+        const heights: number[] = [];
+        for (let h = start; h >= end; h--) heights.push(h);
+
+        for (let i = 0; i < heights.length; i += CONCURRENCY) {
+          if (cancelRef.current) break;
+          const slice = heights.slice(i, i + CONCURRENCY);
+          const results = await Promise.all(
+            slice.map(async (h) => {
+              try {
+                const r = await rpc<any>("zbx_getBlockByNumber", [h]);
+                if (!r) return null;
+                const hdr = r.header ?? r;
+                const blockTxs = Array.isArray(r.txs) ? r.txs : [];
+                return { h, ts: hdr.timestamp_ms ?? 0, txs: blockTxs };
+              } catch { return null; }
+            }),
+          );
+          for (const x of results) {
+            if (!x || !x.txs.length) continue;
+            for (const t of x.txs) {
+              const body = t.body ?? t;
+              found.push({
+                height: x.h,
+                ts: x.ts,
+                from: body.from ?? "",
+                to: body.to ?? "",
+                amount_wei: typeof body.amount === "number" ? body.amount.toString() : String(body.amount ?? "0"),
+                fee_wei: typeof body.fee === "number" ? body.fee.toString() : String(body.fee ?? "0"),
+                kind: kindLabel(body.kind),
+              });
+            }
           }
+          scannedSoFar += slice.length;
+          // Live update UI as we scan so user sees progress.
+          setScannedRange(scannedSoFar);
+          if (found.length > 0) {
+            const sorted = [...found].sort((a, b) => b.height - a.height);
+            setTxs(sorted.slice(0, TARGET_TX_COUNT));
+          }
+          if (found.length >= TARGET_TX_COUNT) break;
         }
-        // early exit if we already have 30+
-        if (found.length >= 30) break;
+        if (end === 0) break; // hit genesis
       }
-      found.sort((a, b) => b.height - a.height);
-      setTxs(found.slice(0, 30));
-      setScannedRange(window);
+      setCompleted(true);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -1297,58 +1320,81 @@ function RecentTxsPanel({
     }
   }
 
+  function cancel() {
+    cancelRef.current = true;
+  }
+
   useEffect(() => {
     if (tipHeight && !autoScanned) {
       setAutoScanned(true);
-      scan(200);
+      scan();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tipHeight]);
 
   // Re-scan whenever the parent bumps refreshKey (e.g. after a Quick Send).
   useEffect(() => {
-    if (refreshKey > 0 && tipHeight) scan(200);
+    if (refreshKey > 0 && tipHeight) scan();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
+
+  // Cancel any in-flight scan on unmount.
+  useEffect(() => () => { cancelRef.current = true; }, []);
+
+  const reachedTarget = txs.length >= TARGET_TX_COUNT;
+  const reachedCap = scannedRange >= MAX_SCAN_BLOCKS;
 
   return (
     <div className="rounded-xl border border-border bg-card overflow-hidden">
       <div className="p-3 border-b border-border bg-muted/30 flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold flex items-center gap-2">
           <ArrowLeftRight className="h-4 w-4 text-primary" />
-          Recent Transactions
+          Last {TARGET_TX_COUNT} Transactions
           {scannedRange > 0 && (
             <span className="text-[10px] font-normal text-muted-foreground">
-              (scanned last {scannedRange.toLocaleString()} blocks)
+              (found {txs.length}/{TARGET_TX_COUNT} · scanned {scannedRange.toLocaleString()} blocks{scanning ? "…" : ""})
             </span>
           )}
         </h2>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => scan(200)}
-            disabled={scanning}
-            className="text-[11px] px-2 py-1 rounded bg-muted hover:bg-muted/70 disabled:opacity-40"
-          >
-            {scanning ? "scanning…" : "scan 200"}
-          </button>
-          <button
-            onClick={() => scan(1000)}
-            disabled={scanning}
-            className="text-[11px] px-2 py-1 rounded bg-primary/20 text-primary hover:bg-primary/30 disabled:opacity-40"
-          >
-            {scanning ? "…" : "scan 1000"}
-          </button>
+          {scanning ? (
+            <button
+              onClick={cancel}
+              className="text-[11px] px-2 py-1 rounded bg-amber-500/20 text-amber-400 hover:bg-amber-500/30"
+            >
+              stop
+            </button>
+          ) : (
+            <button
+              onClick={() => scan()}
+              className="text-[11px] px-2 py-1 rounded bg-primary/20 text-primary hover:bg-primary/30"
+            >
+              re-scan
+            </button>
+          )}
         </div>
       </div>
       {err && <div className="p-3 text-xs text-red-400">{err}</div>}
+      {completed && reachedTarget && (
+        <div className="px-3 py-1.5 text-[10px] text-emerald-400/80 bg-emerald-500/5 border-b border-border">
+          ✓ found {TARGET_TX_COUNT} most recent txs (scanned back {scannedRange.toLocaleString()} blocks)
+        </div>
+      )}
+      {completed && !reachedTarget && reachedCap && txs.length > 0 && (
+        <div className="px-3 py-1.5 text-[10px] text-amber-400/80 bg-amber-500/5 border-b border-border">
+          stopped at safety cap of {MAX_SCAN_BLOCKS.toLocaleString()} blocks · only {txs.length} tx{txs.length === 1 ? "" : "s"} found
+        </div>
+      )}
       {txs.length === 0 ? (
         <div className="p-8 text-center">
           <Inbox className="h-10 w-10 text-muted-foreground/30 mx-auto mb-2" />
           <div className="text-xs text-muted-foreground">
             {scanning
-              ? "scanning blocks for transactions…"
-              : scannedRange > 0
-              ? `no transactions in last ${scannedRange.toLocaleString()} blocks — chain is currently idle. Try scanning a wider range.`
+              ? `scanning blocks for transactions… (${scannedRange.toLocaleString()} so far)`
+              : completed && reachedCap
+              ? `no transactions found in last ${MAX_SCAN_BLOCKS.toLocaleString()} blocks — chain is essentially idle.`
+              : completed
+              ? `no transactions found across ${scannedRange.toLocaleString()} scanned blocks — chain may have just started.`
               : "ready to scan…"}
           </div>
         </div>
