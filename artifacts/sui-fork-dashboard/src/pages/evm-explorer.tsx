@@ -3,22 +3,29 @@ import { rpc } from "@/lib/zbx-rpc";
 import {
   Cpu, Search, Send, Box, Hash, Wallet, Code2, Zap, Wifi,
   Check, Copy, AlertCircle, ChevronRight, Layers, Activity, Sparkles,
+  AtSign, Compass, FileText, ExternalLink, X,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // EVM Explorer — Phase C.2 native eth_* RPC playground
 // ─────────────────────────────────────────────────────────────────────────────
 export default function EvmExplorer() {
+  const [seed, setSeed] = useState<string>("");
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <Header />
+      <SmartSearch seed={seed} onSeed={setSeed} />
       <NetStatusGrid />
 
+      <div className="flex items-center gap-2 pt-2">
+        <Layers className="h-4 w-4 text-muted-foreground" />
+        <h2 className="text-sm font-semibold tracking-wide uppercase text-muted-foreground">Manual Tools</h2>
+        <span className="text-[10px] text-muted-foreground">— direct RPC inspectors</span>
+      </div>
       <div className="grid lg:grid-cols-2 gap-4">
         <BalanceTool />
         <NonceCodeTool />
       </div>
-
       <BlockTool />
       <TxTool />
       <RawDispatcher />
@@ -513,4 +520,572 @@ function fmtTimestamp(hex: unknown): string {
   const n = hexToNum(hex);
   if (n === null || n <= 0) return "—";
   return new Date(n * 1000).toLocaleString();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SmartSearch — unified address / hash / block / contract / Pay-ID lookup
+// ─────────────────────────────────────────────────────────────────────────────
+type DetectKind =
+  | "address"        // 0x + 40 hex
+  | "hash"           // 0x + 64 hex (block or tx)
+  | "block_number"   // pure decimal or 0x hex (<= 16 chars)
+  | "block_tag"      // latest|earliest|pending|finalized|safe
+  | "pay_id"         // alphanumeric / @username style
+  | "unknown"
+  | "empty";
+
+function detectKind(raw: string): DetectKind {
+  const s = raw.trim();
+  if (!s) return "empty";
+  const lower = s.toLowerCase();
+  if (["latest", "earliest", "pending", "finalized", "safe"].includes(lower)) return "block_tag";
+  if (/^0x[0-9a-f]{40}$/i.test(s)) return "address";
+  if (/^0x[0-9a-f]{64}$/i.test(s)) return "hash";
+  if (/^\d+$/.test(s)) return "block_number";
+  if (/^0x[0-9a-f]{1,16}$/i.test(s)) return "block_number";
+  // Pay-ID: starts with @ or 3-32 chars alphanum + dot/underscore/dash
+  if (/^@?[a-z0-9][a-z0-9._-]{2,31}$/i.test(s)) return "pay_id";
+  return "unknown";
+}
+
+function kindMeta(k: DetectKind): { label: string; color: string; icon: any; help: string } {
+  switch (k) {
+    case "address":      return { label: "EVM Address",  color: "emerald", icon: Wallet,    help: "20-byte account or contract" };
+    case "hash":         return { label: "32-byte Hash", color: "amber",   icon: Hash,      help: "Block or tx hash" };
+    case "block_number": return { label: "Block Number", color: "cyan",    icon: Box,       help: "Decimal or 0x-hex height" };
+    case "block_tag":    return { label: "Block Tag",    color: "cyan",    icon: Box,       help: "latest / earliest / pending" };
+    case "pay_id":       return { label: "Pay-ID",       color: "violet",  icon: AtSign,    help: "Human alias → address" };
+    case "empty":        return { label: "—",            color: "muted",   icon: Compass,   help: "Type to search" };
+    case "unknown":      return { label: "Unknown",      color: "red",     icon: AlertCircle, help: "Format not recognised" };
+  }
+}
+
+function SmartSearch({ seed, onSeed }: { seed: string; onSeed: (v: string) => void }) {
+  const [query, setQuery] = useState<string>("");
+  const [committed, setCommitted] = useState<string>("");
+  const [running, setRunning] = useState(false);
+
+  // Allow other components / sample buttons to seed the query.
+  useEffect(() => {
+    if (seed && seed !== query) {
+      setQuery(seed);
+      setCommitted(seed);
+      onSeed("");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seed]);
+
+  const detected = detectKind(query);
+  const meta = kindMeta(detected);
+  const Icon = meta.icon;
+  const canSearch = detected !== "empty" && detected !== "unknown";
+
+  function submit() {
+    if (!canSearch) return;
+    setRunning(true);
+    setCommitted(query.trim());
+    // running is just a brief flash; child will manage its own loading
+    setTimeout(() => setRunning(false), 250);
+  }
+
+  const samples = [
+    { label: "Pool admin (address)", value: "0x40907000ac0a1a73e4cd89889b4d7ee8980c0315" },
+    { label: "AMM pool (contract addr)", value: "0x7a73776170000000000000000000000000000000" },
+    { label: "Block #1", value: "1" },
+    { label: "latest", value: "latest" },
+  ];
+
+  const accent: Record<string, string> = {
+    emerald: "border-emerald-500/40 bg-emerald-500/5 text-emerald-300",
+    amber:   "border-amber-500/40 bg-amber-500/5 text-amber-300",
+    cyan:    "border-cyan-500/40 bg-cyan-500/5 text-cyan-300",
+    violet:  "border-violet-500/40 bg-violet-500/5 text-violet-300",
+    red:     "border-red-500/40 bg-red-500/5 text-red-300",
+    muted:   "border-border bg-muted/20 text-muted-foreground",
+  };
+
+  return (
+    <div className="rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/5 via-background to-violet-500/5 p-4 md:p-5 space-y-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <Compass className="h-5 w-5 text-primary" />
+        <h2 className="text-base font-bold tracking-tight">Smart Search</h2>
+        <span className="text-[10px] text-muted-foreground font-mono">address · hash · block · contract · Pay-ID</span>
+      </div>
+      <div className="text-[10px] text-amber-300/90 bg-amber-500/5 border border-amber-500/30 rounded-md px-2.5 py-1.5 leading-relaxed flex items-start gap-1.5">
+        <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
+        <span>
+          <span className="font-semibold">Heads-up:</span> numeric block lookups use the native <code className="font-mono">zbx_getBlockByNumber</code> path
+          (the EVM passthrough returns tip for any height). Hash lookups try <code className="font-mono">eth_getBlockByHash</code> /
+          <code className="font-mono"> eth_getTransactionByHash</code> first and fall back to the native indexed-tx ring buffer
+          while the on-chain Phase C.3 wiring is pending.
+        </span>
+      </div>
+
+      <div className="flex flex-col md:flex-row gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+            placeholder="0x… address / 0x… hash / block # / Pay-ID"
+            className="w-full pl-9 pr-24 py-2.5 text-sm font-mono rounded-lg bg-background border border-border focus:border-primary focus:ring-2 focus:ring-primary/30 outline-none"
+          />
+          {query && (
+            <button onClick={() => { setQuery(""); setCommitted(""); }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-muted/50 text-muted-foreground"
+              title="clear">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+        <button onClick={submit} disabled={!canSearch || running}
+          className="px-5 py-2.5 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-2 shrink-0">
+          <Search className="h-4 w-4" /> {running ? "searching…" : "Search"}
+        </button>
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap text-[11px]">
+        <span className="text-muted-foreground">detected:</span>
+        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border font-mono uppercase tracking-wide ${accent[meta.color]}`}>
+          <Icon className="h-3 w-3" /> {meta.label}
+        </span>
+        <span className="text-muted-foreground">{meta.help}</span>
+        <span className="ml-auto text-muted-foreground">samples:</span>
+        {samples.map((s) => (
+          <button key={s.label} onClick={() => { setQuery(s.value); setCommitted(s.value); }}
+            className="px-2 py-0.5 rounded text-[10px] font-mono border border-border hover:bg-primary/10 hover:border-primary/40 transition">
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      {committed && <SmartResult query={committed} kind={detectKind(committed)} onCrossLink={(v) => { setQuery(v); setCommitted(v); }} />}
+    </div>
+  );
+}
+
+function SmartResult({ query, kind, onCrossLink }: { query: string; kind: DetectKind; onCrossLink: (v: string) => void }) {
+  if (kind === "address")                              return <AddressResult addr={query.toLowerCase()} onCrossLink={onCrossLink} />;
+  if (kind === "block_number" || kind === "block_tag") return <BlockResult tag={query.toLowerCase()} onCrossLink={onCrossLink} />;
+  if (kind === "hash")                                 return <HashResult hash={query.toLowerCase()} onCrossLink={onCrossLink} />;
+  if (kind === "pay_id")                               return <PayIdResult alias={query.replace(/^@/, "")} onCrossLink={onCrossLink} />;
+  if (kind === "unknown")                              return <ErrorBox msg={`Cannot detect type for "${query}". Expected: 0x-address (40 hex), 0x-hash (64 hex), block number, 'latest', or Pay-ID alias.`} />;
+  return null;
+}
+
+// — Address result ────────────────────────────────────────────────────────────
+function AddressResult({ addr, onCrossLink }: { addr: string; onCrossLink: (v: string) => void }) {
+  const [data, setData] = useState<{
+    balance: string | null; nonce: string | null; code: string | null;
+    zusd: string | null; lp: string | null;
+    err: string | null; loading: boolean;
+  }>({ balance: null, nonce: null, code: null, zusd: null, lp: null, err: null, loading: true });
+
+  useEffect(() => {
+    let mounted = true;
+    setData({ balance: null, nonce: null, code: null, zusd: null, lp: null, err: null, loading: true });
+    (async () => {
+      try {
+        const [bal, non, c, zu, lp] = await Promise.all([
+          rpc<string>("eth_getBalance", [addr, "latest"]).catch((e) => { throw e; }),
+          rpc<string>("eth_getTransactionCount", [addr, "latest"]),
+          rpc<string>("eth_getCode", [addr, "latest"]),
+          rpc<any>("zbx_getZusdBalance", [addr]).catch(() => null),
+          rpc<any>("zbx_getLpBalance", [addr]).catch(() => null),
+        ]);
+        if (!mounted) return;
+        setData({ balance: bal, nonce: non, code: c, zusd: zu, lp, err: null, loading: false });
+      } catch (e: any) {
+        if (mounted) setData((d) => ({ ...d, err: e?.message ?? String(e), loading: false }));
+      }
+    })();
+    return () => { mounted = false; };
+  }, [addr]);
+
+  const isContract = data.code && data.code !== "0x" && data.code !== "0x0";
+  const codeBytes = data.code && data.code !== "0x" ? (data.code.length - 2) / 2 : 0;
+  const zusdAny: any = data.zusd;
+  const lpAny: any = data.lp;
+  const zusdRaw: string | null = zusdAny ? (typeof zusdAny === "string" ? zusdAny : (zusdAny.balance ?? zusdAny.zusd ?? null)) : null;
+  const lpRaw: string | null = lpAny ? (typeof lpAny === "string" ? lpAny : (lpAny.balance ?? lpAny.lp ?? null)) : null;
+
+  return (
+    <div className="rounded-xl border border-emerald-500/30 bg-card overflow-hidden">
+      <div className="p-3 border-b border-border bg-emerald-500/5 flex items-center gap-2 flex-wrap">
+        <Wallet className="h-4 w-4 text-emerald-400" />
+        <span className="text-sm font-bold">Account</span>
+        {isContract && <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-violet-500/40 bg-violet-500/10 text-violet-300">CONTRACT</span>}
+        {!data.loading && !isContract && <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-emerald-500/40 bg-emerald-500/10 text-emerald-300">EOA</span>}
+        <code className="ml-auto text-[11px] font-mono text-muted-foreground break-all">{addr}</code>
+      </div>
+      <div className="p-4 space-y-3">
+        {data.err && <ErrorBox msg={data.err} />}
+        {data.loading && <div className="text-xs text-muted-foreground">loading account…</div>}
+        {!data.loading && !data.err && (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <StatTile label="ZBX balance" value={data.balance ? fmtZbx(data.balance, 6, "0") : "—"} accent="emerald" />
+              <StatTile label="zUSD balance" value={zusdRaw ? fmtZbx(zusdRaw, 4, "0") : "0"} accent="cyan" />
+              <StatTile label="LP balance"   value={lpRaw ? fmtZbx(lpRaw, 6, "0") : "0"} accent="violet" />
+              <StatTile label="nonce"        value={data.nonce ? fmtBig(data.nonce, "0") : "0"} accent="amber" />
+            </div>
+            {isContract && (
+              <div className="space-y-1">
+                <div className="text-[10px] uppercase font-bold text-muted-foreground">Bytecode · {codeBytes.toLocaleString()} bytes</div>
+                <details>
+                  <summary className="cursor-pointer text-xs text-violet-300 hover:underline inline-flex items-center gap-1">
+                    <Code2 className="h-3 w-3" /> show / hide bytecode
+                  </summary>
+                  <pre className="mt-1 p-2 bg-background/60 border border-border rounded text-[10px] font-mono break-all whitespace-pre-wrap max-h-48 overflow-y-auto">{data.code}</pre>
+                </details>
+              </div>
+            )}
+            <div className="flex items-center gap-2 flex-wrap text-[11px]">
+              <button onClick={() => navigator.clipboard.writeText(addr)} className="px-2 py-1 rounded border border-border hover:bg-muted/30 inline-flex items-center gap-1">
+                <Copy className="h-3 w-3" /> copy address
+              </button>
+              <button onClick={() => onCrossLink("latest")} className="px-2 py-1 rounded border border-border hover:bg-muted/30 inline-flex items-center gap-1">
+                <Box className="h-3 w-3" /> latest block
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// — Block result ──────────────────────────────────────────────────────────────
+// Block fetch uses TWO sources because the on-chain `eth_getBlockByNumber`
+// currently ignores the height parameter and always returns the tip — only
+// tags like `latest` / `earliest` / `pending` work via the EVM passthrough.
+// For numeric heights we fall back to the native `zbx_getBlockByNumber`
+// which respects the requested height and returns the canonical block.
+function BlockResult({ tag, onCrossLink }: { tag: string; onCrossLink: (v: string) => void }) {
+  const [data, setData] = useState<{
+    height: number | null;
+    display: any | null;        // normalised view-model
+    rawSource: "eth" | "zbx" | null;
+    blockTxs: any[] | null;     // native txs filtered to this height
+    err: string | null;
+    loading: boolean;
+  }>({ height: null, display: null, rawSource: null, blockTxs: null, err: null, loading: true });
+
+  useEffect(() => {
+    let mounted = true;
+    setData({ height: null, display: null, rawSource: null, blockTxs: null, err: null, loading: true });
+    (async () => {
+      try {
+        const isNumeric = /^\d+$/.test(tag) || /^0x[0-9a-f]+$/i.test(tag);
+        let display: any = null;
+        let height: number | null = null;
+        let rawSource: "eth" | "zbx" = "eth";
+
+        if (isNumeric) {
+          // Native path — respects the requested height.
+          const targetHeight = /^\d+$/.test(tag)
+            ? parseInt(tag, 10)
+            : parseInt(tag.slice(2), 16);
+          const native = await rpc<any>("zbx_getBlockByNumber", [targetHeight]).catch(() => null);
+          if (!native || !native.header) {
+            if (mounted) setData((d) => ({ ...d, err: `Block #${targetHeight} not found`, loading: false }));
+            return;
+          }
+          rawSource = "zbx";
+          height = native.header.height;
+          display = {
+            number: targetHeight,
+            timestampDate: native.header.timestamp_ms ? new Date(native.header.timestamp_ms).toLocaleString() : "—",
+            proposer: native.header.proposer ?? null,
+            parentHash: native.header.parent_hash ?? null,
+            txRoot: native.header.tx_root ?? null,
+            stateRoot: native.header.state_root ?? null,
+            txCount: Array.isArray(native.txs) ? native.txs.length : 0,
+            gasUsedDisplay: "—",
+            gasLimitDisplay: "—",
+            baseFeeDisplay: "—",
+            hash: null,
+          };
+        } else {
+          // Block tag (latest/earliest/pending/finalized/safe) — eth handles these.
+          const b = await rpc<any>("eth_getBlockByNumber", [tag, false]);
+          if (!b) {
+            if (mounted) setData((d) => ({ ...d, err: `Block "${tag}" returned null`, loading: false }));
+            return;
+          }
+          rawSource = "eth";
+          height = Number(hexToBigInt(b.number) ?? 0n);
+          display = {
+            number: height,
+            timestampDate: fmtTimestamp(b.timestamp),
+            proposer: b.miner ?? null,
+            parentHash: b.parentHash ?? null,
+            txRoot: b.transactionsRoot ?? null,
+            stateRoot: b.stateRoot ?? null,
+            txCount: Array.isArray(b.transactions) ? b.transactions.length : 0,
+            gasUsedDisplay: fmtBig(b.gasUsed),
+            gasLimitDisplay: fmtBig(b.gasLimit),
+            baseFeeDisplay: b.baseFeePerGas ? `${fmtBig(b.baseFeePerGas)} wei` : "—",
+            hash: b.hash ?? null,
+          };
+        }
+
+        // Native tx index for richer per-block browsing (1000-tx cap).
+        const recent = await rpc<any>("zbx_recentTxs", [1000]).catch(() => null);
+        const blockTxs = recent && Array.isArray(recent.txs) && height !== null
+          ? recent.txs.filter((t: any) => Number(t.height) === height)
+          : [];
+
+        if (mounted) setData({ height, display, rawSource, blockTxs, err: null, loading: false });
+      } catch (e: any) {
+        if (mounted) setData((d) => ({ ...d, err: e?.message ?? String(e), loading: false }));
+      }
+    })();
+    return () => { mounted = false; };
+  }, [tag]);
+
+  const d = data.display;
+  return (
+    <div className="rounded-xl border border-cyan-500/30 bg-card overflow-hidden">
+      <div className="p-3 border-b border-border bg-cyan-500/5 flex items-center gap-2 flex-wrap">
+        <Box className="h-4 w-4 text-cyan-400" />
+        <span className="text-sm font-bold">Block</span>
+        {d && <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-cyan-500/40 bg-cyan-500/10 text-cyan-300">#{d.number}</span>}
+        {data.rawSource && <span className="px-2 py-0.5 rounded text-[10px] font-mono uppercase border border-border bg-muted/30 text-muted-foreground">via {data.rawSource}_*</span>}
+        <code className="ml-auto text-[11px] font-mono text-muted-foreground">tag: {tag}</code>
+      </div>
+      <div className="p-4 space-y-3">
+        {data.err && <ErrorBox msg={data.err} />}
+        {data.loading && <div className="text-xs text-muted-foreground">loading block…</div>}
+        {!data.loading && !d && !data.err && <div className="text-xs text-muted-foreground">block not found</div>}
+        {d && (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <StatTile label="number" value={`#${d.number}`} accent="cyan" />
+              <StatTile label="timestamp" value={d.timestampDate} accent="muted" />
+              <StatTile label="gasUsed / Limit" value={`${d.gasUsedDisplay} / ${d.gasLimitDisplay}`} accent="amber" />
+              <StatTile label="baseFee" value={d.baseFeeDisplay} accent="violet" />
+            </div>
+            <div className="grid md:grid-cols-2 gap-2 text-xs">
+              <Kv label="hash" value={short(d.hash)} mono />
+              <Kv label="parentHash" value={short(d.parentHash)} mono />
+              <Kv label="proposer / miner" value={
+                d.proposer
+                  ? <button onClick={() => onCrossLink(d.proposer)} className="text-emerald-300 hover:underline font-mono">{short(d.proposer)}</button>
+                  : "—"
+              } />
+              <Kv label="tx count" value={d.txCount} highlight />
+              <Kv label="txRoot" value={short(d.txRoot)} mono />
+              <Kv label="stateRoot" value={short(d.stateRoot)} mono />
+            </div>
+            {data.blockTxs && data.blockTxs.length > 0 && (
+              <div className="border-t border-border pt-3">
+                <div className="text-[10px] uppercase font-bold text-muted-foreground mb-2 flex items-center gap-1">
+                  <FileText className="h-3 w-3" /> Native txs at height #{data.height} ({data.blockTxs.length})
+                </div>
+                <div className="space-y-1">
+                  {data.blockTxs.map((t: any) => (
+                    <div key={t.hash} className="p-2 rounded bg-background/40 border border-border/50 text-[11px] font-mono flex items-center gap-2 flex-wrap">
+                      <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 text-[9px] uppercase">{t.kind ?? "?"}</span>
+                      <button onClick={() => onCrossLink(t.hash)} className="text-cyan-300 hover:underline truncate max-w-[180px]" title={t.hash}>{short(t.hash)}</button>
+                      <span className="text-muted-foreground">from</span>
+                      <button onClick={() => onCrossLink(t.from)} className="text-emerald-300 hover:underline">{short(t.from)}</button>
+                      <span className="text-muted-foreground">→</span>
+                      <button onClick={() => onCrossLink(t.to)} className="text-emerald-300 hover:underline">{short(t.to)}</button>
+                      <span className="ml-auto text-muted-foreground">fee {fmtZbx(t.fee, 6, "0")} ZBX</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// — Hash result (block hash OR tx hash) ───────────────────────────────────────
+// Strategy:
+//   1. Try `eth_getBlockByHash` — if a block comes back, route via BlockResult
+//   2. Try `eth_getTransactionByHash` + receipt — render tx if either resolves
+//   3. Fallback: scan `zbx_recentTxs` (1000-cap ring buffer) for the hash
+//      and render the native indexed record. The chain currently does not
+//      wire `eth_getTransactionByHash` / `eth_getBlockByHash` so this scan
+//      is the practical lookup until Phase C.3.
+const isHexAddress = (s: unknown): s is string =>
+  typeof s === "string" && /^0x[0-9a-f]{40}$/i.test(s);
+
+function HashResult({ hash, onCrossLink }: { hash: string; onCrossLink: (v: string) => void }) {
+  const [data, setData] = useState<{
+    tx: any | null;
+    blockTag: string | null;
+    err: string | null;
+    loading: boolean;
+    scanned: number;
+  }>({ tx: null, blockTag: null, err: null, loading: true, scanned: 0 });
+
+  useEffect(() => {
+    let mounted = true;
+    setData({ tx: null, blockTag: null, err: null, loading: true, scanned: 0 });
+    (async () => {
+      try {
+        // 1) Block-hash lookup
+        const block = await rpc<any>("eth_getBlockByHash", [hash, false]).catch(() => null);
+        if (block && block.number) {
+          const heightHex = block.number as string;
+          const heightDec = Number(hexToBigInt(heightHex) ?? 0n);
+          if (mounted) setData({ tx: null, blockTag: String(heightDec), err: null, loading: false, scanned: 0 });
+          return;
+        }
+        // 2) Native eth_* tx lookup
+        const [ethTx, ethRcpt] = await Promise.all([
+          rpc<any>("eth_getTransactionByHash", [hash]).catch(() => null),
+          rpc<any>("eth_getTransactionReceipt", [hash]).catch(() => null),
+        ]);
+        if (ethTx || ethRcpt) {
+          if (mounted) setData({ tx: { ...(ethTx ?? {}), receipt: ethRcpt, source: "eth_*" }, blockTag: null, err: null, loading: false, scanned: 0 });
+          return;
+        }
+        // 3) Native indexed-tx fallback
+        const r = await rpc<any>("zbx_recentTxs", [1000]).catch(() => null);
+        const list = r && Array.isArray(r.txs) ? r.txs : [];
+        const found = list.find((t: any) => (t.hash ?? "").toLowerCase() === hash);
+        if (mounted) {
+          if (found) setData({ tx: { ...found, source: "zbx_recentTxs" }, blockTag: null, err: null, loading: false, scanned: list.length });
+          else setData({
+            tx: null, blockTag: null, scanned: list.length, loading: false,
+            err: `Hash not found in native tx index (${list.length} indexed). On-chain eth_getBlockByHash / eth_getTransactionByHash are not yet wired in evm_rpc — try a block number, an address, or a recent tx hash.`,
+          });
+        }
+      } catch (e: any) {
+        if (mounted) setData((d) => ({ ...d, err: e?.message ?? String(e), loading: false }));
+      }
+    })();
+    return () => { mounted = false; };
+  }, [hash]);
+
+  // If lookup resolved as a block hash, hand off to BlockResult
+  if (data.blockTag) return <BlockResult tag={data.blockTag} onCrossLink={onCrossLink} />;
+
+  const tx = data.tx;
+  return (
+    <div className="rounded-xl border border-amber-500/30 bg-card overflow-hidden">
+      <div className="p-3 border-b border-border bg-amber-500/5 flex items-center gap-2 flex-wrap">
+        <Hash className="h-4 w-4 text-amber-400" />
+        <span className="text-sm font-bold">Hash</span>
+        {tx && <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-amber-500/40 bg-amber-500/10 text-amber-300">TX FOUND</span>}
+        <code className="ml-auto text-[11px] font-mono text-muted-foreground break-all">{short(hash)}</code>
+      </div>
+      <div className="p-4 space-y-3">
+        {data.loading && <div className="text-xs text-muted-foreground">searching block + tx + native index…</div>}
+        {data.err && <ErrorBox msg={data.err} />}
+        {tx && (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <StatTile label="block height" value={tx.height ? `#${tx.height}` : (tx.blockNumber ? `#${fmtBig(tx.blockNumber)}` : "pending")} accent="cyan" />
+              <StatTile label="kind" value={tx.kind ?? tx.type ?? "—"} accent="amber" />
+              <StatTile label="value (ZBX)" value={tx.amount ? fmtZbx(tx.amount, 6, "0") : (tx.value ? fmtZbx(tx.value, 6, "0") : "0")} accent="emerald" />
+              <StatTile label="fee (ZBX)" value={tx.fee ? fmtZbx(tx.fee, 6, "0") : "—"} accent="violet" />
+            </div>
+            <div className="grid md:grid-cols-2 gap-2 text-xs">
+              <Kv label="from" value={
+                isHexAddress(tx.from)
+                  ? <button onClick={() => onCrossLink(tx.from)} className="text-emerald-300 hover:underline font-mono">{short(tx.from)}</button>
+                  : <span className="text-muted-foreground">—</span>
+              } />
+              <Kv label="to" value={
+                isHexAddress(tx.to)
+                  ? <button onClick={() => onCrossLink(tx.to)} className="text-emerald-300 hover:underline font-mono">{short(tx.to)}</button>
+                  : <span className="text-muted-foreground italic">{tx.to ? "—" : "contract create"}</span>
+              } />
+              <Kv label="nonce" value={tx.nonce ?? "—"} mono />
+              <Kv label="timestamp" value={tx.timestamp_ms ? new Date(tx.timestamp_ms).toLocaleString() : "—"} />
+            </div>
+            {tx.height !== undefined && (
+              <button onClick={() => onCrossLink(String(tx.height))}
+                className="text-xs px-3 py-1.5 rounded border border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 inline-flex items-center gap-1.5">
+                <Box className="h-3 w-3" /> View block #{tx.height}
+              </button>
+            )}
+            <div className="text-[10px] text-muted-foreground font-mono">source: {tx.source ?? "?"}</div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// — Pay-ID result ─────────────────────────────────────────────────────────────
+function PayIdResult({ alias, onCrossLink }: { alias: string; onCrossLink: (v: string) => void }) {
+  const [data, setData] = useState<{ result: any | null; err: string | null; loading: boolean; }>(
+    { result: null, err: null, loading: true }
+  );
+
+  useEffect(() => {
+    let mounted = true;
+    setData({ result: null, err: null, loading: true });
+    (async () => {
+      try {
+        const r = await rpc<any>("zbx_lookupPayId", [alias]);
+        if (mounted) setData({ result: r, err: null, loading: false });
+      } catch (e: any) {
+        if (mounted) setData({ result: null, err: e?.message ?? String(e), loading: false });
+      }
+    })();
+    return () => { mounted = false; };
+  }, [alias]);
+
+  const r = data.result;
+  const linkedAddr: string | null = r?.address ?? r?.owner ?? null;
+  return (
+    <div className="rounded-xl border border-violet-500/30 bg-card overflow-hidden">
+      <div className="p-3 border-b border-border bg-violet-500/5 flex items-center gap-2 flex-wrap">
+        <AtSign className="h-4 w-4 text-violet-400" />
+        <span className="text-sm font-bold">Pay-ID</span>
+        <code className="ml-auto text-[11px] font-mono text-muted-foreground">@{alias}</code>
+      </div>
+      <div className="p-4 space-y-3">
+        {data.loading && <div className="text-xs text-muted-foreground">resolving alias…</div>}
+        {data.err && <ErrorBox msg={data.err} />}
+        {r && !data.err && (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+              <StatTile label="alias" value={`@${alias}`} accent="violet" />
+              <StatTile label="address" value={linkedAddr ? short(linkedAddr) : "—"} accent="emerald" />
+              <StatTile label="status" value={linkedAddr ? "RESOLVED" : "NOT FOUND"} accent={linkedAddr ? "emerald" : "amber"} />
+            </div>
+            {linkedAddr && (
+              <button onClick={() => onCrossLink(linkedAddr)}
+                className="text-xs px-3 py-1.5 rounded border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 inline-flex items-center gap-1.5">
+                <ExternalLink className="h-3 w-3" /> Open address
+              </button>
+            )}
+            <details>
+              <summary className="cursor-pointer text-[10px] text-muted-foreground">raw response</summary>
+              <pre className="mt-1 p-2 bg-background/60 border border-border rounded text-[10px] font-mono break-all whitespace-pre-wrap max-h-40 overflow-y-auto">{JSON.stringify(r, null, 2)}</pre>
+            </details>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// — Stat tile (used by all result panels) ─────────────────────────────────────
+function StatTile({ label, value, accent }: { label: string; value: React.ReactNode; accent: string }) {
+  const ring: Record<string, string> = {
+    emerald: "border-emerald-500/30 bg-emerald-500/5",
+    cyan:    "border-cyan-500/30 bg-cyan-500/5",
+    violet:  "border-violet-500/30 bg-violet-500/5",
+    amber:   "border-amber-500/30 bg-amber-500/5",
+    muted:   "border-border bg-muted/20",
+  };
+  return (
+    <div className={`p-2.5 rounded-lg border ${ring[accent] ?? "border-border"}`}>
+      <div className="text-[9px] uppercase font-mono text-muted-foreground tracking-wide truncate">{label}</div>
+      <div className="text-sm font-bold tabular-nums mt-1 truncate">{value}</div>
+    </div>
+  );
 }
