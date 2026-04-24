@@ -369,3 +369,37 @@ project; no Rust dependency).
 5. **`totalLocked` accounting wrong** (only incremented on mint, never decremented on
    lock — diverged from `token.totalSupply()`) → now `+= amount` on `executeMint` and
    `-= amount` on `lock`/`lockWithPermit`, with insufficient-locked guard.
+
+### Phase C extension — 5 more contracts (2026-04-24)
+Added to `zebvix-chain/contracts/`:
+- `Multicall3.sol` (236 lines) — mds1/multicall3-compatible batched call
+  aggregator (aggregate, aggregate3, aggregate3Value, tryAggregate,
+  blockAndAggregate, getEthBalance, etc). Stateless, deploy once per chain.
+- `ZbxStaking.sol` (312 lines) — single-pool MasterChef-style staking with
+  linear reward stream. Stake any ERC-20 (designed for ZBX20), earn any
+  reward token (e.g. zUSD or more ZBX). Reentrancy-guarded, emergency
+  unstake bypass, founder-controlled rate updates.
+- `ZbxAMM.sol` (383 lines) — Uniswap V2 single-pair AMM. xy=k invariant,
+  0.30% LP fee, EIP-20 LP tokens, TWAP cumulative-price oracle, MINIMUM
+  _LIQUIDITY lock. Mirror of UniswapV2Pair surface so existing routers /
+  analytics work unmodified.
+- `ZbxTimelock.sol` (201 lines) — Compound-style governance timelock.
+  6h MIN_DELAY / 30d MAX_DELAY / 14d GRACE_PERIOD. Self-call modifier on
+  `setDelay` / `setPendingAdmin` so even governance changes obey the delay.
+- `interfaces/IBridgeMultisig.sol` (100 lines) — public surface of
+  `BridgeMultisig.sol` for relayer / dApp integration; includes off-chain
+  `digestFor()` helper to keep signing path in lockstep with on-chain.
+
+**Solidity total: 10 files, 2,277 lines** (3 deployable bridge contracts +
+4 deployable utility contracts + 3 interfaces). Dashboard now: 34 files,
+18,500 lines.
+
+### Architect-review fix on Phase C extension
+- **ZbxStaking.sol — High severity (`recoverExcessRewards` could drain user-owed rewards)**
+  → introduced `totalOwed` global liability counter:
+    - `updatePool()` → `totalOwed += elapsed * rewardRate` (every wei accrued belongs to a user)
+    - `claim()` → `totalOwed -= owed` (liability satisfied)
+    - `emergencyUnstake()` → `totalOwed -= forfeit` (user explicitly gave up rewards)
+    - `recoverExcessRewards()` → reserve now `totalOwed + (sameToken ? totalStaked : 0)`,
+      so founder can never withdraw into user-owned tokens.
+- Multicall3, ZbxAMM, ZbxTimelock — architect PASS, no changes required.
