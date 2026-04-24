@@ -1,0 +1,122 @@
+root@srv1266996:/home/zebvix-chain# cd /home && \
+curl -fsSL "https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/api/download/newchain" -o newchain.tgz && \
+ls -la newchain.tgz && \
+echo "=== Extracting (overwrites /home/zebvix-chain source files, preserves target/) ===" && \
+tar -xzf newchain.tgz -C /home/ && \
+echo "=== Files updated ===" && \
+ls -la /home/zebvix-chain/src/evm*.rs
+-rw-r--r-- 1 root root 171470 Apr 24 11:51 newchain.tgz
+=== Extracting (overwrites /home/zebvix-chain source files, preserves target/) ===
+=== Files updated ===
+-rw-r--r-- 1 ubuntu ubuntu 23870 Apr 24 11:17 /home/zebvix-chain/src/evm.rs
+-rw-r--r-- 1 ubuntu ubuntu 62629 Apr 24 11:26 /home/zebvix-chain/src/evm_interp.rs
+-rw-r--r-- 1 ubuntu ubuntu 17869 Apr 24 11:05 /home/zebvix-chain/src/evm_precompiles.rs
+-rw-r--r-- 1 ubuntu ubuntu 22544 Apr 24 11:25 /home/zebvix-chain/src/evm_rlp.rs
+-rw-r--r-- 1 ubuntu ubuntu 19732 Apr 24 11:26 /home/zebvix-chain/src/evm_rpc.rs
+-rw-r--r-- 1 ubuntu ubuntu 12537 Apr 24 11:01 /home/zebvix-chain/src/evm_state.rs
+root@srv1266996:/home# cd /home/zebvix-chain && \
+echo "=== EVM module sizes ===" && \
+wc -l src/evm*.rs && \
+echo "" && \
+echo "=== Confirm evm_rlp.rs exists (Phase C.2 marker) ===" && \
+head -5 src/evm_rlp.rs && \
+echo "" && \
+echo "=== Confirm chain-id enforcement in eth_sendRawTransaction ===" && \
+grep -A2 "wrong chain id" src/evm_rpc.rs | head -5
+=== EVM module sizes ===
+   652 src/evm.rs
+  1471 src/evm_interp.rs
+   459 src/evm_precompiles.rs
+   670 src/evm_rlp.rs
+   509 src/evm_rpc.rs
+   342 src/evm_state.rs
+  4103 total
+
+=== Confirm evm_rlp.rs exists (Phase C.2 marker) ===
+//! Phase C.2 — Recursive Length Prefix (RLP) decoder + Ethereum
+//! transaction body parsers.
+//!
+//! ## Why this module exists
+//!
+
+=== Confirm chain-id enforcement in eth_sendRawTransaction ===
+                        "wrong chain id: tx declared {cid}, node is {}",
+                        ctx.chain_id
+                    ));
+root@srv1266996:/home/zebvix-chain# echo "=== All Solidity contracts on VPS ===" && \
+ls -la /home/zebvix-chain/contracts/ && \
+echo "" && \
+echo "=== Interface contracts ===" && \
+ls -la /home/zebvix-chain/contracts/interfaces/ && \
+echo "" && \
+echo "=== Total .sol files (expect 10) ===" && \
+find /home/zebvix-chain/contracts -name "*.sol" | wc -l && \
+echo "" && \
+echo "=== Quick header peek ===" && \
+for f in /home/zebvix-chain/contracts/*.sol; do
+  echo "--- $(basename $f) ---"
+  head -3 "$f"
+  echo ""
+done
+=== All Solidity contracts on VPS ===
+total 108
+drwxr-xr-x 3 ubuntu ubuntu  4096 Apr 24 10:48 .
+drwxr-xr-x 5 ubuntu ubuntu  4096 Apr 24 11:04 ..
+-rw-r--r-- 1 ubuntu ubuntu 11181 Apr 24 10:00 BridgeMultisig.sol
+-rw-r--r-- 1 ubuntu ubuntu  9409 Apr 24 10:02 BridgeVault.sol
+-rw-r--r-- 1 ubuntu ubuntu  8333 Apr 24 10:44 Multicall3.sol
+-rw-r--r-- 1 ubuntu ubuntu  5868 Apr 24 10:02 README.md
+-rw-r--r-- 1 ubuntu ubuntu 12202 Apr 24 10:02 ZBX20.sol
+-rw-r--r-- 1 ubuntu ubuntu 14752 Apr 24 10:45 ZbxAMM.sol
+-rw-r--r-- 1 ubuntu ubuntu 13486 Apr 24 10:48 ZbxStaking.sol
+-rw-r--r-- 1 ubuntu ubuntu  7835 Apr 24 10:46 ZbxTimelock.sol
+drwxr-xr-x 2 ubuntu ubuntu  4096 Apr 24 10:43 interfaces
+
+=== Interface contracts ===
+total 24
+drwxr-xr-x 2 ubuntu ubuntu 4096 Apr 24 10:43 .
+drwxr-xr-x 3 ubuntu ubuntu 4096 Apr 24 10:48 ..
+-rw-r--r-- 1 ubuntu ubuntu 4307 Apr 24 10:43 IBridgeMultisig.sol
+-rw-r--r-- 1 ubuntu ubuntu 3568 Apr 24 09:52 IBridgeVault.sol
+-rw-r--r-- 1 ubuntu ubuntu 3832 Apr 24 09:58 IZBX.sol
+
+=== Total .sol files (expect 10) ===
+10
+
+=== Quick header peek ===
+--- BridgeMultisig.sol ---
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+
+--- BridgeVault.sol ---
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+
+--- Multicall3.sol ---
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+
+--- ZBX20.sol ---
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+
+--- ZbxAMM.sol ---
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+
+--- ZbxStaking.sol ---
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+
+--- ZbxTimelock.sol ---
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+
+root@srv1266996:/home/zebvix-chain# 
