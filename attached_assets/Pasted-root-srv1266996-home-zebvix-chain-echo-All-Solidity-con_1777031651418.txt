@@ -1,0 +1,77 @@
+root@srv1266996:/home/zebvix-chain# echo "=== All Solidity contracts on VPS ===" && \
+ls -la /home/zebvix-chain/contracts/ && \
+echo "" && \
+echo "=== Interface contracts ===" && \
+ls -la /home/zebvix-chain/contracts/interfaces/ && \
+echo "" && \
+echo "=== Total .sol files (expect 10) ===" && \
+find /home/zebvix-chain/contracts -name "*.sol" | wc -l && \
+echo "" && \
+echo "=== Quick header peek ===" && \
+for f in /home/zebvix-chain/contracts/*.sol; do
+  echo "--- $(basename $f) ---"
+  head -3 "$f"
+  echo ""
+done
+=== All Solidity contracts on VPS ===
+total 108
+drwxr-xr-x 3 ubuntu ubuntu  4096 Apr 24 10:48 .
+drwxr-xr-x 5 ubuntu ubuntu  4096 Apr 24 11:04 ..
+-rw-r--r-- 1 ubuntu ubuntu 11181 Apr 24 10:00 BridgeMultisig.sol
+-rw-r--r-- 1 ubuntu ubuntu  9409 Apr 24 10:02 BridgeVault.sol
+-rw-r--r-- 1 ubuntu ubuntu  8333 Apr 24 10:44 Multicall3.sol
+-rw-r--r-- 1 ubuntu ubuntu  5868 Apr 24 10:02 README.md
+-rw-r--r-- 1 ubuntu ubuntu 12202 Apr 24 10:02 ZBX20.sol
+-rw-r--r-- 1 ubuntu ubuntu 14752 Apr 24 10:45 ZbxAMM.sol
+-rw-r--r-- 1 ubuntu ubuntu 13486 Apr 24 10:48 ZbxStaking.sol
+-rw-r--r-- 1 ubuntu ubuntu  7835 Apr 24 10:46 ZbxTimelock.sol
+drwxr-xr-x 2 ubuntu ubuntu  4096 Apr 24 10:43 interfaces
+
+=== Interface contracts ===
+total 24
+drwxr-xr-x 2 ubuntu ubuntu 4096 Apr 24 10:43 .
+drwxr-xr-x 3 ubuntu ubuntu 4096 Apr 24 10:48 ..
+-rw-r--r-- 1 ubuntu ubuntu 4307 Apr 24 10:43 IBridgeMultisig.sol
+-rw-r--r-- 1 ubuntu ubuntu 3568 Apr 24 09:52 IBridgeVault.sol
+-rw-r--r-- 1 ubuntu ubuntu 3832 Apr 24 09:58 IZBX.sol
+
+=== Total .sol files (expect 10) ===
+10
+
+=== Quick header peek ===
+--- BridgeMultisig.sol ---
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+
+--- BridgeVault.sol ---
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+
+--- Multicall3.sol ---
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+
+--- ZBX20.sol ---
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+
+--- ZbxAMM.sol ---
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+
+--- ZbxStaking.sol ---
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+
+--- ZbxTimelock.sol ---
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+
+root@srv1266996:/home/zebvix-chain# 
