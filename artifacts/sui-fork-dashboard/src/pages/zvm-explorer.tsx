@@ -191,44 +191,35 @@ function BalanceTool() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Nonce + Code Tool — zbx_getNonce (always-on) + eth_getCode (EVM-gated)
-// `zbx_getNonce` returns u64 number (NOT hex) per rpc.rs:148-153, so we
-// accept the raw number and format it. `eth_getCode` only works when the
-// node is built with --features zvm — we wrap with .catch() so a missing
-// EVM feature doesn't blow up the whole inspect (we still show nonce +
-// "EOA (EVM disabled)" hint instead of an error toast).
+// Nonce + Code Tool — zbx_getNonce + zbx_getCode (both always-on aliases).
+// `zbx_getNonce` returns a u64 number (NOT hex) per rpc.rs:148-153; we
+// accept the raw number and format it. `zbx_getCode` returns "0x" for EOAs
+// and the contract bytecode hex for contract accounts.
 // ─────────────────────────────────────────────────────────────────────────────
 function NonceCodeTool() {
   const [addr, setAddr] = useState("");
   const [nonce, setNonce] = useState<number | null>(null);
   const [code, setCode] = useState<string | null>(null);
-  const [evmDisabled, setEvmDisabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   async function lookup() {
     if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) { setErr("Invalid address"); return; }
-    setLoading(true); setErr(null); setNonce(null); setCode(null); setEvmDisabled(false);
+    setLoading(true); setErr(null); setNonce(null); setCode(null);
     try {
       const [n, c] = await Promise.all([
         rpc<unknown>("zbx_getNonce", [addr.toLowerCase()]),
-        rpc<string>("eth_getCode", [addr.toLowerCase(), "latest"]).catch((e: any) => {
-          if (typeof e?.message === "string" && /method not found/i.test(e.message)) {
-            return "__EVM_DISABLED__";
-          }
-          throw e;
-        }),
+        rpc<string>("zbx_getCode", [addr.toLowerCase(), "latest"]),
       ]);
       setNonce(parseNonceLocal(n));
-      if (c === "__EVM_DISABLED__") { setEvmDisabled(true); setCode(null); }
-      else setCode(c);
+      setCode(c);
     } catch (e: any) { setErr(e?.message ?? String(e)); }
     finally { setLoading(false); }
   }
 
   const isContract = !!code && code !== "0x" && code !== "0x0";
   return (
-    <ToolCard title="zbx_getNonce + eth_getCode" icon={Code2} accent="violet">
+    <ToolCard title="zbx_getNonce + zbx_getCode" icon={Code2} accent="violet">
       <div className="space-y-2">
         <input value={addr} onChange={(e) => setAddr(e.target.value)} placeholder="0x… (account or contract)"
           className="w-full px-3 py-2 text-xs font-mono rounded-md bg-background border border-border focus:border-primary outline-none" />
@@ -237,12 +228,10 @@ function NonceCodeTool() {
           <Search className="h-3.5 w-3.5" /> {loading ? "fetching…" : "Inspect account"}
         </button>
         {err && <ErrorBox msg={err} />}
-        {(nonce !== null || code !== null || evmDisabled) && (
+        {(nonce !== null || code !== null) && (
           <div className="space-y-1 pt-2 text-xs">
             {nonce !== null && <Kv label="nonce" value={`${nonce.toLocaleString()}`} mono />}
-            {evmDisabled ? (
-              <Kv label="account type" value="EOA · code-check unavailable (EVM disabled on this node)" highlight color="amber" />
-            ) : code !== null && (
+            {code !== null && (
               <>
                 <Kv label="account type" value={isContract ? "CONTRACT" : "EOA"}
                   highlight color={isContract ? "violet" : "emerald"} />
@@ -276,7 +265,9 @@ function parseNonceLocal(v: unknown): number {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Block Tool — eth_getBlockByNumber
+// Block Tool — zbx_getBlockByNumber. Native zbx_getBlockByNumber accepts
+// only numeric heights, so we resolve aliases ("latest"/"pending") to the
+// current tip via zbx_blockNumber first.
 // ─────────────────────────────────────────────────────────────────────────────
 function BlockTool() {
   const [tag, setTag] = useState("latest");
@@ -287,15 +278,28 @@ function BlockTool() {
   async function lookup() {
     setLoading(true); setErr(null); setBlock(null);
     try {
-      const param = /^\d+$/.test(tag) ? `0x${parseInt(tag, 10).toString(16)}` : tag;
-      const b = await rpc<any>("eth_getBlockByNumber", [param, false]);
+      const t = tag.trim().toLowerCase();
+      let height: number;
+      if (/^\d+$/.test(t)) {
+        height = parseInt(t, 10);
+      } else if (/^0x[0-9a-f]+$/.test(t)) {
+        height = parseInt(t, 16);
+      } else if (t === "latest" || t === "pending") {
+        const tip = await rpc<{ height: number }>("zbx_blockNumber");
+        height = tip.height;
+      } else if (t === "earliest") {
+        height = 0;
+      } else {
+        throw new Error(`unrecognized block tag: ${tag}`);
+      }
+      const b = await rpc<any>("zbx_getBlockByNumber", [height]);
       setBlock(b);
     } catch (e: any) { setErr(e?.message ?? String(e)); }
     finally { setLoading(false); }
   }
 
   return (
-    <ToolCard title="eth_getBlockByNumber" icon={Box} accent="cyan">
+    <ToolCard title="zbx_getBlockByNumber" icon={Box} accent="cyan">
       <div className="space-y-2">
         <div className="flex gap-2">
           <input value={tag} onChange={(e) => setTag(e.target.value)} placeholder="latest, earliest, pending, or block number"

@@ -50,6 +50,7 @@ const ALLOWED_METHODS = new Set<string>([
   "zbx_clientVersion",
   "zbx_gasPrice",
   "zbx_syncing",
+  "zbx_getCode",
   // ── Phase D — On-chain governance (read-only) ──────────────────────
   "zbx_proposalsList",
   "zbx_proposalGet",
