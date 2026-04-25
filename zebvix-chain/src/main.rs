@@ -1178,8 +1178,12 @@ async fn cmd_start(
                                             height: h,
                                             round: r,
                                             vote_type: vt.as_str().to_string(),
-                                            previous_block_hash: previous.data.block_hash,
-                                            conflicting_block_hash: vote_block_hash_for_evid,
+                                            // VoteData.block_hash is Option<Hash> because a nil-vote
+                                            // (vote for "no block this round") is a valid BFT case.
+                                            // For the on-chain evidence record we collapse None →
+                                            // Hash::ZERO (Tendermint convention for nil-vote hash).
+                                            previous_block_hash: previous.data.block_hash.unwrap_or(zebvix_node::types::Hash::ZERO),
+                                            conflicting_block_hash: vote_block_hash_for_evid.unwrap_or(zebvix_node::types::Hash::ZERO),
                                             recorded_at_height: recorded_at,
                                             slashed_amount_wei: 0,
                                         };

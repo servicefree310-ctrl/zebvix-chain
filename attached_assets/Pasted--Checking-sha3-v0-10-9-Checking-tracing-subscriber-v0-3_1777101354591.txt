@@ -1,0 +1,51 @@
+  Checking sha3 v0.10.9
+    Checking tracing-subscriber v0.3.23
+    Checking axum v0.7.9
+    Checking primitive-types v0.13.1
+    Checking clap v4.6.1
+    Checking libp2p v0.54.1
+    Checking rayon v1.12.0
+    Checking k256 v0.13.4
+    Checking tower-http v0.5.2
+    Checking serde-big-array v0.5.1
+    Checking bincode v1.3.3
+    Checking rocksdb v0.22.0
+    Checking zebvix-node v0.1.0 (/home/zebvix-chain)
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:393:4
+    |
+393 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+error[E0308]: mismatched types
+    --> src/main.rs:1181:66
+     |
+1181 | ...                   previous_block_hash: previous.data.block_hash,
+     |                                            ^^^^^^^^^^^^^^^^^^^^^^^^ expected `Hash`, found `Option<Hash>`
+     |
+     = note: expected struct `zebvix_node::types::Hash`
+                  found enum `std::option::Option<zebvix_node::types::Hash>`
+help: consider using `Option::expect` to unwrap the `std::option::Option<zebvix_node::types::Hash>` value, panicking if the value is an `Option::None`
+     |
+1181 |                                             previous_block_hash: previous.data.block_hash.expect("REASON"),
+     |                                                                                          +++++++++++++++++
+
+error[E0308]: mismatched types
+    --> src/main.rs:1182:69
+     |
+1182 | ...                   conflicting_block_hash: vote_block_hash_for_evid,
+     |                                               ^^^^^^^^^^^^^^^^^^^^^^^^ expected `Hash`, found `Option<Hash>`
+     |
+     = note: expected struct `zebvix_node::types::Hash`
+                  found enum `std::option::Option<zebvix_node::types::Hash>`
+help: consider using `Option::expect` to unwrap the `std::option::Option<zebvix_node::types::Hash>` value, panicking if the value is an `Option::None`
+     |
+1182 |                                             conflicting_block_hash: vote_block_hash_for_evid.expect("REASON"),
+     |                                                                                             +++++++++++++++++
+
+For more information about this error, try `rustc --explain E0308`.
+error: could not compile `zebvix-node` (bin "zebvix-node") due to 2 previous errors
+root@srv1266996:/home/zebvix-chain# 
