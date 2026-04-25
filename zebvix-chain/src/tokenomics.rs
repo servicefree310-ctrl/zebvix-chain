@@ -17,7 +17,7 @@ pub const TOTAL_SUPPLY_WEI: u128 = TOTAL_SUPPLY_ZBX * WEI_PER_ZBX;
 /// for development, operations, marketing, community grants, and team salaries.
 /// It is publicly disclosed and counted in `circulating_wei` so on-chain supply
 /// reporting reflects the true spendable balance held by the foundation.
-/// Industry context: Ethereum ~10%, Solana ~25%, Sui ~30% — Zebvix at ~6.66%.
+/// Industry context: most major L1s allocate 25–35% to founding teams — Zebvix at ~6.66%.
 pub const FOUNDER_PREMINE_ZBX: u128 = 9_990_000u128;
 pub const FOUNDER_PREMINE_WEI: u128 = FOUNDER_PREMINE_ZBX * WEI_PER_ZBX;
 

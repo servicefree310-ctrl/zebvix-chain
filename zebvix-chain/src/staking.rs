@@ -1,4 +1,4 @@
-//! Sui-style Proof-of-Stake staking module for Zebvix.
+//! Bonded Proof-of-Stake staking module for Zebvix.
 //!
 //! Features
 //! ────────
@@ -52,7 +52,7 @@ pub const MAX_ACTIVE_VALIDATORS: usize = 100;
 /// the validator min in ZBX terms and spawn cheap Sybil validators.
 ///
 /// We now use a fixed token amount, matching industry standard
-/// (Ethereum 32 ETH, Solana ~5,000 SOL, Sui 30M SUI, Aptos 1M APT, etc.).
+/// (Ethereum 32 ETH, Solana ~5,000 SOL, Aptos 1M APT, etc.).
 /// USD-aware logic, if ever reintroduced, must use an external TWAP oracle
 /// (Chainlink/Pyth) and remain `max(MIN_SELF_BOND_WEI, oracle_value)`.
 pub const MIN_SELF_BOND_WEI: u128 = 100u128 * 1_000_000_000_000_000_000u128;

@@ -63,7 +63,7 @@ pub enum TxKind {
     /// Phase B.3.2 — rotate the governor key. Must be signed by the *current*
     /// governor. Capped at `MAX_GOVERNOR_CHANGES` rotations (then locked).
     GovernorChange { new_governor: Address },
-    /// Phase B.4 — Sui-style PoS staking dispatch. The inner [`StakeOp`]
+    /// Phase B.4 — Bonded PoS staking dispatch. The inner [`StakeOp`]
     /// variant selects the action (CreateValidator / Stake / Unstake /
     /// Redelegate / ClaimRewards / EditValidator). Sender = `body.from`,
     /// `body.amount` is debited from sender for `Stake` / `CreateValidator`

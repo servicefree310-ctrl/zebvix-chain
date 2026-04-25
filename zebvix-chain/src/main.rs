@@ -441,7 +441,7 @@ enum Cmd {
         fee: String,
     },
 
-    // ─────────── Phase B.4 — Sui-style PoS Staking ───────────
+    // ─────────── Phase B.4 — Bonded PoS Staking ───────────
     /// Show full staking module state (validators, epoch, rewards, unbonding queue).
     StakingInfo {
         #[arg(long, default_value = "http://127.0.0.1:8545")]
