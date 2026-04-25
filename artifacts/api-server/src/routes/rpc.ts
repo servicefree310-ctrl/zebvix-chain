@@ -44,6 +44,12 @@ const ALLOWED_METHODS = new Set<string>([
   "zbx_swapQuote",
   "zbx_recentSwaps",
   "zbx_poolStats",
+  // ── Native zbx_* scalar identity / fee aliases ─────────────────────
+  "zbx_chainId",
+  "zbx_netVersion",
+  "zbx_clientVersion",
+  "zbx_gasPrice",
+  "zbx_syncing",
   // ── Phase D — On-chain governance (read-only) ──────────────────────
   "zbx_proposalsList",
   "zbx_proposalGet",

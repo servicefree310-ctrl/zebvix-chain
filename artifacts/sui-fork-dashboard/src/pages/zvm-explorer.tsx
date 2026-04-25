@@ -93,12 +93,12 @@ function NetStatusGrid() {
     let mounted = true;
     async function tick() {
       const [cid, zbn, gp, nv, cv, syn] = await Promise.all([
-        rpc<string>("eth_chainId").catch(() => null),
+        rpc<string>("zbx_chainId").catch(() => null),
         rpc<any>("zbx_blockNumber").catch(() => null),
-        rpc<string>("eth_gasPrice").catch(() => null),
-        rpc<string>("net_version").catch(() => null),
-        rpc<string>("web3_clientVersion").catch(() => null),
-        rpc<any>("eth_syncing").catch(() => null),
+        rpc<string>("zbx_gasPrice").catch(() => null),
+        rpc<string>("zbx_netVersion").catch(() => null),
+        rpc<string>("zbx_clientVersion").catch(() => null),
+        rpc<any>("zbx_syncing").catch(() => null),
       ]);
       // zbx_blockNumber returns {height: number, hex: string, ...} per rpc.rs
       let blockHex: string | null = null;
@@ -121,12 +121,12 @@ function NetStatusGrid() {
   const cidNum = hexToNum(data.chainId);
   const gpNum = hexToBigInt(data.gasPrice);
   const cells = [
-    { label: "eth_chainId", value: data.chainId, sub: cidNum !== null ? `${cidNum}` : "" },
+    { label: "zbx_chainId", value: data.chainId, sub: cidNum !== null ? `${cidNum}` : "" },
     { label: "zbx_blockNumber", value: data.blockHex, sub: data.blockNum !== null ? `#${data.blockNum.toLocaleString()}` : "" },
-    { label: "eth_gasPrice", value: data.gasPrice, sub: gpNum !== null ? `${gpNum.toString()} wei` : "" },
-    { label: "net_version", value: data.netVersion, sub: data.netVersion ? "decimal" : "" },
-    { label: "web3_clientVersion", value: data.clientVersion, sub: "" },
-    { label: "eth_syncing", value: data.syncing === false ? "false" : data.syncing ? "true" : null, sub: data.syncing === false ? "in sync" : "" },
+    { label: "zbx_gasPrice", value: data.gasPrice, sub: gpNum !== null ? `${gpNum.toString()} wei` : "" },
+    { label: "zbx_netVersion", value: data.netVersion, sub: data.netVersion ? "decimal" : "" },
+    { label: "zbx_clientVersion", value: data.clientVersion, sub: "" },
+    { label: "zbx_syncing", value: data.syncing === false ? "false" : data.syncing ? "true" : null, sub: data.syncing === false ? "in sync" : "" },
   ];
 
   return (
@@ -405,7 +405,7 @@ function TxTool() {
 // Raw RPC Dispatcher — any method
 // ─────────────────────────────────────────────────────────────────────────────
 function RawDispatcher() {
-  const [method, setMethod] = useState("eth_blockNumber");
+  const [method, setMethod] = useState("zbx_blockNumber");
   const [params, setParams] = useState("[]");
   const [resp, setResp] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -422,13 +422,12 @@ function RawDispatcher() {
     finally { setLoading(false); }
   }
 
-  // Presets are split into two groups: always-on zbx_* native methods (work
-  // on every Zebvix node regardless of build flags) and EVM-namespace eth_*/
-  // net_*/web3_* methods (only respond when the node is built with
-  // --features zvm). The zbx_* set is shown first so users hit working
-  // examples by default.
+  // Presets are split into two groups of zbx_* native methods. The first
+  // group returns rich objects (chain state); the second returns scalar
+  // identity values (chain-id, version, gas price). All zbx_* methods are
+  // always-on and work on every Zebvix node regardless of build flags.
   const presets = [
-    // ── zbx_* always-on ──────────────────────────────────────────────────
+    // ── Rich-object methods ──────────────────────────────────────────────
     { label: "zbx_blockNumber", method: "zbx_blockNumber", params: "[]" },
     { label: "zbx_chainInfo", method: "zbx_chainInfo", params: "[]" },
     { label: "zbx_supply", method: "zbx_supply", params: "[]" },
@@ -437,13 +436,11 @@ function RawDispatcher() {
     { label: "zbx_getBalance(0x0)", method: "zbx_getBalance", params: '["0x0000000000000000000000000000000000000000","latest"]' },
     { label: "zbx_getBlockByNumber(0)", method: "zbx_getBlockByNumber", params: "[0]" },
     { label: "zbx_recentTxs(50)", method: "zbx_recentTxs", params: "[50]" },
-    // ── eth_*/net_*/web3_* EVM-gated ─────────────────────────────────────
-    { label: "eth_chainId", method: "eth_chainId", params: "[]" },
-    { label: "net_version", method: "net_version", params: "[]" },
-    { label: "eth_blockNumber", method: "eth_blockNumber", params: "[]" },
-    { label: "eth_gasPrice", method: "eth_gasPrice", params: "[]" },
-    { label: "web3_clientVersion", method: "web3_clientVersion", params: "[]" },
-    { label: "eth_getBlockByNumber(latest)", method: "eth_getBlockByNumber", params: '["latest", false]' },
+    // ── Scalar identity / fee helpers ────────────────────────────────────
+    { label: "zbx_chainId", method: "zbx_chainId", params: "[]" },
+    { label: "zbx_netVersion", method: "zbx_netVersion", params: "[]" },
+    { label: "zbx_gasPrice", method: "zbx_gasPrice", params: "[]" },
+    { label: "zbx_clientVersion", method: "zbx_clientVersion", params: "[]" },
   ];
 
   return (
