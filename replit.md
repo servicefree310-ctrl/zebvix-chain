@@ -24,6 +24,7 @@ The project is organized as a pnpm workspace monorepo, with each package managin
 - `api-server/`: Express 5 based API server.
 - Dashboard (`artifacts/sui-fork-dashboard/`): React-based frontend for chain interaction and monitoring.
 - `mobile/zebvix-wallet/`: Flutter-based mobile wallet application.
+- `artifacts/zebvix-js/`: Official TypeScript SDK (`@zebvix/zebvix.js`) — thin ethers v6 extension exposing all 60+ native `zbx_*` RPC methods alongside standard EVM namespaces. Exports `ZebvixProvider`, `ZebvixWallet`, `ZEBVIX_MAINNET`, `PRECOMPILES`, units (`parseZBX`, `formatZBX`, `parseGwei`, `formatGwei`), and full type defs (`ProposalSummary`, `FeatureFlag`, `BridgeNetwork`, etc.). Live integration test (`pnpm --filter @workspace/zebvix-js test`) hits the production VPS and verifies all method shapes. Uses `staticNetwork` to avoid `eth_chainId` re-detection per call.
 
 ## Core Technologies
 - **Backend:** Node.js 24, TypeScript 5.9, Express 5, Rust for blockchain core.

@@ -1,0 +1,9 @@
+export const PRECOMPILES = {
+  bridgeOut: "0x0000000000000000000000000000000000000080",
+  payIdResolve: "0x0000000000000000000000000000000000000081",
+  ammSwap: "0x0000000000000000000000000000000000000082",
+  multisig: "0x0000000000000000000000000000000000000083",
+} as const;
+
+export type PrecompileName = keyof typeof PRECOMPILES;
+export type PrecompileAddress = (typeof PRECOMPILES)[PrecompileName];
