@@ -3,3 +3,29 @@
 
 # No need to store the pnpm store twice.
 .local
+
+# Rust build cache (cargo target dir) — 4+ GB local-only artifact.
+# Production never compiles Rust; the chain runs on the VPS, not in the
+# Replit deployment image. The /api/download/newchain endpoint also already
+# excludes target/ from the tarballs it streams.
+zebvix-chain/target
+**/target
+
+# Stale auto-generated chain tarballs (the download endpoint regenerates
+# fresh ones on every request). NOTE: zebvix-chain-patches.zip and
+# zebvix-full-source.zip are intentionally NOT excluded — those two are
+# served by /api/download/patches and /api/download/fullsource.
+zebvix-chain-source.tar.gz
+zebvix-chain-updated.tar.gz
+zebvix-full-source.tar.gz
+
+# Local-only artifacts that don't belong in the deploy image.
+backups
+screenshots
+attached_assets
+
+# Editor / OS noise.
+.DS_Store
+.vscode
+.idea
+*.log
