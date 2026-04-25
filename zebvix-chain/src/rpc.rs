@@ -265,6 +265,8 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 .min(500) as usize;
             let snap = ctx.mempool.snapshot();
             let total = snap.len();
+            // Mirrors `TxKind::tag_index()` in transaction.rs — keep both
+            // tables in lockstep when a new TxKind variant is added.
             let kind_name = |i: u32| match i {
                 0 => "Transfer",
                 1 => "ValidatorAdd",
@@ -277,6 +279,10 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 8 => "Swap",
                 9 => "Bridge",
                 10 => "Proposal",
+                11 => "TokenCreate",
+                12 => "TokenTransfer",
+                13 => "TokenMint",
+                14 => "TokenBurn",
                 _ => "Unknown",
             };
             let txs: Vec<Value> = snap.into_iter().take(limit).map(|(h, from, to, amount, fee, nonce, kind)| json!({
@@ -305,6 +311,8 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 .and_then(|v| v.as_u64())
                 .unwrap_or(15)
                 .min(crate::state::RECENT_TX_CAP) as usize;
+            // Mirrors `TxKind::tag_index()` in transaction.rs — keep both
+            // tables in lockstep when a new TxKind variant is added.
             let kind_name = |i: u32| match i {
                 0 => "Transfer",
                 1 => "ValidatorAdd",
@@ -317,6 +325,10 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 8 => "Swap",
                 9 => "Bridge",
                 10 => "Proposal",
+                11 => "TokenCreate",
+                12 => "TokenTransfer",
+                13 => "TokenMint",
+                14 => "TokenBurn",
                 _ => "Unknown",
             };
             let recs = ctx.state.recent_txs(limit);
