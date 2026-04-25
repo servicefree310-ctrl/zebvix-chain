@@ -1,0 +1,26 @@
+root@srv1266996:~# cd /home/zebvix-chain && \
+sudo cp target/release/zebvix-node /usr/local/bin/zebvix-node.new && \
+sudo mv /usr/local/bin/zebvix-node.new /usr/local/bin/zebvix-node && \
+sudo systemctl restart zebvix && sleep 5 && \
+sudo systemctl status zebvix --no-pager | head -20
+● zebvix.service - Zebvix L1 Blockchain Node
+     Loaded: loaded (/etc/systemd/system/zebvix.service; enabled; preset: enabled)
+     Active: active (running) since Sat 2026-04-25 19:26:23 UTC; 5s ago
+   Main PID: 364998 (zebvix-node)
+      Tasks: 7 (limit: 9483)
+     Memory: 3.6M (peak: 4.1M)
+        CPU: 33ms
+     CGroup: /system.slice/zebvix.service
+             └─364998 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333 --no-mdns
+
+Apr 25 19:26:24 srv1266996.hstgr.cloud zebvix-node[364998]: 2026-04-25T19:26:24.021113Z  INFO zebvix_node:    chain_id  : 7878
+Apr 25 19:26:24 srv1266996.hstgr.cloud zebvix-node[364998]: 2026-04-25T19:26:24.021118Z  INFO zebvix_node:    proposer  : 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315
+Apr 25 19:26:24 srv1266996.hstgr.cloud zebvix-node[364998]: 2026-04-25T19:26:24.021133Z  INFO zebvix_node:    tip       : height=21307 hash=0xb4ce30bef69c9e0cf10d84626540d7e1fee1106c914b4a1a68529a0467e26d9d
+Apr 25 19:26:24 srv1266996.hstgr.cloud zebvix-node[364998]: 2026-04-25T19:26:24.021139Z  INFO zebvix_node:    rpc       : http://0.0.0.0:8545
+Apr 25 19:26:24 srv1266996.hstgr.cloud zebvix-node[364998]: 2026-04-25T19:26:24.021595Z  INFO zebvix_node:    p2p       : tcp/30333  peer_id=12D3KooWPLQkZPgEjR6mwQWZPhjBnWstSN2CxPnLMBs173qrsgaL
+Apr 25 19:26:24 srv1266996.hstgr.cloud zebvix-node[364998]: 2026-04-25T19:26:24.021604Z  INFO zebvix_node:    mdns      : DISABLED (--no-mdns)
+Apr 25 19:26:24 srv1266996.hstgr.cloud zebvix-node[364998]: 2026-04-25T19:26:24.021614Z  INFO zebvix_node::rpc: 🛡  RPC CORS: localhost-only (default). Set ZEBVIX_RPC_CORS_ORIGINS=<csv> to add public origins, or ZEBVIX_RPC_CORS_ORIGINS=* to allow any.
+Apr 25 19:26:24 srv1266996.hstgr.cloud zebvix-node[364998]: 2026-04-25T19:26:24.021737Z  INFO zebvix_node::consensus: ⛏  producer started: my_address=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315, mode=ROUND_ROBIN+TIMEOUTS (B.3.2.2) pacing=5s propose_timeout=8s tick=500ms
+Apr 25 19:26:24 srv1266996.hstgr.cloud zebvix-node[364998]: 2026-04-25T19:26:24.022051Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWPLQkZPgEjR6mwQWZPhjBnWstSN2CxPnLMBs173qrsgaL
+Apr 25 19:26:24 srv1266996.hstgr.cloud zebvix-node[364998]: 2026-04-25T19:26:24.022073Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/93.127.213.192/tcp/30333/p2p/12D3KooWPLQkZPgEjR6mwQWZPhjBnWstSN2CxPnLMBs173qrsgaL
+root@srv1266996:/home/zebvix-chain# 
