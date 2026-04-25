@@ -127,6 +127,10 @@ impl Mempool {
                 crate::types::TxKind::TokenTransfer { .. } => 12,
                 crate::types::TxKind::TokenMint { .. }     => 13,
                 crate::types::TxKind::TokenBurn { .. }     => 14,
+                crate::types::TxKind::TokenPoolCreate { .. }          => 15,
+                crate::types::TxKind::TokenPoolAddLiquidity { .. }    => 16,
+                crate::types::TxKind::TokenPoolRemoveLiquidity { .. } => 17,
+                crate::types::TxKind::TokenPoolSwap { .. }            => 18,
             };
             (*h, t.body.from, t.body.to, t.body.amount, t.body.fee, t.body.nonce, kind_idx)
         }).collect();
