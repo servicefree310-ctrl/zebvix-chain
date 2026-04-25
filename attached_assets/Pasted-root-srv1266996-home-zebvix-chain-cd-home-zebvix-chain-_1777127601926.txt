@@ -1,0 +1,50 @@
+root@srv1266996:/home/zebvix-chain# cd /home/zebvix-chain && \
+echo "==> Backup current src/" && \
+cp -r src src.bak.$(date +%s) && \
+echo "==> Download latest from Replit" && \
+curl -fsSL "https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/api/download/newchain" -o newchain.tgz && \
+echo "==> Extract (in-place, target/ preserved for cache)" && \
+tar -xzf newchain.tgz && rm newchain.tgz && \
+echo "==> Build release (incremental — fast if cache hit)" && \
+cargo build --release --features zvm && \
+echo "==> Restart zebvix systemd" && \
+sudo systemctl restart zebvix && sleep 5 && \
+echo "==> Status:" && \
+sudo systemctl status zebvix --no-pager | head -15 && \
+echo "==> Chain ping:" && \
+curl -s -X POST http://localhost:8545 -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"zbx_chainInfo","params":[]}'
+==> Backup current src/
+==> Download latest from Replit
+==> Extract (in-place, target/ preserved for cache)
+==> Build release (incremental — fast if cache hit)
+   Compiling zebvix-node v0.1.0 (/home/zebvix-chain)
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:393:4
+    |
+393 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 1m 43s
+==> Restart zebvix systemd
+==> Status:
+● zebvix.service - Zebvix L1 Blockchain Node
+     Loaded: loaded (/etc/systemd/system/zebvix.service; enabled; preset: enabled)
+     Active: active (running) since Sat 2026-04-25 14:32:49 UTC; 5s ago
+   Main PID: 289333 (zebvix-node)
+      Tasks: 7 (limit: 9483)
+     Memory: 4.8M (peak: 6.6M)
+        CPU: 49ms
+     CGroup: /system.slice/zebvix.service
+             └─289333 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333 --no-mdns
+
+Apr 25 14:32:50 srv1266996.hstgr.cloud zebvix-node[289333]: 2026-04-25T14:32:50.025202Z  INFO zebvix_node:    chain_id  : 7878
+Apr 25 14:32:50 srv1266996.hstgr.cloud zebvix-node[289333]: 2026-04-25T14:32:50.025213Z  INFO zebvix_node:    proposer  : 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315
+Apr 25 14:32:50 srv1266996.hstgr.cloud zebvix-node[289333]: 2026-04-25T14:32:50.025235Z  INFO zebvix_node:    tip       : height=18226 hash=0x92f0c51693dd05a1ccb6c7fce1376a71d40229cceaea7afb0748fa0555d80d02
+Apr 25 14:32:50 srv1266996.hstgr.cloud zebvix-node[289333]: 2026-04-25T14:32:50.025240Z  INFO zebvix_node:    rpc       : http://0.0.0.0:8545
+Apr 25 14:32:50 srv1266996.hstgr.cloud zebvix-node[289333]: 2026-04-25T14:32:50.025837Z  INFO zebvix_node:    p2p       : tcp/30333  peer_id=12D3KooWCyq3B4GzttePyhBhGrTywQszDeUh6dhEwfPxqDQXosqF
+==> Chain ping:
+{"jsonrpc":"2.0","id":1,"result":{"block_time_secs":5,"chain_id":7878,"decimals":18,"name":"Zebvix","token":"ZBX"}}root@srv1266996:/home/zebvix-chain# 
