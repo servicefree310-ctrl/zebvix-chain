@@ -34,7 +34,9 @@ import {
   Smartphone,
   Cpu,
   Vote,
-  Terminal
+  Terminal,
+  UserPlus,
+  KeyRound
 } from "lucide-react";
 import { useChecklist } from "@/hooks/useChecklist";
 import { Progress } from "@/components/ui/progress";
@@ -58,13 +60,15 @@ const CORE_NAV = [
 const LIVE_NAV = [
   { href: "/live-chain", label: "Live Chain Status", icon: Activity },
   { href: "/wallet", label: "ZBX Wallet (Send / MetaMask)", icon: Wallet },
+  { href: "/import-wallet", label: "Import Address (Key / Mnemonic)", icon: KeyRound },
+  { href: "/payid-register", label: "Register Pay-ID", icon: UserPlus },
+  { href: "/payid-resolver", label: "Pay-ID Resolver", icon: AtSign },
+  { href: "/balance-lookup", label: "Balance Lookup", icon: Wallet },
   { href: "/block-explorer", label: "Block Explorer", icon: Search },
   { href: "/rpc-playground", label: "RPC Playground", icon: Terminal },
   { href: "/zvm-explorer", label: "ZVM Explorer (C.2)", icon: Cpu },
   { href: "/pool-explorer", label: "Pool / AMM", icon: Droplets },
-  { href: "/balance-lookup", label: "Balance Lookup", icon: Wallet },
   { href: "/multisig-explorer", label: "Multisig Explorer", icon: Shield },
-  { href: "/payid-resolver", label: "Pay-ID Resolver", icon: AtSign },
   { href: "/connect-wallet", label: "Connect Mobile Wallet", icon: Smartphone },
   { href: "/swap", label: "Swap (Buy / Sell)", icon: ArrowUpDown },
   { href: "/governance", label: "Governance (Phase D)", icon: Vote },

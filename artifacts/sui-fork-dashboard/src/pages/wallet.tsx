@@ -128,6 +128,20 @@ export default function WalletPage() {
         </p>
       </div>
 
+      <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm flex items-center gap-3 flex-wrap">
+        <span className="text-primary font-semibold">New:</span>
+        <span className="text-muted-foreground">
+          Import an existing address via private key or 12/24-word BIP39 mnemonic, or claim a
+          permanent <code className="font-mono text-foreground">handle@zbx</code> Pay-ID.
+        </span>
+        <WLink href="/import-wallet" className="ml-auto inline-flex items-center gap-1 rounded-md border border-primary/40 bg-card px-2.5 py-1 text-xs font-medium text-foreground hover:border-primary/60">
+          Import Address
+        </WLink>
+        <WLink href="/payid-register" className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-semibold text-primary-foreground hover:bg-primary/90">
+          Register Pay-ID
+        </WLink>
+      </div>
+
       <ActiveCard
         wallet={activeWallet}
         balance={balance}

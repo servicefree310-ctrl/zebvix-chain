@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { Shell } from "@/components/layout/shell";
+import { WalletProvider } from "@/contexts/wallet-context";
 
 // Pages
 import Home from "@/pages/home";
@@ -44,6 +45,8 @@ import PoolExplorer from "@/pages/pool-explorer";
 import GovernancePage from "@/pages/governance";
 import SmartContracts from "@/pages/smart-contracts";
 import RpcPlayground from "@/pages/rpc-playground";
+import PayIdRegister from "@/pages/payid-register";
+import ImportWallet from "@/pages/import-wallet";
 
 const queryClient = new QueryClient();
 
@@ -82,6 +85,8 @@ function Router() {
         <Route path="/balance-lookup" component={BalanceLookup} />
         <Route path="/multisig-explorer" component={MultisigExplorer} />
         <Route path="/payid-resolver" component={PayIdResolver} />
+        <Route path="/payid-register" component={PayIdRegister} />
+        <Route path="/import-wallet" component={ImportWallet} />
         <Route path="/connect-wallet" component={ConnectWallet} />
         <Route path="/swap" component={SwapPage} />
         <Route path="/zvm-explorer" component={ZvmExplorer} />
@@ -100,10 +105,12 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <Router />
-        </WouterRouter>
-        <Toaster />
+        <WalletProvider>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+            <Router />
+          </WouterRouter>
+          <Toaster />
+        </WalletProvider>
       </TooltipProvider>
     </QueryClientProvider>
   );
