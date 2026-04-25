@@ -17,7 +17,7 @@ import {
   AlertTriangle,
   ExternalLink,
 } from "lucide-react";
-import { Link as WLink } from "wouter";
+import { Link as WLink, useSearch, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -68,6 +68,11 @@ import {
   onProviderEvents,
   ZEBVIX_CHAIN_ID_HEX,
 } from "@/lib/metamask";
+import {
+  lookupPayIdForward,
+  validatePayIdInput,
+  type PayIdRecord,
+} from "@/lib/payid";
 
 const CHAIN_ID = 7878;
 const CHAIN_ID_HEX = "0x1ec6";
@@ -77,6 +82,9 @@ function copy(text: string, toast: ReturnType<typeof useToast>["toast"], label =
   toast({ title: label, description: text.length > 60 ? text.slice(0, 60) + "…" : text });
 }
 
+const TAB_VALUES = ["send", "metamask", "manage", "history"] as const;
+type TabValue = (typeof TAB_VALUES)[number];
+
 export default function WalletPage() {
   const { toast } = useToast();
   const [wallets, setWallets] = useState<StoredWallet[]>([]);
@@ -85,6 +93,34 @@ export default function WalletPage() {
   const [balance, setBalance] = useState<string>("—");
   const [nonce, setNonce] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+
+  // ── Tab state — driven by `?tab=…` so deep links from the wallet picker
+  // (e.g. /wallet?tab=send) land on the right tab instead of always defaulting.
+  const search = useSearch();
+  const [, setLocation] = useLocation();
+  const initialTab: TabValue = (() => {
+    const q = new URLSearchParams(search).get("tab");
+    return TAB_VALUES.includes(q as TabValue) ? (q as TabValue) : "send";
+  })();
+  const [tab, setTab] = useState<TabValue>(initialTab);
+  // Sync URL query → tab whenever it changes (e.g. browser back/forward, or
+  // a fresh ?tab=send link arriving while the page is already mounted).
+  useEffect(() => {
+    const q = new URLSearchParams(search).get("tab");
+    if (q && TAB_VALUES.includes(q as TabValue) && q !== tab) {
+      setTab(q as TabValue);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
+  const onTabChange = (v: string) => {
+    if (!TAB_VALUES.includes(v as TabValue)) return;
+    setTab(v as TabValue);
+    // Reflect the choice in the URL so refresh / share keeps the user on the
+    // tab they picked. Use replace so we don't pollute the back stack.
+    const next = new URLSearchParams(search);
+    next.set("tab", v);
+    setLocation(`/wallet?${next.toString()}`, { replace: true });
+  };
 
   const reloadWallets = () => {
     const ws = loadWallets();
@@ -151,7 +187,7 @@ export default function WalletPage() {
         onCopy={(t, l) => copy(t, toast, l)}
       />
 
-      <Tabs defaultValue="send" className="space-y-4">
+      <Tabs value={tab} onValueChange={onTabChange} className="space-y-4">
         <TabsList className="grid grid-cols-4 w-full">
           <TabsTrigger value="send" data-testid="tab-send">Send (native)</TabsTrigger>
           <TabsTrigger value="metamask" data-testid="tab-metamask">MetaMask</TabsTrigger>
@@ -433,6 +469,15 @@ type LiveStatus =
   | { phase: "included"; hash: string; block: number; status: "success" | "reverted" }
   | { phase: "error"; message: string };
 
+type ResolveStatus =
+  | { phase: "idle" }
+  | { phase: "address" }                                 // raw 0x… address
+  | { phase: "resolving"; canonical: string }
+  | { phase: "resolved"; canonical: string; record: PayIdRecord }
+  | { phase: "missing"; canonical: string }              // valid handle, not registered
+  | { phase: "invalid"; reason: string }
+  | { phase: "error"; message: string };
+
 function SendTab(props: {
   active: StoredWallet | null;
   balance: string;
@@ -446,6 +491,7 @@ function SendTab(props: {
   const [fee, setFee] = useState("0.002");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [status, setStatus] = useState<LiveStatus>({ phase: "idle" });
+  const [resolve, setResolve] = useState<ResolveStatus>({ phase: "idle" });
   const mountedRef = useRef(true);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
@@ -457,6 +503,43 @@ function SendTab(props: {
   }, []);
   const safeSet = (s: LiveStatus) => { if (mountedRef.current) setStatus(s); };
 
+  // ── Pay-ID / address recipient resolver ─────────────────────────────────
+  // Accepts raw 0x address OR a Pay-ID handle ("alice" | "alice@zbx").
+  // Debounces lookups so each keystroke isn't a network call.
+  useEffect(() => {
+    const raw = to.trim();
+    if (!raw) { setResolve({ phase: "idle" }); return; }
+    if (/^0x[0-9a-fA-F]{40}$/.test(raw)) {
+      setResolve({ phase: "address" });
+      return;
+    }
+    // Anything that's not an address is treated as a Pay-ID candidate.
+    const v = validatePayIdInput(raw);
+    if (!v.ok || !v.canonical) {
+      setResolve({ phase: "invalid", reason: v.reason ?? "invalid recipient" });
+      return;
+    }
+    const canonical = v.canonical;
+    setResolve({ phase: "resolving", canonical });
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      try {
+        const rec = await lookupPayIdForward(canonical);
+        if (cancelled) return;
+        if (rec && rec.address) {
+          setResolve({ phase: "resolved", canonical, record: rec });
+        } else {
+          setResolve({ phase: "missing", canonical });
+        }
+      } catch (e) {
+        if (cancelled) return;
+        const msg = e instanceof Error ? e.message : String(e);
+        setResolve({ phase: "error", message: msg });
+      }
+    }, 350);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [to]);
+
   if (!active) {
     return (
       <Card className="p-6 text-center text-sm text-muted-foreground">
@@ -465,9 +548,15 @@ function SendTab(props: {
     );
   }
 
-  const validAddr = /^0x[0-9a-fA-F]{40}$/.test(to.trim());
+  // The actual recipient address used at sign time. Either the raw 0x input
+  // or the address resolved from the Pay-ID lookup.
+  const resolvedTo: string | null =
+    resolve.phase === "address" ? to.trim() :
+    resolve.phase === "resolved" ? (resolve.record.address ?? null) :
+    null;
+
   const validAmt = /^\d+(\.\d+)?$/.test(amount.trim()) && parseFloat(amount) > 0;
-  const canReview = validAddr && validAmt;
+  const canReview = !!resolvedTo && validAmt;
 
   const totalWei = (() => {
     if (!validAmt) return 0n;
@@ -479,6 +568,7 @@ function SendTab(props: {
   })();
 
   const submit = async () => {
+    if (!resolvedTo) return;          // guarded by canReview but keep TS happy
     safeSet({ phase: "signing" });
     const ts = Date.now();
     let hash = "";
@@ -486,13 +576,13 @@ function SendTab(props: {
       safeSet({ phase: "submitting" });
       const r = await sendTransfer({
         privateKeyHex: active.privateKey,
-        to: to.trim(),
+        to: resolvedTo,
         amountZbx: amount,
         feeZbx: fee || "0.002",
       });
       hash = r.hash;
       recordTx({
-        hash, from: active.address, to: to.trim(),
+        hash, from: active.address, to: resolvedTo,
         amountZbx: amount, feeZbx: fee || "0.002",
         ts, status: "submitted", kind: "native",
       });
@@ -527,7 +617,7 @@ function SendTab(props: {
       const msg = e instanceof Error ? e.message : String(e);
       safeSet({ phase: "error", message: msg });
       recordTx({
-        hash: hash || null, from: active.address, to: to.trim(),
+        hash: hash || null, from: active.address, to: resolvedTo ?? to.trim(),
         amountZbx: amount, feeZbx: fee || "0.002",
         ts, status: "failed", error: msg, kind: "native",
       });
@@ -546,13 +636,11 @@ function SendTab(props: {
         </div>
       </div>
       <div>
-        <Label htmlFor="to">Recipient address</Label>
-        <Input id="to" placeholder="0x…" value={to}
+        <Label htmlFor="to">Recipient — address or Pay-ID</Label>
+        <Input id="to" placeholder="0x… or alice@zbx" value={to}
           onChange={(e) => setTo(e.target.value)}
           className="font-mono" data-testid="input-send-to" />
-        {to && !validAddr && (
-          <p className="text-xs text-red-400 mt-1">Address must be 0x + 40 hex chars.</p>
-        )}
+        <ResolveHint state={resolve} />
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div>
@@ -584,7 +672,22 @@ function SendTab(props: {
           </DialogHeader>
           <div className="space-y-3 py-2 text-sm">
             <ReviewRow label="From" value={active.address} mono />
-            <ReviewRow label="To" value={to.trim()} mono />
+            {resolve.phase === "resolved" && (
+              <>
+                <ReviewRow
+                  label="Pay-ID"
+                  value={
+                    resolve.record.name
+                      ? `${resolve.canonical} (${resolve.record.name})`
+                      : resolve.canonical
+                  }
+                />
+                <ReviewRow label="To (resolved)" value={resolvedTo ?? ""} mono />
+              </>
+            )}
+            {resolve.phase !== "resolved" && (
+              <ReviewRow label="To" value={resolvedTo ?? ""} mono />
+            )}
             <ReviewRow label="Amount" value={`${amount} ZBX`} />
             <ReviewRow label="Fee" value={`${fee || "0.002"} ZBX`} />
             <ReviewRow label="Total" value={`${totalZbx} ZBX`} highlight />
@@ -615,6 +718,60 @@ function SendTab(props: {
         setTo(""); setAmount("");
       }} />
     </Card>
+  );
+}
+
+function ResolveHint({ state }: { state: ResolveStatus }) {
+  if (state.phase === "idle") return null;
+  if (state.phase === "address") {
+    return (
+      <p className="text-xs text-emerald-300/80 mt-1 flex items-center gap-1">
+        <Check className="h-3 w-3" /> Direct address — will send straight to this account.
+      </p>
+    );
+  }
+  if (state.phase === "resolving") {
+    return (
+      <p className="text-xs text-sky-300/80 mt-1 flex items-center gap-1">
+        <Loader2 className="h-3 w-3 animate-spin" /> Looking up{" "}
+        <code className="font-mono">{state.canonical}</code> on chain…
+      </p>
+    );
+  }
+  if (state.phase === "resolved") {
+    const addr = state.record.address ?? "";
+    return (
+      <div className="mt-1 rounded border border-emerald-500/30 bg-emerald-500/5 p-2 text-xs text-emerald-200">
+        <div className="flex items-center gap-1 font-semibold">
+          <Check className="h-3 w-3" /> Resolved {state.canonical}
+          {state.record.name ? ` · ${state.record.name}` : ""}
+        </div>
+        <code className="block mt-1 font-mono text-[11px] break-all text-foreground">
+          {addr}
+        </code>
+      </div>
+    );
+  }
+  if (state.phase === "missing") {
+    return (
+      <p className="text-xs text-amber-300/90 mt-1 flex items-center gap-1">
+        <AlertTriangle className="h-3 w-3" />{" "}
+        <code className="font-mono">{state.canonical}</code> is not registered yet.
+      </p>
+    );
+  }
+  if (state.phase === "invalid") {
+    return (
+      <p className="text-xs text-red-400 mt-1">
+        Recipient must be a 0x address (40 hex chars) or a Pay-ID handle (3–25
+        chars, lowercase a–z / 0–9 / underscore, optional <code>@zbx</code> suffix). {state.reason}
+      </p>
+    );
+  }
+  return (
+    <p className="text-xs text-red-400 mt-1 flex items-center gap-1">
+      <X className="h-3 w-3" /> Lookup failed: {state.message}
+    </p>
   );
 }
 

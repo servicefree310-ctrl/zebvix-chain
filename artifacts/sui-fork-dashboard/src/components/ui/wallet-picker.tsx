@@ -12,6 +12,7 @@ import {
   Eye,
   EyeOff,
   AlertTriangle,
+  Send,
 } from "lucide-react";
 import { useWallet } from "@/contexts/wallet-context";
 import { useToast } from "@/hooks/use-toast";
@@ -271,7 +272,16 @@ export function WalletPicker() {
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-1 border-t border-border p-2">
+          <div className="grid grid-cols-3 gap-1 border-t border-border p-2">
+            <Link href="/wallet?tab=send">
+              <button
+                onClick={() => setOpen(false)}
+                className="inline-flex w-full items-center justify-center gap-1.5 rounded bg-primary px-2 py-1.5 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90"
+              >
+                <Send className="h-3.5 w-3.5" />
+                Send
+              </button>
+            </Link>
             <button
               onClick={() => {
                 addGenerated();
