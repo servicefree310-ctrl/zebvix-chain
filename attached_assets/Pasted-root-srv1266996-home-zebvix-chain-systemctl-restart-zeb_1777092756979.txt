@@ -1,0 +1,24 @@
+root@srv1266996:/home/zebvix-chain# systemctl restart zebvix.service && \
+sleep 3 && \
+systemctl status zebvix.service --no-pager -l | head -25
+● zebvix.service - Zebvix L1 Blockchain Node
+     Loaded: loaded (/etc/systemd/system/zebvix.service; enabled; preset: enabled)
+     Active: active (running) since Sat 2026-04-25 04:52:15 UTC; 3s ago
+   Main PID: 134598 (zebvix-node)
+      Tasks: 7 (limit: 9483)
+     Memory: 6.1M (peak: 11.2M)
+        CPU: 180ms
+     CGroup: /system.slice/zebvix.service
+             └─134598 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333 --no-mdns
+
+Apr 25 04:52:15 srv1266996.hstgr.cloud zebvix-node[134598]: 2026-04-25T04:52:15.888865Z  INFO zebvix_node: 🚀 Zebvix node starting
+Apr 25 04:52:15 srv1266996.hstgr.cloud zebvix-node[134598]: 2026-04-25T04:52:15.888918Z  INFO zebvix_node:    chain_id  : 7878
+Apr 25 04:52:15 srv1266996.hstgr.cloud zebvix-node[134598]: 2026-04-25T04:52:15.888922Z  INFO zebvix_node:    proposer  : 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315
+Apr 25 04:52:15 srv1266996.hstgr.cloud zebvix-node[134598]: 2026-04-25T04:52:15.888966Z  INFO zebvix_node:    tip       : height=12141 hash=0x9cc24fef54d5cade7a8ec3275f2c5019c1ef3c26e1d199c1fbbd24202767b45c
+Apr 25 04:52:15 srv1266996.hstgr.cloud zebvix-node[134598]: 2026-04-25T04:52:15.888973Z  INFO zebvix_node:    rpc       : http://0.0.0.0:8545
+Apr 25 04:52:15 srv1266996.hstgr.cloud zebvix-node[134598]: 2026-04-25T04:52:15.889441Z  INFO zebvix_node:    p2p       : tcp/30333  peer_id=12D3KooWLQsCjD4j7nQFRiBSyb7BLMmUeGGW2e4NiYMZ2Eq4TGGW
+Apr 25 04:52:15 srv1266996.hstgr.cloud zebvix-node[134598]: 2026-04-25T04:52:15.889452Z  INFO zebvix_node:    mdns      : DISABLED (--no-mdns)
+Apr 25 04:52:15 srv1266996.hstgr.cloud zebvix-node[134598]: 2026-04-25T04:52:15.889675Z  INFO zebvix_node::consensus: ⛏  producer started: my_address=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315, mode=ROUND_ROBIN+TIMEOUTS (B.3.2.2) pacing=5s propose_timeout=8s tick=500ms
+Apr 25 04:52:15 srv1266996.hstgr.cloud zebvix-node[134598]: 2026-04-25T04:52:15.890564Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWLQsCjD4j7nQFRiBSyb7BLMmUeGGW2e4NiYMZ2Eq4TGGW
+Apr 25 04:52:15 srv1266996.hstgr.cloud zebvix-node[134598]: 2026-04-25T04:52:15.890597Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/93.127.213.192/tcp/30333/p2p/12D3KooWLQsCjD4j7nQFRiBSyb7BLMmUeGGW2e4NiYMZ2Eq4TGGW
+root@srv1266996:/home/zebvix-chain# 
