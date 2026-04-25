@@ -7,7 +7,10 @@ import {
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EVM Explorer — Phase C.2 native eth_* RPC playground
+// EVM Explorer — Phase C.2 native zbx_* + eth_* RPC playground
+// Native zbx_* methods are always available; eth_*/net_*/web3_* only when the
+// node binary is built with --features evm. UI prefers zbx_* labels for the
+// always-on path and falls back to eth_* labels for EVM-only methods.
 // ─────────────────────────────────────────────────────────────────────────────
 export default function EvmExplorer() {
   const [seed, setSeed] = useState<string>("");
@@ -59,7 +62,9 @@ function Header() {
             <Cpu className="h-8 w-8 text-violet-400" /> EVM Explorer
           </h1>
           <p className="text-sm text-muted-foreground max-w-2xl">
-            Native EVM JSON-RPC ka playground. <span className="font-mono text-foreground">eth_*</span>, <span className="font-mono text-foreground">net_*</span> aur <span className="font-mono text-foreground">web3_*</span> methods directly Zebvix L1 par execute hote hain — koi proxy emulation nahi.
+            Native Zebvix RPC playground. <span className="font-mono text-foreground">zbx_*</span> methods (always-on)
+            aur <span className="font-mono text-foreground">eth_*</span>/<span className="font-mono text-foreground">net_*</span>/<span className="font-mono text-foreground">web3_*</span> EVM-namespace
+            (gated behind <span className="font-mono text-foreground">--features evm</span>) directly Zebvix L1 par execute hote hain — koi proxy emulation nahi.
           </p>
         </div>
       </div>
@@ -68,26 +73,45 @@ function Header() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Net status grid — eth_chainId, eth_blockNumber, eth_gasPrice, net_version
+// Net status grid — mix of always-on zbx_* and EVM-gated eth_*/net_*/web3_*
+// `zbx_blockNumber` returns an object {height, hex, hash, timestamp_ms,
+// proposer} per rpc.rs:125-139, so we read `.height` (number) for display
+// and reconstruct a hex view-string. The accept-string branch is defensive
+// only (in case a future schema change returns a bare hex string), but the
+// canonical response is the object form. Other tiles (gasPrice /
+// clientVersion / syncing) require --features evm and gracefully render
+// "—" when unavailable.
 // ─────────────────────────────────────────────────────────────────────────────
 function NetStatusGrid() {
   const [data, setData] = useState<{
-    chainId: string | null; blockNumber: string | null; gasPrice: string | null;
+    chainId: string | null; blockHex: string | null; blockNum: bigint | null;
+    gasPrice: string | null;
     netVersion: string | null; clientVersion: string | null; syncing: any;
-  }>({ chainId: null, blockNumber: null, gasPrice: null, netVersion: null, clientVersion: null, syncing: null });
+  }>({ chainId: null, blockHex: null, blockNum: null, gasPrice: null, netVersion: null, clientVersion: null, syncing: null });
 
   useEffect(() => {
     let mounted = true;
     async function tick() {
-      const [cid, bn, gp, nv, cv, syn] = await Promise.all([
+      const [cid, zbn, gp, nv, cv, syn] = await Promise.all([
         rpc<string>("eth_chainId").catch(() => null),
-        rpc<string>("eth_blockNumber").catch(() => null),
+        rpc<any>("zbx_blockNumber").catch(() => null),
         rpc<string>("eth_gasPrice").catch(() => null),
         rpc<string>("net_version").catch(() => null),
         rpc<string>("web3_clientVersion").catch(() => null),
         rpc<any>("eth_syncing").catch(() => null),
       ]);
-      if (mounted) setData({ chainId: cid, blockNumber: bn, gasPrice: gp, netVersion: nv, clientVersion: cv, syncing: syn });
+      // zbx_blockNumber returns {height: number, hex: string, ...} per rpc.rs
+      let blockHex: string | null = null;
+      let blockNum: bigint | null = null;
+      if (zbn && typeof zbn === "object") {
+        if (typeof zbn.height === "number") blockNum = BigInt(zbn.height);
+        if (typeof zbn.hex === "string") blockHex = zbn.hex;
+        else if (blockNum !== null) blockHex = `0x${blockNum.toString(16)}`;
+      } else if (typeof zbn === "string") {
+        blockHex = zbn;
+        blockNum = hexToBigInt(zbn);
+      }
+      if (mounted) setData({ chainId: cid, blockHex, blockNum, gasPrice: gp, netVersion: nv, clientVersion: cv, syncing: syn });
     }
     tick();
     const t = window.setInterval(tick, 4000);
@@ -95,11 +119,10 @@ function NetStatusGrid() {
   }, []);
 
   const cidNum = hexToNum(data.chainId);
-  const bnNum = hexToBigInt(data.blockNumber);
   const gpNum = hexToBigInt(data.gasPrice);
   const cells = [
     { label: "eth_chainId", value: data.chainId, sub: cidNum !== null ? `${cidNum}` : "" },
-    { label: "eth_blockNumber", value: data.blockNumber, sub: bnNum !== null ? `#${bnNum.toLocaleString()}` : "" },
+    { label: "zbx_blockNumber", value: data.blockHex, sub: data.blockNum !== null ? `#${data.blockNum.toLocaleString()}` : "" },
     { label: "eth_gasPrice", value: data.gasPrice, sub: gpNum !== null ? `${gpNum.toString()} wei` : "" },
     { label: "net_version", value: data.netVersion, sub: data.netVersion ? "decimal" : "" },
     { label: "web3_clientVersion", value: data.clientVersion, sub: "" },
@@ -125,7 +148,9 @@ function NetStatusGrid() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Balance Tool — eth_getBalance
+// Balance Tool — zbx_getBalance (always-on alias of eth_getBalance per
+// rpc.rs:141 — same handler, both names share the match arm so the call
+// works on every Zebvix node regardless of --features evm).
 // ─────────────────────────────────────────────────────────────────────────────
 function BalanceTool() {
   const [addr, setAddr] = useState("");
@@ -137,14 +162,14 @@ function BalanceTool() {
     if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) { setErr("Invalid address (need 0x + 40 hex)"); return; }
     setLoading(true); setErr(null); setBalance(null);
     try {
-      const b = await rpc<string>("eth_getBalance", [addr.toLowerCase(), "latest"]);
+      const b = await rpc<string>("zbx_getBalance", [addr.toLowerCase(), "latest"]);
       setBalance(b);
     } catch (e: any) { setErr(e?.message ?? String(e)); }
     finally { setLoading(false); }
   }
 
   return (
-    <ToolCard title="eth_getBalance" icon={Wallet} accent="emerald">
+    <ToolCard title="zbx_getBalance" icon={Wallet} accent="emerald">
       <div className="space-y-2">
         <input value={addr} onChange={(e) => setAddr(e.target.value)} placeholder="0x… (20-byte EVM address)"
           className="w-full px-3 py-2 text-xs font-mono rounded-md bg-background border border-border focus:border-primary outline-none" />
@@ -166,31 +191,44 @@ function BalanceTool() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Nonce + Code Tool — eth_getTransactionCount + eth_getCode
+// Nonce + Code Tool — zbx_getNonce (always-on) + eth_getCode (EVM-gated)
+// `zbx_getNonce` returns u64 number (NOT hex) per rpc.rs:148-153, so we
+// accept the raw number and format it. `eth_getCode` only works when the
+// node is built with --features evm — we wrap with .catch() so a missing
+// EVM feature doesn't blow up the whole inspect (we still show nonce +
+// "EOA (EVM disabled)" hint instead of an error toast).
 // ─────────────────────────────────────────────────────────────────────────────
 function NonceCodeTool() {
   const [addr, setAddr] = useState("");
-  const [nonce, setNonce] = useState<string | null>(null);
+  const [nonce, setNonce] = useState<number | null>(null);
   const [code, setCode] = useState<string | null>(null);
+  const [evmDisabled, setEvmDisabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   async function lookup() {
     if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) { setErr("Invalid address"); return; }
-    setLoading(true); setErr(null); setNonce(null); setCode(null);
+    setLoading(true); setErr(null); setNonce(null); setCode(null); setEvmDisabled(false);
     try {
       const [n, c] = await Promise.all([
-        rpc<string>("eth_getTransactionCount", [addr.toLowerCase(), "latest"]),
-        rpc<string>("eth_getCode", [addr.toLowerCase(), "latest"]),
+        rpc<unknown>("zbx_getNonce", [addr.toLowerCase()]),
+        rpc<string>("eth_getCode", [addr.toLowerCase(), "latest"]).catch((e: any) => {
+          if (typeof e?.message === "string" && /method not found/i.test(e.message)) {
+            return "__EVM_DISABLED__";
+          }
+          throw e;
+        }),
       ]);
-      setNonce(n); setCode(c);
+      setNonce(parseNonceLocal(n));
+      if (c === "__EVM_DISABLED__") { setEvmDisabled(true); setCode(null); }
+      else setCode(c);
     } catch (e: any) { setErr(e?.message ?? String(e)); }
     finally { setLoading(false); }
   }
 
-  const isContract = code && code !== "0x" && code !== "0x0";
+  const isContract = !!code && code !== "0x" && code !== "0x0";
   return (
-    <ToolCard title="eth_getTransactionCount + eth_getCode" icon={Code2} accent="violet">
+    <ToolCard title="zbx_getNonce + eth_getCode" icon={Code2} accent="violet">
       <div className="space-y-2">
         <input value={addr} onChange={(e) => setAddr(e.target.value)} placeholder="0x… (account or contract)"
           className="w-full px-3 py-2 text-xs font-mono rounded-md bg-background border border-border focus:border-primary outline-none" />
@@ -199,10 +237,12 @@ function NonceCodeTool() {
           <Search className="h-3.5 w-3.5" /> {loading ? "fetching…" : "Inspect account"}
         </button>
         {err && <ErrorBox msg={err} />}
-        {(nonce || code) && (
+        {(nonce !== null || code !== null || evmDisabled) && (
           <div className="space-y-1 pt-2 text-xs">
-            {nonce && <Kv label="nonce" value={`${fmtBig(nonce)} (${nonce})`} mono />}
-            {code && (
+            {nonce !== null && <Kv label="nonce" value={`${nonce.toLocaleString()}`} mono />}
+            {evmDisabled ? (
+              <Kv label="account type" value="EOA · code-check unavailable (EVM disabled on this node)" highlight color="amber" />
+            ) : code !== null && (
               <>
                 <Kv label="account type" value={isContract ? "CONTRACT" : "EOA"}
                   highlight color={isContract ? "violet" : "emerald"} />
@@ -220,6 +260,19 @@ function NonceCodeTool() {
       </div>
     </ToolCard>
   );
+}
+
+// Parse `zbx_getNonce` response — accepts u64 number, decimal string, or
+// hex string for forward-compat with EVM-bridged nonces. Mirrors the same
+// helper on the Balance Lookup page so both pages stay schema-tolerant.
+function parseNonceLocal(v: unknown): number {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string") {
+    const s = v.trim();
+    if (/^0x[0-9a-fA-F]+$/.test(s)) return parseInt(s, 16);
+    if (/^\d+$/.test(s)) return parseInt(s, 10);
+  }
+  return 0;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -369,13 +422,27 @@ function RawDispatcher() {
     finally { setLoading(false); }
   }
 
+  // Presets are split into two groups: always-on zbx_* native methods (work
+  // on every Zebvix node regardless of build flags) and EVM-namespace eth_*/
+  // net_*/web3_* methods (only respond when the node is built with
+  // --features evm). The zbx_* set is shown first so users hit working
+  // examples by default.
   const presets = [
-    { label: "eth_blockNumber", method: "eth_blockNumber", params: "[]" },
+    // ── zbx_* always-on ──────────────────────────────────────────────────
+    { label: "zbx_blockNumber", method: "zbx_blockNumber", params: "[]" },
+    { label: "zbx_chainInfo", method: "zbx_chainInfo", params: "[]" },
+    { label: "zbx_supply", method: "zbx_supply", params: "[]" },
+    { label: "zbx_listValidators", method: "zbx_listValidators", params: "[]" },
+    { label: "zbx_getNonce(0x0)", method: "zbx_getNonce", params: '["0x0000000000000000000000000000000000000000"]' },
+    { label: "zbx_getBalance(0x0)", method: "zbx_getBalance", params: '["0x0000000000000000000000000000000000000000","latest"]' },
+    { label: "zbx_getBlockByNumber(0)", method: "zbx_getBlockByNumber", params: "[0]" },
+    { label: "zbx_recentTxs(50)", method: "zbx_recentTxs", params: "[50]" },
+    // ── eth_*/net_*/web3_* EVM-gated ─────────────────────────────────────
     { label: "eth_chainId", method: "eth_chainId", params: "[]" },
-    { label: "eth_gasPrice", method: "eth_gasPrice", params: "[]" },
     { label: "net_version", method: "net_version", params: "[]" },
+    { label: "eth_blockNumber", method: "eth_blockNumber", params: "[]" },
+    { label: "eth_gasPrice", method: "eth_gasPrice", params: "[]" },
     { label: "web3_clientVersion", method: "web3_clientVersion", params: "[]" },
-    { label: "eth_getBalance(0x0)", method: "eth_getBalance", params: '["0x0000000000000000000000000000000000000000","latest"]' },
     { label: "eth_getBlockByNumber(latest)", method: "eth_getBlockByNumber", params: '["latest", false]' },
   ];
 
@@ -687,15 +754,22 @@ function AddressResult({ addr, onCrossLink }: { addr: string; onCrossLink: (v: s
     setData({ balance: null, nonce: null, code: null, zusd: null, lp: null, err: null, loading: true });
     (async () => {
       try {
+        // All four primary calls use the always-on zbx_* / aliased-zbx
+        // namespace: zbx_getBalance is a same-handler alias of eth_getBalance
+        // (rpc.rs:141), and zbx_getNonce is the native nonce accessor
+        // (rpc.rs:148). eth_getCode requires --features evm so we wrap
+        // with .catch(() => null) and let the UI render "EOA" gracefully
+        // when the chain doesn't expose code-checking.
         const [bal, non, c, zu, lp] = await Promise.all([
-          rpc<string>("eth_getBalance", [addr, "latest"]).catch((e) => { throw e; }),
-          rpc<string>("eth_getTransactionCount", [addr, "latest"]),
-          rpc<string>("eth_getCode", [addr, "latest"]),
+          rpc<string>("zbx_getBalance", [addr, "latest"]).catch((e) => { throw e; }),
+          rpc<unknown>("zbx_getNonce", [addr]).catch(() => 0),
+          rpc<string>("eth_getCode", [addr, "latest"]).catch(() => null),
           rpc<any>("zbx_getZusdBalance", [addr]).catch(() => null),
           rpc<any>("zbx_getLpBalance", [addr]).catch(() => null),
         ]);
         if (!mounted) return;
-        setData({ balance: bal, nonce: non, code: c, zusd: zu, lp, err: null, loading: false });
+        const nonceNum = parseNonceLocal(non);
+        setData({ balance: bal, nonce: String(nonceNum), code: c, zusd: zu, lp, err: null, loading: false });
       } catch (e: any) {
         if (mounted) setData((d) => ({ ...d, err: e?.message ?? String(e), loading: false }));
       }
@@ -703,7 +777,7 @@ function AddressResult({ addr, onCrossLink }: { addr: string; onCrossLink: (v: s
     return () => { mounted = false; };
   }, [addr]);
 
-  const isContract = data.code && data.code !== "0x" && data.code !== "0x0";
+  const isContract = !!data.code && data.code !== "0x" && data.code !== "0x0";
   const codeBytes = data.code && data.code !== "0x" ? (data.code.length - 2) / 2 : 0;
   const zusdAny: any = data.zusd;
   const lpAny: any = data.lp;
@@ -716,7 +790,8 @@ function AddressResult({ addr, onCrossLink }: { addr: string; onCrossLink: (v: s
         <Wallet className="h-4 w-4 text-emerald-400" />
         <span className="text-sm font-bold">Account</span>
         {isContract && <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-violet-500/40 bg-violet-500/10 text-violet-300">CONTRACT</span>}
-        {!data.loading && !isContract && <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-emerald-500/40 bg-emerald-500/10 text-emerald-300">EOA</span>}
+        {!data.loading && !isContract && data.code !== null && <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-emerald-500/40 bg-emerald-500/10 text-emerald-300">EOA</span>}
+        {!data.loading && data.code === null && <span title="eth_getCode unavailable — node likely built without --features evm" className="px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-amber-500/40 bg-amber-500/10 text-amber-300">ACCOUNT · code-check off</span>}
         <code className="ml-auto text-[11px] font-mono text-muted-foreground break-all">{addr}</code>
       </div>
       <div className="p-4 space-y-3">
