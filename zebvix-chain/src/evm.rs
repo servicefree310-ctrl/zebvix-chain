@@ -1,7 +1,7 @@
 //! # Zebvix EVM Layer — Phase C
 //!
-//! Production-grade EVM (Ethereum Virtual Machine) execution layer for the
-//! Zebvix L1 chain. Activated by the `evm` cargo feature; without it the
+//! Production-grade Zebvix EVM execution layer (Cancun-fork compatible) for
+//! the Zebvix L1 chain. Activated by the `evm` cargo feature; without it the
 //! chain compiles unchanged so existing operators are not forced to rebuild
 //! until they want to enable EVM.
 //!
@@ -46,7 +46,7 @@
 //! coinbase, EIP-3529 reduced refunds.
 //!
 //! ## Gas model
-//! Per-opcode gas matches mainnet Ethereum so security tools (Slither,
+//! Per-opcode gas matches the EVM Cancun specification so security tools (Slither,
 //! Mythril, Manticore) remain valid. Block gas limit defaults to
 //! `30_000_000` and is governance-mutable via `TxKind::GovernorChange`.
 //! Per-tx refund capped at `gas_used / 5` (EIP-3529).
@@ -188,7 +188,7 @@ impl EvmTxEnvelope {
 
 /// EVM account record. Stored in `CF_EVM` keyed by 20-byte address.
 ///
-/// Compatible with Ethereum's `(nonce, balance, storage_root, code_hash)`
+/// Compatible with the standard EVM `(nonce, balance, storage_root, code_hash)`
 /// tuple so MPT proofs remain interoperable with archive-node clients.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EvmAccount {
@@ -482,7 +482,7 @@ pub fn execute<D: EvmDb>(
     };
 
     // Always commit the caller's nonce/balance change even on revert
-    // (canonical Ethereum semantics: revert refunds value but not nonce).
+    // (canonical EVM semantics: revert refunds value but not nonce).
     if !exec_result.success {
         // Refund value on failed call/create.
         caller_acct.balance = caller_acct.balance.saturating_add(tx.value());

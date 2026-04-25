@@ -5,7 +5,7 @@
 //! these handlers, returning gas-metered output without ever entering
 //! bytecode interpretation.
 //!
-//! ## Standard Ethereum precompiles (0x01–0x09)
+//! ## Standard EVM precompiles (0x01–0x09)
 //! - `0x01` ECRECOVER  — secp256k1 sig recovery (used by `EIP-712`, ERC-2612)
 //! - `0x02` SHA256
 //! - `0x03` RIPEMD160  — stub returns zero, see notes below
@@ -162,7 +162,7 @@ pub fn ecrecover(input: &[u8], gas_limit: u64) -> PrecompileOutput {
         Err(_) => return PrecompileOutput::ok(G_ECRECOVER, vec![]),
     };
 
-    // Ethereum address = keccak256(uncompressed_pubkey[1..])[12..]
+    // EVM address = keccak256(uncompressed_pubkey[1..])[12..]
     let pk_bytes = vk.to_encoded_point(false);
     let pk_bytes = pk_bytes.as_bytes();
     let h = keccak256(&pk_bytes[1..]);

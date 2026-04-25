@@ -34,7 +34,7 @@ pub const BLOCK_TIME_SECS: u64 = 5;
 /// Chain ID for Zebvix mainnet.
 pub const CHAIN_ID: u64 = 7878;
 
-/// Gas units required for a standard ZBX transfer (Ethereum-compatible).
+/// Gas units required for a standard ZBX transfer (EVM-standard).
 pub const MIN_GAS_UNITS: u64 = 21_000;
 
 /// Minimum gas price in wei = 50 gwei (1 gwei = 10^9 wei).
@@ -94,9 +94,9 @@ pub const BOOTSTRAP_MAX_FEE_WEI: u128 =
 pub const ADMIN_ADDRESS_HEX: &str = "0x40907000ac0a1a73e4cd89889b4d7ee8980c0315";
 
 /// **Phase B.11** — Founder's compressed secp256k1 public key (33 bytes, hex).
-/// Address derivation matches Ethereum: the same private key in MetaMask
+/// Address derivation follows the EVM standard: the same private key in MetaMask
 /// gives the same 20-byte address on Zebvix. This is the pubkey whose
-/// ETH-derived address equals `ADMIN_ADDRESS_HEX`. Used by `cmd_init` to seed
+/// EVM-derived address equals `ADMIN_ADDRESS_HEX`. Used by `cmd_init` to seed
 /// the genesis validator set deterministically — every node, regardless of its
 /// local `--validator-key`, starts with exactly this one validator at genesis.
 /// Post-genesis additions go through `validator-add` txs (B.3.1).

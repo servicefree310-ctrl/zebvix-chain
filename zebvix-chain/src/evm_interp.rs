@@ -12,7 +12,7 @@
 //!
 //! ## Gas accounting
 //! Each opcode debits its constant cost from `self.gas` and aborts execution
-//! when `self.gas < cost`. Memory expansion uses Ethereum's quadratic
+//! when `self.gas < cost`. Memory expansion uses the EVM's quadratic
 //! formula (`Gmem * a + a²/512` where `a = words`).
 //!
 //! ## Reverts

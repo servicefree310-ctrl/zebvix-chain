@@ -4,9 +4,10 @@
 //!   * `zbx_*` — Zebvix-native, ALWAYS-ON (compiled into every node, no
 //!     feature flag required). This is the production / canonical surface
 //!     mobile/light/dashboard clients should use.
-//!   * `eth_*` / `net_*` / `web3_*` — Ethereum-compatible aliases. The
-//!     ones listed below are mirrored by `rpc.rs` itself (always-on);
-//!     anything else in the EVM namespace (eth_call, eth_estimateGas,
+//!   * `eth_*` / `net_*` / `web3_*` — EVM wire-protocol aliases (the names
+//!     every wallet/library speaks). The ones listed below are mirrored by
+//!     `rpc.rs` itself (always-on); anything else in the EVM namespace
+//!     (eth_call, eth_estimateGas,
 //!     eth_sendRawTransaction, eth_getCode, eth_getStorageAt,
 //!     eth_getTransactionReceipt, eth_getLogs, eth_gasPrice,
 //!     web3_clientVersion, eth_syncing …) is gated behind the
@@ -15,7 +16,7 @@
 //!   Always-on dual-name methods (no `--features evm` needed):
 //!   - eth_chainId      | zbx_chainId       -> "0x1ec6"  (7878)
 //!   - net_version      | zbx_netVersion    -> "7878"
-//!   - eth_blockNumber                       -> "0x..."   (Ethereum hex tip)
+//!   - eth_blockNumber                       -> "0x..."   (EVM hex tip)
 //!   - zbx_blockNumber                       -> { height, hex, hash,
 //!                                                 timestamp_ms, proposer }
 //!   - eth_getBalance   | zbx_getBalance    -> "0x..." (wei, native ledger)
@@ -1357,7 +1358,7 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
             // the SAME handler as its `eth_*` / `web3_*` partner inside
             // `evm_rpc::dispatch`, so dashboards and CLIs that prefer the
             // Zebvix-native namespace get identical results without ever
-            // touching the Ethereum-flavoured method names. These aliases
+            // touching the EVM wire-protocol method names. These aliases
             // require `--features evm`; without it, the dispatcher returns
             // `method not found` just like the eth_* originals.
             #[cfg(feature = "evm")]

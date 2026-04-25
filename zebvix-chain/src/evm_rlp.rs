@@ -1,5 +1,5 @@
-//! Phase C.2 — Recursive Length Prefix (RLP) decoder + Ethereum
-//! transaction body parsers.
+//! Phase C.2 — Recursive Length Prefix (RLP) decoder + EVM transaction
+//! body parsers (used by the Zebvix EVM signed-tx ingestion path).
 //!
 //! ## Why this module exists
 //!
@@ -26,7 +26,7 @@
 //! triple, prefixed by the type byte for typed envelopes. We hash that
 //! with keccak-256 and pass it to k256::ecdsa::VerifyingKey::recover_from_prehash
 //! along with (r, s, recovery_id) to derive the public key, then the
-//! Ethereum address is the lower 20 bytes of keccak(uncompressed_pubkey[1..]).
+//! EVM address is the lower 20 bytes of keccak(uncompressed_pubkey[1..]).
 //!
 //! ## Tests
 //!
@@ -294,7 +294,7 @@ pub fn decode_raw_tx(
     }
 }
 
-/// Compute the canonical Ethereum tx hash.
+/// Compute the canonical EVM tx hash.
 pub fn tx_hash(raw: &[u8]) -> [u8; 32] {
     keccak256(raw)
 }

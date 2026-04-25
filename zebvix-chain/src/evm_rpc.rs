@@ -42,10 +42,10 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
-// Hex helpers (Ethereum's "quantity" + "data" encoding rules)
+// Hex helpers (JSON-RPC "quantity" + "data" encoding rules used by the Zebvix EVM)
 // ---------------------------------------------------------------------------
 
-/// Encode a `U256` as `0x`-prefixed hex without leading zeros (Ethereum
+/// Encode a `U256` as `0x`-prefixed hex without leading zeros (JSON-RPC
 /// "quantity" type). Zero is `"0x0"`.
 pub fn quantity(v: U256) -> String {
     if v.is_zero() { return "0x0".to_string(); }
@@ -64,7 +64,7 @@ pub fn quantity_u64(v: u64) -> String {
     if v == 0 { "0x0".to_string() } else { format!("0x{:x}", v) }
 }
 
-/// Encode bytes as `0x`-prefixed hex (Ethereum "data" type).
+/// Encode bytes as `0x`-prefixed hex (JSON-RPC "data" type).
 pub fn data_hex(bytes: &[u8]) -> String {
     format!("0x{}", hex::encode(bytes))
 }
@@ -262,7 +262,7 @@ pub fn dispatch(ctx: &EvmRpcCtx, method: &str, params: &[Value]) -> Result<Value
             }
 
             // Surface execution failure to the wallet, but still return the
-            // canonical Ethereum tx hash so the wallet can poll for receipt.
+            // canonical EVM tx hash so the wallet can poll for receipt.
             let _ = result; // receipt store will pick this up in C.3
             let hash = crate::evm::keccak256(&raw);
             Ok(json!(format!("0x{}", hex::encode(hash))))
@@ -321,7 +321,7 @@ pub fn dispatch(ctx: &EvmRpcCtx, method: &str, params: &[Value]) -> Result<Value
             }))
         }
 
-        _ => Err(format!("unsupported eth method: {method}")),
+        _ => Err(format!("unsupported EVM method: {method}")),
     }
 }
 

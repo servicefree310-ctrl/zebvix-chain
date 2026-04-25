@@ -275,7 +275,7 @@ pub struct SignedTx {
     pub body: TxBody,
     /// **Phase B.11** — compressed secp256k1 public key of the sender
     /// (33 bytes, SEC1 `0x02|0x03 || X`). The 20-byte address is derived as
-    /// `keccak256(uncompressed_pubkey[1..])[12..]` — same as Ethereum.
+    /// `keccak256(uncompressed_pubkey[1..])[12..]` — EVM-standard derivation.
     #[serde(with = "crate::types::hex_array_33")]
     pub pubkey: [u8; 33],
     /// ECDSA-secp256k1 compact signature (64 bytes, `r || s`) over

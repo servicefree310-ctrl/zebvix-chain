@@ -2,14 +2,14 @@
 //!
 //! Zebvix used Ed25519 through B.10 with a Keccak256-of-32-byte-pubkey address
 //! derivation. That gave EVM-shaped addresses but the keys themselves were not
-//! interoperable with Ethereum: a single 32-byte secret interpreted as Ed25519
-//! vs. secp256k1 produces totally different pubkeys, so the same MetaMask
-//! private key gave different addresses on ETH and ZBX.
+//! interoperable with the EVM standard: a single 32-byte secret interpreted as
+//! Ed25519 vs. secp256k1 produces totally different pubkeys, so the same
+//! MetaMask private key gave different addresses on any EVM chain vs. ZBX.
 //!
-//! This module is the secp256k1 cutover: one ETH private key now derives the
-//! **same 20-byte address** on both Ethereum and ZBX.
+//! This module is the secp256k1 cutover: one EVM private key now derives the
+//! **same 20-byte address** on any EVM-compatible chain and on ZBX.
 //!
-//! ## Address derivation (ETH-standard)
+//! ## Address derivation (EVM-standard)
 //!
 //! ```text
 //! addr = keccak256( uncompressed_pubkey[1..] )[12..]
@@ -187,7 +187,7 @@ mod tests {
         let tx = sign_tx(&sk, body);
         assert!(verify_tx(&tx));
     }
-    /// ETH compat: a known secret derives the canonical Ethereum address.
+    /// EVM compat: a known secret derives the canonical EVM address.
     /// Test vector from go-ethereum docs:
     ///   sk = 4646464646464646464646464646464646464646464646464646464646464646
     ///   addr = 0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f
