@@ -1648,19 +1648,22 @@ impl State {
                         "token-create: symbol '{}' already taken", symbol
                     ));
                 }
-                // Anti-spam burn — must be on top of the fee already debited.
+                // Anti-spam burn — only applied if TOKEN_CREATION_BURN_WEI > 0.
+                // Currently set to 0 (gas-only), so this block is a no-op.
                 let burn_wei = crate::tokenomics::TOKEN_CREATION_BURN_WEI;
-                if from.balance < burn_wei {
-                    return refund(&mut from, format!(
-                        "token-create: insufficient balance for {} ZBX creation burn \
-                         (need {} wei more, after fee)",
-                        burn_wei / 1_000_000_000_000_000_000u128, burn_wei
-                    ));
+                if burn_wei > 0 {
+                    if from.balance < burn_wei {
+                        return refund(&mut from, format!(
+                            "token-create: insufficient balance for {} ZBX creation burn \
+                             (need {} wei more, after fee)",
+                            burn_wei / 1_000_000_000_000_000_000u128, burn_wei
+                        ));
+                    }
+                    from.balance -= burn_wei;
+                    let mut burn_acc = self.account(&burn_address());
+                    burn_acc.balance = burn_acc.balance.saturating_add(burn_wei);
+                    self.put_account(&burn_address(), &burn_acc)?;
                 }
-                from.balance -= burn_wei;
-                let mut burn_acc = self.account(&burn_address());
-                burn_acc.balance = burn_acc.balance.saturating_add(burn_wei);
-                self.put_account(&burn_address(), &burn_acc)?;
 
                 // Allocate id and persist token.
                 let id = self.token_count().saturating_add(1);

@@ -33,7 +33,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 const FEE_ZBX = "0.002";
-const TOTAL_COST_ZBX = "100.002"; // 100 burn + standard fee
+const TOTAL_COST_ZBX = "0.002"; // gas-only (no burn)
 const REFRESH_MS = 20_000;
 
 type SymbolStatus =
@@ -173,8 +173,11 @@ export default function TokenCreatePage() {
     }
   }, [balanceZbx]);
 
+  // Need a small gas buffer (~0.01 ZBX) above the standard 0.002 fee so
+  // intermittent fee bumps don't cause an avoidable rejection.
   const insufficient =
-    balanceWei !== null && balanceWei < TOKEN_CREATION_BURN_WEI + 2_000_000_000_000_000n;
+    balanceWei !== null &&
+    balanceWei < TOKEN_CREATION_BURN_WEI + 10_000_000_000_000_000n;
 
   const inFlight =
     status.kind === "submitting" || status.kind === "broadcast";
@@ -317,9 +320,10 @@ export default function TokenCreatePage() {
           </h1>
           <p className="text-sm text-muted-foreground max-w-2xl">
             Bhai, koi bhi user permissionless apna fungible token chain par
-            launch kar sakta hai. One-time 100 ZBX burn + standard fee. Symbol
-            globally unique hota hai (case-insensitive). Mint authority sirf
-            creator ke paas rehti hai — kabhi transfer / freeze nahi ho sakti.
+            launch kar sakta hai. Sirf standard gas fee lagti hai — koi extra
+            burn nahi. Symbol globally unique hota hai (case-insensitive).
+            Mint authority sirf creator ke paas rehti hai — kabhi transfer /
+            freeze nahi ho sakti.
           </p>
         </div>
       </header>
@@ -419,7 +423,7 @@ export default function TokenCreatePage() {
             <span className="text-foreground font-semibold tabular-nums">
               {TOTAL_COST_ZBX} ZBX
             </span>{" "}
-            (100 ZBX burned + {feeZbx} ZBX fee)
+            (gas only — no burn)
           </div>
           <div className="flex gap-2">
             <Button variant="ghost" onClick={reset} disabled={inFlight}>
@@ -463,8 +467,8 @@ export default function TokenCreatePage() {
 function CostPanel() {
   return (
     <div className="grid md:grid-cols-3 gap-3">
-      <StatCard icon={Flame} label="Creation Burn" value="100 ZBX" sub="permanent burn → burn address" />
-      <StatCard icon={Coins} label="Network Fee" value={`${FEE_ZBX} ZBX`} sub="standard tx fee" />
+      <StatCard icon={Coins} label="Network Fee" value={`${FEE_ZBX} ZBX`} sub="standard gas fee only" />
+      <StatCard icon={Flame} label="Creation Burn" value="None" sub="zero extra burn — gas-only" />
       <StatCard icon={CheckCircle2} label="Permissionless" value="Anyone" sub="no admin / governor gate" />
     </div>
   );
@@ -500,8 +504,8 @@ function NoWalletNotice() {
       <div>
         <div className="font-semibold">No wallet connected</div>
         <div className="text-muted-foreground text-xs mt-0.5">
-          Bhai, top-right wallet picker se wallet add karo (kam se kam ~100.01
-          ZBX hona chahiye token launch karne ke liye).
+          Bhai, top-right wallet picker se wallet add karo (sirf ~0.01 ZBX
+          gas hona chahiye token launch karne ke liye).
         </div>
       </div>
     </div>
@@ -543,7 +547,7 @@ function WalletPanel({
         {insufficient && (
           <div className="text-[11px] text-destructive mt-0.5 flex items-center gap-1 justify-end">
             <AlertTriangle className="h-3 w-3" />
-            Need ~100.002 ZBX
+            Need ~0.01 ZBX gas
           </div>
         )}
       </div>

@@ -49,13 +49,12 @@ pub const MIN_TX_FEE_WEI: u128 = MIN_GAS_UNITS as u128 * MIN_GAS_PRICE_WEI;
 /// Future versions will compute by actual gas usage (EVM ops).
 pub const STANDARD_TX_FEE_WEI: u128 = MIN_TX_FEE_WEI;
 
-/// Anti-spam burn for `TxKind::TokenCreate` — 100 ZBX is permanently
-/// destroyed (sent to the burn address) on every successful token
-/// creation, ON TOP of the standard tx fee. Without this, an attacker
-/// could spam thousands of trash tokens at near-zero cost and bloat
-/// state. The burn applies AFTER the symbol-uniqueness check so a
-/// rejected creation only costs the standard tx fee.
-pub const TOKEN_CREATION_BURN_WEI: u128 = 100u128 * 1_000_000_000_000_000_000u128;
+/// Anti-spam burn for `TxKind::TokenCreate`.
+///
+/// Currently set to **0** — token creation costs only the standard tx
+/// fee (gas), no extra burn. Set to a non-zero wei amount to re-enable
+/// the burn (the handler in `state.rs` is a no-op when this is 0).
+pub const TOKEN_CREATION_BURN_WEI: u128 = 0;
 
 /// Maximum length of a user-created token's display name.
 pub const TOKEN_NAME_MAX_LEN: usize = 50;

@@ -395,5 +395,6 @@ export const TOKEN_NAME_MAX_LEN = 50;
 export const TOKEN_SYMBOL_MIN_LEN = 2;
 export const TOKEN_SYMBOL_MAX_LEN = 10;
 export const TOKEN_MAX_DECIMALS = 18;
-/** 100 ZBX one-time burn paid on every successful TokenCreate. */
-export const TOKEN_CREATION_BURN_WEI = 100n * 10n ** 18n;
+/** Anti-spam burn for TokenCreate. Currently 0 — gas-only. Mirrors
+ *  `tokenomics::TOKEN_CREATION_BURN_WEI` on the chain. */
+export const TOKEN_CREATION_BURN_WEI = 0n;
