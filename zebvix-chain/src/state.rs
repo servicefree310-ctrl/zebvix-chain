@@ -100,6 +100,16 @@ const META_TOKEN_POOL_COUNT: &[u8] = b"tpool_count";
 const META_TOKEN_POOL_PREFIX: &[u8] = b"tpool/";
 const META_TOKEN_LP_PREFIX: &[u8] = b"tplp/";
 
+// ── Phase G — Token metadata (logo, website, description, socials) ──
+// Layout (under CF_META):
+//   tokm/<token_id_be8>          → bincode(crate::state::TokenMetadata)
+//
+// SECURITY: only the recorded token creator may write here (enforced in
+// apply_tx). Stored under a dedicated prefix so `TokenInfo` migration is
+// never required — adding metadata never touches the existing TokenInfo
+// schema. Absence of a record = no metadata set.
+const META_TOKEN_METADATA_PREFIX: &[u8] = b"tokm/";
+
 // ── Phase B.3.3 — slashing evidence log (non-consensus / informational) ──
 // Evidence is recorded out-of-band when a node detects a double-sign vote.
 // It is EXCLUDED from `compute_state_root` because evidence-detection timing
@@ -2042,6 +2052,65 @@ impl State {
                 }
                 return Ok(());
             }
+            // ─────────────────────────────────────────────────────────
+            // Phase G — set/update on-chain token metadata (creator-only).
+            // ─────────────────────────────────────────────────────────
+            crate::types::TxKind::TokenSetMetadata {
+                token_id, logo_url, website, description, twitter, telegram, discord,
+            } => {
+                let info = match self.get_token(*token_id) {
+                    Some(t) => t,
+                    None => return refund(&mut from, format!(
+                        "token-set-metadata: token id {} does not exist", token_id
+                    )),
+                };
+                if info.creator != tx.body.from {
+                    return refund(&mut from, format!(
+                        "token-set-metadata: only the token creator (creator={}) may update metadata; sender={}",
+                        info.creator, tx.body.from
+                    ));
+                }
+                if logo_url.len() > crate::tokenomics::TOKEN_META_LOGO_MAX_LEN {
+                    return refund(&mut from, format!(
+                        "token-set-metadata: logo_url length {} > max {}",
+                        logo_url.len(), crate::tokenomics::TOKEN_META_LOGO_MAX_LEN));
+                }
+                if website.len() > crate::tokenomics::TOKEN_META_WEBSITE_MAX_LEN {
+                    return refund(&mut from, format!(
+                        "token-set-metadata: website length {} > max {}",
+                        website.len(), crate::tokenomics::TOKEN_META_WEBSITE_MAX_LEN));
+                }
+                if description.len() > crate::tokenomics::TOKEN_META_DESCRIPTION_MAX_LEN {
+                    return refund(&mut from, format!(
+                        "token-set-metadata: description length {} > max {}",
+                        description.len(), crate::tokenomics::TOKEN_META_DESCRIPTION_MAX_LEN));
+                }
+                for (label, val) in [("twitter", twitter), ("telegram", telegram), ("discord", discord)] {
+                    if val.len() > crate::tokenomics::TOKEN_META_SOCIAL_MAX_LEN {
+                        return refund(&mut from, format!(
+                            "token-set-metadata: {} length {} > max {}",
+                            label, val.len(), crate::tokenomics::TOKEN_META_SOCIAL_MAX_LEN));
+                    }
+                }
+                let meta = TokenMetadata {
+                    token_id: *token_id,
+                    logo_url: logo_url.clone(),
+                    website: website.clone(),
+                    description: description.clone(),
+                    twitter: twitter.clone(),
+                    telegram: telegram.clone(),
+                    discord: discord.clone(),
+                    updated_at_height: self.tip().0.saturating_add(1),
+                };
+                self.put_token_metadata(&meta)?;
+                from.balance = from.balance.saturating_add(tx.body.amount);
+                self.put_account(&tx.body.from, &from)?;
+                tracing::info!(
+                    "🪙 token-set-metadata id={} logo_set={} website_set={} desc_len={} creator={}",
+                    token_id, !logo_url.is_empty(), !website.is_empty(), description.len(), tx.body.from,
+                );
+                return Ok(());
+            }
             crate::types::TxKind::Transfer => { /* fall through to legacy logic */ }
         }
 
@@ -2861,6 +2930,33 @@ impl State {
         }
         out
     }
+
+    // ────────────────────── Phase G — token metadata storage ──────────────────────
+
+    fn token_metadata_key(token_id: u64) -> Vec<u8> {
+        let mut k = META_TOKEN_METADATA_PREFIX.to_vec();
+        k.extend_from_slice(&token_id.to_be_bytes());
+        k
+    }
+
+    /// Look up the on-chain metadata for `token_id`. Returns `None` if no
+    /// metadata has been set yet. Wallets and explorers should treat
+    /// `None` and an all-empty-fields record identically (display nothing).
+    pub fn get_token_metadata(&self, token_id: u64) -> Option<TokenMetadata> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let raw = self.db.get_cf(cf, Self::token_metadata_key(token_id)).ok().flatten()?;
+        bincode::deserialize::<TokenMetadata>(&raw).ok()
+    }
+
+    fn put_token_metadata(&self, meta: &TokenMetadata) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.put_cf(
+            cf,
+            Self::token_metadata_key(meta.token_id),
+            bincode::serialize(meta)?,
+        )?;
+        Ok(())
+    }
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -2913,6 +3009,43 @@ struct TokenInfoV1 {
     decimals: u8,
     total_supply: u128,
     created_at_height: u64,
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Phase G — TokenMetadata persisted record (creator-set, optional)
+// ────────────────────────────────────────────────────────────────────
+//
+// Stored under META_TOKEN_METADATA_PREFIX (`tokm/<id_be8>`). Field order
+// is consensus-critical (bincode is positional); existing fields are
+// FROZEN. New fields may be appended at the END only.
+//
+// Empty string in any field == "unset / cleared". The chain enforces
+// length caps in `apply_tx`; explorers and wallets should hide an empty
+// field rather than show a blank line.
+
+/// Optional per-token metadata (logo, website, description, social
+/// handles). Written by `TxKind::TokenSetMetadata`; only the recorded
+/// `TokenInfo.creator` may submit. Absence of a record means no
+/// metadata has been set yet.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct TokenMetadata {
+    /// Mirrors `TokenInfo.id`. Stored inside the record for O(1)
+    /// round-trip JSON rendering.
+    pub token_id: u64,
+    /// Logo URL (https / ipfs / data: URI). Empty = unset.
+    pub logo_url: String,
+    /// Project / token website. Empty = unset.
+    pub website: String,
+    /// Free-form description (≤1024 chars). Empty = unset.
+    pub description: String,
+    /// Twitter handle (no leading @). Empty = unset.
+    pub twitter: String,
+    /// Telegram handle / invite slug. Empty = unset.
+    pub telegram: String,
+    /// Discord invite slug. Empty = unset.
+    pub discord: String,
+    /// Block height of the most recent metadata write (audit trail).
+    pub updated_at_height: u64,
 }
 
 impl State {

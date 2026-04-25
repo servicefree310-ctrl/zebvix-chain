@@ -242,6 +242,33 @@ pub enum TxKind {
         amount_in: u128,
         min_out: u128,
     },
+
+    // ─────────────────────────────────────────────────────────────────
+    // Phase G — Token metadata (logo, website, description, socials)
+    //
+    // **Variant order is consensus-critical.** Appended after Phase F.
+    // New tag:
+    //   TokenSetMetadata = 19
+    //
+    // Permission: only the token's recorded `creator` may submit. Any
+    // other sender is rejected (fee still consumed as anti-spam). Empty
+    // string in any field means "unset / clear" — explorers and wallets
+    // should hide an empty field rather than display a blank line.
+    // ─────────────────────────────────────────────────────────────────
+
+    /// Phase G — set or update on-chain metadata for an existing token.
+    /// `body.amount` is refunded; `body.fee` is paid. Length caps are
+    /// enforced by `state.rs::apply_tx`; over-length input is rejected.
+    /// Pass an empty string to clear an individual field.
+    TokenSetMetadata {
+        token_id: u64,
+        logo_url: String,
+        website: String,
+        description: String,
+        twitter: String,
+        telegram: String,
+        discord: String,
+    },
 }
 
 /// Phase B.10 — direction of an AMM [`TxKind::Swap`].
@@ -300,6 +327,7 @@ impl TxKind {
             TxKind::TokenPoolAddLiquidity { .. } => "token_pool_add_liquidity",
             TxKind::TokenPoolRemoveLiquidity { .. } => "token_pool_remove_liquidity",
             TxKind::TokenPoolSwap { .. } => "token_pool_swap",
+            TxKind::TokenSetMetadata { .. } => "token_set_metadata",
         }
     }
 
@@ -327,6 +355,7 @@ impl TxKind {
             TxKind::TokenPoolAddLiquidity { .. } => 16,
             TxKind::TokenPoolRemoveLiquidity { .. } => 17,
             TxKind::TokenPoolSwap { .. } => 18,
+            TxKind::TokenSetMetadata { .. } => 19,
         }
     }
 

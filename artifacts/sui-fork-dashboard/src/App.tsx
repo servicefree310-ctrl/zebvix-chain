@@ -25,6 +25,7 @@ import Staking from "@/pages/staking";
 import TokenCreate from "@/pages/token-create";
 import TokenTrade from "@/pages/token-trade";
 import TokenLiquidity from "@/pages/token-liquidity";
+import TokenMetadata from "@/pages/token-metadata";
 import Dex from "@/pages/dex";
 import ZbxTokenomics from "@/pages/zbx-tokenomics";
 import Implementation from "@/pages/implementation";
@@ -75,6 +76,7 @@ function Router() {
         <Route path="/token-create" component={TokenCreate} />
         <Route path="/token-trade" component={TokenTrade} />
         <Route path="/token-liquidity" component={TokenLiquidity} />
+        <Route path="/token-metadata" component={TokenMetadata} />
         <Route path="/dex" component={Dex} />
         <Route path="/zbx-tokenomics" component={ZbxTokenomics} />
         <Route path="/implementation" component={Implementation} />

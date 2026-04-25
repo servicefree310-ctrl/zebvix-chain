@@ -65,6 +65,8 @@ const ALLOWED_METHODS = new Set<string>([
   "zbx_tokenInfoBySymbol",
   "zbx_tokenBalanceOf",
   "zbx_tokenCount",
+  // ── Phase G — On-chain token metadata (read-only) ─────────────────
+  "zbx_getTokenMetadata",
   // ── Phase F — Per-token AMM pools (read-only) ─────────────────────
   "zbx_listTokenPools",
   "zbx_getTokenPool",

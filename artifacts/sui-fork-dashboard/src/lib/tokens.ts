@@ -304,6 +304,26 @@ export interface TokenInfo {
    *  forward-compat with chain nodes that predate this field — UI should
    *  fall back to "ZBX-20" when missing/empty. */
   standard?: string;
+  /** Phase G — on-chain metadata (logo, website, socials). `null` when
+   *  the creator hasn't set any metadata yet, or `undefined` when talking
+   *  to a pre-Phase-G chain node (forward-compat). */
+  metadata?: TokenMetadata | null;
+}
+
+/** Phase G — token metadata stored on-chain by `TokenSetMetadata` (kind 19).
+ *  All string fields default to "" when unset. `unset: true` is added by
+ *  `zbx_getTokenMetadata` when the creator has never set metadata so the UI
+ *  can show "not set" without an extra round-trip. */
+export interface TokenMetadata {
+  token_id: number;
+  logo_url: string;
+  website: string;
+  description: string;
+  twitter: string;
+  telegram: string;
+  discord: string;
+  updated_at_height: number;
+  unset?: boolean;
 }
 
 /** UI helper — never let a missing/empty `standard` leak as an empty badge. */
@@ -749,4 +769,78 @@ export function spotPriceZbxPerWholeToken(
 ): number {
   const perBase = spotPriceZbxPerToken(pool);
   return perBase * Math.pow(10, pool.token_decimals);
+}
+
+// ─────────────────────────── Phase G — Token metadata ───────────────────────────
+
+export const TX_KIND_TOKEN_SET_METADATA = 19;
+
+/** Mirror of zebvix-chain/src/tokenomics.rs — keep in sync. The chain
+ *  rejects (and refunds) anything longer. We pre-validate here so the user
+ *  doesn't burn a fee on a guaranteed-fail tx. */
+export const TOKEN_META_LOGO_MAX_LEN        = 256;
+export const TOKEN_META_WEBSITE_MAX_LEN     = 256;
+export const TOKEN_META_DESCRIPTION_MAX_LEN = 1024;
+export const TOKEN_META_SOCIAL_MAX_LEN      = 64;
+
+export interface TokenMetadataInput {
+  tokenId: number | bigint;
+  logoUrl?: string;
+  website?: string;
+  description?: string;
+  twitter?: string;
+  telegram?: string;
+  discord?: string;
+}
+
+function clampField(name: string, val: string | undefined, max: number): string {
+  const s = (val ?? "").toString();
+  if (s.length > max) {
+    throw new Error(`${name} is ${s.length} chars; max is ${max}`);
+  }
+  return s;
+}
+
+export function encodeTokenSetMetadataBody(
+  opts: BodyHeader & TokenMetadataInput,
+): Uint8Array {
+  const logo  = clampField("logo_url",    opts.logoUrl,     TOKEN_META_LOGO_MAX_LEN);
+  const site  = clampField("website",     opts.website,     TOKEN_META_WEBSITE_MAX_LEN);
+  const desc  = clampField("description", opts.description, TOKEN_META_DESCRIPTION_MAX_LEN);
+  const tw    = clampField("twitter",     opts.twitter,     TOKEN_META_SOCIAL_MAX_LEN);
+  const tg    = clampField("telegram",    opts.telegram,    TOKEN_META_SOCIAL_MAX_LEN);
+  const dc    = clampField("discord",     opts.discord,     TOKEN_META_SOCIAL_MAX_LEN);
+  return concat(
+    header(opts, TX_KIND_TOKEN_SET_METADATA),
+    u64Le(opts.tokenId),
+    strBincode(logo),
+    strBincode(site),
+    strBincode(desc),
+    strBincode(tw),
+    strBincode(tg),
+    strBincode(dc),
+  );
+}
+
+export async function sendTokenSetMetadata(
+  opts: CommonOpts & TokenMetadataInput,
+): Promise<TokenTxResult> {
+  return buildAndSend(opts, (h) =>
+    encodeTokenSetMetadataBody({
+      ...h,
+      tokenId:     opts.tokenId,
+      logoUrl:     opts.logoUrl,
+      website:     opts.website,
+      description: opts.description,
+      twitter:     opts.twitter,
+      telegram:    opts.telegram,
+      discord:     opts.discord,
+    }),
+  );
+}
+
+/** Read on-chain metadata for `tokenId`. Returns the record (with `unset:true`
+ *  when nothing has ever been set). Throws if the token does not exist. */
+export async function getTokenMetadata(tokenId: number | bigint): Promise<TokenMetadata> {
+  return rpc<TokenMetadata>("zbx_getTokenMetadata", [Number(tokenId)]);
 }

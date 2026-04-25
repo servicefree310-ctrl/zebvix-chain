@@ -37,7 +37,8 @@ import {
   Vote,
   Terminal,
   UserPlus,
-  KeyRound
+  KeyRound,
+  Info
 } from "lucide-react";
 import { useChecklist } from "@/hooks/useChecklist";
 import { Progress } from "@/components/ui/progress";
@@ -87,6 +88,7 @@ const ADDON_NAV = [
   { href: "/token-create", label: "Create Your Token", icon: Sparkles },
   { href: "/token-trade", label: "Token Trade (AMM)", icon: ArrowDownUp },
   { href: "/token-liquidity", label: "Token Liquidity", icon: Droplets },
+  { href: "/token-metadata", label: "Token Metadata", icon: Info },
   { href: "/dex", label: "DEX / Swap", icon: ArrowUpDown },
   { href: "/fabric-layer", label: "Zebvix Fabric Layer", icon: Layers },
   { href: "/code-review", label: "Code Review — What Changed", icon: FileCode2 },

@@ -79,6 +79,26 @@ pub const DEFAULT_TOKEN_STANDARD: &str = "ZBX-20";
 /// created before this field existed will hydrate with `DEFAULT_TOKEN_STANDARD`.
 pub const TOKEN_STANDARD_MAX_LEN: usize = 16;
 
+// ───────── Phase G — token metadata (logo, website, social handles) ─────────
+//
+// On-chain optional metadata for ZBX-20 tokens. Stored under a separate
+// RocksDB key (`tokm/<id_be>`) so `TokenInfo` schema stays unchanged.
+// Only the token's recorded creator may set or update metadata; any other
+// sender's `TokenSetMetadata` tx is rejected (fee still consumed as anti-spam).
+//
+// All fields are optional — the on-wire encoding is just a `String`, where
+// an empty string ("") means "unset". Keeps the bincode layout simple
+// (no `Option<String>` discriminator overhead).
+
+/// Max length of a token's logo URL (https/ipfs/data URIs all welcome).
+pub const TOKEN_META_LOGO_MAX_LEN: usize = 256;
+/// Max length of a token's website / project URL.
+pub const TOKEN_META_WEBSITE_MAX_LEN: usize = 256;
+/// Max length of a token's free-form description.
+pub const TOKEN_META_DESCRIPTION_MAX_LEN: usize = 1024;
+/// Max length of a single social handle (twitter / telegram / discord).
+pub const TOKEN_META_SOCIAL_MAX_LEN: usize = 64;
+
 // ───────── Dynamic gas pricing (USD-pegged, consensus-enforced) ─────────
 
 /// Target USD value per standard transfer, in micro-USD ($0.001 = 1000).

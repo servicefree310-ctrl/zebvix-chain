@@ -105,10 +105,33 @@ fn parse_address(v: &Value) -> Option<Address> {
     Address::from_hex(s).ok()
 }
 
+/// Phase G — render `TokenMetadata` as user-facing JSON. Empty fields
+/// are emitted as empty strings (the chain stores them that way too) so
+/// frontends can simply check `if (m.logo_url) ...` without dealing with
+/// `null` vs `undefined` mismatches.
+fn token_metadata_to_json(m: &crate::state::TokenMetadata) -> Value {
+    json!({
+        "token_id":          m.token_id,
+        "logo_url":          m.logo_url,
+        "website":           m.website,
+        "description":       m.description,
+        "twitter":           m.twitter,
+        "telegram":          m.telegram,
+        "discord":           m.discord,
+        "updated_at_height": m.updated_at_height,
+    })
+}
+
 /// Phase E — render a `TokenInfo` as user-facing JSON (used by the
 /// dashboard / explorer / wallet). u128 values are serialized as decimal
-/// strings to avoid the JSON 2^53 precision cliff.
-fn token_info_to_json(t: &crate::state::TokenInfo) -> Value {
+/// strings to avoid the JSON 2^53 precision cliff. Phase G enrichment:
+/// when on-chain metadata exists, it is merged in under the `metadata`
+/// key; otherwise `metadata` is `null`.
+fn token_info_to_json(t: &crate::state::TokenInfo, st: &Arc<crate::state::State>) -> Value {
+    let metadata = match st.get_token_metadata(t.id) {
+        Some(m) => token_metadata_to_json(&m),
+        None    => Value::Null,
+    };
     json!({
         "id": t.id,
         "creator": t.creator.to_hex(),
@@ -121,6 +144,7 @@ fn token_info_to_json(t: &crate::state::TokenInfo) -> Value {
         // Formal token class label (e.g. "ZBX-20"). Hydrated to
         // DEFAULT_TOKEN_STANDARD on read for legacy records.
         "standard": t.standard,
+        "metadata": metadata,
     })
 }
 
@@ -315,6 +339,7 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 16 => "TokenPoolAddLiquidity",
                 17 => "TokenPoolRemoveLiquidity",
                 18 => "TokenPoolSwap",
+                19 => "TokenSetMetadata",
                 _ => "Unknown",
             };
             let txs: Vec<Value> = snap.into_iter().take(limit).map(|(h, from, to, amount, fee, nonce, kind)| json!({
@@ -365,6 +390,7 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 16 => "TokenPoolAddLiquidity",
                 17 => "TokenPoolRemoveLiquidity",
                 18 => "TokenPoolSwap",
+                19 => "TokenSetMetadata",
                 _ => "Unknown",
             };
             let recs = ctx.state.recent_txs(limit);
@@ -1454,7 +1480,7 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 _ => None,
             };
             match token_id.and_then(|i| ctx.state.get_token(i)) {
-                Some(t) => ok(id, token_info_to_json(&t)),
+                Some(t) => ok(id, token_info_to_json(&t, &ctx.state)),
                 None => err(id, -32004, "token not found"),
             }
         }
@@ -1462,7 +1488,7 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
             // params: [symbol]
             match req.params.get(0).and_then(|v| v.as_str()) {
                 Some(sym) => match ctx.state.get_token_by_symbol(sym) {
-                    Some(t) => ok(id, token_info_to_json(&t)),
+                    Some(t) => ok(id, token_info_to_json(&t, &ctx.state)),
                     None => err(id, -32004, "token not found"),
                 },
                 None => err(id, -32602, "params: [symbol]"),
@@ -1502,7 +1528,7 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 .and_then(|v| v.as_u64()).unwrap_or(50).min(500);
             let total = ctx.state.total_token_count();
             let tokens: Vec<Value> = ctx.state.list_tokens(offset, limit)
-                .iter().map(token_info_to_json).collect();
+                .iter().map(|t| token_info_to_json(t, &ctx.state)).collect();
             ok(id, json!({
                 "total": total,
                 "offset": offset,
@@ -1511,6 +1537,48 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
             }))
         }
         "zbx_tokenCount" => ok(id, json!({ "total": ctx.state.total_token_count() })),
+
+        // ─────────────────────────────────────────────────────────────
+        // Phase G — Token metadata (read-only RPC)
+        // ─────────────────────────────────────────────────────────────
+        "zbx_getTokenMetadata" => {
+            // params: [token_id (number, decimal string, or 0xhex)]
+            let token_id: Option<u64> = req.params.get(0).and_then(|v| match v {
+                Value::Number(n) => n.as_u64(),
+                Value::String(s) => {
+                    let s = s.trim();
+                    if let Some(hx) = s.strip_prefix("0x") {
+                        u64::from_str_radix(hx, 16).ok()
+                    } else { s.parse::<u64>().ok() }
+                }
+                _ => None,
+            });
+            let Some(tid) = token_id else {
+                return Json(err(id, -32602, "params: [token_id]"));
+            };
+            // Token must exist; otherwise return -32004 so the frontend can
+            // distinguish "no such token" from "token exists but no metadata".
+            if ctx.state.get_token(tid).is_none() {
+                return Json(err(id, -32004, "token not found"));
+            }
+            match ctx.state.get_token_metadata(tid) {
+                Some(m) => ok(id, token_metadata_to_json(&m)),
+                // Token exists but creator hasn't set metadata yet — return
+                // an empty record so frontends can render a "not yet set"
+                // state without a separate null-check branch.
+                None => ok(id, json!({
+                    "token_id":          tid,
+                    "logo_url":          "",
+                    "website":           "",
+                    "description":       "",
+                    "twitter":           "",
+                    "telegram":          "",
+                    "discord":           "",
+                    "updated_at_height": 0,
+                    "unset":             true,
+                })),
+            }
+        }
 
         // ─────────────────────────────────────────────────────────────
         // Phase F — Per-token AMM pools (read-only RPCs)
