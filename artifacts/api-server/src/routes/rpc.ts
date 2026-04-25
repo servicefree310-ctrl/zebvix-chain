@@ -65,6 +65,13 @@ const ALLOWED_METHODS = new Set<string>([
   "zbx_tokenInfoBySymbol",
   "zbx_tokenBalanceOf",
   "zbx_tokenCount",
+  // ── Phase F — Per-token AMM pools (read-only) ─────────────────────
+  "zbx_listTokenPools",
+  "zbx_getTokenPool",
+  "zbx_tokenPoolCount",
+  "zbx_tokenSwapQuote",
+  "zbx_getTokenLpBalance",
+  "zbx_tokenPoolStats",
   // ── Phase D — On-chain governance (read-only) ──────────────────────
   "zbx_proposalsList",
   "zbx_proposalGet",

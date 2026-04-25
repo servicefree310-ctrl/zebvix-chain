@@ -36,6 +36,7 @@ The project utilizes a pnpm workspace monorepo, organizing components into disti
 - **Transactions:** Supports `Transfer`, `ValidatorAdd`, `ValidatorRemove`, `Swap`, `Bridge`, and `Proposal` types.
 - **Tokenomics:** 150M ZBX supply with Bitcoin-style halving. Minimum self-bond is 100 ZBX, minimum delegation is 10 ZBX.
 - **AMM:** An on-chain zSwap AMM following the `x·y=k` model with a 0.3% fee.
+- **Per-Token AMM (Phase F / Phase 1 of production roadmap):** Permissionless Uniswap V2-style TOKEN/ZBX pools for any ZBX-20 token. Four new TxKind variants (tags 15–18: `TokenPoolCreate`, `TokenPoolAddLiquidity`, `TokenPoolRemoveLiquidity`, `TokenPoolSwap`) with 0.30% pool fee and a 1,000-share lockup on bootstrap. Six new read-only RPCs: `zbx_listTokenPools`, `zbx_getTokenPool`, `zbx_tokenPoolCount`, `zbx_tokenSwapQuote`, `zbx_getTokenLpBalance`, `zbx_tokenPoolStats`. Dashboard pages: `/token-trade` (swap UI with live quote + slippage) and `/token-liquidity` (Add / Remove / Create Pool). Deploy script: `scripts/deploy_token_pool_phase1.sh`.
 - **Recent Transactions:** RocksDB-backed ring buffer with a rolling cap of 1000 native transactions, indexed for O(1) lookup.
 - **Cryptography:** Uses secp256k1 (ECDSA) for Ethereum-compatible address derivation.
 - **Bridge Module:** An on-chain module with `BridgeNetwork` and `BridgeAsset` registries, implementing a lock/release pattern with a single-trusted-oracle MVP.

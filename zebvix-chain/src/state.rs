@@ -87,6 +87,19 @@ const META_TOKEN_PREFIX: &[u8] = b"tok/";
 const META_TOKEN_BAL_PREFIX: &[u8] = b"tokb/";
 const META_TOKEN_SYMBOL_PREFIX: &[u8] = b"toks/";
 
+// ── Phase F — Per-token AMM pools (Uniswap V2 style, ZBX-quoted) ──
+// Layout (all under CF_META):
+//   tpool_count                   → u64 BE total pools created (informational)
+//   tpool/<token_id_be8>          → bincode(crate::token_pool::TokenPool)
+//   tplp/<token_id_be8><addr20>   → 16-byte u128 BE LP-share balance
+//
+// SECURITY: keys are isolated by prefix and cannot collide with native ZBX
+// balances or token-balance entries. Pool reserves live INSIDE the
+// TokenPool struct (not as a synthetic account), mirroring Uniswap V2.
+const META_TOKEN_POOL_COUNT: &[u8] = b"tpool_count";
+const META_TOKEN_POOL_PREFIX: &[u8] = b"tpool/";
+const META_TOKEN_LP_PREFIX: &[u8] = b"tplp/";
+
 // ── Phase B.3.3 — slashing evidence log (non-consensus / informational) ──
 // Evidence is recorded out-of-band when a node detects a double-sign vote.
 // It is EXCLUDED from `compute_state_root` because evidence-detection timing
@@ -1786,6 +1799,249 @@ impl State {
                 );
                 return Ok(());
             }
+            // ─────────────────────────────────────────────────────────
+            // Phase F — Per-token AMM pools (Uniswap V2 style)
+            //
+            // ZBX is the quote asset for every token pool. Reserves live
+            // inside the TokenPool struct (no synthetic per-pool address);
+            // LP shares are tracked under META_TOKEN_LP_PREFIX. All four
+            // arms are permissionless — anyone can open a pool, LP, or
+            // swap. No admin override; no balance freezes.
+            // ─────────────────────────────────────────────────────────
+            crate::types::TxKind::TokenPoolCreate { token_id, zbx_amount, token_amount } => {
+                if *zbx_amount == 0 || *token_amount == 0 {
+                    return refund(&mut from, "token-pool-create: zero initial liquidity".into());
+                }
+                if self.get_token(*token_id).is_none() {
+                    return refund(&mut from, format!(
+                        "token-pool-create: token id {} does not exist", token_id
+                    ));
+                }
+                if self.get_token_pool(*token_id).is_some() {
+                    return refund(&mut from, format!(
+                        "token-pool-create: pool already exists for token id {}", token_id
+                    ));
+                }
+                // body.amount was debited at the top of apply_tx; the user's
+                // effective ZBX (after refunding the unused body.amount) is:
+                let effective_zbx = from.balance.saturating_add(tx.body.amount);
+                if effective_zbx < *zbx_amount {
+                    return refund(&mut from, format!(
+                        "token-pool-create: insufficient ZBX (have {}, need {} for ZBX side)",
+                        effective_zbx, zbx_amount
+                    ));
+                }
+                let tok_bal = self.token_balance_of(*token_id, &tx.body.from);
+                if tok_bal < *token_amount {
+                    return refund(&mut from, format!(
+                        "token-pool-create: insufficient token balance (have {}, need {})",
+                        tok_bal, token_amount
+                    ));
+                }
+                let mut pool = crate::token_pool::TokenPool::default();
+                let current_height = self.tip().0;
+                let creator_lp = match pool.init(
+                    tx.body.from, *token_id, *zbx_amount, *token_amount, current_height,
+                ) {
+                    Ok(lp) => lp,
+                    Err(e) => return refund(&mut from, format!("token-pool-create: {}", e)),
+                };
+                // All checks passed — commit balance + pool state.
+                from.balance = effective_zbx - *zbx_amount;
+                self.put_token_balance(*token_id, &tx.body.from, tok_bal - *token_amount)?;
+                self.put_token_pool(&pool)?;
+                self.put_token_pool_lp_balance(*token_id, &tx.body.from, creator_lp)?;
+                self.put_token_pool_count(self.token_pool_count().saturating_add(1))?;
+                self.put_account(&tx.body.from, &from)?;
+                tracing::info!(
+                    "💧 token-pool-create id={} zbx={} token={} lp_creator={} lp_locked={} creator={}",
+                    token_id, zbx_amount, token_amount, creator_lp,
+                    crate::token_pool::MIN_TOKEN_POOL_LIQUIDITY, tx.body.from,
+                );
+                return Ok(());
+            }
+            crate::types::TxKind::TokenPoolAddLiquidity {
+                token_id, zbx_amount, max_token_amount, min_lp_out
+            } => {
+                if *zbx_amount == 0 || *max_token_amount == 0 {
+                    return refund(&mut from, "token-pool-add: zero deposit input".into());
+                }
+                if self.get_token(*token_id).is_none() {
+                    return refund(&mut from, format!(
+                        "token-pool-add: token id {} does not exist", token_id
+                    ));
+                }
+                let mut pool = match self.get_token_pool(*token_id) {
+                    Some(p) => p,
+                    None => return refund(&mut from, format!(
+                        "token-pool-add: no pool exists for token id {}", token_id
+                    )),
+                };
+                let effective_zbx = from.balance.saturating_add(tx.body.amount);
+                if effective_zbx < *zbx_amount {
+                    return refund(&mut from, format!(
+                        "token-pool-add: insufficient ZBX (have {}, need up to {})",
+                        effective_zbx, zbx_amount
+                    ));
+                }
+                let tok_bal = self.token_balance_of(*token_id, &tx.body.from);
+                if tok_bal < *max_token_amount {
+                    return refund(&mut from, format!(
+                        "token-pool-add: insufficient token (have {}, need up to {})",
+                        tok_bal, max_token_amount
+                    ));
+                }
+                let (zbx_used, token_used, lp_minted) =
+                    match pool.add_liquidity(*zbx_amount, *max_token_amount) {
+                        Ok(t) => t,
+                        Err(e) => return refund(&mut from, format!("token-pool-add: {}", e)),
+                    };
+                if lp_minted < *min_lp_out {
+                    return refund(&mut from, format!(
+                        "token-pool-add: slippage — lp_out {} < min_lp_out {}",
+                        lp_minted, min_lp_out
+                    ));
+                }
+                // Commit
+                from.balance = effective_zbx - zbx_used;
+                self.put_token_balance(*token_id, &tx.body.from, tok_bal - token_used)?;
+                let prior_lp = self.token_pool_lp_balance_of(*token_id, &tx.body.from);
+                let new_lp = prior_lp.checked_add(lp_minted)
+                    .ok_or_else(|| anyhow!("token-pool-add: LP balance overflow"))?;
+                self.put_token_pool_lp_balance(*token_id, &tx.body.from, new_lp)?;
+                self.put_token_pool(&pool)?;
+                self.put_account(&tx.body.from, &from)?;
+                tracing::info!(
+                    "💧 token-pool-add id={} zbx_used={} token_used={} lp_minted={} lp_total={} addr={}",
+                    token_id, zbx_used, token_used, lp_minted, new_lp, tx.body.from,
+                );
+                return Ok(());
+            }
+            crate::types::TxKind::TokenPoolRemoveLiquidity {
+                token_id, lp_burn, min_zbx_out, min_token_out
+            } => {
+                if *lp_burn == 0 {
+                    return refund(&mut from, "token-pool-remove: zero LP burn".into());
+                }
+                let mut pool = match self.get_token_pool(*token_id) {
+                    Some(p) => p,
+                    None => return refund(&mut from, format!(
+                        "token-pool-remove: no pool exists for token id {}", token_id
+                    )),
+                };
+                let lp_owned = self.token_pool_lp_balance_of(*token_id, &tx.body.from);
+                if lp_owned < *lp_burn {
+                    return refund(&mut from, format!(
+                        "token-pool-remove: insufficient LP (have {}, need {})",
+                        lp_owned, lp_burn
+                    ));
+                }
+                let (zbx_out, token_out) = match pool.remove_liquidity(*lp_burn) {
+                    Ok(t) => t,
+                    Err(e) => return refund(&mut from, format!("token-pool-remove: {}", e)),
+                };
+                if zbx_out < *min_zbx_out || token_out < *min_token_out {
+                    return refund(&mut from, format!(
+                        "token-pool-remove: slippage — zbx_out {} (min {}), token_out {} (min {})",
+                        zbx_out, min_zbx_out, token_out, min_token_out
+                    ));
+                }
+                // Commit — refund unused body.amount + credit ZBX out + credit token out
+                from.balance = from.balance.saturating_add(tx.body.amount).saturating_add(zbx_out);
+                let tok_bal = self.token_balance_of(*token_id, &tx.body.from);
+                let new_tok = tok_bal.checked_add(token_out)
+                    .ok_or_else(|| anyhow!("token-pool-remove: token balance overflow"))?;
+                self.put_token_balance(*token_id, &tx.body.from, new_tok)?;
+                self.put_token_pool_lp_balance(*token_id, &tx.body.from, lp_owned - lp_burn)?;
+                self.put_token_pool(&pool)?;
+                self.put_account(&tx.body.from, &from)?;
+                tracing::info!(
+                    "💧 token-pool-remove id={} lp_burn={} zbx_out={} token_out={} addr={}",
+                    token_id, lp_burn, zbx_out, token_out, tx.body.from,
+                );
+                return Ok(());
+            }
+            crate::types::TxKind::TokenPoolSwap { token_id, direction, amount_in, min_out } => {
+                if *amount_in == 0 {
+                    return refund(&mut from, "token-pool-swap: zero input".into());
+                }
+                if self.get_token(*token_id).is_none() {
+                    return refund(&mut from, format!(
+                        "token-pool-swap: token id {} does not exist", token_id
+                    ));
+                }
+                let mut pool = match self.get_token_pool(*token_id) {
+                    Some(p) => p,
+                    None => return refund(&mut from, format!(
+                        "token-pool-swap: no pool exists for token id {}", token_id
+                    )),
+                };
+                use crate::token_pool::TokenSwapDirection;
+                match direction {
+                    TokenSwapDirection::ZbxToToken => {
+                        let effective_zbx = from.balance.saturating_add(tx.body.amount);
+                        if effective_zbx < *amount_in {
+                            return refund(&mut from, format!(
+                                "token-pool-swap: insufficient ZBX (have {}, need {})",
+                                effective_zbx, amount_in
+                            ));
+                        }
+                        let token_out = match pool.swap_zbx_for_token(*amount_in) {
+                            Ok(o) => o,
+                            Err(e) => return refund(&mut from, format!("token-pool-swap: {}", e)),
+                        };
+                        if token_out < *min_out {
+                            return refund(&mut from, format!(
+                                "token-pool-swap: slippage — out {} < min_out {}",
+                                token_out, min_out
+                            ));
+                        }
+                        from.balance = effective_zbx - *amount_in;
+                        let tok_bal = self.token_balance_of(*token_id, &tx.body.from);
+                        let new_tok = tok_bal.checked_add(token_out).ok_or_else(|| {
+                            anyhow!("token-pool-swap: token balance overflow")
+                        })?;
+                        self.put_token_balance(*token_id, &tx.body.from, new_tok)?;
+                        self.put_token_pool(&pool)?;
+                        self.put_account(&tx.body.from, &from)?;
+                        tracing::info!(
+                            "🔁 token-pool-swap id={} direction=zbx_to_token zbx_in={} token_out={} addr={}",
+                            token_id, amount_in, token_out, tx.body.from,
+                        );
+                    }
+                    TokenSwapDirection::TokenToZbx => {
+                        let tok_bal = self.token_balance_of(*token_id, &tx.body.from);
+                        if tok_bal < *amount_in {
+                            return refund(&mut from, format!(
+                                "token-pool-swap: insufficient token (have {}, need {})",
+                                tok_bal, amount_in
+                            ));
+                        }
+                        let zbx_out = match pool.swap_token_for_zbx(*amount_in) {
+                            Ok(o) => o,
+                            Err(e) => return refund(&mut from, format!("token-pool-swap: {}", e)),
+                        };
+                        if zbx_out < *min_out {
+                            return refund(&mut from, format!(
+                                "token-pool-swap: slippage — out {} < min_out {}",
+                                zbx_out, min_out
+                            ));
+                        }
+                        // Refund body.amount + credit ZBX-out
+                        from.balance = from.balance
+                            .saturating_add(tx.body.amount)
+                            .saturating_add(zbx_out);
+                        self.put_token_balance(*token_id, &tx.body.from, tok_bal - *amount_in)?;
+                        self.put_token_pool(&pool)?;
+                        self.put_account(&tx.body.from, &from)?;
+                        tracing::info!(
+                            "🔁 token-pool-swap id={} direction=token_to_zbx token_in={} zbx_out={} addr={}",
+                            token_id, amount_in, zbx_out, tx.body.from,
+                        );
+                    }
+                }
+                return Ok(());
+            }
             crate::types::TxKind::Transfer => { /* fall through to legacy logic */ }
         }
 
@@ -2512,6 +2768,99 @@ impl State {
 
     /// Total number of tokens ever created.
     pub fn total_token_count(&self) -> u64 { self.token_count() }
+
+    // ───────────────────────── Phase F — token-pool storage ─────────────────────────
+
+    fn token_pool_key(token_id: u64) -> Vec<u8> {
+        let mut k = META_TOKEN_POOL_PREFIX.to_vec();
+        k.extend_from_slice(&token_id.to_be_bytes());
+        k
+    }
+
+    fn token_pool_lp_key(token_id: u64, addr: &Address) -> Vec<u8> {
+        let mut k = META_TOKEN_LP_PREFIX.to_vec();
+        k.extend_from_slice(&token_id.to_be_bytes());
+        k.extend_from_slice(&addr.0);
+        k
+    }
+
+    /// Total number of token AMM pools that have ever been opened.
+    pub fn token_pool_count(&self) -> u64 {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        match self.db.get_cf(cf, META_TOKEN_POOL_COUNT).ok().flatten() {
+            Some(v) if v.len() == 8 => {
+                let mut b = [0u8; 8];
+                b.copy_from_slice(&v);
+                u64::from_be_bytes(b)
+            }
+            _ => 0,
+        }
+    }
+
+    fn put_token_pool_count(&self, n: u64) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.put_cf(cf, META_TOKEN_POOL_COUNT, n.to_be_bytes())?;
+        Ok(())
+    }
+
+    /// Look up the AMM pool for a token. Returns `None` if no pool exists yet.
+    pub fn get_token_pool(&self, token_id: u64) -> Option<crate::token_pool::TokenPool> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let raw = self.db.get_cf(cf, Self::token_pool_key(token_id)).ok().flatten()?;
+        bincode::deserialize::<crate::token_pool::TokenPool>(&raw).ok()
+    }
+
+    fn put_token_pool(&self, pool: &crate::token_pool::TokenPool) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.put_cf(
+            cf,
+            Self::token_pool_key(pool.token_id),
+            bincode::serialize(pool)?,
+        )?;
+        Ok(())
+    }
+
+    /// LP-share balance for `(token_id, holder)`. 0 if no entry.
+    pub fn token_pool_lp_balance_of(&self, token_id: u64, addr: &Address) -> u128 {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        match self.db.get_cf(cf, Self::token_pool_lp_key(token_id, addr)).ok().flatten() {
+            Some(v) if v.len() == 16 => {
+                let mut b = [0u8; 16];
+                b.copy_from_slice(&v);
+                u128::from_be_bytes(b)
+            }
+            _ => 0,
+        }
+    }
+
+    fn put_token_pool_lp_balance(&self, token_id: u64, addr: &Address, bal: u128) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let k = Self::token_pool_lp_key(token_id, addr);
+        if bal == 0 {
+            self.db.delete_cf(cf, k)?;
+        } else {
+            self.db.put_cf(cf, k, bal.to_be_bytes())?;
+        }
+        Ok(())
+    }
+
+    /// Paginated list of token pools (oldest token id first). Iterates over
+    /// existing token ids in `[offset+1, offset+limit]` and returns whichever
+    /// have an open pool. Tokens without a pool are silently skipped.
+    pub fn list_token_pools(&self, offset: u64, limit: u64) -> Vec<crate::token_pool::TokenPool> {
+        let total_tokens = self.token_count();
+        if offset >= total_tokens {
+            return Vec::new();
+        }
+        let end = offset.saturating_add(limit).min(total_tokens);
+        let mut out = Vec::new();
+        for id in (offset + 1)..=end {
+            if let Some(p) = self.get_token_pool(id) {
+                out.push(p);
+            }
+        }
+        out
+    }
 }
 
 // ────────────────────────────────────────────────────────────────────

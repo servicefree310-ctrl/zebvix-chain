@@ -176,6 +176,72 @@ pub enum TxKind {
         token_id: u64,
         amount: u128,
     },
+
+    // ─────────────────────────────────────────────────────────────────
+    // Phase F — Per-token AMM pools (Uniswap V2 style, ZBX as quote asset)
+    //
+    // **Variant order is consensus-critical.** Appended after the Phase E
+    // variants so existing tags 0-14 keep their bincode discriminators.
+    // New tags:
+    //   TokenPoolCreate           = 15
+    //   TokenPoolAddLiquidity     = 16
+    //   TokenPoolRemoveLiquidity  = 17
+    //   TokenPoolSwap             = 18
+    //
+    // Permissionless. Anyone can:
+    //   * Open a pool for any existing ZBX-20 token (paired with native ZBX).
+    //   * Add / remove liquidity at the current ratio (LP shares, share-based
+    //     accounting like Uniswap V2).
+    //   * Swap in either direction with a `min_out` slippage guard.
+    // No admin override; reserves are owned by the pool, not by any address.
+    // `body.amount` is always refunded for these arms; `body.fee` is paid.
+    // ─────────────────────────────────────────────────────────────────
+
+    /// Phase F — bootstrap a new TOKEN/ZBX AMM pool. Caller specifies the
+    /// initial ZBX-side and token-side deposits at any ratio (the ratio
+    /// becomes the opening price). Both balances are debited from the caller
+    /// and locked in the pool. Caller receives LP shares minus the
+    /// permanently-burned `MIN_TOKEN_POOL_LIQUIDITY` (anti-rug lock).
+    /// Fails if a pool for `token_id` already exists.
+    TokenPoolCreate {
+        token_id: u64,
+        zbx_amount: u128,
+        token_amount: u128,
+    },
+
+    /// Phase F — add proportional liquidity to an existing pool. The chain
+    /// computes the ZBX/token amounts so the deposit matches current pool
+    /// ratio (whichever side limits binds). Slippage protected via
+    /// `min_lp_out` — if the resulting LP share count would be lower, the
+    /// tx reverts and balances are refunded (only the fee is consumed).
+    TokenPoolAddLiquidity {
+        token_id: u64,
+        zbx_amount: u128,
+        max_token_amount: u128,
+        min_lp_out: u128,
+    },
+
+    /// Phase F — burn LP shares and withdraw proportional ZBX + token.
+    /// Slippage protected via `min_zbx_out` and `min_token_out`. Cannot
+    /// burn beyond the pool's circulating LP supply minus the locked
+    /// `MIN_TOKEN_POOL_LIQUIDITY`.
+    TokenPoolRemoveLiquidity {
+        token_id: u64,
+        lp_burn: u128,
+        min_zbx_out: u128,
+        min_token_out: u128,
+    },
+
+    /// Phase F — swap against a token's pool with slippage protection.
+    /// `direction` selects ZBX→token or token→ZBX. `amount_in` is debited
+    /// from the caller; if pool would return less than `min_out`, the
+    /// swap reverts and the principal is refunded (fee still paid).
+    TokenPoolSwap {
+        token_id: u64,
+        direction: crate::token_pool::TokenSwapDirection,
+        amount_in: u128,
+        min_out: u128,
+    },
 }
 
 /// Phase B.10 — direction of an AMM [`TxKind::Swap`].
@@ -230,6 +296,10 @@ impl TxKind {
             TxKind::TokenTransfer { .. } => "token_transfer",
             TxKind::TokenMint { .. } => "token_mint",
             TxKind::TokenBurn { .. } => "token_burn",
+            TxKind::TokenPoolCreate { .. } => "token_pool_create",
+            TxKind::TokenPoolAddLiquidity { .. } => "token_pool_add_liquidity",
+            TxKind::TokenPoolRemoveLiquidity { .. } => "token_pool_remove_liquidity",
+            TxKind::TokenPoolSwap { .. } => "token_pool_swap",
         }
     }
 
@@ -253,6 +323,10 @@ impl TxKind {
             TxKind::TokenTransfer { .. } => 12,
             TxKind::TokenMint { .. } => 13,
             TxKind::TokenBurn { .. } => 14,
+            TxKind::TokenPoolCreate { .. } => 15,
+            TxKind::TokenPoolAddLiquidity { .. } => 16,
+            TxKind::TokenPoolRemoveLiquidity { .. } => 17,
+            TxKind::TokenPoolSwap { .. } => 18,
         }
     }
 

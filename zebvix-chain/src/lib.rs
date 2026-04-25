@@ -10,6 +10,7 @@ pub mod proposal;
 pub mod rpc;
 pub mod staking;
 pub mod state;
+pub mod token_pool;
 pub mod tokenomics;
 pub mod transaction;
 pub mod types;

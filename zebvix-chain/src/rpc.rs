@@ -124,6 +124,34 @@ fn token_info_to_json(t: &crate::state::TokenInfo) -> Value {
     })
 }
 
+/// Phase F — render a `TokenPool` as user-facing JSON. Includes pool reserves,
+/// LP supply, lifetime stats, and (best-effort) the underlying token's symbol/
+/// decimals for one-call rendering on the dashboard. u128 values are stringified
+/// so the JSON parser doesn't lose precision.
+fn token_pool_to_json(p: &crate::token_pool::TokenPool, st: &Arc<crate::state::State>) -> Value {
+    let token = st.get_token(p.token_id);
+    json!({
+        "token_id":             p.token_id,
+        "token_symbol":         token.as_ref().map(|t| t.symbol.clone())
+                                     .unwrap_or_else(|| String::new()),
+        "token_name":           token.as_ref().map(|t| t.name.clone())
+                                     .unwrap_or_else(|| String::new()),
+        "token_decimals":       token.as_ref().map(|t| t.decimals).unwrap_or(0),
+        "creator":              p.creator.to_hex(),
+        "init_height":          p.init_height,
+        "zbx_reserve":          p.zbx_reserve.to_string(),
+        "token_reserve":        p.token_reserve.to_string(),
+        "lp_supply":            p.lp_supply.to_string(),
+        "spot_price_q18":       p.spot_price_zbx_per_token_q18().to_string(),
+        "swap_fee_bps_num":     crate::token_pool::TOKEN_POOL_FEE_BPS_NUM,
+        "swap_fee_bps_den":     crate::token_pool::TOKEN_POOL_FEE_BPS_DEN,
+        "min_lock_lp":          crate::token_pool::MIN_TOKEN_POOL_LIQUIDITY.to_string(),
+        "cum_zbx_in_volume":    p.cum_zbx_in_volume.to_string(),
+        "cum_token_in_volume":  p.cum_token_in_volume.to_string(),
+        "swap_count":           p.swap_count,
+    })
+}
+
 /// Phase D — render a `ProposalKind` as user-facing JSON (used by the
 /// dashboard / explorer / wallet). Mirrors the on-chain enum exactly so the
 /// frontend never has to introspect type discriminants directly.
@@ -283,6 +311,10 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 12 => "TokenTransfer",
                 13 => "TokenMint",
                 14 => "TokenBurn",
+                15 => "TokenPoolCreate",
+                16 => "TokenPoolAddLiquidity",
+                17 => "TokenPoolRemoveLiquidity",
+                18 => "TokenPoolSwap",
                 _ => "Unknown",
             };
             let txs: Vec<Value> = snap.into_iter().take(limit).map(|(h, from, to, amount, fee, nonce, kind)| json!({
@@ -329,6 +361,10 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 12 => "TokenTransfer",
                 13 => "TokenMint",
                 14 => "TokenBurn",
+                15 => "TokenPoolCreate",
+                16 => "TokenPoolAddLiquidity",
+                17 => "TokenPoolRemoveLiquidity",
+                18 => "TokenPoolSwap",
                 _ => "Unknown",
             };
             let recs = ctx.state.recent_txs(limit);
@@ -1475,6 +1511,147 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
             }))
         }
         "zbx_tokenCount" => ok(id, json!({ "total": ctx.state.total_token_count() })),
+
+        // ─────────────────────────────────────────────────────────────
+        // Phase F — Per-token AMM pools (read-only RPCs)
+        // ─────────────────────────────────────────────────────────────
+        "zbx_getTokenPool" => {
+            // params: [token_id (number or "0x..." or decimal string)]
+            let token_id: Option<u64> = req.params.get(0).and_then(|v| match v {
+                Value::Number(n) => n.as_u64(),
+                Value::String(s) => {
+                    let s = s.trim();
+                    if let Some(hx) = s.strip_prefix("0x") {
+                        u64::from_str_radix(hx, 16).ok()
+                    } else { s.parse::<u64>().ok() }
+                }
+                _ => None,
+            });
+            match token_id.and_then(|i| ctx.state.get_token_pool(i)) {
+                Some(p) => ok(id, token_pool_to_json(&p, &ctx.state)),
+                None => err(id, -32004, "token pool not found"),
+            }
+        }
+        "zbx_listTokenPools" => {
+            // params: [offset, limit] — both optional, default offset=0 limit=50.
+            let offset = req.params.get(0).and_then(|v| v.as_u64()).unwrap_or(0);
+            let limit = req.params.get(1).and_then(|v| v.as_u64()).unwrap_or(50).min(500);
+            let pools: Vec<Value> = ctx.state.list_token_pools(offset, limit)
+                .iter().map(|p| token_pool_to_json(p, &ctx.state)).collect();
+            ok(id, json!({
+                "total":     ctx.state.token_pool_count(),
+                "offset":    offset,
+                "limit":     limit,
+                "returned":  pools.len(),
+                "pools":     pools,
+            }))
+        }
+        "zbx_tokenPoolCount" => {
+            ok(id, json!({ "total": ctx.state.token_pool_count() }))
+        }
+        "zbx_tokenSwapQuote" => {
+            // params: [token_id, direction ("zbx_to_token"|"token_to_zbx"), amount_in (decimal string)]
+            let token_id: Option<u64> = req.params.get(0).and_then(|v| match v {
+                Value::Number(n) => n.as_u64(),
+                Value::String(s) => s.trim().parse::<u64>().ok(),
+                _ => None,
+            });
+            let dir = req.params.get(1).and_then(|v| v.as_str()).unwrap_or("");
+            let amount_in: Option<u128> = req.params.get(2).and_then(|v| match v {
+                Value::String(s) => s.trim().parse::<u128>().ok(),
+                Value::Number(n) => n.as_u64().map(|x| x as u128),
+                _ => None,
+            });
+            let (Some(tid), Some(amt)) = (token_id, amount_in) else {
+                return err(id, -32602, "params: [token_id, direction, amount_in]");
+            };
+            let Some(pool) = ctx.state.get_token_pool(tid) else {
+                return err(id, -32004, "token pool not found");
+            };
+            use crate::token_pool::TokenSwapDirection;
+            let direction = match dir {
+                "zbx_to_token" => TokenSwapDirection::ZbxToToken,
+                "token_to_zbx" => TokenSwapDirection::TokenToZbx,
+                _ => return err(id, -32602, "direction must be 'zbx_to_token' or 'token_to_zbx'"),
+            };
+            let amount_out = pool.quote(direction, amt);
+            // Compute the exact fee amount that would be deducted from input
+            let fee = amt.saturating_mul(crate::token_pool::TOKEN_POOL_FEE_BPS_NUM)
+                / crate::token_pool::TOKEN_POOL_FEE_BPS_DEN;
+            ok(id, json!({
+                "token_id":      tid,
+                "direction":     direction.label(),
+                "amount_in":     amt.to_string(),
+                "amount_out":    amount_out.to_string(),
+                "fee_in":        fee.to_string(),
+                "fee_bps":       crate::token_pool::TOKEN_POOL_FEE_BPS_NUM,
+                "fee_bps_den":   crate::token_pool::TOKEN_POOL_FEE_BPS_DEN,
+                "zbx_reserve":   pool.zbx_reserve.to_string(),
+                "token_reserve": pool.token_reserve.to_string(),
+            }))
+        }
+        "zbx_getTokenLpBalance" => {
+            // params: [token_id, address]
+            let token_id: Option<u64> = req.params.get(0).and_then(|v| match v {
+                Value::Number(n) => n.as_u64(),
+                Value::String(s) => s.trim().parse::<u64>().ok(),
+                _ => None,
+            });
+            let addr = req.params.get(1).and_then(parse_address);
+            match (token_id, addr) {
+                (Some(tid), Some(a)) => {
+                    let lp = ctx.state.token_pool_lp_balance_of(tid, &a);
+                    let pool = ctx.state.get_token_pool(tid);
+                    let (zbx_share, token_share) = match &pool {
+                        Some(p) if p.lp_supply > 0 => {
+                            use primitive_types::U256;
+                            let z = U256::from(p.zbx_reserve) * U256::from(lp)
+                                / U256::from(p.lp_supply);
+                            let t = U256::from(p.token_reserve) * U256::from(lp)
+                                / U256::from(p.lp_supply);
+                            (
+                                if z.bits() > 128 { 0 } else { z.as_u128() },
+                                if t.bits() > 128 { 0 } else { t.as_u128() },
+                            )
+                        }
+                        _ => (0, 0),
+                    };
+                    ok(id, json!({
+                        "token_id":            tid,
+                        "address":             a.to_hex(),
+                        "lp_balance":          lp.to_string(),
+                        "lp_supply":           pool.as_ref().map(|p| p.lp_supply.to_string())
+                                                   .unwrap_or_else(|| "0".to_string()),
+                        "redeemable_zbx":      zbx_share.to_string(),
+                        "redeemable_token":    token_share.to_string(),
+                    }))
+                }
+                _ => err(id, -32602, "params: [token_id, address]"),
+            }
+        }
+        "zbx_tokenPoolStats" => {
+            // params: [token_id] — lifetime cumulative stats for analytics.
+            let token_id: Option<u64> = req.params.get(0).and_then(|v| match v {
+                Value::Number(n) => n.as_u64(),
+                Value::String(s) => s.trim().parse::<u64>().ok(),
+                _ => None,
+            });
+            match token_id.and_then(|i| ctx.state.get_token_pool(i)) {
+                Some(p) => ok(id, json!({
+                    "token_id":             p.token_id,
+                    "zbx_reserve":          p.zbx_reserve.to_string(),
+                    "token_reserve":        p.token_reserve.to_string(),
+                    "lp_supply":            p.lp_supply.to_string(),
+                    "spot_price_q18":       p.spot_price_zbx_per_token_q18().to_string(),
+                    "cum_zbx_in_volume":    p.cum_zbx_in_volume.to_string(),
+                    "cum_token_in_volume":  p.cum_token_in_volume.to_string(),
+                    "swap_count":           p.swap_count,
+                    "init_height":          p.init_height,
+                    "creator":              p.creator.to_hex(),
+                })),
+                None => err(id, -32004, "token pool not found"),
+            }
+        }
 
         m => {
             // Phase C.2 — Standard ZVM JSON-RPC fallthrough. Any `eth_*`,

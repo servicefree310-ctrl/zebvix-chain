@@ -412,3 +412,341 @@ export const TOKEN_MAX_DECIMALS = 18;
 /** Anti-spam burn for TokenCreate. Currently 0 — gas-only. Mirrors
  *  `tokenomics::TOKEN_CREATION_BURN_WEI` on the chain. */
 export const TOKEN_CREATION_BURN_WEI = 0n;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase F — Per-token AMM pool (Uniswap V2 style, ZBX-quoted)
+//
+// Wire format additions to TxKind (consensus order — see chain transaction.rs):
+//   15 TokenPoolCreate          { token_id: u64, zbx_amount: u128, token_amount: u128 }
+//   16 TokenPoolAddLiquidity    { token_id: u64, zbx_amount: u128, max_token_amount: u128, min_lp_out: u128 }
+//   17 TokenPoolRemoveLiquidity { token_id: u64, lp_burn: u128, min_zbx_out: u128, min_token_out: u128 }
+//   18 TokenPoolSwap            { token_id: u64, direction: TokenSwapDirection (u32 LE tag),
+//                                 amount_in: u128, min_out: u128 }
+//
+// TokenSwapDirection bincode encoding (enum, no payload):
+//   ZbxToToken → 4-byte LE u32 = 0
+//   TokenToZbx → 4-byte LE u32 = 1
+//
+// Pool constants (mirror token_pool.rs):
+export const TX_KIND_TOKEN_POOL_CREATE = 15;
+export const TX_KIND_TOKEN_POOL_ADD_LIQUIDITY = 16;
+export const TX_KIND_TOKEN_POOL_REMOVE_LIQUIDITY = 17;
+export const TX_KIND_TOKEN_POOL_SWAP = 18;
+
+export const TOKEN_POOL_FEE_BPS_NUM = 30n;     // 0.3%
+export const TOKEN_POOL_FEE_BPS_DEN = 10_000n;
+export const MIN_TOKEN_POOL_LIQUIDITY = 1_000n;
+
+export type TokenSwapDirectionStr = "zbx_to_token" | "token_to_zbx";
+
+function swapDirTag(d: TokenSwapDirectionStr): number {
+  return d === "zbx_to_token" ? 0 : 1;
+}
+
+// ── Pool body encoders ────────────────────────────────────────────────────
+
+export function encodeTokenPoolCreateBody(opts: BodyHeader & {
+  tokenId: number | bigint;
+  zbxAmountWei: bigint;
+  tokenAmountBase: bigint;
+}): Uint8Array {
+  return concat(
+    header(opts, TX_KIND_TOKEN_POOL_CREATE),
+    u64Le(opts.tokenId),
+    u128Le(opts.zbxAmountWei),
+    u128Le(opts.tokenAmountBase),
+  );
+}
+
+export function encodeTokenPoolAddLiquidityBody(opts: BodyHeader & {
+  tokenId: number | bigint;
+  zbxAmountWei: bigint;
+  maxTokenAmountBase: bigint;
+  minLpOut: bigint;
+}): Uint8Array {
+  return concat(
+    header(opts, TX_KIND_TOKEN_POOL_ADD_LIQUIDITY),
+    u64Le(opts.tokenId),
+    u128Le(opts.zbxAmountWei),
+    u128Le(opts.maxTokenAmountBase),
+    u128Le(opts.minLpOut),
+  );
+}
+
+export function encodeTokenPoolRemoveLiquidityBody(opts: BodyHeader & {
+  tokenId: number | bigint;
+  lpBurn: bigint;
+  minZbxOutWei: bigint;
+  minTokenOutBase: bigint;
+}): Uint8Array {
+  return concat(
+    header(opts, TX_KIND_TOKEN_POOL_REMOVE_LIQUIDITY),
+    u64Le(opts.tokenId),
+    u128Le(opts.lpBurn),
+    u128Le(opts.minZbxOutWei),
+    u128Le(opts.minTokenOutBase),
+  );
+}
+
+export function encodeTokenPoolSwapBody(opts: BodyHeader & {
+  tokenId: number | bigint;
+  direction: TokenSwapDirectionStr;
+  amountIn: bigint;
+  minOut: bigint;
+}): Uint8Array {
+  return concat(
+    header(opts, TX_KIND_TOKEN_POOL_SWAP),
+    u64Le(opts.tokenId),
+    u32Le(swapDirTag(opts.direction)),  // bincode enum tag (no payload)
+    u128Le(opts.amountIn),
+    u128Le(opts.minOut),
+  );
+}
+
+// ── Pool senders (sign + broadcast) ───────────────────────────────────────
+
+export async function sendTokenPoolCreate(opts: CommonOpts & {
+  tokenId: number;
+  zbxAmount: string | number;       // display ZBX (e.g. "100" → 100 ZBX wei)
+  tokenAmountDisplay: string | number;
+  tokenDecimals: number;
+}): Promise<TokenTxResult> {
+  const zbxAmountWei = zbxToWei(opts.zbxAmount);
+  const tokenAmountBase = displayToBase(opts.tokenAmountDisplay, opts.tokenDecimals);
+  return buildAndSend(opts, (h) =>
+    encodeTokenPoolCreateBody({
+      ...h,
+      tokenId: opts.tokenId,
+      zbxAmountWei,
+      tokenAmountBase,
+    }),
+  );
+}
+
+export async function sendTokenPoolAddLiquidity(opts: CommonOpts & {
+  tokenId: number;
+  zbxAmount: string | number;
+  maxTokenAmountDisplay: string | number;
+  tokenDecimals: number;
+  minLpOut?: bigint;   // 0 by default — UI should pass a slippage-protected value
+}): Promise<TokenTxResult> {
+  const zbxAmountWei = zbxToWei(opts.zbxAmount);
+  const maxTokenAmountBase = displayToBase(opts.maxTokenAmountDisplay, opts.tokenDecimals);
+  const minLpOut = opts.minLpOut ?? 0n;
+  return buildAndSend(opts, (h) =>
+    encodeTokenPoolAddLiquidityBody({
+      ...h,
+      tokenId: opts.tokenId,
+      zbxAmountWei,
+      maxTokenAmountBase,
+      minLpOut,
+    }),
+  );
+}
+
+export async function sendTokenPoolRemoveLiquidity(opts: CommonOpts & {
+  tokenId: number;
+  lpBurn: bigint;
+  minZbxOutWei?: bigint;
+  minTokenOutBase?: bigint;
+}): Promise<TokenTxResult> {
+  return buildAndSend(opts, (h) =>
+    encodeTokenPoolRemoveLiquidityBody({
+      ...h,
+      tokenId: opts.tokenId,
+      lpBurn: opts.lpBurn,
+      minZbxOutWei: opts.minZbxOutWei ?? 0n,
+      minTokenOutBase: opts.minTokenOutBase ?? 0n,
+    }),
+  );
+}
+
+export async function sendTokenPoolSwap(opts: CommonOpts & {
+  tokenId: number;
+  direction: TokenSwapDirectionStr;
+  /** Amount in: when direction=zbx_to_token, this is ZBX display (parsed via zbxToWei).
+   *  When direction=token_to_zbx, this is token display (parsed via displayToBase). */
+  amountInDisplay: string | number;
+  tokenDecimals: number;
+  minOut: bigint;     // already in base units (wei or token-base)
+}): Promise<TokenTxResult> {
+  const amountIn = opts.direction === "zbx_to_token"
+    ? zbxToWei(opts.amountInDisplay)
+    : displayToBase(opts.amountInDisplay, opts.tokenDecimals);
+  return buildAndSend(opts, (h) =>
+    encodeTokenPoolSwapBody({
+      ...h,
+      tokenId: opts.tokenId,
+      direction: opts.direction,
+      amountIn,
+      minOut: opts.minOut,
+    }),
+  );
+}
+
+// ── Pool RPC wrappers (read-only) ─────────────────────────────────────────
+
+export interface TokenPoolJson {
+  token_id: number;
+  token_symbol: string;
+  token_name: string;
+  token_decimals: number;
+  creator: string;
+  init_height: number;
+  zbx_reserve: string;        // wei decimal
+  token_reserve: string;      // base-unit decimal
+  lp_supply: string;
+  spot_price_q18: string;     // ZBX-wei per 1 token-base, scaled 1e18
+  swap_fee_bps_num: number;
+  swap_fee_bps_den: number;
+  min_lock_lp: string;
+  cum_zbx_in_volume: string;
+  cum_token_in_volume: string;
+  swap_count: number;
+}
+
+export interface TokenPoolListResp {
+  total: number;
+  offset: number;
+  limit: number;
+  returned: number;
+  pools: TokenPoolJson[];
+}
+
+export async function listTokenPools(offset = 0, limit = 50): Promise<TokenPoolListResp> {
+  return rpc<TokenPoolListResp>("zbx_listTokenPools", [offset, limit]);
+}
+
+export async function getTokenPool(tokenId: number): Promise<TokenPoolJson | null> {
+  try {
+    return await rpc<TokenPoolJson>("zbx_getTokenPool", [tokenId]);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/not found|-32004/i.test(msg)) return null;
+    throw e;
+  }
+}
+
+export interface TokenPoolStats {
+  token_id: number;
+  zbx_reserve: string;
+  token_reserve: string;
+  lp_supply: string;
+  spot_price_q18: string;
+  cum_zbx_in_volume: string;
+  cum_token_in_volume: string;
+  swap_count: number;
+  init_height: number;
+  creator: string;
+}
+
+export async function getTokenPoolStats(tokenId: number): Promise<TokenPoolStats | null> {
+  try {
+    return await rpc<TokenPoolStats>("zbx_tokenPoolStats", [tokenId]);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/not found|-32004/i.test(msg)) return null;
+    throw e;
+  }
+}
+
+export interface TokenSwapQuoteResp {
+  token_id: number;
+  direction: TokenSwapDirectionStr;
+  amount_in: string;
+  amount_out: string;
+  fee_in: string;
+  fee_bps: number;
+  fee_bps_den: number;
+  zbx_reserve: string;
+  token_reserve: string;
+}
+
+export async function getTokenSwapQuote(
+  tokenId: number,
+  direction: TokenSwapDirectionStr,
+  amountIn: bigint,
+): Promise<TokenSwapQuoteResp | null> {
+  try {
+    return await rpc<TokenSwapQuoteResp>(
+      "zbx_tokenSwapQuote",
+      [tokenId, direction, amountIn.toString()],
+    );
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/not found|-32004/i.test(msg)) return null;
+    throw e;
+  }
+}
+
+export interface TokenLpBalanceResp {
+  token_id: number;
+  address: string;
+  lp_balance: string;
+  lp_supply: string;
+  redeemable_zbx: string;        // wei decimal
+  redeemable_token: string;      // base-unit decimal
+}
+
+export async function getTokenLpBalance(
+  tokenId: number,
+  addr: string,
+): Promise<TokenLpBalanceResp> {
+  return rpc<TokenLpBalanceResp>("zbx_getTokenLpBalance", [tokenId, addr]);
+}
+
+// ── Pool math helpers (client-side) ───────────────────────────────────────
+
+/** Apply slippage tolerance to an expected output. `bps = 50` → 0.5%. */
+export function applySlippage(expected: bigint, slippageBps: number): bigint {
+  const bps = BigInt(Math.max(0, Math.min(5_000, Math.floor(slippageBps))));
+  return (expected * (10_000n - bps)) / 10_000n;
+}
+
+/** Pure constant-product quote — same formula as the chain. Useful for
+ *  client-side previews while typing (RPC is hit only on debounced commit). */
+export function quoteZbxForToken(
+  zbxIn: bigint,
+  zbxReserve: bigint,
+  tokenReserve: bigint,
+): bigint {
+  if (zbxIn <= 0n || zbxReserve <= 0n || tokenReserve <= 0n) return 0n;
+  const fee = (zbxIn * TOKEN_POOL_FEE_BPS_NUM) / TOKEN_POOL_FEE_BPS_DEN;
+  const eff = zbxIn - fee;
+  return (tokenReserve * eff) / (zbxReserve + eff);
+}
+
+export function quoteTokenForZbx(
+  tokenIn: bigint,
+  zbxReserve: bigint,
+  tokenReserve: bigint,
+): bigint {
+  if (tokenIn <= 0n || zbxReserve <= 0n || tokenReserve <= 0n) return 0n;
+  const fee = (tokenIn * TOKEN_POOL_FEE_BPS_NUM) / TOKEN_POOL_FEE_BPS_DEN;
+  const eff = tokenIn - fee;
+  return (zbxReserve * eff) / (tokenReserve + eff);
+}
+
+/** Spot price of 1 token in ZBX (display). Uses the pool's `spot_price_q18`. */
+export function spotPriceZbxPerToken(pool: Pick<TokenPoolJson, "spot_price_q18">): number {
+  try {
+    const q = BigInt(pool.spot_price_q18 || "0");
+    // q is wei-per-token-base scaled 1e18 → divide by 1e18 once for wei,
+    // then by 1e18 again for ZBX. Combined: divide by 1e36 for "ZBX per
+    // 1 base-unit-of-token". Most UI wants ZBX per WHOLE token, so caller
+    // can scale by token's decimals.
+    const num = Number(q) / 1e18;  // ZBX-wei per token-base, in JS float
+    return num / 1e18;             // → ZBX per token-base
+  } catch {
+    return 0;
+  }
+}
+
+/** ZBX-per-WHOLE-token: scales by 10^(token_decimals) so the result is
+ *  human-readable as "1 TOKEN = X ZBX". */
+export function spotPriceZbxPerWholeToken(
+  pool: Pick<TokenPoolJson, "spot_price_q18" | "token_decimals">,
+): number {
+  const perBase = spotPriceZbxPerToken(pool);
+  return perBase * Math.pow(10, pool.token_decimals);
+}
