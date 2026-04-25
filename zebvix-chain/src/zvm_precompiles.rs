@@ -1,4 +1,4 @@
-//! # Zebvix EVM Precompiles
+//! # ZVM Precompiles
 //!
 //! Precompiles are pseudo-contracts implemented in native Rust. The
 //! interpreter intercepts calls to specific addresses and dispatches to
@@ -37,7 +37,7 @@
 
 #![allow(dead_code)]
 
-use crate::evm::keccak256;
+use crate::zvm::keccak256;
 use crate::types::Address;
 use primitive_types::U256;
 

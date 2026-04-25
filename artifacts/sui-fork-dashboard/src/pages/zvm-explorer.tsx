@@ -7,12 +7,12 @@ import {
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EVM Explorer — Phase C.2 native zbx_* + eth_* RPC playground
+// ZVM Explorer — Phase C.2 native zbx_* + eth_* RPC playground (ZVM = Zebvix Virtual Machine)
 // Native zbx_* methods are always available; eth_*/net_*/web3_* only when the
-// node binary is built with --features evm. UI prefers zbx_* labels for the
+// node binary is built with --features zvm. UI prefers zbx_* labels for the
 // always-on path and falls back to eth_* labels for EVM-only methods.
 // ─────────────────────────────────────────────────────────────────────────────
-export default function EvmExplorer() {
+export default function ZvmExplorer() {
   const [seed, setSeed] = useState<string>("");
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -59,12 +59,12 @@ function Header() {
             </span>
           </div>
           <h1 className="text-3xl md:text-4xl font-bold tracking-tight flex items-center gap-3">
-            <Cpu className="h-8 w-8 text-violet-400" /> EVM Explorer
+            <Cpu className="h-8 w-8 text-violet-400" /> ZVM Explorer
           </h1>
           <p className="text-sm text-muted-foreground max-w-2xl">
             Native Zebvix RPC playground. <span className="font-mono text-foreground">zbx_*</span> methods (always-on)
             aur <span className="font-mono text-foreground">eth_*</span>/<span className="font-mono text-foreground">net_*</span>/<span className="font-mono text-foreground">web3_*</span> EVM-namespace
-            (gated behind <span className="font-mono text-foreground">--features evm</span>) directly Zebvix L1 par execute hote hain — koi proxy emulation nahi.
+            (gated behind <span className="font-mono text-foreground">--features zvm</span>) directly Zebvix L1 par execute hote hain — koi proxy emulation nahi.
           </p>
         </div>
       </div>
@@ -79,7 +79,7 @@ function Header() {
 // and reconstruct a hex view-string. The accept-string branch is defensive
 // only (in case a future schema change returns a bare hex string), but the
 // canonical response is the object form. Other tiles (gasPrice /
-// clientVersion / syncing) require --features evm and gracefully render
+// clientVersion / syncing) require --features zvm and gracefully render
 // "—" when unavailable.
 // ─────────────────────────────────────────────────────────────────────────────
 function NetStatusGrid() {
@@ -150,7 +150,7 @@ function NetStatusGrid() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Balance Tool — zbx_getBalance (always-on alias of eth_getBalance per
 // rpc.rs:141 — same handler, both names share the match arm so the call
-// works on every Zebvix node regardless of --features evm).
+// works on every Zebvix node regardless of --features zvm).
 // ─────────────────────────────────────────────────────────────────────────────
 function BalanceTool() {
   const [addr, setAddr] = useState("");
@@ -194,7 +194,7 @@ function BalanceTool() {
 // Nonce + Code Tool — zbx_getNonce (always-on) + eth_getCode (EVM-gated)
 // `zbx_getNonce` returns u64 number (NOT hex) per rpc.rs:148-153, so we
 // accept the raw number and format it. `eth_getCode` only works when the
-// node is built with --features evm — we wrap with .catch() so a missing
+// node is built with --features zvm — we wrap with .catch() so a missing
 // EVM feature doesn't blow up the whole inspect (we still show nonce +
 // "EOA (EVM disabled)" hint instead of an error toast).
 // ─────────────────────────────────────────────────────────────────────────────
@@ -425,7 +425,7 @@ function RawDispatcher() {
   // Presets are split into two groups: always-on zbx_* native methods (work
   // on every Zebvix node regardless of build flags) and EVM-namespace eth_*/
   // net_*/web3_* methods (only respond when the node is built with
-  // --features evm). The zbx_* set is shown first so users hit working
+  // --features zvm). The zbx_* set is shown first so users hit working
   // examples by default.
   const presets = [
     // ── zbx_* always-on ──────────────────────────────────────────────────
@@ -757,7 +757,7 @@ function AddressResult({ addr, onCrossLink }: { addr: string; onCrossLink: (v: s
         // All four primary calls use the always-on zbx_* / aliased-zbx
         // namespace: zbx_getBalance is a same-handler alias of eth_getBalance
         // (rpc.rs:141), and zbx_getNonce is the native nonce accessor
-        // (rpc.rs:148). eth_getCode requires --features evm so we wrap
+        // (rpc.rs:148). eth_getCode requires --features zvm so we wrap
         // with .catch(() => null) and let the UI render "EOA" gracefully
         // when the chain doesn't expose code-checking.
         const [bal, non, c, zu, lp] = await Promise.all([
@@ -791,7 +791,7 @@ function AddressResult({ addr, onCrossLink }: { addr: string; onCrossLink: (v: s
         <span className="text-sm font-bold">Account</span>
         {isContract && <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-violet-500/40 bg-violet-500/10 text-violet-300">CONTRACT</span>}
         {!data.loading && !isContract && data.code !== null && <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-emerald-500/40 bg-emerald-500/10 text-emerald-300">EOA</span>}
-        {!data.loading && data.code === null && <span title="eth_getCode unavailable — node likely built without --features evm" className="px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-amber-500/40 bg-amber-500/10 text-amber-300">ACCOUNT · code-check off</span>}
+        {!data.loading && data.code === null && <span title="eth_getCode unavailable — node likely built without --features zvm" className="px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-amber-500/40 bg-amber-500/10 text-amber-300">ACCOUNT · code-check off</span>}
         <code className="ml-auto text-[11px] font-mono text-muted-foreground break-all">{addr}</code>
       </div>
       <div className="p-4 space-y-3">

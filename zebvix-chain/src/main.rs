@@ -1161,8 +1161,8 @@ async fn cmd_start(
             mempool: mempool.clone(),
             p2p_out: rpc_out,
             votes: Some(vote_pool.clone()),
-            #[cfg(feature = "evm")]
-            evm_db: Some(Arc::new(zebvix_node::evm_state::CfEvmDb::new(state.raw_db()))),
+            #[cfg(feature = "zvm")]
+            zvm_db: Some(Arc::new(zebvix_node::zvm_state::CfZvmDb::new(state.raw_db()))),
         };
         let app = rpc::router(ctx);
         let listener = tokio::net::TcpListener::bind(&rpc_addr).await?;
@@ -1176,8 +1176,8 @@ async fn cmd_start(
     let ctx = rpc::RpcCtx {
         state: state.clone(), mempool: mempool.clone(),
         p2p_out: None, votes: None,
-        #[cfg(feature = "evm")]
-        evm_db: Some(Arc::new(zebvix_node::evm_state::CfEvmDb::new(state.raw_db()))),
+        #[cfg(feature = "zvm")]
+        zvm_db: Some(Arc::new(zebvix_node::zvm_state::CfZvmDb::new(state.raw_db()))),
     };
     let app = rpc::router(ctx);
     let listener = tokio::net::TcpListener::bind(&rpc_addr).await?;

@@ -15,20 +15,21 @@ pub mod transaction;
 pub mod types;
 pub mod vote;
 
-// Phase C — Native EVM layer. Gated behind the `evm` cargo feature so
-// existing operators are not forced to rebuild with revm-style deps until
-// they want to enable Solidity execution on their node. With the feature
-// off, these modules compile to nothing and the chain behaves exactly
-// like the pre-Phase-C release.
-#[cfg(feature = "evm")]
-pub mod evm;
-#[cfg(feature = "evm")]
-pub mod evm_interp;
-#[cfg(feature = "evm")]
-pub mod evm_state;
-#[cfg(feature = "evm")]
-pub mod evm_precompiles;
-#[cfg(feature = "evm")]
-pub mod evm_rpc;
-#[cfg(feature = "evm")]
-pub mod evm_rlp;
+// Phase C — ZVM (Zebvix Virtual Machine). Gated behind the `zvm` cargo
+// feature so existing operators are not forced to rebuild with revm-style
+// deps until they want to enable Solidity execution on their node. With
+// the feature off, these modules compile to nothing and the chain behaves
+// exactly like the pre-Phase-C release. ZVM is fully EVM-bytecode
+// compatible — the same Solidity contracts, ABI, and signing flow.
+#[cfg(feature = "zvm")]
+pub mod zvm;
+#[cfg(feature = "zvm")]
+pub mod zvm_interp;
+#[cfg(feature = "zvm")]
+pub mod zvm_state;
+#[cfg(feature = "zvm")]
+pub mod zvm_precompiles;
+#[cfg(feature = "zvm")]
+pub mod zvm_rpc;
+#[cfg(feature = "zvm")]
+pub mod zvm_rlp;

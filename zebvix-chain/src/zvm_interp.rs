@@ -1,4 +1,4 @@
-//! # Zebvix EVM Interpreter — Cancun fork
+//! # ZVM Interpreter — Cancun-EVM fork
 //!
 //! Pure-Rust EVM bytecode interpreter. Supports the canonical Cancun opcode
 //! set (PUSH0, TLOAD/TSTORE, MCOPY, BLOBHASH/BLOBBASEFEE return zero on
@@ -8,7 +8,7 @@
 //! optimized for readability and auditability so the chain's most security-
 //! critical execution path can be reasoned about end-to-end. Hot-path
 //! optimization (jump-table dispatch, U256 SIMD) is left to a future
-//! `evm_interp_fast.rs` swap-in behind the same `EvmDb` trait.
+//! `evm_interp_fast.rs` swap-in behind the same `ZvmDb` trait.
 //!
 //! ## Gas accounting
 //! Each opcode debits its constant cost from `self.gas` and aborts execution
@@ -23,12 +23,12 @@
 
 #![allow(dead_code, clippy::needless_range_loop, clippy::too_many_lines)]
 
-use crate::evm::{
-    create2_address, create_address, keccak256, u256_to_bytes, EvmAccount,
-    EvmContext, EvmDb, EvmLog, ExecResult, StateJournal, CALL_DEPTH_LIMIT, KECCAK_EMPTY,
+use crate::zvm::{
+    create2_address, create_address, keccak256, u256_to_bytes, ZvmAccount,
+    ZvmContext, ZvmDb, ZvmLog, ExecResult, StateJournal, CALL_DEPTH_LIMIT, KECCAK_EMPTY,
     MAX_CODE_SIZE, MAX_INITCODE_SIZE, STACK_LIMIT,
 };
-use crate::evm_precompiles::dispatch as precompile_dispatch;
+use crate::zvm_precompiles::dispatch as precompile_dispatch;
 use crate::types::Address;
 use primitive_types::{H256, U256};
 use std::collections::HashMap;
@@ -186,9 +186,9 @@ pub enum CallKind {
 // Interpreter state
 // ---------------------------------------------------------------------------
 
-pub struct Interp<'db, D: EvmDb> {
+pub struct Interp<'db, D: ZvmDb> {
     db: &'db D,
-    ctx: EvmContext,
+    ctx: ZvmContext,
     pub gas: u64,
     pub gas_refunded: u64,
 
@@ -210,12 +210,12 @@ pub struct Interp<'db, D: EvmDb> {
     // Storage diff buffers (committed only on success).
     storage_writes: HashMap<(Address, H256), H256>,
     transient_storage: HashMap<(Address, H256), H256>,
-    logs: Vec<EvmLog>,
+    logs: Vec<ZvmLog>,
     journal: StateJournal,
 }
 
-impl<'db, D: EvmDb> Interp<'db, D> {
-    pub fn new(db: &'db D, ctx: &EvmContext, gas: u64) -> Self {
+impl<'db, D: ZvmDb> Interp<'db, D> {
+    pub fn new(db: &'db D, ctx: &ZvmContext, gas: u64) -> Self {
         Self {
             db,
             ctx: ctx.clone(),
@@ -874,7 +874,7 @@ impl<'db, D: EvmDb> Interp<'db, D> {
             topics.push(H256::from(u256_to_bytes(t)));
         }
         let data = match self.mem_read(off.as_usize(), len.as_usize()) { Ok(b) => b, Err(e) => return StepResult::Error(e) };
-        self.logs.push(EvmLog {
+        self.logs.push(ZvmLog {
             address: self.address,
             topics,
             data,
@@ -968,7 +968,7 @@ impl<'db, D: EvmDb> Interp<'db, D> {
         };
 
         // EIP-684 collision: existing account must have nonce 0 AND no code.
-        // Note: `EvmAccount::default()` reports `code_hash = KECCAK_EMPTY` for
+        // Note: `ZvmAccount::default()` reports `code_hash = KECCAK_EMPTY` for
         // accounts the DB doesn't know about — must compare against
         // KECCAK_EMPTY, not the all-zero sentinel.
         let existing = match self.db.account(&new_addr) {
@@ -978,7 +978,7 @@ impl<'db, D: EvmDb> Interp<'db, D> {
                 return StepResult::Continue;
             }
             Some(a) => a,
-            None => EvmAccount::default(),
+            None => ZvmAccount::default(),
         };
 
         // Per yellow paper §7 / EIP-684: nonce bump on the caller MUST
@@ -1087,7 +1087,7 @@ impl<'db, D: EvmDb> Interp<'db, D> {
         self.return_data.clear();
 
         let code_hash = keccak256(&runtime_code);
-        let new_acct = EvmAccount {
+        let new_acct = ZvmAccount {
             nonce: 1,
             balance: existing.balance.saturating_add(value),
             code_hash,
@@ -1405,18 +1405,18 @@ pub fn decode_revert_reason(data: &[u8]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::evm::create_address;
+    use crate::zvm::create_address;
 
     struct StubDb;
-    impl EvmDb for StubDb {
-        fn account(&self, _: &Address) -> Option<EvmAccount> { Some(EvmAccount::default()) }
+    impl ZvmDb for StubDb {
+        fn account(&self, _: &Address) -> Option<ZvmAccount> { Some(ZvmAccount::default()) }
         fn code(&self, _: &[u8; 32]) -> Option<Vec<u8>> { None }
         fn storage(&self, _: &Address, _: &H256) -> H256 { H256::zero() }
         fn block_hash(&self, _: u64) -> H256 { H256::zero() }
     }
 
-    fn ctx() -> EvmContext {
-        EvmContext {
+    fn ctx() -> ZvmContext {
+        ZvmContext {
             chain_id: 7878,
             block_number: 1,
             block_timestamp: 0,

@@ -11,9 +11,9 @@
 //!     eth_sendRawTransaction, eth_getCode, eth_getStorageAt,
 //!     eth_getTransactionReceipt, eth_getLogs, eth_gasPrice,
 //!     web3_clientVersion, eth_syncing …) is gated behind the
-//!     `--features evm` build flag and lives in `evm_rpc.rs`.
+//!     `--features zvm` build flag and lives in `zvm_rpc.rs`.
 //!
-//!   Always-on dual-name methods (no `--features evm` needed):
+//!   Always-on dual-name methods (no `--features zvm` needed):
 //!   - eth_chainId      | zbx_chainId       -> "0x1ec6"  (7878)
 //!   - net_version      | zbx_netVersion    -> "7878"
 //!   - eth_blockNumber                       -> "0x..."   (EVM hex tip)
@@ -62,10 +62,10 @@ pub struct RpcCtx {
     pub votes: Option<Arc<VotePool>>,
     /// Phase C.2 — shared EVM state DB. When `Some`, the RPC layer routes
     /// any unhandled `eth_*` / `net_*` / `web3_*` method through
-    /// `crate::evm_rpc::dispatch` so MetaMask/Foundry/ethers.js can speak
+    /// `crate::zvm_rpc::dispatch` so MetaMask/Foundry/ethers.js can speak
     /// the standard JSON-RPC dialect against this node.
-    #[cfg(feature = "evm")]
-    pub evm_db: Option<Arc<crate::evm_state::CfEvmDb>>,
+    #[cfg(feature = "zvm")]
+    pub zvm_db: Option<Arc<crate::zvm_state::CfZvmDb>>,
 }
 
 #[derive(Deserialize)]
@@ -137,7 +137,7 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
     let resp = match req.method.as_str() {
         // Always-on dual-name aliases. zbx_chainId / zbx_netVersion let
         // mobile + dashboard clients call the canonical Zebvix namespace
-        // even on nodes built WITHOUT --features evm; eth_chainId /
+        // even on nodes built WITHOUT --features zvm; eth_chainId /
         // net_version remain so MetaMask / web3 / hardhat etc. work
         // unchanged. Both arms share the same handler — no behaviour
         // divergence is possible.
@@ -1359,9 +1359,9 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
             // `evm_rpc::dispatch`, so dashboards and CLIs that prefer the
             // Zebvix-native namespace get identical results without ever
             // touching the EVM wire-protocol method names. These aliases
-            // require `--features evm`; without it, the dispatcher returns
+            // require `--features zvm`; without it, the dispatcher returns
             // `method not found` just like the eth_* originals.
-            #[cfg(feature = "evm")]
+            #[cfg(feature = "zvm")]
             if m.starts_with("eth_") || m.starts_with("net_") || m.starts_with("web3_")
                 || matches!(m,
                     "zbx_clientVersion" | "zbx_syncing" | "zbx_accounts"
@@ -1384,14 +1384,14 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
 /// Phase C.2 — bridge between the legacy native RPC dispatcher and the
 /// EVM JSON-RPC handler in `evm_rpc::dispatch`. Returns `None` when the
 /// EVM DB is not configured (so the catch-all can return `method not found`).
-#[cfg(feature = "evm")]
+#[cfg(feature = "zvm")]
 fn try_evm_dispatch(
     ctx: &RpcCtx,
     id: &Value,
     method: &str,
     params: &Value,
 ) -> Option<RpcResp> {
-    let db = ctx.evm_db.as_ref()?.clone();
+    let db = ctx.zvm_db.as_ref()?.clone();
     let (height, _) = ctx.state.tip();
     let block_ts_ms = ctx.state.block_at(height)
         .map(|b| b.header.timestamp_ms)
@@ -1406,7 +1406,7 @@ fn try_evm_dispatch(
         DYNAMIC_GAS_CAP_GWEI,
     );
 
-    let evm_ctx = crate::evm_rpc::EvmRpcCtx {
+    let zvm_ctx = crate::zvm_rpc::ZvmRpcCtx {
         db,
         chain_id: CHAIN_ID,
         current_height: height,
@@ -1421,7 +1421,7 @@ fn try_evm_dispatch(
         other => vec![other.clone()],
     };
 
-    Some(match crate::evm_rpc::dispatch(&evm_ctx, method, &params_arr) {
+    Some(match crate::zvm_rpc::dispatch(&zvm_ctx, method, &params_arr) {
         Ok(v) => ok(id.clone(), v),
         Err(e) => err(id.clone(), -32000, e),
     })

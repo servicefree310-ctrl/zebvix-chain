@@ -39,7 +39,7 @@ import MultisigExplorer from "@/pages/multisig-explorer";
 import PayIdResolver from "@/pages/payid-resolver";
 import ConnectWallet from "@/pages/connect-wallet";
 import SwapPage from "@/pages/swap";
-import EvmExplorer from "@/pages/evm-explorer";
+import ZvmExplorer from "@/pages/zvm-explorer";
 import PoolExplorer from "@/pages/pool-explorer";
 import GovernancePage from "@/pages/governance";
 import SmartContracts from "@/pages/smart-contracts";
@@ -83,7 +83,8 @@ function Router() {
         <Route path="/payid-resolver" component={PayIdResolver} />
         <Route path="/connect-wallet" component={ConnectWallet} />
         <Route path="/swap" component={SwapPage} />
-        <Route path="/evm-explorer" component={EvmExplorer} />
+        <Route path="/zvm-explorer" component={ZvmExplorer} />
+        <Route path="/evm-explorer" component={ZvmExplorer} />
         <Route path="/pool-explorer" component={PoolExplorer} />
         <Route path="/governance" component={GovernancePage} />
         <Route path="/smart-contracts" component={SmartContracts} />

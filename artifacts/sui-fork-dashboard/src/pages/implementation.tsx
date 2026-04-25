@@ -161,7 +161,7 @@ journalctl -u zebvix-node -n 200 --no-pager | grep -E '🌐 p2p listening|🔗 c
         title: "RegisterPayId tx kind + zbx_lookupPayId / zbx_getPayIdOf RPCs",
         files: ["zebvix-chain/src/transaction.rs:73", "zebvix-chain/src/state.rs", "zebvix-chain/src/rpc.rs:1198"],
         description: "Sender registers a string alias bound to its own address. Format: <handle>@zbx, handle 3–25 chars [a-z0-9_]; name is a 1–50 char display label. One Pay-ID per address; once set it is PERMANENT — cannot be edited or deleted.",
-        detail: "Forward lookup zbx_lookupPayId(pay_id) → address; reverse zbx_getPayIdOf(address) → pay_id; zbx_payIdCount returns total registered. Used by the EVM Explorer's unified Smart Search bar to route alias queries to the right account.",
+        detail: "Forward lookup zbx_lookupPayId(pay_id) → address; reverse zbx_getPayIdOf(address) → pay_id; zbx_payIdCount returns total registered. Used by the ZVM Explorer's unified Smart Search bar to route alias queries to the right account.",
       },
     ],
   },
@@ -262,7 +262,7 @@ journalctl -u zebvix-node -n 200 --no-pager | grep -E '🌐 p2p listening|🔗 c
   {
     id: "C.2",
     title: "Phase C.2 — RLP + Sender Recovery + Cancun EVM Execution",
-    subtitle: "Full Cancun-targeted interpreter, gated behind cargo --features evm — partial coverage with documented gaps",
+    subtitle: "Full Cancun-targeted interpreter, gated behind cargo --features zvm — partial coverage with documented gaps",
     status: "PARTIAL",
     steps: [
       {
@@ -549,7 +549,7 @@ export default function Implementation() {
       {/* Footer note */}
       <div className="p-4 rounded-lg border border-border bg-card/40 text-xs text-muted-foreground space-y-1.5">
         <div className="font-semibold text-foreground text-sm mb-1">Reading order tips</div>
-        <div>• Phase A → B series → D ran in numeric order; Phase C (the EVM stack) is tracked separately because it is gated behind <code className="text-xs bg-muted px-1 rounded">cargo --features evm</code> and ships in its own slice.</div>
+        <div>• Phase A → B series → D ran in numeric order; Phase C (the EVM stack) is tracked separately because it is gated behind <code className="text-xs bg-muted px-1 rounded">cargo --features zvm</code> and ships in its own slice.</div>
         <div>• Items in <strong className="text-foreground">PARTIAL</strong> phases are usable today within the documented caveats — see the linked dashboard pages (Smart Contracts EVM, Cross-Chain Bridge) for exact behavior.</div>
         <div>• <strong className="text-foreground">PLANNED</strong> entries are intentionally pulled out so integrators know what they are building against vs. what is coming. Nothing in PLANNED has merged into <code className="text-xs bg-muted px-1 rounded">main</code> yet.</div>
       </div>

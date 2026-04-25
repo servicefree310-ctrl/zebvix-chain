@@ -286,9 +286,9 @@ function Hero({ tip, flash, err, loading, price, validatorCount, evmChainHex, po
                 <Activity className="h-3.5 w-3.5" /> Open Live Chain
               </button>
             </Link>
-            <Link href="/evm-explorer">
+            <Link href="/zvm-explorer">
               <button className="px-3 py-1.5 rounded-lg text-xs font-medium border border-border bg-card hover:bg-muted/50 flex items-center gap-1.5">
-                <Cpu className="h-3.5 w-3.5" /> EVM Explorer
+                <Cpu className="h-3.5 w-3.5" /> ZVM Explorer
               </button>
             </Link>
             <Link href="/block-explorer">
@@ -568,7 +568,7 @@ function RecentBlocksRibbon({ recent }: { recent: BlockInfo[] }) {
 function QuickAccessGrid() {
   const items = [
     { href: "/live-chain", icon: Activity, title: "Live Chain", desc: "Real-time telemetry, blocks, validators, economy", tone: "emerald" },
-    { href: "/evm-explorer", icon: Cpu, title: "EVM Explorer", desc: "Phase C.2 native eth_* RPC playground", tone: "violet" },
+    { href: "/zvm-explorer", icon: Cpu, title: "ZVM Explorer", desc: "Phase C.2 native zbx_*/eth_* RPC playground (Zebvix Virtual Machine)", tone: "violet" },
     { href: "/pool-explorer", icon: Droplets, title: "Pool / AMM", desc: "ZBX/zUSD reserves, spot, loan, swaps", tone: "cyan" },
     { href: "/block-explorer", icon: Search, title: "Block Explorer", desc: "Browse blocks, txs, addresses", tone: "cyan" },
     { href: "/wallet", icon: Wallet, title: "ZBX Wallet", desc: "Web wallet — send, receive, sign", tone: "amber" },
@@ -632,7 +632,7 @@ function ChainIdentityCard() {
         <Row label="Chain ID" value="7878 (0x1ec6)" mono />
         <Row label="RPC HTTP" value="http://93.127.213.192:8545" mono copy />
         <Row label="Consensus" value="Tendermint BFT (Phase B.2)" />
-        <Row label="EVM" value="Native (Cancun) — Phase C.2 LIVE" />
+        <Row label="ZVM" value="Native (Cancun-EVM) — Phase C.2 LIVE" />
         <Row label="VPS" value="srv1266996" mono />
         <Row label="Service" value="zebvix.service" mono />
       </div>

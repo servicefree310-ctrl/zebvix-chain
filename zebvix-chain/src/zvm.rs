@@ -1,9 +1,9 @@
-//! # Zebvix EVM Layer — Phase C
+//! # ZVM (Zebvix Virtual Machine) — Phase C
 //!
-//! Production-grade Zebvix EVM execution layer (Cancun-fork compatible) for
-//! the Zebvix L1 chain. Activated by the `evm` cargo feature; without it the
+//! Production-grade ZVM execution layer (Cancun-EVM-fork compatible) for
+//! the Zebvix L1 chain. Activated by the `zvm` cargo feature; without it the
 //! chain compiles unchanged so existing operators are not forced to rebuild
-//! until they want to enable EVM.
+//! until they want to enable ZVM.
 //!
 //! ## Goals
 //! - Solidity 0.8+ contracts deploy and execute unchanged.
@@ -24,8 +24,8 @@
 //!     │   TxKind::Transfer  → native ledger debit/credit           │
 //!     │   TxKind::Swap      → AMM pool                             │
 //!     │   TxKind::Bridge    → bridge module                        │
-//!     │   TxKind::EvmCall   ──┐                                    │
-//!     │   TxKind::EvmCreate ──┴──► evm::execute()                  │
+//!     │   TxKind::ZvmCall   ──┐                                    │
+//!     │   TxKind::ZvmCreate ──┴──► evm::execute()                  │
 //!     │                              │                             │
 //!     │                              ▼                             │
 //!     │                       evm_interp::Interp                   │
@@ -33,7 +33,7 @@
 //!     │                          │      ▼                          │
 //!     │                          │  evm_precompiles::dispatch      │
 //!     │                          ▼                                 │
-//!     │                    evm_state::CfEvmDb                      │
+//!     │                    evm_state::CfZvmDb                      │
 //!     │                          │                                 │
 //!     │                          ▼                                 │
 //!     │                   RocksDB (CF_EVM, CF_LOGS)                │
@@ -97,20 +97,20 @@ pub const KECCAK_EMPTY: [u8; 32] = [
 // EVM transaction variants — additions to `transaction::TxKind`
 // ---------------------------------------------------------------------------
 
-/// `TxKind::EvmCreate` — deploy a new contract.
+/// `TxKind::ZvmCreate` — deploy a new contract.
 ///
 /// On apply:
 /// 1. Charge `gas_limit * effective_gas_price` from `from`.
 /// 2. Compute deployed address:
 ///    - CREATE  : `keccak256(rlp([from, nonce]))[12..]`
 ///    - CREATE2 : `keccak256(0xff || from || salt || keccak256(init_code))[12..]`
-/// 3. Run `init_code` via [`crate::evm_interp::Interp`]; runtime bytecode is
+/// 3. Run `init_code` via [`crate::zvm_interp::Interp`]; runtime bytecode is
 ///    the return value subject to the `MAX_CODE_SIZE` limit.
 /// 4. Store `code` content-addressed in `CF_EVM/code/<keccak256>`.
-/// 5. Account record: `EvmAccount { nonce: 1, balance: value, code_hash, … }`.
+/// 5. Account record: `ZvmAccount { nonce: 1, balance: value, code_hash, … }`.
 /// 6. Refund unused gas; emit `ContractCreated` event.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EvmCreate {
+pub struct ZvmCreate {
     pub init_code: Vec<u8>,
     pub value: u128,
     pub gas_limit: u64,
@@ -118,17 +118,17 @@ pub struct EvmCreate {
     pub salt: Option<[u8; 32]>,
 }
 
-/// `TxKind::EvmCall` — invoke a deployed contract or native EOA transfer.
+/// `TxKind::ZvmCall` — invoke a deployed contract or native EOA transfer.
 ///
 /// On apply:
 /// 1. Charge `gas_limit * effective_gas_price` from `from`.
-/// 2. Look up `EvmAccount` at `to`; load `code` by `code_hash`.
-/// 3. Execute via [`crate::evm_interp::Interp`] with `data` as calldata.
+/// 2. Look up `ZvmAccount` at `to`; load `code` by `code_hash`.
+/// 3. Execute via [`crate::zvm_interp::Interp`] with `data` as calldata.
 /// 4. Apply state changes (storage writes, value transfers).
 /// 5. Emit `LOG0..LOG4` events to `CF_LOGS`.
 /// 6. Refund unused gas; return [`ExecResult`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EvmCall {
+pub struct ZvmCall {
     pub to: Address,
     pub data: Vec<u8>,
     pub value: u128,
@@ -138,12 +138,12 @@ pub struct EvmCall {
 
 /// Wrapper enum so [`execute`] accepts both call and create variants.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum EvmTxEnvelope {
-    Call(EvmCall),
-    Create(EvmCreate),
+pub enum ZvmTxEnvelope {
+    Call(ZvmCall),
+    Create(ZvmCreate),
 }
 
-impl EvmTxEnvelope {
+impl ZvmTxEnvelope {
     pub fn gas_limit(&self) -> u64 {
         match self {
             Self::Call(c) => c.gas_limit,
@@ -191,14 +191,14 @@ impl EvmTxEnvelope {
 /// Compatible with the standard EVM `(nonce, balance, storage_root, code_hash)`
 /// tuple so MPT proofs remain interoperable with archive-node clients.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EvmAccount {
+pub struct ZvmAccount {
     pub nonce: u64,
     pub balance: u128,
     pub storage_root: [u8; 32],
     pub code_hash: [u8; 32],
 }
 
-impl Default for EvmAccount {
+impl Default for ZvmAccount {
     fn default() -> Self {
         Self {
             nonce: 0,
@@ -209,7 +209,7 @@ impl Default for EvmAccount {
     }
 }
 
-impl EvmAccount {
+impl ZvmAccount {
     pub fn is_empty(&self) -> bool {
         self.nonce == 0 && self.balance == 0 && self.code_hash == KECCAK_EMPTY
     }
@@ -220,7 +220,7 @@ impl EvmAccount {
 /// Indexed in `CF_LOGS` by `(block_height, log_index)` and additionally by
 /// `(address, topic0..topic3)` so `eth_getLogs` filters are O(log n).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EvmLog {
+pub struct ZvmLog {
     pub address: Address,
     pub topics: Vec<H256>,
     pub data: Vec<u8>,
@@ -236,7 +236,7 @@ pub struct ExecResult {
     pub gas_used: u64,
     pub gas_refunded: u64,
     pub return_data: Vec<u8>,
-    pub logs: Vec<EvmLog>,
+    pub logs: Vec<ZvmLog>,
     pub created_address: Option<Address>,
     pub revert_reason: Option<String>,
 }
@@ -254,7 +254,7 @@ impl ExecResult {
         }
     }
 
-    pub fn ok(gas_used: u64, gas_refunded: u64, return_data: Vec<u8>, logs: Vec<EvmLog>) -> Self {
+    pub fn ok(gas_used: u64, gas_refunded: u64, return_data: Vec<u8>, logs: Vec<ZvmLog>) -> Self {
         Self {
             success: true,
             gas_used,
@@ -268,15 +268,15 @@ impl ExecResult {
 }
 
 // ---------------------------------------------------------------------------
-// Database trait — implemented by `evm_state::CfEvmDb`
+// Database trait — implemented by `evm_state::CfZvmDb`
 // ---------------------------------------------------------------------------
 
 /// Read-only view of EVM state. The interpreter calls this trait to fetch
 /// accounts, code and storage. Mutations are journaled in [`StateJournal`]
 /// and committed at the end of a successful execution.
-pub trait EvmDb {
+pub trait ZvmDb {
     /// Look up an account by address. Returns `None` if absent.
-    fn account(&self, addr: &Address) -> Option<EvmAccount>;
+    fn account(&self, addr: &Address) -> Option<ZvmAccount>;
 
     /// Fetch contract bytecode by `keccak256(code)`. Empty for EOAs.
     fn code(&self, hash: &[u8; 32]) -> Option<Vec<u8>>;
@@ -294,7 +294,7 @@ pub trait EvmDb {
 /// outer transaction's other side-effects.
 #[derive(Debug, Default, Clone)]
 pub struct StateJournal {
-    pub touched_accounts: Vec<(Address, EvmAccount)>,
+    pub touched_accounts: Vec<(Address, ZvmAccount)>,
     pub storage_writes: Vec<(Address, H256, H256)>,
     pub new_code: Vec<([u8; 32], Vec<u8>)>,
     pub destructed: Vec<Address>,
@@ -314,7 +314,7 @@ impl StateJournal {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
-pub struct EvmContext {
+pub struct ZvmContext {
     pub chain_id: u64,
     pub block_number: u64,
     pub block_timestamp: u64,
@@ -324,7 +324,7 @@ pub struct EvmContext {
     pub prev_randao: H256,
 }
 
-impl EvmContext {
+impl ZvmContext {
     pub fn zebvix_default(block_number: u64, timestamp: u64, coinbase: Address, base_fee: u128) -> Self {
         Self {
             chain_id: crate::tokenomics::CHAIN_ID,
@@ -342,7 +342,7 @@ impl EvmContext {
 // Top-level entry point
 // ---------------------------------------------------------------------------
 
-use crate::evm_interp::Interp;
+use crate::zvm_interp::Interp;
 
 /// Execute one EVM transaction (call or create) and return the result and
 /// journaled state mutations.
@@ -353,11 +353,11 @@ use crate::evm_interp::Interp;
 ///    to `CF_EVM`.
 /// 3. Persisting `result.logs` to `CF_LOGS`.
 /// 4. Refunding `result.gas_refunded` ZBX wei back to the signer.
-pub fn execute<D: EvmDb>(
+pub fn execute<D: ZvmDb>(
     db: &D,
-    ctx: &EvmContext,
+    ctx: &ZvmContext,
     from: &Address,
-    tx: &EvmTxEnvelope,
+    tx: &ZvmTxEnvelope,
 ) -> (ExecResult, StateJournal) {
     let intrinsic = tx.intrinsic_gas();
     if intrinsic > tx.gas_limit() {
@@ -383,7 +383,7 @@ pub fn execute<D: EvmDb>(
     let gas_remaining = tx.gas_limit().saturating_sub(intrinsic);
 
     let exec_result = match tx {
-        EvmTxEnvelope::Create(c) => {
+        ZvmTxEnvelope::Create(c) => {
             // Compute new contract address.
             let new_addr = match c.salt {
                 Some(salt) => create2_address(from, &salt, &c.init_code),
@@ -402,7 +402,7 @@ pub fn execute<D: EvmDb>(
             // deploying over an account that already has a non-zero nonce or
             // non-empty code. Pre-existing balance is preserved per spec.
             //
-            // NB: `EvmAccount::default()` reports `code_hash = KECCAK_EMPTY`
+            // NB: `ZvmAccount::default()` reports `code_hash = KECCAK_EMPTY`
             // for accounts the DB doesn't know about, so the "has code"
             // predicate must be `code_hash != KECCAK_EMPTY`, *not* the all-zero
             // sentinel — otherwise every fresh address would falsely collide.
@@ -414,7 +414,7 @@ pub fn execute<D: EvmDb>(
                     );
                 }
                 Some(a) => a,
-                None => EvmAccount::default(),
+                None => ZvmAccount::default(),
             };
 
             // Credit value to new contract (existing balance preserved).
@@ -450,7 +450,7 @@ pub fn execute<D: EvmDb>(
             res
         }
 
-        EvmTxEnvelope::Call(c) => {
+        ZvmTxEnvelope::Call(c) => {
             // Credit value to recipient.
             let mut to_acct = db.account(&c.to).unwrap_or_default();
             to_acct.balance = to_acct.balance.saturating_add(c.value);
@@ -620,7 +620,7 @@ mod tests {
 
     #[test]
     fn intrinsic_gas_call_baseline() {
-        let tx = EvmTxEnvelope::Call(EvmCall {
+        let tx = ZvmTxEnvelope::Call(ZvmCall {
             to: Address::from_bytes([0u8; 20]),
             data: vec![],
             value: 0,
@@ -632,7 +632,7 @@ mod tests {
 
     #[test]
     fn intrinsic_gas_call_with_data() {
-        let tx = EvmTxEnvelope::Call(EvmCall {
+        let tx = ZvmTxEnvelope::Call(ZvmCall {
             to: Address::from_bytes([0u8; 20]),
             data: vec![0, 1, 2, 0, 0, 3],
             value: 0,

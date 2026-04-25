@@ -42,14 +42,16 @@ The project is organized as a pnpm workspace monorepo, with each package managin
 - **Bridge Module:** On-chain `bridge` module with `BridgeNetwork` and `BridgeAsset` registries, lock/release pattern for cross-chain transfers. Admin-extensible for new networks and assets.
 - **Phase D — Forkless On-chain Governance:** `proposal` module with `ProposalKind` (FeatureFlag, ParamChange, ContractWhitelist, TextOnly). Wallets holding ≥ 1 000 ZBX may submit proposals (only fee consumed; principal refunded). Lifecycle: 14-day shadow-execution Testing phase → 76-day Voting phase (90 days total). 1 wallet = 1 vote (no balance weighting; voters only pay gas). Auto-activates iff yes/total ≥ 90% AND total ≥ 5; activation flips a feature flag, sets a u128 param, or whitelists a contract — no hard fork. Max 3 active (Testing|Voting) proposals per proposer. State persisted in `CF_META` under `prop/`, `prop_vote/`, `prop_active/`, `prop_count`, `ff/`, `ff_label/`. RPC: `zbx_proposalsList`, `zbx_proposalGet`, `zbx_proposerCheck`, `zbx_proposalHasVoted`, `zbx_proposalShadowExec` (strictly read-only, never mutates consensus state), `zbx_featureFlagsList`, `zbx_featureFlagGet`. CLI: `propose`, `vote`, `proposals-list`, `proposal-get`, `feature-flags-list`. Dashboard `/governance` page with eligibility check, proposals list, feature-flag sidebar, and shadow-exec preview. Status labels are capitalized end-to-end (`Testing`, `Voting`, `Approved`, `Rejected`, `Activated`).
 
-## EVM Integration
-- **EVM Execution Layer:** Native EVM implementation (Cancun fork) in Rust, gated behind `cargo --features evm`.
-- **Opcode Support:** Full Cancun opcode set, including CREATE/CREATE2.
+## ZVM (Zebvix Virtual Machine) Integration
+- **ZVM Execution Layer:** Native ZVM (Cancun-EVM-fork compatible) implementation in Rust, gated behind `cargo --features zvm`. Modules live in `src/zvm*.rs` (zvm.rs, zvm_interp.rs, zvm_state.rs, zvm_precompiles.rs, zvm_rpc.rs, zvm_rlp.rs).
+- **Internal Types:** `ZvmAccount`, `ZvmDb`, `ZvmLog`, `ZvmCall`, `ZvmCreate`, `ZvmContext`, `ZvmTxEnvelope`, `ZvmRpcCtx`, `CfZvmDb`. (Phase B.12 internal refactor: renamed from Evm* prefix, zero functional change.)
+- **Opcode Support:** Full Cancun opcode set, including CREATE/CREATE2, PUSH0, TLOAD/TSTORE, MCOPY.
 - **Gas Accounting:** Mainnet-matching gas constants, quadratic memory expansion, SSTORE refunds.
-- **Storage:** `CfEvmDb` with in-memory account cache, atomic journal applies.
-- **Precompiles:** Standard (ECRECOVER, SHA256, IDENTITY) and custom (bridge_out, payid_resolve, amm_swap, multisig_propose).
-- **JSON-RPC:** Comprehensive `eth_*` namespace (15 methods) for EVM interaction.
-- **Solidity Contracts:** Drafted Solidity 0.8.24 contracts (`ZBX20.sol`, `BridgeVault.sol`, `BridgeMultisig.sol`, `Multicall3.sol`, `ZbxStaking.sol`, `ZbxAMM.sol`, `ZbxTimelock.sol`) for the BNB-Chain side of the bridge and general utility.
+- **Storage:** `CfZvmDb` with in-memory account cache, atomic journal applies.
+- **Precompiles:** Standard (ECRECOVER, SHA256, IDENTITY) and custom Zebvix (0x80 bridge_out, 0x81 payid_resolve, 0x82 amm_swap, 0x83 multisig_propose).
+- **JSON-RPC Wire Protocol:** `eth_*` namespace (15 methods) — wallet/Foundry/Hardhat compatible. Aliased to `zbx_*` for Zebvix-native callers via dual-namespace dispatcher.
+- **Client Version:** `web3_clientVersion` returns `Zebvix/0.1.0/rust1.83/zvm-cancun`.
+- **Solidity Contracts:** Drafted Solidity 0.8.24 contracts (`ZBX20.sol`, `BridgeVault.sol`, `BridgeMultisig.sol`, `Multicall3.sol`, `ZbxStaking.sol`, `ZbxAMM.sol`, `ZbxTimelock.sol`) for BNB-Chain bridge side and general utility. ZVM is fully EVM-bytecode compatible — same Solidity contracts run unchanged.
 
 ## User Interface (Dashboard)
 - **Mission Control:** Rewritten home page showing live block height, chain stats, KPIs, recent blocks, quick access grid, chain identity, and MetaMask connection.

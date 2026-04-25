@@ -56,7 +56,7 @@ const CORE_NAV = [
 
 const LIVE_NAV = [
   { href: "/live-chain", label: "Live Chain Status", icon: Activity },
-  { href: "/evm-explorer", label: "EVM Explorer (C.2)", icon: Cpu },
+  { href: "/zvm-explorer", label: "ZVM Explorer (C.2)", icon: Cpu },
   { href: "/pool-explorer", label: "Pool / AMM", icon: Droplets },
   { href: "/balance-lookup", label: "Balance Lookup", icon: Wallet },
   { href: "/multisig-explorer", label: "Multisig Explorer", icon: Shield },

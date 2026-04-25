@@ -1,5 +1,5 @@
 //! Phase C.2 — Recursive Length Prefix (RLP) decoder + EVM transaction
-//! body parsers (used by the Zebvix EVM signed-tx ingestion path).
+//! body parsers (used by the ZVM signed-tx ingestion path).
 //!
 //! ## Why this module exists
 //!
@@ -36,7 +36,7 @@
 
 #![allow(dead_code)]
 
-use crate::evm::{keccak256, EvmCall, EvmCreate, EvmTxEnvelope};
+use crate::zvm::{keccak256, ZvmCall, ZvmCreate, ZvmTxEnvelope};
 use crate::types::Address;
 use primitive_types::U256;
 
@@ -281,7 +281,7 @@ pub fn encode_address(addr: Option<&Address>) -> RlpItem {
 /// also be reused for state-sync / archival decoding.
 pub fn decode_raw_tx(
     raw: &[u8],
-) -> Result<(EvmTxEnvelope, Address, Option<u64>), &'static str> {
+) -> Result<(ZvmTxEnvelope, Address, Option<u64>), &'static str> {
     if raw.is_empty() {
         return Err("empty raw tx");
     }
@@ -302,7 +302,7 @@ pub fn tx_hash(raw: &[u8]) -> [u8; 32] {
 /// Decode legacy transaction: rlp([nonce, gas_price, gas, to, value, data, v, r, s]).
 pub fn decode_legacy_tx(
     raw: &[u8],
-) -> Result<(EvmTxEnvelope, Address, Option<u64>), &'static str> {
+) -> Result<(ZvmTxEnvelope, Address, Option<u64>), &'static str> {
     let (item, _) = decode_rlp(raw)?;
     let fields = item.as_list()?;
     if fields.len() != 9 {
@@ -355,7 +355,7 @@ pub fn decode_legacy_tx(
 /// Decode EIP-2930 transaction (after stripping the `0x01` type byte).
 pub fn decode_eip2930_tx(
     rlp: &[u8],
-) -> Result<(EvmTxEnvelope, Address, Option<u64>), &'static str> {
+) -> Result<(ZvmTxEnvelope, Address, Option<u64>), &'static str> {
     let (item, _) = decode_rlp(rlp)?;
     let fields = item.as_list()?;
     if fields.len() != 11 {
@@ -391,7 +391,7 @@ pub fn decode_eip2930_tx(
 /// Decode EIP-1559 transaction (after stripping the `0x02` type byte).
 pub fn decode_eip1559_tx(
     rlp: &[u8],
-) -> Result<(EvmTxEnvelope, Address, Option<u64>), &'static str> {
+) -> Result<(ZvmTxEnvelope, Address, Option<u64>), &'static str> {
     let (item, _) = decode_rlp(rlp)?;
     let fields = item.as_list()?;
     if fields.len() != 12 {
@@ -426,7 +426,7 @@ pub fn decode_eip1559_tx(
     Ok((env, sender, Some(chain_id)))
 }
 
-/// Build an `EvmTxEnvelope` from the decoded fields.
+/// Build an `ZvmTxEnvelope` from the decoded fields.
 ///
 /// `nonce` is intentionally **not** part of the envelope — `evm::execute`
 /// reads/bumps the sender's account nonce directly. RPC callers that need
@@ -438,18 +438,18 @@ fn build_envelope(
     to: Option<Address>,
     value: U256,
     data: Vec<u8>,
-) -> EvmTxEnvelope {
+) -> ZvmTxEnvelope {
     let value_u128 = value.low_u128();
     let gas_price_u128 = gas_price.low_u128();
     match to {
-        Some(addr) => EvmTxEnvelope::Call(EvmCall {
+        Some(addr) => ZvmTxEnvelope::Call(ZvmCall {
             gas_price: gas_price_u128,
             gas_limit,
             to: addr,
             value: value_u128,
             data,
         }),
-        None => EvmTxEnvelope::Create(EvmCreate {
+        None => ZvmTxEnvelope::Create(ZvmCreate {
             gas_price: gas_price_u128,
             gas_limit,
             value: value_u128,
@@ -645,7 +645,7 @@ mod tests {
             vec![0xde, 0xad],
         );
         match env {
-            EvmTxEnvelope::Call(c) => {
+            ZvmTxEnvelope::Call(c) => {
                 assert_eq!(c.gas_limit, 21000);
                 assert_eq!(c.value, 1_000_000);
                 assert_eq!(c.data, vec![0xde, 0xad]);
@@ -664,6 +664,6 @@ mod tests {
             U256::zero(),
             vec![0x60, 0x80, 0x60, 0x40], // tiny init code
         );
-        assert!(matches!(env, EvmTxEnvelope::Create(_)));
+        assert!(matches!(env, ZvmTxEnvelope::Create(_)));
     }
 }

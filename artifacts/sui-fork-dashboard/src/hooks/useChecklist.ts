@@ -96,7 +96,7 @@ const defaultItems: ChecklistItem[] = [
     id: "build-evm",
     category: "1. Repo & Build",
     text: "(Optional) Build with EVM enabled if Solidity contracts are part of launch scope",
-    ref: "cargo build --release --features evm  (Phase C.2 — see Smart Contracts page caveats)",
+    ref: "cargo build --release --features zvm  (Phase C.2 — see Smart Contracts page caveats)",
     completed: false,
   },
 
@@ -118,8 +118,8 @@ const defaultItems: ChecklistItem[] = [
   {
     id: "pre-evm-flag",
     category: "2. Pre-flight Configuration",
-    text: "Decide if --features evm is part of the launch binary. The flag is sticky — every validator and full-node MUST run the same feature set, otherwise blocks containing EVM tx will fail on non-EVM nodes.",
-    ref: "Phase C.2 — gated by `cargo build --release --features evm`",
+    text: "Decide if --features zvm is part of the launch binary. The flag is sticky — every validator and full-node MUST run the same feature set, otherwise blocks containing EVM tx will fail on non-EVM nodes.",
+    ref: "Phase C.2 — gated by `cargo build --release --features zvm`",
     completed: false,
   },
   {
@@ -303,7 +303,7 @@ const defaultItems: ChecklistItem[] = [
   {
     id: "test-evm",
     category: "7. Test on a Separate chain_id",
-    text: "(If --features evm is on) Deploy a Solidity 0.8.24 contract via eth_sendRawTransaction, call a state-mutating method, verify by RE-READING state (e.g. balanceOf). The RPC dispatcher implements `eth_getLogs` (filter/range logic over CF_LOGS via iter_logs) and `eth_getTransactionReceipt` (stub returning null today, no receipts table). HOWEVER `State::open()` does NOT open CF_LOGS in the runtime build, so any `eth_getLogs` call returns a JSON-RPC error \"CF_LOGS missing\", and `store_logs` has zero production call sites. Receipts return null. Verify everything by re-reading state — do not depend on getLogs or getTransactionReceipt until Phase C.3 wires both the CF and the producers.",
+    text: "(If --features zvm is on) Deploy a Solidity 0.8.24 contract via eth_sendRawTransaction, call a state-mutating method, verify by RE-READING state (e.g. balanceOf). The RPC dispatcher implements `eth_getLogs` (filter/range logic over CF_LOGS via iter_logs) and `eth_getTransactionReceipt` (stub returning null today, no receipts table). HOWEVER `State::open()` does NOT open CF_LOGS in the runtime build, so any `eth_getLogs` call returns a JSON-RPC error \"CF_LOGS missing\", and `store_logs` has zero production call sites. Receipts return null. Verify everything by re-reading state — do not depend on getLogs or getTransactionReceipt until Phase C.3 wires both the CF and the producers.",
     ref: "evm_rpc.rs:238 eth_getLogs  +  evm_rpc.rs:259 eth_getTransactionReceipt  +  evm_state.rs:172 store_logs (no production callers)  +  state.rs:183-186 CF_LOGS not opened",
     completed: false,
   },
@@ -326,7 +326,7 @@ const defaultItems: ChecklistItem[] = [
   {
     id: "ops-rocksdb-backup",
     category: "8. Operational Wiring",
-    text: "Schedule periodic offline backup of /root/.zebvix/data (the RocksDB directory created by `init` via home.join(\"data\")). Column families actually opened by State::open() today: \"accounts\", \"blocks\", \"meta\" — that is the complete on-disk set in both the base build AND the --features evm build. NOTE: evm_state.rs defines a helper evm_column_families() that would add \"evm\" and \"evm_logs\", but it is NOT called by State::open() (only used by an in-crate test helper), so those CFs do not exist on disk in production today. Use the RocksDB checkpoint API for a consistent snapshot, or stop the node before a plain rsync.",
+    text: "Schedule periodic offline backup of /root/.zebvix/data (the RocksDB directory created by `init` via home.join(\"data\")). Column families actually opened by State::open() today: \"accounts\", \"blocks\", \"meta\" — that is the complete on-disk set in both the base build AND the --features zvm build. NOTE: evm_state.rs defines a helper evm_column_families() that would add \"evm\" and \"evm_logs\", but it is NOT called by State::open() (only used by an in-crate test helper), so those CFs do not exist on disk in production today. Use the RocksDB checkpoint API for a consistent snapshot, or stop the node before a plain rsync.",
     ref: "main.rs:866 home.join(\"data\")  +  state.rs:183-186 CF descriptor list  +  evm_state.rs:88 evm_column_families (not wired)",
     completed: false,
   },
@@ -377,7 +377,7 @@ const defaultItems: ChecklistItem[] = [
   {
     id: "main-dashboard-prod",
     category: "9. Mainnet Cutover",
-    text: "Point this dashboard's RPC base URL at the production endpoint (currently default points at the dev VPS). Live Chain Status, Tokenomics, EVM Explorer, Bridge, Pool Explorer, and Mission Control will then reflect mainnet.",
+    text: "Point this dashboard's RPC base URL at the production endpoint (currently default points at the dev VPS). Live Chain Status, Tokenomics, ZVM Explorer, Bridge, Pool Explorer, and Mission Control will then reflect mainnet.",
     ref: "artifacts/sui-fork-dashboard/.env  VITE_RPC_URL",
     completed: false,
   },
@@ -386,7 +386,7 @@ const defaultItems: ChecklistItem[] = [
   {
     id: "trust-evm-partial",
     category: "10. Trust-Model Sign-off (must read)",
-    text: "ACCEPT: EVM (Phase C.2) is PARTIAL — gated behind --features evm. eth_getTransactionReceipt is a stub returning null; eth_getLogs is implemented but errors with \"CF_LOGS missing\" because State::open() does not open CF_LOGS in the runtime build (and store_logs has zero production callers anyway). Custom Zebvix precompiles 0x80–0x83 return preview values but do NOT commit native side-effects on eth_sendRawTransaction; EIP-2929/3529 warm/cold gas not modelled. Production Solidity flows MUST verify by re-reading state, and any feature requiring committed bridge/swap/multisig from inside Solidity must wait for Phase C.3.",
+    text: "ACCEPT: EVM (Phase C.2) is PARTIAL — gated behind --features zvm. eth_getTransactionReceipt is a stub returning null; eth_getLogs is implemented but errors with \"CF_LOGS missing\" because State::open() does not open CF_LOGS in the runtime build (and store_logs has zero production callers anyway). Custom Zebvix precompiles 0x80–0x83 return preview values but do NOT commit native side-effects on eth_sendRawTransaction; EIP-2929/3529 warm/cold gas not modelled. Production Solidity flows MUST verify by re-reading state, and any feature requiring committed bridge/swap/multisig from inside Solidity must wait for Phase C.3.",
     ref: "Smart Contracts (EVM) page — full caveat list",
     completed: false,
   },

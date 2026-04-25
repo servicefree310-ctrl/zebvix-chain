@@ -1,11 +1,11 @@
-//! # Zebvix EVM State Backend — `CF_EVM` column family
+//! # ZVM State Backend — `CF_EVM` column family
 //!
-//! Concrete [`EvmDb`] implementation backed by the existing `state.rs`
+//! Concrete [`ZvmDb`] implementation backed by the existing `state.rs`
 //! RocksDB instance. Adds a new column family (`evm`) that holds three
 //! key-prefixed namespaces:
 //!
 //! ```text
-//!   acct/<addr20>          → bincode(EvmAccount)
+//!   acct/<addr20>          → bincode(ZvmAccount)
 //!   code/<keccak256_32>    → raw bytecode
 //!   stor/<addr20><key32>   → raw 32-byte slot value
 //! ```
@@ -22,7 +22,7 @@
 
 #![allow(dead_code)]
 
-use crate::evm::{EvmAccount, EvmDb, EvmLog, StateJournal};
+use crate::zvm::{ZvmAccount, ZvmDb, ZvmLog, StateJournal};
 use crate::types::Address;
 use anyhow::{Context, Result};
 use parking_lot::RwLock;
@@ -93,16 +93,16 @@ pub fn evm_column_families() -> Vec<ColumnFamilyDescriptor> {
 }
 
 // ---------------------------------------------------------------------------
-// Concrete EvmDb implementation
+// Concrete ZvmDb implementation
 // ---------------------------------------------------------------------------
 
-pub struct CfEvmDb {
+pub struct CfZvmDb {
     db: Arc<DB>,
     /// In-memory cache for hot accounts. Flushed on every `apply_journal`.
-    cache: RwLock<HashMap<Address, EvmAccount>>,
+    cache: RwLock<HashMap<Address, ZvmAccount>>,
 }
 
-impl CfEvmDb {
+impl CfZvmDb {
     pub fn new(db: Arc<DB>) -> Self {
         Self { db, cache: RwLock::new(HashMap::new()) }
     }
@@ -113,7 +113,7 @@ impl CfEvmDb {
         Ok(())
     }
 
-    pub fn put_account(&self, addr: &Address, acct: &EvmAccount) -> Result<()> {
+    pub fn put_account(&self, addr: &Address, acct: &ZvmAccount) -> Result<()> {
         let cf = self.db.cf_handle(CF_EVM).context("CF_EVM missing")?;
         let bytes = bincode::serialize(acct)?;
         self.db.put_cf(cf, key_acct(addr), bytes)?;
@@ -138,7 +138,7 @@ impl CfEvmDb {
         Ok(())
     }
 
-    /// Atomically commit one [`StateJournal`] produced by [`crate::evm::execute`].
+    /// Atomically commit one [`StateJournal`] produced by [`crate::zvm::execute`].
     /// Uses a single RocksDB `WriteBatch` so the entire diff lands together
     /// (no half-applied state if a node crashes mid-write).
     pub fn apply_journal(&self, journal: &StateJournal) -> Result<()> {
@@ -169,7 +169,7 @@ impl CfEvmDb {
         Ok(())
     }
 
-    pub fn store_logs(&self, logs: &[EvmLog]) -> Result<()> {
+    pub fn store_logs(&self, logs: &[ZvmLog]) -> Result<()> {
         let cf = self.db.cf_handle(CF_LOGS).context("CF_LOGS missing")?;
         let mut batch = WriteBatch::default();
         for log in logs {
@@ -183,7 +183,7 @@ impl CfEvmDb {
 
     /// Iterate logs by block-range. `eth_getLogs` further filters by address
     /// and topics in the RPC layer.
-    pub fn iter_logs(&self, from_block: u64, to_block: u64) -> Result<Vec<EvmLog>> {
+    pub fn iter_logs(&self, from_block: u64, to_block: u64) -> Result<Vec<ZvmLog>> {
         let cf = self.db.cf_handle(CF_LOGS).context("CF_LOGS missing")?;
         let from_key = log_key(from_block, 0);
         let to_key = log_key(to_block.saturating_add(1), 0);
@@ -194,7 +194,7 @@ impl CfEvmDb {
             if k.as_ref() >= to_key.as_slice() {
                 break;
             }
-            if let Ok(log) = bincode::deserialize::<EvmLog>(&v) {
+            if let Ok(log) = bincode::deserialize::<ZvmLog>(&v) {
                 out.push(log);
             }
         }
@@ -211,14 +211,14 @@ impl CfEvmDb {
     }
 }
 
-impl EvmDb for CfEvmDb {
-    fn account(&self, addr: &Address) -> Option<EvmAccount> {
+impl ZvmDb for CfZvmDb {
+    fn account(&self, addr: &Address) -> Option<ZvmAccount> {
         if let Some(a) = self.cache.read().get(addr) {
             return Some(a.clone());
         }
         let cf = self.db.cf_handle(CF_EVM)?;
         let bytes = self.db.get_cf(cf, key_acct(addr)).ok().flatten()?;
-        bincode::deserialize::<EvmAccount>(&bytes).ok()
+        bincode::deserialize::<ZvmAccount>(&bytes).ok()
     }
 
     fn code(&self, hash: &[u8; 32]) -> Option<Vec<u8>> {
@@ -258,20 +258,20 @@ impl EvmDb for CfEvmDb {
 /// Read EVM nonce (used by `eth_getTransactionCount`). Falls back to the
 /// chain's native nonce so EOAs created via `TxKind::Transfer` are visible
 /// from MetaMask immediately.
-pub fn evm_nonce(db: &CfEvmDb, native_nonce: u64, addr: &Address) -> u64 {
+pub fn evm_nonce(db: &CfZvmDb, native_nonce: u64, addr: &Address) -> u64 {
     db.account(addr).map(|a| a.nonce).unwrap_or(native_nonce)
 }
 
 /// Read EVM balance. Same dual-source fallback as nonce.
-pub fn evm_balance(db: &CfEvmDb, native_balance: u128, addr: &Address) -> u128 {
+pub fn evm_balance(db: &CfZvmDb, native_balance: u128, addr: &Address) -> u128 {
     db.account(addr).map(|a| a.balance).unwrap_or(native_balance)
 }
 
-/// Compose a fully-populated [`EvmAccount`] from the chain's native state
+/// Compose a fully-populated [`ZvmAccount`] from the chain's native state
 /// for accounts that have never executed EVM code yet. This makes the EVM
 /// world-state continuous with the native ledger.
-pub fn synth_account_from_native(native_balance: u128, native_nonce: u64) -> EvmAccount {
-    EvmAccount {
+pub fn synth_account_from_native(native_balance: u128, native_nonce: u64) -> ZvmAccount {
+    ZvmAccount {
         nonce: native_nonce,
         balance: native_balance,
         ..Default::default()
@@ -301,9 +301,9 @@ mod tests {
     #[test]
     fn account_roundtrip() {
         let (db, _dir) = open_test_db();
-        let edb = CfEvmDb::new(db);
+        let edb = CfZvmDb::new(db);
         let addr = Address::from_bytes([0x42u8; 20]);
-        let acct = EvmAccount { nonce: 7, balance: 1_000_000, ..Default::default() };
+        let acct = ZvmAccount { nonce: 7, balance: 1_000_000, ..Default::default() };
         edb.put_account(&addr, &acct).unwrap();
         assert_eq!(edb.account(&addr).unwrap().nonce, 7);
         assert_eq!(edb.account(&addr).unwrap().balance, 1_000_000);
@@ -312,7 +312,7 @@ mod tests {
     #[test]
     fn storage_zero_optimization() {
         let (db, _dir) = open_test_db();
-        let edb = CfEvmDb::new(db);
+        let edb = CfZvmDb::new(db);
         let addr = Address::from_bytes([0x01u8; 20]);
         let slot = H256::repeat_byte(1);
         edb.put_storage(&addr, &slot, &H256::repeat_byte(0x77)).unwrap();
@@ -324,9 +324,9 @@ mod tests {
     #[test]
     fn journal_apply_atomic() {
         let (db, _dir) = open_test_db();
-        let edb = CfEvmDb::new(db);
+        let edb = CfZvmDb::new(db);
         let addr = Address::from_bytes([0xabu8; 20]);
-        let acct = EvmAccount { nonce: 1, balance: 500, ..Default::default() };
+        let acct = ZvmAccount { nonce: 1, balance: 500, ..Default::default() };
 
         let mut j = StateJournal::default();
         j.touched_accounts.push((addr, acct.clone()));

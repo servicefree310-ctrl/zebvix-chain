@@ -163,7 +163,7 @@ export default function SmartContractsPage() {
           </p>
           <CodeBlock
             language="bash"
-            code={`cargo build --release --features evm`}
+            code={`cargo build --release --features zvm`}
           />
           <p>
             Verify on a running node — <code className="text-xs bg-muted px-1 rounded">web3_clientVersion</code> includes <code className="text-xs bg-muted px-1 rounded">cancun-evm</code> only when this feature was enabled at build time.
@@ -388,7 +388,7 @@ export default function SmartContractsPage() {
             <code className="text-xs bg-muted px-1 rounded">web3_*</code> (Ethereum-compatible).
             A handful of always-on aliases live in <code className="text-xs bg-muted px-1 rounded">rpc.rs</code> directly so wallets work even on
             non-EVM builds; everything else in the EVM namespace is gated behind{" "}
-            <code className="text-xs bg-muted px-1 rounded">--features evm</code> (file:{" "}
+            <code className="text-xs bg-muted px-1 rounded">--features zvm</code> (file:{" "}
             <code className="text-xs bg-muted px-1 rounded">evm_rpc.rs</code>).
           </CardDescription>
         </CardHeader>
@@ -421,7 +421,7 @@ export default function SmartContractsPage() {
                 <li>
                   <strong className="text-amber-300">EVM-side</strong> aliases (in{" "}
                   <code className="text-xs bg-muted px-1 rounded">evm_rpc.rs</code>, require{" "}
-                  <code className="text-xs bg-muted px-1 rounded">--features evm</code>):{" "}
+                  <code className="text-xs bg-muted px-1 rounded">--features zvm</code>):{" "}
                   <code className="text-xs bg-muted px-1 rounded">zbx_clientVersion</code>,{" "}
                   <code className="text-xs bg-muted px-1 rounded">zbx_syncing</code>,{" "}
                   <code className="text-xs bg-muted px-1 rounded">zbx_accounts</code>,{" "}
@@ -521,63 +521,63 @@ export default function SmartContractsPage() {
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
                   <TableCell className="font-mono text-xs">web3_clientVersion · zbx_clientVersion</TableCell>
-                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features evm</Badge></TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features zvm</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     <code className="text-xs bg-muted px-1 rounded">"Zebvix/0.1.0/rust1.83/cancun-evm"</code>. Presence of <code className="text-xs bg-muted px-1 rounded">cancun-evm</code> in the string is the recommended runtime probe for whether the EVM feature was compiled in. Both names route to the same handler in <code className="text-xs bg-muted px-1 rounded">evm_rpc::dispatch</code>.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
                   <TableCell className="font-mono text-xs">eth_syncing · zbx_syncing &nbsp;·&nbsp; eth_accounts · zbx_accounts</TableCell>
-                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features evm</Badge></TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features zvm</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     <code className="text-xs bg-muted px-1 rounded">false</code>, <code className="text-xs bg-muted px-1 rounded">[]</code> — node never holds wallet keys. Each pair shares one handler.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
                   <TableCell className="font-mono text-xs">eth_gasPrice · zbx_gasPrice &nbsp;·&nbsp; eth_blobBaseFee · zbx_blobBaseFee &nbsp;·&nbsp; eth_feeHistory · zbx_feeHistory</TableCell>
-                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features evm</Badge></TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features zvm</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     Live base-fee from the AMM-pegged window; blob base fee is a constant <code className="text-xs bg-muted px-1 rounded">"0x1"</code> stub (no blob market). Each pair shares one handler.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
                   <TableCell className="font-mono text-xs">eth_getTransactionCount &nbsp;·&nbsp; eth_getCode · zbx_getCode &nbsp;·&nbsp; eth_getStorageAt · zbx_getStorageAt</TableCell>
-                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features evm</Badge></TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features zvm</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     Served by <code className="text-xs bg-muted px-1 rounded">evm_rpc::dispatch</code> over <code className="text-xs bg-muted px-1 rounded">CF_EVM</code> (account.nonce, code, slots). <code className="text-xs bg-muted px-1 rounded">eth_getTransactionCount</code> is intentionally <strong>not</strong> aliased to <code className="text-xs bg-muted px-1 rounded">zbx_getNonce</code> — the latter is an <strong>always-on</strong> native method in <code className="text-xs bg-muted px-1 rounded">rpc.rs</code> that returns a flat <code className="text-xs bg-muted px-1 rounded">u64</code> (different shape from the <code className="text-xs bg-muted px-1 rounded">"0x…"</code> hex quantity here), so use <code className="text-xs bg-muted px-1 rounded">zbx_getNonce</code> on stripped builds and either name on EVM builds.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
                   <TableCell className="font-mono text-xs">eth_call · zbx_call &nbsp;·&nbsp; eth_estimateGas</TableCell>
-                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features evm</Badge></TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features zvm</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     Execute against tip state without committing — ideal for view functions and pre-flight gas estimates. <code className="text-xs bg-muted px-1 rounded">eth_estimateGas</code> is intentionally <strong>not</strong> aliased — <code className="text-xs bg-muted px-1 rounded">zbx_estimateGas</code> is a separate native method in <code className="text-xs bg-muted px-1 rounded">rpc.rs</code> for native ZBX transfers and would collide.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
                   <TableCell className="font-mono text-xs">eth_sendRawTransaction · zbx_sendRawEvmTransaction</TableCell>
-                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features evm</Badge></TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features zvm</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     Accepts EIP-1559 (type-2), EIP-2930 (type-1), and <strong>EIP-155-protected legacy</strong> RLP envelopes; <strong>rejects</strong> unprotected legacy tx (no chain-id) to prevent cross-chain replay. Decoded into <code className="text-xs bg-muted px-1 rounded">EvmTxEnvelope::Create</code> or <code className="text-xs bg-muted px-1 rounded">::Call</code> and executed; returns the canonical Ethereum tx hash. The <code className="text-xs bg-muted px-1 rounded">zbx_sendRawEvmTransaction</code> alias exists so a Zebvix-namespace-only client can submit RLP without referencing the <code className="text-xs bg-muted px-1 rounded">eth_*</code> family — distinct from the always-on native <code className="text-xs bg-muted px-1 rounded">zbx_sendRawTransaction</code> which takes hex-encoded bincode, not RLP.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
                   <TableCell className="font-mono text-xs">eth_getLogs · zbx_getLogs</TableCell>
-                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features evm</Badge></TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features zvm</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     Wired to <code className="text-xs bg-muted px-1 rounded">CF_LOGS</code> (key = <code className="text-xs bg-muted px-1 rounded">(block_height, log_index)</code>, range scan + in-memory address/topic filter). <strong>Caveat:</strong> the <code className="text-xs bg-muted px-1 rounded">eth_sendRawTransaction</code> path does <em>not</em> currently call <code className="text-xs bg-muted px-1 rounded">store_logs</code>, so EVM tx produce no log entries to query today. The persistence wire-up + canonical tx-hash stamping land in C.3.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
                   <TableCell className="font-mono text-xs">eth_getTransactionReceipt · zbx_getEvmReceipt</TableCell>
-                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features evm</Badge></TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features zvm</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     <strong>C.3 work</strong> — returns <code className="text-xs bg-muted px-1 rounded">null</code> today. Receipts table (status, gasUsed, contractAddress, logs[]) ships together with EVM log persistence; until then there is no first-class on-chain post-execution query path for an EVM tx — clients should treat C.2 as fire-and-forget execute. Aliased as <code className="text-xs bg-muted px-1 rounded">zbx_getEvmReceipt</code> (not <code className="text-xs bg-muted px-1 rounded">zbx_getReceipt</code>) to leave the unqualified name free for the future native-tx receipt API.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
                   <TableCell className="font-mono text-xs">eth_getBlockByNumber</TableCell>
-                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features evm</Badge></TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features zvm</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     C.2 stub — returns tip-only object{" "}
                     <code className="text-xs bg-muted px-1 rounded">{"{ number, timestamp, gasLimit, baseFeePerGas, miner, transactions: [] }"}</code>. Full historical block projection (with embedded txs, hex hashes, gasUsed) lands alongside the receipts table in C.3.

@@ -1,4 +1,4 @@
-//! # Zebvix EVM JSON-RPC Layer
+//! # ZVM JSON-RPC Layer
 //!
 //! Standard `eth_*` namespace handlers, returning hex-encoded values that
 //! match Geth/Erigon byte-for-byte so MetaMask, Hardhat, Foundry, viem and
@@ -32,10 +32,10 @@
 
 #![allow(dead_code)]
 
-use crate::evm::{
-    execute, EvmCall, EvmContext, EvmCreate, EvmDb, EvmTxEnvelope, DEFAULT_BLOCK_GAS_LIMIT,
+use crate::zvm::{
+    execute, ZvmCall, ZvmContext, ZvmCreate, ZvmDb, ZvmTxEnvelope, DEFAULT_BLOCK_GAS_LIMIT,
 };
-use crate::evm_state::CfEvmDb;
+use crate::zvm_state::CfZvmDb;
 use crate::types::Address;
 use primitive_types::{H256, U256};
 use serde_json::{json, Value};
@@ -97,8 +97,8 @@ pub fn parse_address(s: &str) -> Result<Address, String> {
 // Method handlers
 // ---------------------------------------------------------------------------
 
-pub struct EvmRpcCtx {
-    pub db: Arc<CfEvmDb>,
+pub struct ZvmRpcCtx {
+    pub db: Arc<CfZvmDb>,
     pub chain_id: u64,
     pub current_height: u64,
     pub current_timestamp: u64,
@@ -106,9 +106,9 @@ pub struct EvmRpcCtx {
     pub base_fee: u128,
 }
 
-impl EvmRpcCtx {
-    fn evm_context(&self) -> EvmContext {
-        EvmContext {
+impl ZvmRpcCtx {
+    fn zvm_context(&self) -> ZvmContext {
+        ZvmContext {
             chain_id: self.chain_id,
             block_number: self.current_height,
             block_timestamp: self.current_timestamp,
@@ -124,9 +124,9 @@ impl EvmRpcCtx {
 /// starts with `eth_` / `net_` / `web3_` (Geth-compatible names) **or** one
 /// of the EVM-feature-gated `zbx_*` aliases listed below — both names route
 /// to the exact same handler so wallets can pick whichever namespace they
-/// prefer once the node is built with `--features evm`.
+/// prefer once the node is built with `--features zvm`.
 ///
-/// Aliases that live here (EVM-only, requires `--features evm`):
+/// Aliases that live here (EVM-only, requires `--features zvm`):
 /// `web3_clientVersion` ↔ `zbx_clientVersion`,
 /// `eth_syncing`        ↔ `zbx_syncing`,
 /// `eth_accounts`       ↔ `zbx_accounts`,
@@ -156,11 +156,11 @@ impl EvmRpcCtx {
 /// `zbx_sendRawTransaction` in `rpc.rs`, which accepts hex-encoded bincode
 /// `SignedTx`, not RLP — two separate submission paths, two separate names,
 /// no collision.
-pub fn dispatch(ctx: &EvmRpcCtx, method: &str, params: &[Value]) -> Result<Value, String> {
+pub fn dispatch(ctx: &ZvmRpcCtx, method: &str, params: &[Value]) -> Result<Value, String> {
     match method {
         "eth_chainId" => Ok(json!(quantity_u64(ctx.chain_id))),
         "net_version" => Ok(json!(ctx.chain_id.to_string())),
-        "web3_clientVersion" | "zbx_clientVersion" => Ok(json!("Zebvix/0.1.0/rust1.83/cancun-evm")),
+        "web3_clientVersion" | "zbx_clientVersion" => Ok(json!("Zebvix/0.1.0/rust1.83/zvm-cancun")),
 
         "eth_blockNumber" => Ok(json!(quantity_u64(ctx.current_height))),
         "eth_syncing"     | "zbx_syncing"     => Ok(json!(false)),
@@ -204,8 +204,8 @@ pub fn dispatch(ctx: &EvmRpcCtx, method: &str, params: &[Value]) -> Result<Value
                 .map(parse_address)
                 .transpose()?
                 .unwrap_or_else(|| Address::from_bytes([0u8; 20]));
-            let evm_ctx = ctx.evm_context();
-            let (res, _journal) = execute(&*ctx.db, &evm_ctx, &from, &env);
+            let zvm_ctx = ctx.zvm_context();
+            let (res, _journal) = execute(&*ctx.db, &zvm_ctx, &from, &env);
             if !res.success {
                 return Err(res.revert_reason.unwrap_or_else(|| "execution reverted".into()));
             }
@@ -228,7 +228,7 @@ pub fn dispatch(ctx: &EvmRpcCtx, method: &str, params: &[Value]) -> Result<Value
             // Phase C.2: full RLP decode + sender recovery + actual execution.
             let raw = parse_hex(get_str(params, 0)?)?;
             let (tx, sender, declared_chain_id) =
-                crate::evm_rlp::decode_raw_tx(&raw)
+                crate::zvm_rlp::decode_raw_tx(&raw)
                     .map_err(|e| format!("rlp decode failed: {e}"))?;
 
             // Pre-flight: declared chain id MUST match the node chain id —
@@ -252,8 +252,8 @@ pub fn dispatch(ctx: &EvmRpcCtx, method: &str, params: &[Value]) -> Result<Value
                 }
             }
 
-            let evm_ctx = ctx.evm_context();
-            let (result, journal) = crate::evm::execute(&*ctx.db, &evm_ctx, &sender, &tx);
+            let zvm_ctx = ctx.zvm_context();
+            let (result, journal) = crate::zvm::execute(&*ctx.db, &zvm_ctx, &sender, &tx);
 
             // Apply the journal regardless of success — even reverted txs
             // bump the sender's nonce per yellow paper §6.
@@ -264,7 +264,7 @@ pub fn dispatch(ctx: &EvmRpcCtx, method: &str, params: &[Value]) -> Result<Value
             // Surface execution failure to the wallet, but still return the
             // canonical EVM tx hash so the wallet can poll for receipt.
             let _ = result; // receipt store will pick this up in C.3
-            let hash = crate::evm::keccak256(&raw);
+            let hash = crate::zvm::keccak256(&raw);
             Ok(json!(format!("0x{}", hex::encode(hash))))
         }
 
@@ -386,7 +386,7 @@ fn matches_topics(log_topics: &[H256], filter: &[Option<Vec<H256>>]) -> bool {
     true
 }
 
-fn log_to_json(log: crate::evm::EvmLog) -> Value {
+fn log_to_json(log: crate::zvm::ZvmLog) -> Value {
     json!({
         "address": format!("0x{}", hex::encode(log.address.as_bytes())),
         "topics": log.topics.iter().map(|t| format!("0x{}", hex::encode(t.as_bytes()))).collect::<Vec<_>>(),
@@ -402,7 +402,7 @@ fn log_to_json(log: crate::evm::EvmLog) -> Value {
 // Call envelope parsing for eth_call / eth_estimateGas
 // ---------------------------------------------------------------------------
 
-fn parse_call_envelope(obj: &Value) -> Result<EvmTxEnvelope, String> {
+fn parse_call_envelope(obj: &Value) -> Result<ZvmTxEnvelope, String> {
     let to = obj.get("to").and_then(|v| v.as_str())
         .map(parse_address).transpose()?;
     let data = obj.get("data").or_else(|| obj.get("input"))
@@ -422,11 +422,11 @@ fn parse_call_envelope(obj: &Value) -> Result<EvmTxEnvelope, String> {
         .unwrap_or(1);
 
     if let Some(to) = to {
-        Ok(EvmTxEnvelope::Call(EvmCall {
+        Ok(ZvmTxEnvelope::Call(ZvmCall {
             to, data, value: value.as_u128(), gas_limit, gas_price,
         }))
     } else {
-        Ok(EvmTxEnvelope::Create(EvmCreate {
+        Ok(ZvmTxEnvelope::Create(ZvmCreate {
             init_code: data, value: value.as_u128(), gas_limit, gas_price, salt: None,
         }))
     }
@@ -436,20 +436,20 @@ fn parse_call_envelope(obj: &Value) -> Result<EvmTxEnvelope, String> {
 // Binary search for eth_estimateGas
 // ---------------------------------------------------------------------------
 
-fn binary_search_gas(ctx: &EvmRpcCtx, from: &Address, env: EvmTxEnvelope) -> u64 {
+fn binary_search_gas(ctx: &ZvmRpcCtx, from: &Address, env: ZvmTxEnvelope) -> u64 {
     let mut lo = env.intrinsic_gas();
     let mut hi = env.gas_limit().min(DEFAULT_BLOCK_GAS_LIMIT);
     if lo >= hi { return hi; }
 
     // First, try with `hi` to see if it succeeds at all.
-    let evm_ctx = ctx.evm_context();
-    if !try_gas(ctx, &evm_ctx, from, &env, hi) {
+    let zvm_ctx = ctx.zvm_context();
+    if !try_gas(ctx, &zvm_ctx, from, &env, hi) {
         return hi; // unable to find feasible gas — return ceiling
     }
 
     while lo + 1 < hi {
         let mid = lo + (hi - lo) / 2;
-        if try_gas(ctx, &evm_ctx, from, &env, mid) {
+        if try_gas(ctx, &zvm_ctx, from, &env, mid) {
             hi = mid;
         } else {
             lo = mid;
@@ -458,20 +458,20 @@ fn binary_search_gas(ctx: &EvmRpcCtx, from: &Address, env: EvmTxEnvelope) -> u64
     hi
 }
 
-fn try_gas(ctx: &EvmRpcCtx, evm_ctx: &EvmContext, from: &Address, env: &EvmTxEnvelope, gas: u64) -> bool {
+fn try_gas(ctx: &ZvmRpcCtx, zvm_ctx: &ZvmContext, from: &Address, env: &ZvmTxEnvelope, gas: u64) -> bool {
     let probe = match env {
-        EvmTxEnvelope::Call(c) => EvmTxEnvelope::Call(EvmCall { gas_limit: gas, ..c.clone() }),
-        EvmTxEnvelope::Create(c) => EvmTxEnvelope::Create(EvmCreate { gas_limit: gas, ..c.clone() }),
+        ZvmTxEnvelope::Call(c) => ZvmTxEnvelope::Call(ZvmCall { gas_limit: gas, ..c.clone() }),
+        ZvmTxEnvelope::Create(c) => ZvmTxEnvelope::Create(ZvmCreate { gas_limit: gas, ..c.clone() }),
     };
-    let (res, _) = execute(&*ctx.db, evm_ctx, from, &probe);
+    let (res, _) = execute(&*ctx.db, zvm_ctx, from, &probe);
     res.success
 }
 
 // ---------------------------------------------------------------------------
-// Raw transaction decode — fully ships in `crate::evm_rlp` (Phase C.2).
+// Raw transaction decode — fully ships in `crate::zvm_rlp` (Phase C.2).
 // The placeholder `RawTx` / `RawTxKind` / `decode_raw_tx` from C.1 has been
-// removed; `eth_sendRawTransaction` above now uses `evm_rlp::decode_raw_tx`,
-// which returns a real `(EvmTxEnvelope, sender Address)` pair after secp256k1
+// removed; `eth_sendRawTransaction` above now uses `zvm_rlp::decode_raw_tx`,
+// which returns a real `(ZvmTxEnvelope, sender Address)` pair after secp256k1
 // recovery. See `evm_rlp.rs` for the canonical decoder.
 // ---------------------------------------------------------------------------
 
@@ -535,7 +535,7 @@ mod tests {
     fn raw_tx_kind_dispatch() {
         // Envelope kind discrimination now happens inside evm_rlp::decode_raw_tx.
         // Empty input must reject; type 0x03 (blob tx) is reserved.
-        assert!(crate::evm_rlp::decode_raw_tx(&[]).is_err());
-        assert!(crate::evm_rlp::decode_raw_tx(&[0x03, 0xc0]).is_err());
+        assert!(crate::zvm_rlp::decode_raw_tx(&[]).is_err());
+        assert!(crate::zvm_rlp::decode_raw_tx(&[0x03, 0xc0]).is_err());
     }
 }

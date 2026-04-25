@@ -12,11 +12,13 @@ path = "src/main.rs"
 
 [features]
 default = []
-# Phase C — Native EVM (Cancun-fork bytecode interpreter, eth_* JSON-RPC,
-# custom Zebvix precompiles 0x80-0x83). Adds the optional `sha2` dep used
-# by the SHA-256 precompile and pulls in the EVM modules from `lib.rs`.
-# Build with `cargo build --release --features evm` on the VPS to enable.
-evm = ["dep:sha2"]
+# Phase C — ZVM (Zebvix Virtual Machine): Cancun-EVM-bytecode interpreter,
+# eth_*/zbx_* JSON-RPC dispatch, custom Zebvix precompiles 0x80-0x83. Adds
+# the optional `sha2` dep used by the SHA-256 precompile and pulls in the
+# zvm_* modules from `lib.rs`. ZVM is fully EVM-bytecode compatible: any
+# Solidity contract that compiles to EVM bytecode runs unchanged on ZVM.
+# Build with `cargo build --release --features zvm` on the VPS to enable.
+zvm = ["dep:sha2"]
 
 [dependencies]
 k256 = { version = "0.13", features = ["ecdsa", "serde"] }

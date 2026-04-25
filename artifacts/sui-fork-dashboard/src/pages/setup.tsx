@@ -213,7 +213,7 @@ cargo build --release
 
 # OR: build with the native EVM enabled (Cancun-fork interpreter + eth_* RPC
 # + Zebvix precompiles 0x80-0x83). Production VPS uses this profile.
-cargo build --release --features evm
+cargo build --release --features zvm
 
 # Output:
 ls -lh target/release/zebvix-node
@@ -437,7 +437,7 @@ curl -fsSL "$DASH_URL/api/download/newchain" -o newchain.tgz
 tar -xzf newchain.tgz && rm newchain.tgz
 
 # 3. Rebuild (incremental — usually 60–120 sec)
-cargo build --release --features evm
+cargo build --release --features zvm
 
 # 4. Restart the service (graceful, no DB wipe)
 sudo systemctl restart zebvix.service
@@ -513,7 +513,7 @@ curl -s -X POST http://127.0.0.1:8545 -H 'Content-Type: application/json' \\
           <strong className="text-foreground">Reference deployment:</strong> VPS{" "}
           <code className="bg-muted px-1 rounded">srv1266996</code> at{" "}
           <code className="bg-muted px-1 rounded">93.127.213.192:8545</code> runs this exact stack —
-          Ubuntu 24.04, Rust stable, <code className="bg-muted px-1 rounded">--features evm</code>{" "}
+          Ubuntu 24.04, Rust stable, <code className="bg-muted px-1 rounded">--features zvm</code>{" "}
           build, <code className="bg-muted px-1 rounded">/home/zebvix-chain</code> source,{" "}
           <code className="bg-muted px-1 rounded">/root/.zebvix</code> data, systemd unit{" "}
           <code className="bg-muted px-1 rounded">zebvix.service</code>. Mirror it and you are
