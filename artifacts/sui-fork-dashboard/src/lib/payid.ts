@@ -5,7 +5,12 @@
 //   + kind_tag(4=6)
 //   + pay_id_len(8) + pay_id_utf8 + name_len(8) + name_utf8
 //
-// followed by 33-byte compressed pubkey + 64-byte ECDSA signature (r||s).
+// followed by pubkey-as-string(76) + 64-byte ECDSA signature (r||s).
+//
+// CRITICAL: chain's `SignedTx.pubkey` uses `#[serde(with = "hex_array_33")]`,
+// which serialises the 33-byte compressed key as a length-prefixed UTF-8 string
+// "0x" + 66 hex chars (8 byte u64 length=68 + 68 bytes UTF-8 = 76 bytes total).
+// Sending raw 33 bytes here yields "bad bincode: io error" from the chain.
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { sha256 } from "@noble/hashes/sha2.js";
@@ -63,6 +68,18 @@ function strBincode(s: string): Uint8Array {
   out.set(u64Le(utf.length), 0);
   out.set(utf, 8);
   return out;
+}
+
+/**
+ * Encode a 33-byte compressed secp256k1 pubkey the way the chain's
+ * `hex_array_33` serde adapter does for bincode: as a length-prefixed UTF-8
+ * string "0x" + 66 hex chars. Total = 8 + 68 = 76 bytes.
+ */
+function pubkeyBincode(pub: Uint8Array): Uint8Array {
+  if (pub.length !== 33) {
+    throw new Error(`pubkey must be 33 bytes (got ${pub.length})`);
+  }
+  return strBincode("0x" + bytesToHex(pub));
 }
 
 function concat(...arrs: Uint8Array[]): Uint8Array {
@@ -186,7 +203,7 @@ export async function registerPayId(opts: {
   });
 
   const sig = secp256k1.sign(sha256(body), seed, { lowS: true });
-  const signed = concat(body, pub, sig);
+  const signed = concat(body, pubkeyBincode(pub), sig);
   const hexHex = "0x" + bytesToHex(signed);
 
   const res = await rpc<string>("zbx_sendRawTransaction", [hexHex]);

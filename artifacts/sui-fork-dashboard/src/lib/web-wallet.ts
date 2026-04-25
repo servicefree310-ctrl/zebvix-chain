@@ -197,6 +197,26 @@ function addrBincode(addr0x: string): Uint8Array {
   return out;
 }
 
+/**
+ * Encode a 33-byte compressed secp256k1 pubkey the way the chain's
+ * `hex_array_33` serde adapter does for bincode: as a length-prefixed UTF-8
+ * string "0x" + 66 hex chars (8 byte u64 length=68 + 68 UTF-8 bytes = 76).
+ *
+ * **Critical**: `SignedTx.pubkey` carries `#[serde(with = "hex_array_33")]`
+ * on the chain — sending raw 33 bytes here yields "bad bincode: io error".
+ */
+function pubkeyBincode(pub: Uint8Array): Uint8Array {
+  if (pub.length !== 33) {
+    throw new Error(`pubkey must be 33 bytes (got ${pub.length})`);
+  }
+  const hex = "0x" + bytesToHex(pub);
+  const utf = new TextEncoder().encode(hex); // 68 bytes
+  const out = new Uint8Array(8 + utf.length);
+  out.set(u64Le(utf.length), 0);
+  out.set(utf, 8);
+  return out;
+}
+
 function concat(...arrs: Uint8Array[]): Uint8Array {
   const len = arrs.reduce((s, a) => s + a.length, 0);
   const out = new Uint8Array(len);
@@ -340,7 +360,7 @@ export async function sendTransfer(opts: {
   //   sign the digest. `secp256k1.sign` returns a 64-byte `Uint8Array` in
   //   compact `r || s` form (low-S normalized) directly.
   const sig = secp256k1.sign(sha256(body), seed, { lowS: true });
-  const signed = concat(body, pub, sig);           // 152 + 33 + 64 = 249
+  const signed = concat(body, pubkeyBincode(pub), sig);  // 152 + 76 + 64 = 292
   const hexHex = "0x" + bytesToHex(signed);
 
   const res = await rpc<string>("zbx_sendRawTransaction", [hexHex]);
@@ -390,7 +410,7 @@ export async function sendSwap(opts: {
   });
 
   const sig = secp256k1.sign(sha256(body), seed, { lowS: true });
-  const signed = concat(body, pub, sig);  // 172 + 33 + 64 = 269
+  const signed = concat(body, pubkeyBincode(pub), sig);  // 172 + 76 + 64 = 312
   const hexHex = "0x" + bytesToHex(signed);
 
   const res = await rpc<string>("zbx_sendRawTransaction", [hexHex]);
