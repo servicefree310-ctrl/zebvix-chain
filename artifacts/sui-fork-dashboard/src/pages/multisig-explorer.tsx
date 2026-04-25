@@ -1,11 +1,12 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { rpc, weiHexToZbx, shortAddr, ZbxRpcError } from "@/lib/zbx-rpc";
 import {
-  Shield, Users, Search, Clock, CheckCircle2, XCircle, AlertCircle,
-  Copy, Check, ArrowRight, Hash, Key, FileSignature, Zap, Ban,
-  Plus, Send, ThumbsUp, Undo2, Play, ChevronRight, Info, Layers,
-  Terminal, Code2, ExternalLink, Activity,
+  Shield, Users, Search, Clock, CheckCircle2, AlertCircle,
+  Copy, Check, Hash, Key, FileSignature, Zap, Ban,
+  Send, ThumbsUp, Undo2, Play, ChevronRight, Info, Layers,
+  Terminal, Code2, Activity, Plus, Wand2,
 } from "lucide-react";
+import WalletTools from "@/components/multisig/WalletTools";
 
 interface Multisig {
   address: string;
@@ -113,6 +114,7 @@ export default function MultisigExplorer() {
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [expandedProposal, setExpandedProposal] = useState<number | null>(null);
+  const inspectorRef = useRef<HTMLDivElement>(null);
 
   // Mount: pull total count + tip height for "expires in N blocks" context.
   useEffect(() => {
@@ -155,7 +157,7 @@ export default function MultisigExplorer() {
   }
 
   async function loadMultisig(addr: string) {
-    setSelected(null); setProposals([]); setExpandedProposal(null);
+    setSelected(null); setProposals([]); setExpandedProposal(null); setErr(null);
     try {
       const [info, balRaw, props] = await Promise.all([
         rpc<Multisig>("zbx_getMultisig", [addr]),
@@ -165,10 +167,17 @@ export default function MultisigExplorer() {
       setSelected({ ...info, balance_wei: balRaw });
       // Sort newest first
       setProposals([...props].sort((a, b) => b.id - a.id));
+      // Scroll to the inspector so deep-linked / watchlist clicks are visible.
+      setTimeout(() => inspectorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
     } catch (e) {
       if (e instanceof ZbxRpcError) setErr(`${e.message} (code ${e.code})`);
       else setErr(e instanceof Error ? e.message : String(e));
     }
+  }
+
+  async function inspectFromExternal(addr: string) {
+    setLoading(true);
+    try { await loadMultisig(addr); } finally { setLoading(false); }
   }
 
   async function loadFullProposal(pid: number) {
@@ -263,8 +272,18 @@ export default function MultisigExplorer() {
         </div>
       </div>
 
+      {/* WALLET TOOLS — Create + Watchlist */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <Wand2 className="h-4 w-4 text-primary" />
+          <h2 className="text-sm font-semibold uppercase tracking-wider">Wallet Tools</h2>
+          <span className="text-[10px] text-muted-foreground">deterministic-address planner + bookmarks</span>
+        </div>
+        <WalletTools onInspect={inspectFromExternal} />
+      </div>
+
       {/* LOOKUP */}
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div ref={inspectorRef} className="rounded-xl border border-border bg-card overflow-hidden">
         <div className="flex border-b border-border">
           <button
             onClick={() => setMode("owner")}
