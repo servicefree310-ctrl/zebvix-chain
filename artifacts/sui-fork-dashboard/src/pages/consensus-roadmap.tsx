@@ -15,23 +15,24 @@ import {
   Users,
   AlertTriangle,
   Target,
+  Info,
 } from "lucide-react";
 
-type PhaseStatus = "done" | "active" | "next" | "future";
+type StageStatus = "live" | "next" | "planned" | "research";
 
 interface SubTask {
   name: string;
   desc: string;
-  effort: string;
+  status: "done" | "todo";
 }
 
-interface Phase {
+interface Stage {
   id: string;
   level: number;
   name: string;
   algorithm: string;
   icon: typeof Network;
-  status: PhaseStatus;
+  status: StageStatus;
   duration: string;
   tps: string;
   finality: string;
@@ -44,315 +45,326 @@ interface Phase {
   files?: string[];
 }
 
-const PHASES: Phase[] = [
+const STAGES: Stage[] = [
   {
-    id: "phase-0",
+    id: "stage-0",
     level: 1,
-    name: "Phase 0 — Single Validator PoA",
-    algorithm: "Proof of Authority",
+    name: "Stage 0 — Single-Validator PoA + Round-Bump Safety Net",
+    algorithm: "Proof of Authority + B.3.2.1/2 timeout-bumping",
     icon: Shield,
-    status: "done",
-    duration: "Done (v0.1)",
-    tps: "~200",
-    finality: "5 sec",
-    validators: "1 (founder)",
+    status: "live",
+    duration: "LIVE today",
+    tps: "Not benchmarked",
+    finality: "5 sec (BLOCK_TIME_SECS)",
+    validators: "1 (founder, deterministic)",
     complexity: 1,
     description:
-      "Current state. Founder ki keyfile se signed blocks, koi voting nahi, sirf trust. Foundation laid for everything ahead.",
+      "Today's actual block production. Founder validator (address derived deterministically from compiled-in tokenomics::FOUNDER_PUBKEY_HEX) signs every block with its secp256k1 keyfile. consensus.rs::Producer paces round 0 to BLOCK_TIME_SECS=5s; if the elected proposer at (height H, round 0) does not commit within PROPOSE_TIMEOUT_SECS=8s, every node bumps to round 1 and re-elects via who_proposes(H, 1, sorted_validators) — selection idx = (height + round) % validators.len(). State-machine wakes every TICK_INTERVAL_MS=500ms. With 1 active validator the round bump is a no-op; with ≥2 it rotates through the set so liveness is preserved when one is offline.",
     benefits: [
-      "Simplest possible — works today",
-      "Zero networking complexity",
-      "Predictable block production",
+      "Single-binary block production already running",
+      "Zero quorum complexity — single signer",
+      "Round-bumping already in place for future multi-validator liveness",
+      "Predictable 5-sec block production",
     ],
     challenges: [
-      "Single point of failure",
-      "Centralized — founder can censor",
-      "No Byzantine tolerance",
+      "Single point of failure (founder key)",
+      "No Byzantine fault tolerance — founder can censor or double-sign with no on-chain penalty yet",
+      "Throughput unbenchmarked — no published TPS number",
     ],
-    subtasks: [],
-    files: ["src/consensus.rs", "src/main.rs"],
+    subtasks: [
+      { name: "consensus.rs::Producer single-validator block production", desc: "BLOCK_TIME_SECS=5 paced", status: "done" },
+      { name: "B.3.2.1 — round counter + bump timeout", desc: "PROPOSE_TIMEOUT_SECS=8, TICK_INTERVAL_MS=500", status: "done" },
+      { name: "B.3.2.2 — round-robin proposer election", desc: "who_proposes(h, r, sorted_vals) → addr", status: "done" },
+    ],
+    files: ["src/consensus.rs", "src/main.rs", "src/tokenomics.rs (BLOCK_TIME_SECS, FOUNDER_PUBKEY_HEX)"],
   },
   {
-    id: "phase-a",
+    id: "stage-1",
     level: 2,
-    name: "Phase A — P2P Networking Foundation",
-    algorithm: "libp2p Gossip",
+    name: "Stage 1 — P2P Networking Foundation (Phase A)",
+    algorithm: "libp2p 0.54 + Gossipsub strict + mDNS",
     icon: Network,
-    status: "done",
-    duration: "Done (Apr 22, 2026)",
-    tps: "~200",
+    status: "live",
+    duration: "LIVE since Apr 22, 2026",
+    tps: "Not benchmarked",
     finality: "5 sec",
-    validators: "1 producer + 1 follower (VPS)",
+    validators: "1 producer + N followers",
     complexity: 2,
     description:
-      "✅ SHIPPED & VERIFIED on VPS. 2-node libp2p setup running — Node-1 (founder/producer, RPC 8545) + Node-2 (follower, RPC 8546). Gossipsub for blocks/heartbeat/votes, mDNS + bootstrap peer. Both nodes stay in sync, exchange heartbeats every block.",
+      "Networking layer (Phase A in zebvix-chain phase ladder). libp2p 0.54 with TCP+Noise+Yamux. Gossipsub strict mode (2s heartbeat, 1MiB max, DefaultHasher dedupe) on 4 chain-id-namespaced topics: zebvix/7878/{blocks,txs,heartbeat,votes}/v1. Block-sync via request_response::cbor on /zebvix/sync/1.0.0 with SYNC_BATCH_MAX=256, 15s timeout, one-in-flight. Peer discovery: mDNS LAN-only (disable with --no-mdns). Bootstrap peers via repeatable --peer <multiaddr> flag (singular long name, Vec<String> backing — pass it multiple times). PeerId is derived from an ed25519 identity generated fresh at every node start (SwarmBuilder::with_new_identity) — INDEPENDENT of the secp256k1 chain key, so peer-id rotates per restart. Pinning via with_existing_identity is on the hardening list.",
     benefits: [
-      "Multi-node testing infra ready",
-      "Block + tx propagation working",
-      "RPC nodes can sync from producer",
-      "Foundation for Phase B-D",
+      "Multi-node infra ready (validators + RPC nodes)",
+      "Block + tx + vote propagation working",
+      "Followers catch up by replaying from height 0",
     ],
     challenges: [
-      "Peer discovery (mDNS local, DHT prod)",
-      "NAT traversal for public nodes",
-      "Eclipse attack prevention",
+      "mDNS only works on LAN — production needs static --peer multiaddrs",
+      "PeerId rotates per restart (no with_existing_identity wiring yet)",
+      "No NAT traversal, no DHT discovery, no eclipse-attack mitigation",
     ],
     subtasks: [
-      { name: "✅ libp2p crate integration", desc: "tokio + gossipsub + identify + mdns wired up", effort: "Done" },
-      { name: "✅ Peer discovery", desc: "mDNS + bootstrap peer multiaddr (--peers flag)", effort: "Done" },
-      { name: "✅ Gossipsub topics", desc: "zebvix/7878/{blocks,heartbeat,votes}/v1", effort: "Done" },
-      { name: "✅ Block sync protocol", desc: "Follower catches up by replaying blocks from height 0", effort: "Done" },
-      { name: "✅ Heartbeat protocol", desc: "Latest block hash gossiped per tick — sync detection", effort: "Done" },
-      { name: "✅ VPS deployment", desc: "Node-1 systemd + Node-2 nohup, both healthy", effort: "Done" },
+      { name: "libp2p 0.54 + tokio + gossipsub + mdns", desc: "tcp::Config nodelay, noise XX, yamux", status: "done" },
+      { name: "4 gossipsub topics (chain-id-namespaced)", desc: "blocks/txs/heartbeat/votes v1", status: "done" },
+      { name: "Block sync protocol", desc: "request_response cbor /zebvix/sync/1.0.0, 256-batch", status: "done" },
+      { name: "Heartbeat ({ tip: u64 }) every 8s", desc: "out-of-band sync detection", status: "done" },
+      { name: "PeerId pinning via with_existing_identity", desc: "Avoid per-restart rotation", status: "todo" },
     ],
-    files: ["src/p2p.rs", "src/main.rs", "Cargo.toml"],
+    files: ["src/p2p.rs", "src/main.rs (--peer flag, --no-mdns flag)"],
   },
   {
-    id: "phase-b",
+    id: "stage-2",
     level: 3,
-    name: "Phase B — Validator Set + Votes + Governance",
-    algorithm: "On-Chain Registry + Ed25519 Votes + TxKind Governance",
+    name: "Stage 2 — Validator Set, Vote Pool & TxKind Governance (Phase B.1–B.12 feature modules)",
+    algorithm: "On-chain registry + secp256k1 votes + 11 TxKinds + staking",
     icon: Users,
-    status: "done",
-    duration: "Done (Apr 22, 2026) — staking deferred to Phase D",
-    tps: "Same (~200)",
-    finality: "5 sec",
-    validators: "2 active (founder + Node-2)",
+    status: "live",
+    duration: "Feature modules LIVE — B.3.2.3/B.3.2.4 still pending (see Stage 3)",
+    tps: "Not benchmarked",
+    finality: "5 sec (still single-validator pacing — full BFT finality lands in Stage 3)",
+    validators: "Set membership replicates via apply_tx",
     complexity: 3,
     description:
-      "✅ B.1 + B.2 + B.3.1 ALL SHIPPED. Three milestones merged: (1) RocksDB validator registry with admin-gated CLI/RPC, (2) Ed25519-signed vote messages with VotePool + double-sign detection + 2/2 quorum verified per block, (3) On-chain validator updates via TxKind enum — both nodes apply same governance tx independently, no manual mirroring. Staking + delegation deferred to Phase D (after Tendermint).",
+      "Phase B in the zebvix-chain ladder is an umbrella for twelve numbered FEATURE modules, all of which have shipped as marked by their //! Phase B.* source markers — but the consensus sub-tree B.3.2 is itself only partially complete: B.3.2.1 (round counter + bump) and B.3.2.2 (round-robin proposer) are LIVE, while B.3.2.3 (2/3+ commit gate) and B.3.2.4 (LastCommit) are explicitly called out as \"come next\" in consensus.rs:14 — those are Stage 3 below. The feature modules in scope here: validator registry persisted in CF_META, secp256k1-signed Vote messages with VotePool double-sign detection, eleven TxKind variants dispatched by state.rs::apply_tx, share-based delegated staking, Pay-ID alias registration, multisig wallets, ZBX/zUSD AMM pool, secp256k1 chain crypto, Phase B.12 cross-chain bridge. NOTE on votes: the pool tracks (height, round, vote_type) per validator and computes a reached_quorum flag (logged as ✅ QUORUM in main.rs:1051), but the producer in consensus.rs does NOT yet wait on quorum before extending the tip — today votes are gossiped + verified + recorded as slashing evidence only; block commit is still single-validator PoA pacing.",
     benefits: [
-      "Validator set replicates via block-apply (no manual sync)",
-      "Vote double-sign detection ready for slashing (Phase D)",
-      "Admin-gated governance — founder pubkey hardcoded",
-      "2/2 quorum proven on every block (VPS)",
+      "All validator-set mutations replicate via TxKind — no manual sync",
+      "Vote pool already collects double-sign evidence (ready for slashing)",
+      "Staking, multisig, AMM, bridge, governance all running on top of the same module set",
+      "Two-tier validator onboarding: StakeOp::CreateValidator (self-bond ≥100 ZBX) + governor-only ValidatorAdd (consensus seat)",
     ],
     challenges: [
-      "✅ Genesis divergence FIXED in B.3.1.5 (FOUNDER_PUBKEY_HEX hardcoded)",
-      "✅ CLI lock issue FIXED — validator-list ab RPC call karta hai by default",
-      "Stake unbonding + slashing pushed to Phase D",
+      "Quorum is COMPUTED but does NOT yet GATE block commits",
+      "Slashing primitives exist (slash_double_sign 5%, slash_downtime 0.10%) but auto-enforcement is missing",
+      "Validators sorted by address — no power-weighted leader rotation yet",
     ],
     subtasks: [
-      { name: "✅ B.1 — ValidatorRegistry (RocksDB)", desc: "Power, pubkey, address fields; admin-gated CLI", effort: "Done" },
-      { name: "✅ B.1 — RPC: zbx_validatorList + zbx_validatorInfo", desc: "Read endpoints", effort: "Done" },
-      { name: "✅ B.2 — Ed25519 Vote messages", desc: "Domain-tagged signing { height, round, block_hash, voter_pubkey }", effort: "Done" },
-      { name: "✅ B.2 — VotePool + double-sign detection", desc: "Per-(height,round) tracking, slashing-ready", effort: "Done" },
-      { name: "✅ B.2 — Gossipsub votes topic + zbx_voteStats RPC", desc: "Live quorum tracking", effort: "Done" },
-      { name: "✅ B.3.1 — TxKind enum (Transfer/ValidatorAdd/ValidatorRemove)", desc: "Typed tx body", effort: "Done" },
-      { name: "✅ B.3.1 — apply_tx dispatch + admin gating", desc: "Last-validator removal blocked", effort: "Done" },
-      { name: "✅ B.3.1 — CLI submits via RPC + submit_tx_strict", desc: "No fake-success on RPC errors", effort: "Done" },
-      { name: "🎯 VPS PROOF: tx 0xdf109d69... → both nodes log 'validator-add applied'", desc: "Replication verified", effort: "Done" },
+      { name: "B.1 — Validator registry in CF_META", desc: "types::Validator { pubkey: [u8;33], voting_power: u64 }", status: "done" },
+      { name: "B.2 — secp256k1-signed Vote + VotePool", desc: "Domain-tagged signing, double-sign returns AddVoteResult::DoubleSign { previous }", status: "done" },
+      { name: "B.3.1 — TxKind dispatch in apply_tx", desc: "11 variants: Transfer / ValidatorAdd / ValidatorRemove / ValidatorEdit / GovernorChange / Staking / RegisterPayId / Multisig / Swap / Bridge / Proposal", status: "done" },
+      { name: "B.3.2.1+2 — round bumping + round-robin proposer", desc: "consensus.rs PROPOSE_TIMEOUT_SECS, who_proposes()", status: "done" },
+      { name: "B.4 — Share-based delegated staking", desc: "MIN_SELF_BOND_WEI=100 ZBX, MIN_DELEGATION_WEI=10 ZBX, EPOCH_BLOCKS=17280, UNBONDING_EPOCHS=7", status: "done" },
+      { name: "B.7 — Pay-ID alias (RegisterPayId)", desc: "<handle>@zbx, permanent; zbx_lookupPayId / zbx_getPayIdOf / zbx_payIdCount RPCs", status: "done" },
+      { name: "B.8 — Multisig wallet (5 ops)", desc: "Create/Propose/Approve/Revoke/Execute, 2..=10 owners, MultisigAction::Transfer (v1 only)", status: "done" },
+      { name: "B.10 — ZBX/zUSD AMM pool", desc: "x·y=k, 0.3% fee, 10M zUSD genesis loan repayment then 50/50 admin/LP split", status: "done" },
+      { name: "B.11 — secp256k1 chain crypto (k256)", desc: "MetaMask-compatible; SignedTx { body, pubkey:[u8;33], signature:[u8;64] } — sender RECOMPUTED, no recovery byte", status: "done" },
+      { name: "B.12 — Cross-chain bridge", desc: "single-trusted-oracle MVP, lock-and-mint + burn-and-release, MAX_OUT_EVENTS=4096 ring", status: "done" },
+      { name: "RPCs: zbx_listValidators / zbx_voteStats", desc: "Live registry + per-validator vote rate", status: "done" },
     ],
     files: [
       "src/state.rs (registry + apply_tx)",
-      "src/vote.rs (Vote/VotePool)",
+      "src/vote.rs (Vote/VotePool, secp256k1)",
       "src/types.rs (TxKind)",
-      "src/main.rs (CLI + RPC)",
-      "src/p2p.rs (votes topic)",
+      "src/staking.rs (B.4)",
+      "src/multisig.rs (B.8)",
+      "src/pool.rs (B.10)",
+      "src/bridge.rs (B.12)",
+      "src/main.rs (CLI + RPC bootstrap)",
     ],
   },
   {
-    id: "phase-c",
+    id: "stage-3",
     level: 4,
-    name: "Phase C — Tendermint BFT State Machine (B.3.2)",
-    algorithm: "Classic 3-Phase BFT",
+    name: "Stage 3 — Quorum Commit Gate + LastCommit (B.3.2.3 / B.3.2.4)",
+    algorithm: "Tendermint-style 2/3+ voting-power finality",
     icon: Cpu,
     status: "next",
-    duration: "5-7 din (NEXT UP)",
-    tps: "1,000-3,000",
-    finality: "1-2 sec",
-    validators: "2-25 active",
+    duration: "Next consensus milestone (per consensus.rs //! comment)",
+    tps: "TBD",
+    finality: "Target: 1 block (~5s) with instant finality on commit",
+    validators: "2/3+ voting power required",
     complexity: 3,
     description:
-      "🎯 NEXT UP. B.2 ke vote infrastructure ke upar full Tendermint state machine: round-robin proposer rotation, propose→prevote→precommit→commit timeouts, 2/3+ voting-power commit gate, LastCommit field in block header. Replaces single-validator PoA producer — chain HALT karega agar quorum nahi mila (correct BFT behaviour). Tolerates up to 1/3 malicious validators. Instant finality.",
+      "The literal next two milestones called out in src/consensus.rs (line 14): (B.3.2.3) Producer must wait for ≥2/3 voting-power Precommit votes before extending the tip — chain HALTS if quorum not reached (correct BFT liveness/safety trade-off, tolerates up to 1/3 Byzantine). (B.3.2.4) Embed a LastCommit field in BlockHeader containing the aggregated Precommit votes that finalized height H-1 — gives full historical verifiability. Vote infrastructure (signing, gossip, pool, double-sign detection, reached_quorum flag) is ALREADY in place from B.2; this milestone is about WIRING the producer to consume it.",
     benefits: [
-      "Instant finality (no reorgs ever)",
-      "Tolerates 1/3 malicious validators",
-      "Battle-tested (Cosmos, BNB Chain)",
-      "Production-ready in 1 week",
+      "True instant finality (no reorgs after commit)",
+      "Tolerates ⌊(n-1)/3⌋ Byzantine validators",
+      "Builds directly on existing VotePool — minimal new code",
+      "Standard Tendermint behaviour — battle-tested design space",
     ],
     challenges: [
-      "O(n²) message complexity",
-      "Leader bottleneck per round",
-      "View-change protocol complexity",
-      "Round timeout tuning",
+      "Chain halts if quorum lost (acceptable BFT safety choice)",
+      "Need to handle round timeouts properly (already partially in B.3.2.1)",
+      "LastCommit verification adds ~32 + 64*n bytes per header",
+      "Multi-node test on VPS: spin up 4 validators, kill 1, verify the other 3 still commit",
     ],
     subtasks: [
-      { name: "Vote message types (PreVote, PreCommit, Proposal)", desc: "Signed structs + serialization", effort: "1 din" },
-      { name: "Round state machine", desc: "Propose → PreVote → PreCommit → Commit phases", effort: "2 din" },
-      { name: "2f+1 vote aggregation", desc: "Power-weighted vote counting", effort: "1 din" },
-      { name: "Round timeouts + view-change", desc: "Skip offline leaders", effort: "1 din" },
-      { name: "Block commit + state finalization", desc: "Atomic chain extension", effort: "0.5 din" },
-      { name: "Multi-node integration test", desc: "4 validators on VPS, kill 1, verify 3 continue", effort: "1 din" },
+      { name: "B.3.2.3 — 2/3+ voting-power commit gate", desc: "Producer waits on VotePool.reached_quorum for Precommits before applying block", status: "todo" },
+      { name: "B.3.2.4 — LastCommit field in BlockHeader", desc: "Aggregated Precommit set for height H-1 stored in block H header", status: "todo" },
+      { name: "Header signing-bytes update for LastCommit", desc: "header_signing_bytes() in crypto.rs must include the new field", status: "todo" },
+      { name: "Followers verify LastCommit on block apply", desc: "Reject block H if its LastCommit doesn't reach 2/3 of H-1's validator set", status: "todo" },
+      { name: "Multi-validator VPS integration test", desc: "4-node testnet, kill one, expect liveness on remaining 3", status: "todo" },
     ],
-    files: ["src/bft/mod.rs (new)", "src/bft/round.rs (new)", "src/bft/votes.rs (new)"],
+    files: [
+      "src/consensus.rs (Producer wait-for-quorum)",
+      "src/types.rs (BlockHeader::last_commit)",
+      "src/crypto.rs (header_signing_bytes)",
+      "src/state.rs (apply_block verifies LastCommit)",
+    ],
   },
   {
-    id: "phase-d",
+    id: "stage-4",
     level: 5,
-    name: "Phase D — Slashing + Reward Distribution",
-    algorithm: "Economic Security",
+    name: "Stage 4 — Slashing Auto-Enforcement",
+    algorithm: "Wire existing primitives to evidence",
     icon: AlertTriangle,
-    status: "future",
-    duration: "2-3 din",
-    tps: "Same",
+    status: "planned",
+    duration: "After Stage 3",
+    tps: "Same as Stage 3",
     finality: "Same",
-    validators: "25 active",
+    validators: "Same",
     complexity: 2,
     description:
-      "Cryptoeconomic security layer. Detect double-signing via signed evidence, slash 5% stake. Liveness slashing for offline validators. Block rewards split among signers.",
+      "The cryptoeconomic security layer. The PRIMITIVES already exist in staking.rs as slash_double_sign (5% of bonded stake) and slash_downtime (0.10%) — what's missing is the wiring from evidence to invocation. Stage 4 hooks (a) the AddVoteResult::DoubleSign { previous } emitted by VotePool into a SlashEvidence tx that any node can broadcast (with verifiable conflicting-vote bytes), processed via apply_tx; and (b) a missed-block counter per validator (incremented when its slot in who_proposes is skipped on round bump) that triggers downtime slashing once a threshold is crossed.",
     benefits: [
-      "Economic disincentive for attacks",
-      "Auto-removal of offline validators",
-      "Fair reward distribution",
+      "No new cryptography needed — primitives already audited",
+      "Closes the \"votes ready for slashing\" loop noted on the Validators page",
+      "Removes founder ability to silently double-sign without economic penalty",
     ],
     challenges: [
-      "Evidence detection algorithm",
-      "Double-sign vs reorg edge cases",
-      "Reward formula (commission, delegators)",
+      "Evidence-tx format: must be self-verifiable (two conflicting Vote messages, same (height, round, vote_type, voter) but different block_hash)",
+      "Reorg vs equivocation distinction (legitimate fork on round timeout is NOT double-sign)",
+      "Jail/unjail flow + downtime threshold tuning",
     ],
     subtasks: [
-      { name: "Double-sign evidence tx", desc: "Two conflicting votes from same validator", effort: "1 din" },
-      { name: "Slashing engine", desc: "Burn % of stake + jail period", effort: "0.5 din" },
-      { name: "Liveness tracking", desc: "Missed-blocks counter per validator", effort: "0.5 din" },
-      { name: "Reward distribution", desc: "Per-block split: 90% validators, 10% community", effort: "1 din" },
+      { name: "TxKind::SlashEvidence variant + apply_tx dispatch", desc: "Verify two Vote messages on-chain, slash + jail validator", status: "todo" },
+      { name: "Auto-broadcast on AddVoteResult::DoubleSign", desc: "main.rs vote-pool sink → broadcast SlashEvidence", status: "todo" },
+      { name: "Missed-block counter per validator", desc: "Increment when slot skipped on round bump; threshold-trigger slash_downtime", status: "todo" },
+      { name: "Jail / unjail (waiting period) flow", desc: "Jailed validators are excluded from who_proposes until manual unjail tx", status: "todo" },
     ],
-    files: ["src/slashing.rs (new)", "src/rewards.rs (new)"],
+    files: [
+      "src/staking.rs (slash_* already present)",
+      "src/types.rs (SlashEvidence variant)",
+      "src/state.rs (apply_tx + missed-block tracker)",
+    ],
   },
   {
-    id: "phase-e",
+    id: "stage-5",
     level: 6,
-    name: "Phase E — HotStuff Pipelined BFT",
-    algorithm: "Linear-Complexity BFT",
+    name: "Stage 5 — HotStuff-Style Pipelined BFT",
+    algorithm: "Linear-complexity BFT with QC chaining",
     icon: Zap,
-    status: "future",
-    duration: "2-3 mahine",
-    tps: "30,000-100,000",
-    finality: "500ms",
-    validators: "100+ active",
+    status: "research",
+    duration: "Long-term research (estimate 2-3 months FT engineering)",
+    tps: "Aspirational: 30k–100k",
+    finality: "Aspirational: ~500ms",
+    validators: "100+",
     complexity: 4,
     description:
-      "Aptos-grade pipelined BFT. Voting messages chain ho jaate hain (CPU pipeline style). O(n) complexity instead of O(n²). 10-30x throughput jump.",
+      "Aptos-grade pipelined BFT. Voting messages chain together (Quorum Certificates feed the next view's proposal), reducing message complexity from O(n²) to O(n) per height. Threshold signature aggregation (BLS) collapses 2/3 signatures into one. Estimates here are aspirational ceilings cited from public benchmarks, NOT a Zebvix measurement.",
     benefits: [
-      "Linear message complexity",
-      "Scales to 200+ validators",
-      "30-100x throughput vs Tendermint",
-      "500ms finality",
+      "Linear message complexity per round",
+      "Scales to 200+ validators in published benchmarks",
+      "10–30x throughput vs classic Tendermint in published benchmarks",
     ],
     challenges: [
-      "Pipeline race conditions",
-      "Higher implementation complexity",
+      "Pipeline race conditions (3-chain rule debugging is notoriously hard)",
       "Garbage collection of old views",
-      "Three-chain rule debugging hard",
+      "Requires BLS threshold signature library + key ceremony",
+      "Hard fork from Stage 3/4 chain — careful migration",
     ],
     subtasks: [
-      { name: "QC (Quorum Certificate) data structure", desc: "Aggregated 2f+1 signatures", effort: "1 week" },
-      { name: "Pipelined chain state machine", desc: "Track 3 chained QCs (prepare, precommit, commit)", effort: "2 weeks" },
-      { name: "Pacemaker (round advancement)", desc: "Async timeout + view sync", effort: "1 week" },
-      { name: "Threshold signature aggregation (BLS)", desc: "Single sig instead of n sigs", effort: "2 weeks" },
-      { name: "Migration from Tendermint", desc: "Hard fork at block N, validator opt-in", effort: "1 week" },
-      { name: "Stress testing", desc: "100-validator testnet, fault injection", effort: "2 weeks" },
+      { name: "QC (Quorum Certificate) data structure", desc: "Aggregated 2f+1 signatures, threshold-signed", status: "todo" },
+      { name: "Pipelined chain state machine", desc: "Track 3 chained QCs (prepare, precommit, commit)", status: "todo" },
+      { name: "Pacemaker (round advancement)", desc: "Async timeout + view sync", status: "todo" },
+      { name: "BLS threshold signature aggregation", desc: "Single sig instead of n sigs", status: "todo" },
+      { name: "Migration from Stage 3/4", desc: "Hard fork at block N, validator opt-in", status: "todo" },
     ],
-    files: ["src/hotstuff/ (new directory, ~10 files)"],
+    files: ["src/hotstuff/ (new directory)"],
   },
   {
-    id: "phase-f",
+    id: "stage-6",
     level: 7,
-    name: "Phase F — Narwhal-Style DAG Mempool",
-    algorithm: "Reliable Broadcast DAG",
+    name: "Stage 6 — Narwhal-Style DAG Mempool",
+    algorithm: "Reliable broadcast DAG, decoupled from consensus",
     icon: GitBranch,
-    status: "future",
-    duration: "3-4 mahine",
-    tps: "100,000-200,000",
-    finality: "500ms",
-    validators: "100+ active",
+    status: "research",
+    duration: "Long-term research (estimate 3-4 months FT engineering)",
+    tps: "Aspirational: 100k–200k",
+    finality: "Aspirational: ~500ms",
+    validators: "100+",
     complexity: 5,
     description:
-      "Mempool ko DAG mein convert karo. Sab validators parallel mein txs propose karte hain. Consensus sirf 'order' decide karta hai, 'data' DAG already store karta hai. Sui ka secret sauce!",
+      "Decouple data dissemination from consensus. All validators propose tx batches in parallel via reliable broadcast (Bracha-style 3-phase echo-ready); the BFT layer above only commits an ORDERING over already-disseminated DAG vertices. This eliminates the leader-bandwidth bottleneck and is the foundation Mysticeti builds on.",
     benefits: [
-      "Bandwidth fully utilized (no leader bottleneck)",
-      "2-5x throughput vs HotStuff",
-      "Censorship-resistant (no single proposer)",
-      "Foundation for Mysticeti",
+      "Bandwidth fully utilised across all validators (no leader bottleneck)",
+      "Censorship-resistance — no single proposer can drop a tx",
+      "Foundation for Stage 7 (Mysticeti)",
     ],
     challenges: [
-      "Reliable broadcast protocol",
-      "DAG garbage collection",
-      "Causal ordering enforcement",
-      "Storage explosion if not pruned",
+      "Reliable broadcast protocol must be implemented correctly (Bracha)",
+      "DAG garbage collection and pruning",
+      "Storage explosion if DAG isn't aggressively pruned post-commit",
+      "Causal ordering enforcement at commit time",
     ],
     subtasks: [
-      { name: "Worker/Primary architecture", desc: "Tx batching + cert generation", effort: "3 weeks" },
-      { name: "Reliable broadcast (Bracha)", desc: "Echo-Ready 3-phase protocol", effort: "3 weeks" },
-      { name: "DAG construction + storage", desc: "Vertices + parent pointers in RocksDB", effort: "2 weeks" },
-      { name: "Causal commit ordering", desc: "DFS traversal of finalized DAG", effort: "2 weeks" },
-      { name: "Integration with HotStuff (Phase E)", desc: "DAG provides data, HS provides order", effort: "2 weeks" },
+      { name: "Worker / Primary architecture", desc: "Tx batching + cert generation per validator", status: "todo" },
+      { name: "Reliable broadcast (Bracha)", desc: "Echo-Ready 3-phase protocol", status: "todo" },
+      { name: "DAG construction + storage", desc: "Vertices + parent pointers in RocksDB", status: "todo" },
+      { name: "Causal commit ordering", desc: "DFS traversal of finalized DAG", status: "todo" },
+      { name: "Integration with Stage 5 (HotStuff)", desc: "DAG provides data, HotStuff provides order", status: "todo" },
     ],
-    files: ["src/narwhal/ (new directory, ~15 files)"],
+    files: ["src/narwhal/ (new directory)"],
   },
   {
-    id: "phase-g",
+    id: "stage-7",
     level: 8,
-    name: "Phase G — Mysticeti DAG-BFT (Sui-Style)",
-    algorithm: "DAG-Based BFT, 3-Leader",
+    name: "Stage 7 — Mysticeti DAG-BFT (END GOAL)",
+    algorithm: "Multi-leader DAG-based BFT",
     icon: Sparkles,
-    status: "future",
-    duration: "6-12 mahine",
-    tps: "200,000-300,000",
-    finality: "390ms",
-    validators: "150+ active",
+    status: "research",
+    duration: "Multi-year research / large-team effort",
+    tps: "Aspirational: published Sui benchmarks ~297k",
+    finality: "Aspirational: ~390ms",
+    validators: "150+",
     complexity: 5,
     description:
-      "Sui mainnet ka actual algorithm. Multi-leader (3 parallel) DAG consensus. Yahan tak pahunchne ke baad tumhari chain Sui-class TPS dega. Bahut bada engineering effort.",
+      "Sui mainnet's actual algorithm. Multi-leader (3 parallel proposers per round) DAG consensus with threshold-based commit waves. This is the stated north star — but reaching production-grade Mysticeti would require a sustained multi-engineer research effort; this stage is included for direction-of-travel transparency, not as a near-term commitment.",
     benefits: [
-      "297K+ TPS (Sui benchmark)",
-      "390ms finality",
-      "3-leader parallel = no single bottleneck",
-      "World-class scale",
+      "297K+ TPS in Sui's published benchmarks",
+      "~390ms finality in Sui's published benchmarks",
+      "3-leader parallel commits — no single-proposer bottleneck",
     ],
     challenges: [
-      "PhD-level DAG protocol",
-      "Mysten Labs research papers (2023-2024)",
-      "Massive testing burden",
-      "Equivocation detection",
-      "Realistic only with 4-6 senior engineers",
+      "PhD-level protocol — multiple Mysten Labs research papers (2023–2024)",
+      "Equivocation detection across parallel leaders",
+      "Massive testing burden + external audit before any production deployment",
+      "Realistic only with a dedicated multi-engineer team and audit budget",
     ],
     subtasks: [
-      { name: "Study Mysticeti paper deeply", desc: "MystenLabs/sui repo + papers", effort: "1 month" },
-      { name: "3-leader DAG protocol", desc: "Parallel proposer logic", effort: "2 months" },
-      { name: "Voting + commit waves", desc: "Threshold-based DAG commit", effort: "2 months" },
-      { name: "Equivocation slashing", desc: "Detect conflicting proposals", effort: "1 month" },
-      { name: "Migration from Phase F", desc: "Hard fork, careful state migration", effort: "1 month" },
-      { name: "Production hardening + audit", desc: "External audit ($500K+)", effort: "3-6 months" },
+      { name: "Study Mysticeti paper + Sui reference impl", desc: "Multiple research papers + MystenLabs/sui repo", status: "todo" },
+      { name: "3-leader parallel proposal logic", desc: "Per-round multi-leader DAG construction", status: "todo" },
+      { name: "Threshold-based commit waves", desc: "DAG commit rules with multi-leader voting", status: "todo" },
+      { name: "Equivocation slashing", desc: "Detect conflicting parallel-leader proposals", status: "todo" },
+      { name: "Migration from Stage 5/6", desc: "Hard fork, careful state migration", status: "todo" },
+      { name: "Production hardening + external audit", desc: "Multi-month audit + bug-bounty cycle", status: "todo" },
     ],
-    files: ["src/mysticeti/ (new directory, ~30 files, 50K+ LOC)"],
+    files: ["src/mysticeti/ (new directory)"],
   },
 ];
 
-const STATUS_META: Record<PhaseStatus, { icon: typeof CheckCircle2; color: string; badge: string; label: string }> = {
-  done: {
+const STATUS_META: Record<StageStatus, { icon: typeof CheckCircle2; color: string; badge: string; label: string }> = {
+  live: {
     icon: CheckCircle2,
     color: "text-emerald-400",
     badge: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
-    label: "Done",
-  },
-  active: {
-    icon: Clock,
-    color: "text-amber-400",
-    badge: "bg-amber-500/15 text-amber-300 border-amber-500/30",
-    label: "Active",
+    label: "LIVE",
   },
   next: {
     icon: Target,
     color: "text-blue-400",
     badge: "bg-blue-500/15 text-blue-300 border-blue-500/30",
-    label: "Next Up",
+    label: "Next",
   },
-  future: {
+  planned: {
+    icon: Clock,
+    color: "text-amber-400",
+    badge: "bg-amber-500/15 text-amber-300 border-amber-500/30",
+    label: "Planned",
+  },
+  research: {
     icon: Circle,
     color: "text-slate-500",
     badge: "bg-slate-500/15 text-slate-400 border-slate-500/30",
-    label: "Future",
+    label: "Research",
   },
 };
 
@@ -378,9 +390,10 @@ function ComplexityDots({ level }: { level: number }) {
 }
 
 export default function ConsensusRoadmap() {
-  const done = PHASES.filter((p) => p.status === "done").length;
-  const next = PHASES.filter((p) => p.status === "next").length;
-  const future = PHASES.filter((p) => p.status === "future").length;
+  const live = STAGES.filter((p) => p.status === "live").length;
+  const next = STAGES.filter((p) => p.status === "next").length;
+  const planned = STAGES.filter((p) => p.status === "planned").length;
+  const research = STAGES.filter((p) => p.status === "research").length;
 
   return (
     <div className="space-y-8 p-6">
@@ -390,35 +403,60 @@ export default function ConsensusRoadmap() {
           <GitBranch className="h-7 w-7 text-purple-400" /> Consensus Roadmap — DAG-BFT Tak Ka Safar
         </h1>
         <p className="text-slate-400 max-w-3xl">
-          Zebvix L1 ka step-by-step consensus evolution plan — current PoA se Sui-style Mysticeti DAG-BFT
-          tak. Har phase ek concrete milestone hai with realistic effort estimates.
+          Zebvix L1 ke <strong className="text-slate-300">consensus engine</strong> ka step-by-step evolution
+          plan — aaj ka single-validator PoA + round-bump safety net se le ke long-term DAG-BFT research goal
+          tak. Har stage ek concrete milestone hai jiske source-file refs neeche diye gaye hain.
         </p>
       </div>
+
+      {/* Disambiguation callout — IMPORTANT */}
+      <Card className="bg-blue-950/20 border-blue-500/30">
+        <CardContent className="pt-5">
+          <div className="flex items-start gap-3">
+            <Info className="h-5 w-5 text-blue-300 mt-0.5 shrink-0" />
+            <div>
+              <h3 className="text-sm font-semibold text-blue-200 mb-1">
+                "Stage" yahan ≠ "Phase" in Implementation Roadmap
+              </h3>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                The zebvix-chain source uses Phase-letter markers (
+                <code className="text-blue-300 font-mono">//! Phase A / B.* / C.* / D</code>) to label
+                feature areas — Phase A = p2p, Phase B = core chain modules including B.3.2.x consensus
+                sub-milestones, Phase C = EVM, Phase D = forkless governance. This page uses{" "}
+                <strong className="text-blue-200">"Stage" labels</strong> for the consensus-engine evolution
+                narrative so it does not collide with chain feature phase letters. Cross-reference the{" "}
+                <strong className="text-blue-200">Implementation Roadmap</strong> page for the full list of
+                what shipped under each chain phase letter.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Stats */}
       <div className="grid gap-4 md:grid-cols-4">
         <Card className="bg-emerald-950/30 border-emerald-500/30">
           <CardContent className="pt-5">
-            <div className="text-3xl font-bold text-emerald-400">{done}</div>
-            <div className="text-xs text-emerald-300/80 mt-1">Completed Phases</div>
+            <div className="text-3xl font-bold text-emerald-400">{live}</div>
+            <div className="text-xs text-emerald-300/80 mt-1">LIVE Stages</div>
           </CardContent>
         </Card>
         <Card className="bg-blue-950/30 border-blue-500/30">
           <CardContent className="pt-5">
             <div className="text-3xl font-bold text-blue-400">{next}</div>
-            <div className="text-xs text-blue-300/80 mt-1">Next Up</div>
+            <div className="text-xs text-blue-300/80 mt-1">Next consensus milestone</div>
           </CardContent>
         </Card>
-        <Card className="bg-slate-900/50 border-slate-700/50">
+        <Card className="bg-amber-950/30 border-amber-500/30">
           <CardContent className="pt-5">
-            <div className="text-3xl font-bold text-slate-300">{future}</div>
-            <div className="text-xs text-slate-400 mt-1">Future Phases</div>
+            <div className="text-3xl font-bold text-amber-400">{planned}</div>
+            <div className="text-xs text-amber-300/80 mt-1">Planned (after Next)</div>
           </CardContent>
         </Card>
-        <Card className="bg-purple-950/30 border-purple-500/30">
+        <Card className="bg-slate-900/40 border-slate-700/50">
           <CardContent className="pt-5">
-            <div className="text-3xl font-bold text-purple-300">DAG-BFT</div>
-            <div className="text-xs text-purple-300/80 mt-1">Final Goal (Phase G)</div>
+            <div className="text-3xl font-bold text-slate-300">{research}</div>
+            <div className="text-xs text-slate-400 mt-1">Long-term research</div>
           </CardContent>
         </Card>
       </div>
@@ -433,48 +471,55 @@ export default function ConsensusRoadmap() {
                 Strategy: Phased Climb (NOT a Direct Jump)
               </h3>
               <p className="text-xs text-slate-300 leading-relaxed">
-                DAG-BFT (Sui's Mysticeti) is the destination, but we cannot skip foundations. Each phase
-                builds the infrastructure the next one needs. Phase A (P2P) is mandatory before any BFT.
-                Phase C (Tendermint) gives a production-ready chain in ~3 weeks while we work toward
-                Phase G. Realistic timeline: <span className="text-purple-300 font-semibold">6-18 months</span>{" "}
-                to reach DAG-BFT, deploying intermediate chains along the way.
+                DAG-BFT (Sui's Mysticeti) is the directional north star, but we cannot skip foundations. Each
+                stage builds the infrastructure the next one needs. The next concrete consensus work is{" "}
+                <strong className="text-purple-300">Stage 3 (B.3.2.3 quorum gate + B.3.2.4 LastCommit)</strong>{" "}
+                — wiring the producer to consume the existing VotePool — followed by{" "}
+                <strong className="text-purple-300">Stage 4 (slashing auto-enforcement)</strong> which only
+                needs to wire already-existing primitives. Stages 5–7 (HotStuff / Narwhal / Mysticeti) are
+                research-track and require dedicated team + audit budget; they are listed for transparency,
+                not as near-term commitments.
               </p>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Total effort summary */}
+      {/* Source-grounded reality summary */}
       <Card className="bg-slate-900/40 border-slate-700/50">
         <CardHeader>
           <CardTitle className="text-base text-white flex items-center gap-2">
-            <Clock className="h-4 w-4 text-amber-400" /> Total Effort Estimate
+            <Database className="h-4 w-4 text-amber-400" /> What's Actually In <code className="text-amber-300 font-mono">consensus.rs</code> Today
           </CardTitle>
+          <CardDescription className="text-xs text-slate-400">
+            Quoted/paraphrased directly from the source comments — no benchmarks, no estimates.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid gap-3 md:grid-cols-3 text-xs">
             <div className="p-3 rounded-md bg-emerald-950/30 border border-emerald-500/20">
-              <div className="text-emerald-300 font-semibold mb-1">Short Term (Phases A-D)</div>
-              <div className="text-slate-300">~3 weeks → Production Tendermint BFT</div>
-              <div className="text-slate-500 mt-1">Solo dev possible. 25 validators, 3K TPS.</div>
+              <div className="text-emerald-300 font-semibold mb-1">Done (B.3.2.1 + B.3.2.2)</div>
+              <div className="text-slate-300">Round counter + timeout-bumping + round-robin proposer election</div>
+              <div className="text-slate-500 mt-1 font-mono">PROPOSE_TIMEOUT_SECS = 8</div>
+              <div className="text-slate-500 font-mono">TICK_INTERVAL_MS = 500</div>
+              <div className="text-slate-500 font-mono">BLOCK_TIME_SECS = 5</div>
             </div>
-            <div className="p-3 rounded-md bg-amber-950/30 border border-amber-500/20">
-              <div className="text-amber-300 font-semibold mb-1">Medium Term (Phase E)</div>
-              <div className="text-slate-300">~3 months → HotStuff BFT</div>
-              <div className="text-slate-500 mt-1">2-3 devs ideal. 100 validators, 50K TPS.</div>
+            <div className="p-3 rounded-md bg-blue-950/30 border border-blue-500/20">
+              <div className="text-blue-300 font-semibold mb-1">Next (B.3.2.3 + B.3.2.4)</div>
+              <div className="text-slate-300">2/3+ commit gate (Producer waits on VotePool quorum) + LastCommit field in BlockHeader</div>
+              <div className="text-slate-500 mt-1">Source says: "come next"</div>
             </div>
             <div className="p-3 rounded-md bg-rose-950/30 border border-rose-500/20">
-              <div className="text-rose-300 font-semibold mb-1">Long Term (Phases F-G)</div>
-              <div className="text-slate-300">~12-18 months → DAG-BFT (Mysticeti)</div>
-              <div className="text-slate-500 mt-1">4-6 senior engineers. 297K TPS, 390ms finality.</div>
+              <div className="text-rose-300 font-semibold mb-1">Today's Reality</div>
+              <div className="text-slate-300">Vote pool collects + computes <code className="font-mono">reached_quorum</code> flag, but Producer does NOT wait on it. Block commit is still single-validator pacing.</div>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Phase cards */}
+      {/* Stage cards */}
       <div className="space-y-4">
-        {PHASES.map((p, idx) => {
+        {STAGES.map((p, idx) => {
           const meta = STATUS_META[p.status];
           const Icon = p.icon;
           const StatusIcon = meta.icon;
@@ -484,18 +529,20 @@ export default function ConsensusRoadmap() {
                 className={`bg-slate-900/40 border-slate-700/50 ${
                   p.status === "next" ? "ring-2 ring-blue-500/30" : ""
                 }`}
-                data-testid={`phase-${p.id}`}
+                data-testid={`stage-${p.id}`}
               >
                 <CardHeader>
                   <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div className="flex items-start gap-3">
                       <div
                         className={`h-10 w-10 rounded-lg flex items-center justify-center shrink-0 ${
-                          p.status === "done"
+                          p.status === "live"
                             ? "bg-emerald-500/15"
                             : p.status === "next"
                               ? "bg-blue-500/15"
-                              : "bg-slate-800/60"
+                              : p.status === "planned"
+                                ? "bg-amber-500/15"
+                                : "bg-slate-800/60"
                         }`}
                       >
                         <Icon className={`h-5 w-5 ${meta.color}`} />
@@ -523,7 +570,7 @@ export default function ConsensusRoadmap() {
                   {/* Stats grid */}
                   <div className="grid gap-2 grid-cols-2 md:grid-cols-4 text-xs">
                     <div className="p-2 rounded bg-slate-950/40 border border-slate-800/60">
-                      <div className="text-slate-500">Duration</div>
+                      <div className="text-slate-500">Status / Timing</div>
                       <div className="text-slate-200 font-mono mt-0.5">{p.duration}</div>
                     </div>
                     <div className="p-2 rounded bg-slate-950/40 border border-slate-800/60">
@@ -547,7 +594,7 @@ export default function ConsensusRoadmap() {
                   <div className="grid gap-3 md:grid-cols-2">
                     <div className="p-3 rounded bg-emerald-950/20 border border-emerald-500/20">
                       <div className="text-[10px] uppercase tracking-wider text-emerald-400 font-semibold mb-2">
-                        ✓ Benefits
+                        Benefits
                       </div>
                       <ul className="space-y-1">
                         {p.benefits.map((b, i) => (
@@ -560,7 +607,7 @@ export default function ConsensusRoadmap() {
                     </div>
                     <div className="p-3 rounded bg-rose-950/20 border border-rose-500/20">
                       <div className="text-[10px] uppercase tracking-wider text-rose-400 font-semibold mb-2">
-                        ⚠ Challenges
+                        Open Challenges
                       </div>
                       <ul className="space-y-1">
                         {p.challenges.map((c, i) => (
@@ -577,7 +624,7 @@ export default function ConsensusRoadmap() {
                   {p.subtasks.length > 0 && (
                     <div>
                       <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold mb-2">
-                        🔧 Sub-Tasks ({p.subtasks.length})
+                        Sub-tasks ({p.subtasks.filter((t) => t.status === "done").length}/{p.subtasks.length} done)
                       </div>
                       <div className="space-y-1.5">
                         {p.subtasks.map((t, i) => (
@@ -585,12 +632,22 @@ export default function ConsensusRoadmap() {
                             key={i}
                             className="flex items-start gap-3 p-2 rounded bg-slate-950/40 border border-slate-800/40"
                           >
-                            <Circle className="h-3 w-3 text-slate-600 mt-1 shrink-0" />
+                            {t.status === "done" ? (
+                              <CheckCircle2 className="h-3 w-3 text-emerald-400 mt-1 shrink-0" />
+                            ) : (
+                              <Circle className="h-3 w-3 text-slate-600 mt-1 shrink-0" />
+                            )}
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center justify-between gap-2 flex-wrap">
                                 <span className="text-xs font-medium text-slate-200">{t.name}</span>
-                                <Badge className="text-[9px] bg-slate-800 text-slate-400 border-slate-700 border">
-                                  {t.effort}
+                                <Badge
+                                  className={`text-[9px] border ${
+                                    t.status === "done"
+                                      ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
+                                      : "bg-slate-800 text-slate-400 border-slate-700"
+                                  }`}
+                                >
+                                  {t.status === "done" ? "done" : "todo"}
                                 </Badge>
                               </div>
                               <div className="text-[11px] text-slate-500 mt-0.5">{t.desc}</div>
@@ -604,7 +661,7 @@ export default function ConsensusRoadmap() {
                   {/* Files */}
                   {p.files && p.files.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 pt-1">
-                      <span className="text-[10px] text-slate-500 mr-1">Files:</span>
+                      <span className="text-[10px] text-slate-500 mr-1">Source files:</span>
                       {p.files.map((f) => (
                         <span
                           key={f}
@@ -619,7 +676,7 @@ export default function ConsensusRoadmap() {
               </Card>
 
               {/* Arrow connector */}
-              {idx < PHASES.length - 1 && (
+              {idx < STAGES.length - 1 && (
                 <div className="flex justify-center py-2">
                   <ArrowRight className="h-5 w-5 text-slate-700 rotate-90" />
                 </div>
@@ -637,24 +694,29 @@ export default function ConsensusRoadmap() {
             <div>
               <h3 className="text-sm font-semibold text-amber-200 mb-1">Honest Reality Check</h3>
               <p className="text-xs text-slate-300 leading-relaxed">
-                Sui ki Mysticeti ko Mysten Labs ne <strong className="text-amber-300">$300M+ funding</strong>{" "}
-                aur <strong className="text-amber-300">150+ engineers</strong> ke saath{" "}
-                <strong className="text-amber-300">4 saal</strong> mein build kiya hai. Solo dev + AI assistant
-                ke saath same level production-ready Mysticeti realistic nahi hai. <br />
+                Sui's Mysticeti was built by Mysten Labs over multiple years with a research team and large
+                engineering org. Reaching production-grade Mysticeti-class consensus on Zebvix would require
+                a sustained dedicated team plus an external audit cycle — it is the directional goal, not a
+                near-term promise. <br />
                 <br />
-                <strong className="text-emerald-300">Practical path:</strong> Phase C (Tendermint BFT) tak
-                jaake stop karo — 3 weeks mein 3,000 TPS chain ready, jo 99% real-world use cases ke liye
-                kaafi hai. Phase E-G ko long-term roadmap rakho, jab funding + team available ho.
+                <strong className="text-emerald-300">Practical near-term path:</strong> finish Stage 3
+                (B.3.2.3 quorum gate + B.3.2.4 LastCommit) and Stage 4 (slashing auto-enforcement). That
+                gives Zebvix true Tendermint-class instant finality with cryptoeconomic security on top of
+                the existing Phase B.1–B.12 + Phase D foundations — production-ready for the vast majority
+                of L1 use cases without any of the Stage 5–7 research dependencies.
               </p>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Database icon footer */}
+      {/* Footer */}
       <div className="flex items-center justify-center gap-2 py-4 text-xs text-slate-600">
         <Database className="h-3 w-3" />
-        <span>Roadmap maintained as canonical reference for Zebvix consensus evolution</span>
+        <span>
+          Maintained as canonical reference for Zebvix consensus evolution — every stage cites source files
+          in <code className="font-mono">zebvix-chain/src/</code>
+        </span>
       </div>
     </div>
   );
