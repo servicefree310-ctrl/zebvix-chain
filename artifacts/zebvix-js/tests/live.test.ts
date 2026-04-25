@@ -180,6 +180,78 @@ async function main(): Promise<void> {
     check(`burner has no Pay-ID`, payid === null);
   });
 
+  // ── Phase C.2.1 — Tx lookup by hash (eth_getTransactionByHash + Receipt) ──
+  //
+  // These tests require the C.2.1 binary on the validator (commit f596a23 +
+  // the rebrand HEAD). Until `scripts/deploy_zvm_tx_lookup.sh` is run on the
+  // VPS, the live mainnet (93.127.213.192:8545) still serves the older binary
+  // which returns -32601 method-not-found for these calls — that would fail
+  // the live test even though the SDK code is correct.
+  //
+  // Plan: leave the section gated behind an env opt-in. Once the operator
+  // has run the deploy script, set `ZBX_TEST_C21=1` and the section runs.
+  //
+  // What it covers:
+  //   1. eth_getTransactionByHash on a known recent tx returns Geth-shaped JSON.
+  //   2. eth_getTransactionReceipt on the same hash returns status=0x1 and
+  //      a numeric blockNumber.
+  //   3. Both calls under the canonical zbx_*Zvm* aliases return identical
+  //      payloads to their eth_* counterparts (alias parity).
+  //   4. Lookup of a random unknown hash returns null (Geth convention),
+  //      not an error.
+  //
+  // (Implementation note: pulling a "recent tx hash" requires reading the
+  // native ring buffer — `provider.recentTxs(1)` — and using its `hash`
+  // field. That's wired in the SDK already; only the assertions below are
+  // gated on the deploy.)
+  if (process.env.ZBX_TEST_C21 === "1") {
+    await section("Phase C.2.1 — Tx lookup by hash (REQUIRES deploy)", async () => {
+      const recent = await provider.recentTxs(1);
+      const hash = (recent as { txs?: Array<{ hash?: string }> })?.txs?.[0]
+        ?.hash;
+      if (!hash) {
+        check(`recentTxs returned a hash to test against`, false, "no recent tx");
+        return;
+      }
+      const tx = await provider.send("eth_getTransactionByHash", [hash]);
+      check(
+        `eth_getTransactionByHash returns object`,
+        tx !== null && typeof tx === "object",
+        `hash=${hash.slice(0, 10)}…`,
+      );
+      const rcpt = await provider.send("eth_getTransactionReceipt", [hash]);
+      check(
+        `eth_getTransactionReceipt returns status=0x1`,
+        (rcpt as { status?: string })?.status === "0x1",
+        `status=${(rcpt as { status?: string })?.status}`,
+      );
+      const aliasTx = await provider.send("zbx_getZvmTransaction", [hash]);
+      check(
+        `zbx_getZvmTransaction == eth_getTransactionByHash`,
+        JSON.stringify(aliasTx) === JSON.stringify(tx),
+      );
+      const aliasRcpt = await provider.send("zbx_getZvmReceipt", [hash]);
+      check(
+        `zbx_getZvmReceipt == eth_getTransactionReceipt`,
+        JSON.stringify(aliasRcpt) === JSON.stringify(rcpt),
+      );
+      const unknown =
+        "0x" + "ab".repeat(32);
+      const missing = await provider.send("eth_getTransactionByHash", [
+        unknown,
+      ]);
+      check(
+        `unknown hash returns null (Geth convention)`,
+        missing === null,
+        `${missing}`,
+      );
+    });
+  } else {
+    console.log(
+      "\n── Phase C.2.1 — Tx lookup tests SKIPPED (set ZBX_TEST_C21=1 after VPS deploy)",
+    );
+  }
+
   console.log("\n════════════════════════════════════════");
   console.log(`  Results: ${passed} passed, ${failed} failed`);
   console.log("════════════════════════════════════════");

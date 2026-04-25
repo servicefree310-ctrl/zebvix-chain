@@ -23,7 +23,7 @@
 //! | eth_getLogs | ✅ |
 //! | eth_getTransactionByHash | ✅ (Phase C.2.1 — synthesized from native ring buffer) |
 //! | eth_getTransactionReceipt | ✅ (Phase C.2.1 — synthesized from native ring buffer, status=0x1) |
-//! | eth_getBlockByNumber | ✅ (proxies zbx_getBlockByNumber, EVM shape) |
+//! | eth_getBlockByNumber | ✅ (proxies zbx_getBlockByNumber, Geth shape) |
 //! | eth_getBlockByHash | ✅ |
 //! | net_version | ✅ |
 //! | web3_clientVersion | ✅ |
@@ -44,7 +44,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
-// Hex helpers (JSON-RPC "quantity" + "data" encoding rules used by the Zebvix EVM)
+// Hex helpers (JSON-RPC "quantity" + "data" encoding rules used by the Zebvix ZVM)
 // ---------------------------------------------------------------------------
 
 /// Encode a `U256` as `0x`-prefixed hex without leading zeros (JSON-RPC
@@ -128,11 +128,11 @@ impl ZvmRpcCtx {
 
 /// Top-level dispatcher invoked by `rpc::handle()` when the method name
 /// starts with `eth_` / `net_` / `web3_` (Geth-compatible names) **or** one
-/// of the EVM-feature-gated `zbx_*` aliases listed below — both names route
+/// of the ZVM-feature-gated `zbx_*` aliases listed below — both names route
 /// to the exact same handler so wallets can pick whichever namespace they
 /// prefer once the node is built with `--features zvm`.
 ///
-/// Aliases that live here (EVM-only, requires `--features zvm`):
+/// Aliases that live here (ZVM-only, requires `--features zvm`):
 /// `web3_clientVersion` ↔ `zbx_clientVersion`,
 /// `eth_syncing`        ↔ `zbx_syncing`,
 /// `eth_accounts`       ↔ `zbx_accounts`,
@@ -142,14 +142,19 @@ impl ZvmRpcCtx {
 /// `eth_getStorageAt`   ↔ `zbx_getStorageAt`,
 /// `eth_call`           ↔ `zbx_call`,
 /// `eth_getLogs`        ↔ `zbx_getLogs`,
-/// `eth_getTransactionReceipt` ↔ `zbx_getEvmReceipt`,
+/// `eth_getTransactionReceipt` ↔ `zbx_getZvmReceipt` (legacy: `zbx_getEvmReceipt`),
+/// `eth_getTransactionByHash`  ↔ `zbx_getZvmTransaction` (legacy: `zbx_getEvmTransaction`),
 /// `eth_feeHistory`     ↔ `zbx_feeHistory`,
-/// `eth_sendRawTransaction` ↔ `zbx_sendRawEvmTransaction`.
+/// `eth_sendRawTransaction` ↔ `zbx_sendRawZvmTransaction` (legacy: `zbx_sendRawEvmTransaction`).
+///
+/// The `zbx_*Evm*` names are DEPRECATED but still accepted so any existing
+/// integration keeps working through the rebrand window. New clients should
+/// use the canonical `zbx_*Zvm*` names.
 ///
 /// `eth_chainId`, `net_version`, and `eth_getBalance` are intentionally
 /// **not** aliased here — their `zbx_*` partners (`zbx_chainId`,
 /// `zbx_netVersion`, `zbx_getBalance`) live in `rpc.rs` as **always-on**
-/// methods so wallets can read them on stripped builds with no EVM feature.
+/// methods so wallets can read them on stripped builds with no ZVM feature.
 /// Likewise `eth_blockNumber`, `eth_estimateGas`, `eth_getTransactionCount`,
 /// and `eth_getBlockByNumber` each have a richer Zebvix-native counterpart
 /// in `rpc.rs` with a different return shape, so we deliberately keep their
@@ -157,7 +162,7 @@ impl ZvmRpcCtx {
 /// `zbx_getBlockByNumber` aliases inside this dispatcher).
 ///
 /// Note on `eth_sendRawTransaction`: it **is** aliased above to
-/// `zbx_sendRawEvmTransaction` (RLP path). The qualifier "Evm" in the alias
+/// `zbx_sendRawZvmTransaction` (RLP path). The qualifier "Zvm" in the alias
 /// name is what keeps it distinct from the always-on native
 /// `zbx_sendRawTransaction` in `rpc.rs`, which accepts hex-encoded bincode
 /// `SignedTx`, not RLP — two separate submission paths, two separate names,
@@ -230,7 +235,9 @@ pub fn dispatch(ctx: &ZvmRpcCtx, method: &str, params: &[Value]) -> Result<Value
             Ok(json!(quantity_u64(estimate)))
         }
 
-        "eth_sendRawTransaction" | "zbx_sendRawEvmTransaction" => {
+        "eth_sendRawTransaction"
+        | "zbx_sendRawZvmTransaction"
+        | "zbx_sendRawEvmTransaction" => {
             // Phase C.2: full RLP decode + sender recovery + actual execution.
             let raw = parse_hex(get_str(params, 0)?)?;
             let (tx, sender, declared_chain_id) =
@@ -268,7 +275,7 @@ pub fn dispatch(ctx: &ZvmRpcCtx, method: &str, params: &[Value]) -> Result<Value
             }
 
             // Surface execution failure to the wallet, but still return the
-            // canonical EVM tx hash so the wallet can poll for receipt.
+            // canonical Ethereum-spec tx hash so the wallet can poll for receipt.
             let _ = result; // receipt store will pick this up in C.3
             let hash = crate::zvm::keccak256(&raw);
             Ok(json!(format!("0x{}", hex::encode(hash))))
@@ -295,7 +302,9 @@ pub fn dispatch(ctx: &ZvmRpcCtx, method: &str, params: &[Value]) -> Result<Value
             Ok(json!(filtered))
         }
 
-        "eth_getTransactionByHash" | "zbx_getEvmTransaction" => {
+        "eth_getTransactionByHash"
+        | "zbx_getZvmTransaction"
+        | "zbx_getEvmTransaction" => {
             // Phase C.2.1 — resolves a 32-byte tx hash to an Ethereum-shaped
             // tx object by reading the native recent-tx ring buffer (the
             // ZVM tx path itself is not yet wired to push into this index;
@@ -346,7 +355,9 @@ pub fn dispatch(ctx: &ZvmRpcCtx, method: &str, params: &[Value]) -> Result<Value
             }
         }
 
-        "eth_getTransactionReceipt" | "zbx_getEvmReceipt" => {
+        "eth_getTransactionReceipt"
+        | "zbx_getZvmReceipt"
+        | "zbx_getEvmReceipt" => {
             // Phase C.2.1 — synthetic receipt built from the native recent-tx
             // index. Every entry in that index represents a tx that was
             // successfully applied (failed txs are never indexed), so
@@ -413,7 +424,7 @@ pub fn dispatch(ctx: &ZvmRpcCtx, method: &str, params: &[Value]) -> Result<Value
             }))
         }
 
-        _ => Err(format!("unsupported EVM method: {method}")),
+        _ => Err(format!("unsupported ZVM method: {method}")),
     }
 }
 
@@ -564,7 +575,7 @@ fn try_gas(ctx: &ZvmRpcCtx, zvm_ctx: &ZvmContext, from: &Address, env: &ZvmTxEnv
 // The placeholder `RawTx` / `RawTxKind` / `decode_raw_tx` from C.1 has been
 // removed; `eth_sendRawTransaction` above now uses `zvm_rlp::decode_raw_tx`,
 // which returns a real `(ZvmTxEnvelope, sender Address)` pair after secp256k1
-// recovery. See `evm_rlp.rs` for the canonical decoder.
+// recovery. See `zvm_rlp.rs` for the canonical decoder.
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
@@ -625,7 +636,7 @@ mod tests {
 
     #[test]
     fn raw_tx_kind_dispatch() {
-        // Envelope kind discrimination now happens inside evm_rlp::decode_raw_tx.
+        // Envelope kind discrimination now happens inside zvm_rlp::decode_raw_tx.
         // Empty input must reject; type 0x03 (blob tx) is reserved.
         assert!(crate::zvm_rlp::decode_raw_tx(&[]).is_err());
         assert!(crate::zvm_rlp::decode_raw_tx(&[0x03, 0xc0]).is_err());

@@ -60,7 +60,7 @@ pub struct RpcCtx {
     pub p2p_out: Option<tokio::sync::mpsc::UnboundedSender<P2PMsg>>,
     /// Phase B.2: shared in-memory vote pool. `None` only in legacy --no-p2p mode.
     pub votes: Option<Arc<VotePool>>,
-    /// Phase C.2 — shared EVM state DB. When `Some`, the RPC layer routes
+    /// Phase C.2 — shared ZVM state DB. When `Some`, the RPC layer routes
     /// any unhandled `eth_*` / `net_*` / `web3_*` method through
     /// `crate::zvm_rpc::dispatch` so MetaMask/Foundry/ethers.js can speak
     /// the standard JSON-RPC dialect against this node.
@@ -1368,35 +1368,46 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
         }
         "zbx_multisigCount" => ok(id, json!({ "total": ctx.state.multisig_count() })),
         m => {
-            // Phase C.2 — Standard EVM JSON-RPC fallthrough. Any `eth_*`,
+            // Phase C.2 — Standard ZVM JSON-RPC fallthrough. Any `eth_*`,
             // `net_*`, or `web3_*` method that the legacy native dispatcher
-            // above did not handle is routed to `evm_rpc::dispatch` so the
+            // above did not handle is routed to `zvm_rpc::dispatch` so the
             // node speaks Geth-compatible JSON-RPC for wallets and tooling.
             //
-            // We also forward a curated set of EVM-side `zbx_*` aliases
+            // We also forward a curated set of ZVM-side `zbx_*` aliases
             // (`zbx_clientVersion`, `zbx_syncing`, `zbx_accounts`,
             // `zbx_gasPrice`, `zbx_blobBaseFee`, `zbx_getCode`,
             // `zbx_getStorageAt`, `zbx_call`, `zbx_getLogs`,
-            // `zbx_getEvmReceipt`, `zbx_feeHistory`,
-            // `zbx_sendRawEvmTransaction`) — every one of these resolves to
-            // the SAME handler as its `eth_*` / `web3_*` partner inside
-            // `evm_rpc::dispatch`, so dashboards and CLIs that prefer the
-            // Zebvix-native namespace get identical results without ever
-            // touching the EVM wire-protocol method names. These aliases
-            // require `--features zvm`; without it, the dispatcher returns
+            // `zbx_getZvmReceipt`, `zbx_getZvmTransaction`,
+            // `zbx_feeHistory`, `zbx_sendRawZvmTransaction`) — every one
+            // of these resolves to the SAME handler as its `eth_*` /
+            // `web3_*` partner inside `zvm_rpc::dispatch`, so dashboards
+            // and CLIs that prefer the Zebvix-native namespace get
+            // identical results without ever touching the EVM-spec
+            // wire-protocol method names. These aliases require
+            // `--features zvm`; without it, the dispatcher returns
             // `method not found` just like the eth_* originals.
+            //
+            // The legacy `zbx_*Evm*` names (`zbx_getEvmReceipt`,
+            // `zbx_getEvmTransaction`, `zbx_sendRawEvmTransaction`) are
+            // ALSO accepted as DEPRECATED aliases so any external client
+            // already wired to the old names keeps working through the
+            // rebrand window. Prefer the canonical `zbx_*Zvm*` names in
+            // new code.
             #[cfg(feature = "zvm")]
             if m.starts_with("eth_") || m.starts_with("net_") || m.starts_with("web3_")
                 || matches!(m,
                     "zbx_clientVersion" | "zbx_syncing" | "zbx_accounts"
                     | "zbx_gasPrice" | "zbx_blobBaseFee" | "zbx_getCode"
                     | "zbx_getStorageAt" | "zbx_call" | "zbx_getLogs"
-                    | "zbx_getEvmReceipt" | "zbx_getEvmTransaction"
+                    | "zbx_getZvmReceipt" | "zbx_getZvmTransaction"
                     | "zbx_feeHistory"
+                    | "zbx_sendRawZvmTransaction"
+                    // Deprecated aliases — accept for backward compat.
+                    | "zbx_getEvmReceipt" | "zbx_getEvmTransaction"
                     | "zbx_sendRawEvmTransaction"
                 )
             {
-                if let Some(resp) = try_evm_dispatch(&ctx, &id, m, &req.params) {
+                if let Some(resp) = try_zvm_dispatch(&ctx, &id, m, &req.params) {
                     return Json(resp);
                 }
             }
@@ -1407,10 +1418,10 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
 }
 
 /// Phase C.2 — bridge between the legacy native RPC dispatcher and the
-/// EVM JSON-RPC handler in `evm_rpc::dispatch`. Returns `None` when the
-/// EVM DB is not configured (so the catch-all can return `method not found`).
+/// ZVM JSON-RPC handler in `zvm_rpc::dispatch`. Returns `None` when the
+/// ZVM DB is not configured (so the catch-all can return `method not found`).
 #[cfg(feature = "zvm")]
-fn try_evm_dispatch(
+fn try_zvm_dispatch(
     ctx: &RpcCtx,
     id: &Value,
     method: &str,
@@ -1463,8 +1474,8 @@ pub fn router(ctx: RpcCtx) -> Router {
     //   ZEBVIX_RPC_CORS_ORIGINS=https://app.example.com,https://admin.example.com
     //
     // Body limit: 256 KiB caps payload-flood DOS. The largest legitimate
-    // JSON-RPC request on this chain is a raw EVM tx (~128 KiB ceiling),
-    // so 256 KiB is plenty of headroom.
+    // JSON-RPC request on this chain is a raw EVM-format ZVM tx (~128 KiB
+    // ceiling), so 256 KiB is plenty of headroom.
     //
     // Per-IP rate limiting is intentionally NOT done in-process — operators
     // should put nginx / Cloudflare in front of the public RPC for that

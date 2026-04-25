@@ -47,7 +47,7 @@ fn print_banner() {
 }
 
 #[derive(Parser)]
-#[command(name = "zebvix-node", version, about = "Zebvix L1 blockchain node (ZBX, EVM-style)")]
+#[command(name = "zebvix-node", version, about = "Zebvix L1 blockchain node — native ZBX + ZVM (Cancun-EVM-bytecode compatible)")]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -625,7 +625,9 @@ enum Cmd {
         /// asset_id from `bridge-assets` (decimal u64).
         #[arg(long)]
         asset_id: u64,
-        /// Destination address on the foreign chain (0x… for EVM).
+        /// Destination address on the foreign chain (0x… 20-byte hex for any EVM-compatible
+        /// chain — Ethereum, BSC, Polygon, Arbitrum, etc. The bridge is the only Zebvix
+        /// surface that talks to external EVM chains; the local execution layer is ZVM).
         #[arg(long)]
         dest: String,
         /// Amount in Zebvix-native units. ZBX uses ZBX (e.g. "1.5"), zUSD uses

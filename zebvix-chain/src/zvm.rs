@@ -8,13 +8,13 @@
 //! ## Goals
 //! - Solidity 0.8+ contracts deploy and execute unchanged.
 //! - MetaMask / Hardhat / Foundry / Remix work zero-config against
-//!   `https://rpc.zebvix.network` because the [`evm_rpc`] module exposes the
+//!   `https://rpc.zebvix.network` because the [`zvm_rpc`] module exposes the
 //!   standard `eth_*` namespace alongside our existing `zbx_*` namespace.
 //! - OpenZeppelin contracts (ERC-20 / ERC-721 / ERC-1155 / Governor) work
 //!   as-is — no Zebvix-specific patches required.
 //! - Native chain features (bridge, Pay-ID, AMM swap, multisig) become
 //!   callable from inside Solidity via custom precompiles 0x80–0x83 in
-//!   [`evm_precompiles`].
+//!   [`zvm_precompiles`].
 //!
 //! ## Architecture
 //! ```text
@@ -25,18 +25,18 @@
 //!     │   TxKind::Swap      → AMM pool                             │
 //!     │   TxKind::Bridge    → bridge module                        │
 //!     │   TxKind::ZvmCall   ──┐                                    │
-//!     │   TxKind::ZvmCreate ──┴──► evm::execute()                  │
+//!     │   TxKind::ZvmCreate ──┴──► zvm::execute()                  │
 //!     │                              │                             │
 //!     │                              ▼                             │
-//!     │                       evm_interp::Interp                   │
+//!     │                       zvm_interp::Interp                   │
 //!     │                          │      │                          │
 //!     │                          │      ▼                          │
-//!     │                          │  evm_precompiles::dispatch      │
+//!     │                          │  zvm_precompiles::dispatch      │
 //!     │                          ▼                                 │
-//!     │                    evm_state::CfZvmDb                      │
+//!     │                    zvm_state::CfZvmDb                      │
 //!     │                          │                                 │
 //!     │                          ▼                                 │
-//!     │                   RocksDB (CF_EVM, CF_LOGS)                │
+//!     │                   RocksDB (CF_ZVM, CF_LOGS)                │
 //!     └────────────────────────────────────────────────────────────┘
 //! ```
 //!
@@ -94,7 +94,7 @@ pub const KECCAK_EMPTY: [u8; 32] = [
 ];
 
 // ---------------------------------------------------------------------------
-// EVM transaction variants — additions to `transaction::TxKind`
+// ZVM transaction variants — additions to `transaction::TxKind`
 // ---------------------------------------------------------------------------
 
 /// `TxKind::ZvmCreate` — deploy a new contract.
@@ -106,7 +106,7 @@ pub const KECCAK_EMPTY: [u8; 32] = [
 ///    - CREATE2 : `keccak256(0xff || from || salt || keccak256(init_code))[12..]`
 /// 3. Run `init_code` via [`crate::zvm_interp::Interp`]; runtime bytecode is
 ///    the return value subject to the `MAX_CODE_SIZE` limit.
-/// 4. Store `code` content-addressed in `CF_EVM/code/<keccak256>`.
+/// 4. Store `code` content-addressed in `CF_ZVM/code/<keccak256>`.
 /// 5. Account record: `ZvmAccount { nonce: 1, balance: value, code_hash, … }`.
 /// 6. Refund unused gas; emit `ContractCreated` event.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -186,9 +186,9 @@ impl ZvmTxEnvelope {
 // Account & state types
 // ---------------------------------------------------------------------------
 
-/// EVM account record. Stored in `CF_EVM` keyed by 20-byte address.
+/// ZVM account record (Ethereum-account-equivalent shape). Stored in `CF_ZVM` keyed by 20-byte address.
 ///
-/// Compatible with the standard EVM `(nonce, balance, storage_root, code_hash)`
+/// Compatible with the standard Ethereum `(nonce, balance, storage_root, code_hash)`
 /// tuple so MPT proofs remain interoperable with archive-node clients.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ZvmAccount {
@@ -215,7 +215,7 @@ impl ZvmAccount {
     }
 }
 
-/// One LOG entry emitted by an EVM contract (LOG0..LOG4 opcodes).
+/// One LOG entry emitted by a ZVM contract (LOG0..LOG4 opcodes).
 ///
 /// Indexed in `CF_LOGS` by `(block_height, log_index)` and additionally by
 /// `(address, topic0..topic3)` so `eth_getLogs` filters are O(log n).
@@ -229,7 +229,7 @@ pub struct ZvmLog {
     pub log_index: u32,
 }
 
-/// Result of executing an EVM call/create.
+/// Result of executing a ZVM call/create.
 #[derive(Debug, Clone)]
 pub struct ExecResult {
     pub success: bool,
@@ -268,10 +268,10 @@ impl ExecResult {
 }
 
 // ---------------------------------------------------------------------------
-// Database trait — implemented by `evm_state::CfZvmDb`
+// Database trait — implemented by `zvm_state::CfZvmDb`
 // ---------------------------------------------------------------------------
 
-/// Read-only view of EVM state. The interpreter calls this trait to fetch
+/// Read-only view of ZVM state. The interpreter calls this trait to fetch
 /// accounts, code and storage. Mutations are journaled in [`StateJournal`]
 /// and committed at the end of a successful execution.
 pub trait ZvmDb {
@@ -289,7 +289,7 @@ pub trait ZvmDb {
     fn block_hash(&self, number: u64) -> H256;
 }
 
-/// Journaled state mutations produced by one EVM execution.
+/// Journaled state mutations produced by one ZVM execution.
 /// Caller (`state.rs::apply_tx`) commits these atomically along with the
 /// outer transaction's other side-effects.
 #[derive(Debug, Default, Clone)]
@@ -344,13 +344,13 @@ impl ZvmContext {
 
 use crate::zvm_interp::Interp;
 
-/// Execute one EVM transaction (call or create) and return the result and
+/// Execute one ZVM transaction (call or create) and return the result and
 /// journaled state mutations.
 ///
 /// The caller (`state.rs::apply_tx`) is responsible for:
 /// 1. Validating signer's nonce + balance ≥ `gas_limit * gas_price + value`.
 /// 2. Persisting `journal.touched_accounts`/`storage_writes`/`new_code`
-///    to `CF_EVM`.
+///    to `CF_ZVM`.
 /// 3. Persisting `result.logs` to `CF_LOGS`.
 /// 4. Refunding `result.gas_refunded` ZBX wei back to the signer.
 pub fn execute<D: ZvmDb>(
@@ -482,7 +482,7 @@ pub fn execute<D: ZvmDb>(
     };
 
     // Always commit the caller's nonce/balance change even on revert
-    // (canonical EVM semantics: revert refunds value but not nonce).
+    // (canonical Ethereum-spec semantics: revert refunds value but not nonce).
     if !exec_result.success {
         // Refund value on failed call/create.
         caller_acct.balance = caller_acct.balance.saturating_add(tx.value());

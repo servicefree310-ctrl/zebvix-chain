@@ -6,8 +6,9 @@ import type { Address, PayIdRecord } from "./types.js";
  * ZebvixWallet — ethers.Wallet extended with helpers that call native
  * zbx_* RPC methods through a ZebvixProvider.
  *
- * Standard EVM operations (sendTransaction, signMessage, signTypedData, etc.)
- * are inherited unchanged from ethers.Wallet.
+ * Standard ZVM operations (sendTransaction, signMessage, signTypedData, etc.)
+ * are inherited unchanged from ethers.Wallet — same wire format as Ethereum,
+ * so any tool that speaks EVM speaks Zebvix.
  */
 export class ZebvixWallet extends Wallet {
   constructor(privateKey: string, provider?: Provider | null) {

@@ -1,14 +1,14 @@
 # Overview
 
-This project is a pnpm workspace monorepo building the Zebvix L1 blockchain using TypeScript and Rust. Its primary goal is to deliver a performant, EVM-compatible blockchain with integrated DeFi (zSwap AMM), robust governance, and seamless cross-chain bridging. Zebvix aims to be a secure, scalable, and user-friendly platform in the decentralized ecosystem.
+This project is a pnpm workspace monorepo building the Zebvix L1 blockchain using TypeScript and Rust. Its primary goal is to deliver a performant L1 with a Cancun-EVM-bytecode-compatible execution layer (ZVM), integrated DeFi (zSwap AMM), robust governance, and seamless cross-chain bridging. Zebvix aims to be a secure, scalable, and user-friendly platform in the decentralized ecosystem.
 
 Key capabilities include:
-- A custom L1 blockchain (`zebvix-chain`) in Rust with the ZBX token (chain-id 7878), EVM-style addresses, and Bitcoin-like halving.
+- A custom L1 blockchain (`zebvix-chain`) in Rust with the ZBX token (chain-id 7878), Ethereum-spec 20-byte secp256k1 addresses, and Bitcoin-like halving.
 - An on-chain, permissionless zSwap Automated Market Maker (AMM).
 - A comprehensive dashboard for monitoring, interaction, and development.
 - Mobile wallet connectivity with QR pairing.
-- An EVM execution layer (Cancun fork compatible) for smart contracts.
-- A cross-chain bridge module for interoperability with other networks like BNB Chain.
+- A ZVM execution layer (Cancun-EVM-bytecode compatible) for smart contracts. MetaMask, Hardhat, Foundry, ethers and viem connect zero-config because the wire-protocol method names (`eth_*` / `net_*` / `web3_*`) follow the standard Ethereum spec verbatim.
+- A cross-chain bridge module for interoperability with foreign EVM-compatible networks (Ethereum, BSC, Polygon, …).
 
 The project emphasizes high performance, security, and extensibility through modern tools and architectural patterns.
 
@@ -38,26 +38,26 @@ The project uses a pnpm workspace monorepo, with packages like:
 - **Transactions:** `TxKind` enum supports `Transfer`, `ValidatorAdd`, `ValidatorRemove`, `Swap`, `Bridge`, and `Proposal`.
 - **Tokenomics:** 150M ZBX supply, Bitcoin-style halving. `MIN_SELF_BOND_WEI` set to 100 ZBX, `MIN_DELEGATION_WEI` to 10 ZBX.
 - **AMM:** On-chain zSwap AMM, `x·y=k` model with 0.3% fee.
-- **Recent Transactions:** RocksDB-backed ring buffer (rolling cap of 1000 native txs). Phase C.2.1 added a secondary `META_RTX_HASH_PREFIX = b"rtx/h/"` index in CF_META so `find_tx_by_hash()` does an O(1) point lookup; the ring's `push_recent_tx()` writes both indexes in lockstep and cascade-deletes the hash mapping on eviction. `eth_getTransactionByHash` / `eth_getTransactionReceipt` (and their `zbx_getEvmTransaction` / `zbx_getEvmReceipt` aliases) synthesize the standard Ethereum-shape JSON from this index — `status=0x1` is correct by construction since failed txs are never indexed. ZVM (Solidity) tx coverage + real per-execution receipts ship in Phase C.3.
+- **Recent Transactions:** RocksDB-backed ring buffer (rolling cap of 1000 native txs). Phase C.2.1 added a secondary `META_RTX_HASH_PREFIX = b"rtx/h/"` index in CF_META so `find_tx_by_hash()` does an O(1) point lookup; the ring's `push_recent_tx()` writes both indexes in lockstep and cascade-deletes the hash mapping on eviction. `eth_getTransactionByHash` / `eth_getTransactionReceipt` (and their canonical `zbx_getZvmTransaction` / `zbx_getZvmReceipt` aliases — legacy `zbx_*Evm*` names also accepted for backward compat) synthesize the standard Geth-shape JSON from this index — `status=0x1` is correct by construction since failed txs are never indexed. ZVM (Solidity) tx coverage + real per-execution receipts ship in Phase C.3.
 - **Cryptography:** Switched to secp256k1 (ECDSA) for ETH-compatible address derivation.
 - **Bridge Module:** On-chain `bridge` module with `BridgeNetwork` and `BridgeAsset` registries, lock/release pattern. Single-trusted-oracle MVP.
 - **Forkless On-chain Governance (Phase D):** `proposal` module with `ProposalKind` (FeatureFlag, ParamChange, ContractWhitelist, TextOnly). 14-day Testing phase, 76-day Voting phase (90 days total). 1 wallet = 1 vote, 90% approval + 5 votes quorum for auto-activation. Max 3 active proposals per proposer.
 
 ## ZVM (Zebvix Virtual Machine) Integration
-- **ZVM Execution Layer:** Native Rust implementation, Cancun-EVM-fork compatible, accessed via `--features zvm`.
+- **ZVM Execution Layer:** Native Rust implementation, Cancun-EVM-bytecode compatible, accessed via `--features zvm`.
 - **Opcode Support:** Full Cancun opcode set.
 - **Gas Accounting:** Mainnet-matching gas constants.
-- **Storage:** `CfZvmDb` with in-memory account cache.
-- **Precompiles:** Standard EVM precompiles and custom Zebvix precompiles (bridge_out, payid_resolve, amm_swap, multisig_propose).
-- **JSON-RPC Wire Protocol:** `eth_*` namespace (15 methods) for wallet/Foundry/Hardhat compatibility, aliased to `zbx_*` for Zebvix-native callers. `web3_clientVersion` returns `Zebvix/0.1.0/rust1.83/zvm-cancun`.
-- **Solidity Contracts:** Drafted Solidity 0.8.24 contracts (e.g., `ZBX20.sol`, `BridgeVault.sol`) are fully EVM-bytecode compatible.
+- **Storage:** `CfZvmDb` backed by the `CF_ZVM` column family (Rust constant; on-disk RocksDB CF name is the legacy string `"evm"` for backward compat — no migration needed when upgrading from the pre-rebrand binary). In-memory account cache layered on top.
+- **Precompiles:** Standard Ethereum-spec precompiles (0x01–0x09) plus custom Zebvix precompiles 0x80–0x83 (bridge_out, payid_resolve, amm_swap, multisig_propose).
+- **JSON-RPC Wire Protocol:** `eth_*` namespace (15 methods, kept as the standard Ethereum spec — never renamed because every wallet/library expects these exact names) for MetaMask/Foundry/Hardhat compatibility, aliased to canonical `zbx_*` for Zebvix-native callers. `web3_clientVersion` returns `Zebvix/0.1.0/rust1.83/zvm-cancun`. Tx submit/lookup aliases are `zbx_sendRawZvmTransaction` / `zbx_getZvmTransaction` / `zbx_getZvmReceipt` (deprecated `zbx_*Evm*` names still accepted).
+- **Solidity Contracts:** Drafted Solidity 0.8.24 contracts (e.g., `ZBX20.sol`, `BridgeVault.sol`) are fully Cancun-EVM-bytecode compatible.
 
 ## User Interface (Dashboard)
 - **Mission Control:** Live block height, chain stats, KPIs, recent blocks, and MetaMask connection.
-- **EVM Explorer:** Unified Smart Search for EVM addresses, hashes, blocks, and Pay-ID aliases. Tools for net status, balance/transaction/code/block lookup, and raw JSON-RPC.
+- **ZVM Explorer:** Unified Smart Search for 20-byte addresses, tx/block hashes, block numbers, and Pay-ID aliases. Tools for net status, balance/transaction/code/block lookup, and raw JSON-RPC.
 - **Pool Explorer:** Monitors zSwap AMM pool, displays reserves, k-invariant, quote calculator, and recent swaps.
 - **Tokenomics:** Live `zbx_supply` data, distribution bar, Foundation Treasury & AMM Pool Seed cards, block reward mechanics.
-- **Smart Contracts (EVM) Page:** Details Cancun-targeted EVM, supported features, and strict caveats for EVM functionality (e.g., logs/receipts gap). Dual-namespace `zbx_*`/`eth_*` RPC calls.
+- **Smart Contracts (ZVM) Page:** Details Cancun-targeted ZVM, supported features, and strict caveats for current functionality (e.g., logs/receipts gap, ZVM tx not yet ring-buffer-indexed — both close in C.3). Dual-namespace `zbx_*`/`eth_*` RPC calls. Internal Rust types renamed `Evm*` → `Zvm*` (e.g., `ZvmTxEnvelope`, `CF_ZVM`, `try_zvm_dispatch`); Ethereum-spec wire-protocol method names (`eth_*`) intentionally preserved.
 - **Cross-Chain Bridge Page:** Explains the single-trusted-oracle MVP, lock-and-mint/burn-and-release mechanics, and limitations.
 - **Network Configuration:** Documents libp2p P2P layer (v0.54, TCP+Noise+Yamux, 4 gossipsub topics, mDNS, request_response sync).
 - **Genesis Configuration:** Guide for chain bootstrap, including `chain_id` (7878), ZBX 18 decimals, 5-second blocks, and deterministic founder validator.

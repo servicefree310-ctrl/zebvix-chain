@@ -21,7 +21,8 @@ async function main() {
   const multisigs = await wallet.listMyMultisigs();
   console.log(`Multisigs owned: ${multisigs.length}`);
 
-  // Standard EVM transfer (commented out — requires funded wallet)
+  // Standard ZVM transfer (commented out — requires funded wallet).
+  // Same wire format as Ethereum: any wallet that speaks EVM speaks Zebvix.
   // const tx = await wallet.sendTransaction({
   //   to: "0xRecipient...",
   //   value: parseZBX("0.01"),

@@ -100,7 +100,7 @@ export default function SmartContractsPage() {
               <li>
                 ZVM tx are dispatched via{" "}
                 <code className="text-xs bg-muted px-1 rounded">eth_sendRawTransaction</code>{" "}
-                directly into <code className="text-xs bg-muted px-1 rounded">evm::execute()</code> — they live in their own envelope (<code className="text-xs bg-muted px-1 rounded">EvmTxEnvelope</code>), not the native <code className="text-xs bg-muted px-1 rounded">TxKind</code>.
+                directly into <code className="text-xs bg-muted px-1 rounded">zvm::execute()</code> — they live in their own envelope (<code className="text-xs bg-muted px-1 rounded">ZvmTxEnvelope</code>), not the native <code className="text-xs bg-muted px-1 rounded">TxKind</code>.
               </li>
               <li>
                 <code className="text-xs bg-muted px-1 rounded">eth_getTransactionByHash</code> and{" "}
@@ -167,7 +167,7 @@ export default function SmartContractsPage() {
             code={`cargo build --release --features zvm`}
           />
           <p>
-            Verify on a running node — <code className="text-xs bg-muted px-1 rounded">web3_clientVersion</code> includes <code className="text-xs bg-muted px-1 rounded">cancun-evm</code> only when this feature was enabled at build time.
+            Verify on a running node — <code className="text-xs bg-muted px-1 rounded">web3_clientVersion</code> includes <code className="text-xs bg-muted px-1 rounded">zvm-cancun</code> only when this feature was enabled at build time.
           </p>
         </div>
       </div>
@@ -190,25 +190,25 @@ export default function SmartContractsPage() {
             code={`        eth_sendRawTransaction        (RLP: EIP-1559 / EIP-2930 / EIP-155 legacy)
                     │
                     ▼
-            evm_rpc::dispatch         ← decode + chain-id guard (rejects no-EIP-155)
+            zvm_rpc::dispatch         ← decode + chain-id guard (rejects no-EIP-155)
                     │
                     ▼
-            evm_rlp::decode_raw_tx    → (EvmTxEnvelope, sender, chain_id)
+            zvm_rlp::decode_raw_tx    → (ZvmTxEnvelope, sender, chain_id)
                     │
                     ▼
-              evm::execute            ← dispatch by Create / Call
+              zvm::execute            ← dispatch by Create / Call
                     │
                     ▼
-            evm_interp::Interp        ← Cancun opcode interpreter
+            zvm_interp::Interp        ← Cancun opcode interpreter
                     │  ├─ precompile detect (0x01–0x05 dispatched, 0x06–0x09 deferred; 0x80–0x83 preview-only)
-                    │  └─ evm_precompiles::dispatch
+                    │  └─ zvm_precompiles::dispatch
                     ▼
-            evm_state::CfEvmDb        ← journaled read/write view
+            zvm_state::CfZvmDb        ← journaled read/write view
                     │
                     ▼
         RocksDB column families:
-          CF_EVM   — accounts · code (keccak-addressed) · storage slots
-          CF_LOGS  — log_key(block_height, log_index) → EvmLog`}
+          CF_ZVM   — accounts · code (keccak-addressed) · storage slots
+          CF_LOGS  — log_key(block_height, log_index) → ZvmLog`}
           />
           <p className="text-xs text-muted-foreground mt-3">
             All ZVM state is stored in dedicated column families so it never
@@ -245,7 +245,7 @@ export default function SmartContractsPage() {
                     Interpreter
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    Pure Rust, no JIT — <code className="text-xs bg-muted px-1 rounded">evm_interp::Interp</code>. Deterministic across every node.
+                    Pure Rust, no JIT — <code className="text-xs bg-muted px-1 rounded">zvm_interp::Interp</code>. Deterministic across every node.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
@@ -258,7 +258,7 @@ export default function SmartContractsPage() {
                     <code className="text-xs bg-muted px-1 rounded">MCOPY</code> (EIP-5656),
                     <code className="text-xs bg-muted px-1 rounded">BLOBHASH</code> stub (EIP-4844 — returns 0).{" "}
                     <code className="text-xs bg-muted px-1 rounded">SELFDESTRUCT</code> (0xff) is rejected — frame reverts with{" "}
-                    <code className="text-xs bg-muted px-1 rounded">"SELFDESTRUCT disabled (post-Cancun deprecation)"</code> (evm_interp.rs:547).
+                    <code className="text-xs bg-muted px-1 rounded">"SELFDESTRUCT disabled (post-Cancun deprecation)"</code> (zvm_interp.rs:547).
                     <strong> Not yet implemented in the dispatch table:</strong> signed-arithmetic <code className="text-xs bg-muted px-1 rounded">SDIV</code> (0x05), <code className="text-xs bg-muted px-1 rounded">SMOD</code> (0x07), signed comparisons <code className="text-xs bg-muted px-1 rounded">SLT</code>/<code className="text-xs bg-muted px-1 rounded">SGT</code> (0x12/0x13), <code className="text-xs bg-muted px-1 rounded">SAR</code> (0x1d), <code className="text-xs bg-muted px-1 rounded">EXTCODECOPY</code> (0x3c), <code className="text-xs bg-muted px-1 rounded">RETURNDATACOPY</code> (0x3e). Contracts that emit these (e.g. heavy signed <code className="text-xs bg-muted px-1 rounded">int256</code> arithmetic, <code className="text-xs bg-muted px-1 rounded">try/catch</code> with returndata copy) will revert with unknown-opcode — the remaining opcode coverage is the next chunk of C.2.
                   </TableCell>
                 </TableRow>
@@ -291,7 +291,7 @@ export default function SmartContractsPage() {
                     Block gas limit
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    Compiled-in <code className="text-xs bg-muted px-1 rounded">DEFAULT_BLOCK_GAS_LIMIT = 30_000_000</code> (evm.rs); the value is read directly inside <code className="text-xs bg-muted px-1 rounded">EvmRpcCtx::evm_context()</code> on every tx. Phase D ships the <code className="text-xs bg-muted px-1 rounded">ParamChange</code> proposal API for <code className="text-xs bg-muted px-1 rounded">block_gas_limit</code>, but the runtime read of the new value is wired in C.3 — until then the compiled default is what executes.
+                    Compiled-in <code className="text-xs bg-muted px-1 rounded">DEFAULT_BLOCK_GAS_LIMIT = 30_000_000</code> (zvm.rs); the value is read directly inside <code className="text-xs bg-muted px-1 rounded">ZvmRpcCtx::zvm_context()</code> on every tx. Phase D ships the <code className="text-xs bg-muted px-1 rounded">ParamChange</code> proposal API for <code className="text-xs bg-muted px-1 rounded">block_gas_limit</code>, but the runtime read of the new value is wired in C.3 — until then the compiled default is what executes.
                   </TableCell>
                 </TableRow>
                 <TableRow className="hover:bg-muted/30">
@@ -318,11 +318,11 @@ export default function SmartContractsPage() {
             ZVM Transaction Variants
           </CardTitle>
           <CardDescription>
-            Two variants of <code className="text-xs bg-muted px-1 rounded">enum EvmTxEnvelope</code> in{" "}
-            <code className="text-xs bg-muted px-1 rounded">evm.rs</code> — kept in a separate envelope from
+            Two variants of <code className="text-xs bg-muted px-1 rounded">enum ZvmTxEnvelope</code> in{" "}
+            <code className="text-xs bg-muted px-1 rounded">zvm.rs</code> — kept in a separate envelope from
             native <code className="text-xs bg-muted px-1 rounded">TxKind</code> so each domain owns its own
             RLP / signature scheme. Both share the lifecycle inside{" "}
-            <code className="text-xs bg-muted px-1 rounded">evm::execute()</code>:{" "}
+            <code className="text-xs bg-muted px-1 rounded">zvm::execute()</code>:{" "}
             intrinsic-gas check → execute → journal → emit logs. Monetary gas debit / refund of ZBX wei is wired in C.3 — today the ZVM enforces only the intrinsic-gas ceiling and value movement.
           </CardDescription>
         </CardHeader>
@@ -331,11 +331,11 @@ export default function SmartContractsPage() {
             <div className="border border-border rounded-lg p-4 bg-card/40">
               <div className="font-semibold text-primary mb-2 flex items-center gap-2">
                 <Boxes className="w-4 h-4" />
-                EvmTxEnvelope::Create(EvmCreate)
+                ZvmTxEnvelope::Create(ZvmCreate)
               </div>
               <CodeBlock
                 language="rust"
-                code={`struct EvmCreate {
+                code={`struct ZvmCreate {
     init_code: Vec<u8>,         // constructor + runtime
     value:     u128,            // wei minted to new contract
     gas_limit: u64,
@@ -347,17 +347,17 @@ export default function SmartContractsPage() {
                 Address: when <code className="text-xs bg-muted px-1 rounded">salt == None</code> →{" "}
                 <code className="text-xs bg-muted px-1 rounded">keccak(rlp(sender, nonce))[12..]</code> (CREATE);
                 when <code className="text-xs bg-muted px-1 rounded">salt == Some(s)</code> →{" "}
-                <code className="text-xs bg-muted px-1 rounded">keccak(0xff ‖ sender ‖ s ‖ keccak(init_code))[12..]</code> (CREATE2). Runtime bytecode stored content-addressed under <code className="text-xs bg-muted px-1 rounded">CF_EVM/code/&lt;keccak256&gt;</code>.
+                <code className="text-xs bg-muted px-1 rounded">keccak(0xff ‖ sender ‖ s ‖ keccak(init_code))[12..]</code> (CREATE2). Runtime bytecode stored content-addressed under <code className="text-xs bg-muted px-1 rounded">CF_ZVM/code/&lt;keccak256&gt;</code>.
               </p>
             </div>
             <div className="border border-border rounded-lg p-4 bg-card/40">
               <div className="font-semibold text-primary mb-2 flex items-center gap-2">
                 <Plug className="w-4 h-4" />
-                EvmTxEnvelope::Call(EvmCall)
+                ZvmTxEnvelope::Call(ZvmCall)
               </div>
               <CodeBlock
                 language="rust"
-                code={`struct EvmCall {
+                code={`struct ZvmCall {
     to:        Address,   // 20-byte contract or EOA
     data:      Vec<u8>,   // calldata
     value:     u128,
@@ -390,7 +390,7 @@ export default function SmartContractsPage() {
             A handful of always-on aliases live in <code className="text-xs bg-muted px-1 rounded">rpc.rs</code> directly so wallets work even on
             non-ZVM builds; everything else in the ZVM namespace is gated behind{" "}
             <code className="text-xs bg-muted px-1 rounded">--features zvm</code> (file:{" "}
-            <code className="text-xs bg-muted px-1 rounded">evm_rpc.rs</code>).
+            <code className="text-xs bg-muted px-1 rounded">zvm_rpc.rs</code>).
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -421,7 +421,7 @@ export default function SmartContractsPage() {
                 </li>
                 <li>
                   <strong className="text-amber-300">ZVM-side</strong> aliases (in{" "}
-                  <code className="text-xs bg-muted px-1 rounded">evm_rpc.rs</code>, require{" "}
+                  <code className="text-xs bg-muted px-1 rounded">zvm_rpc.rs</code>, require{" "}
                   <code className="text-xs bg-muted px-1 rounded">--features zvm</code>):{" "}
                   <code className="text-xs bg-muted px-1 rounded">zbx_clientVersion</code>,{" "}
                   <code className="text-xs bg-muted px-1 rounded">zbx_syncing</code>,{" "}
@@ -433,10 +433,12 @@ export default function SmartContractsPage() {
                   <code className="text-xs bg-muted px-1 rounded">zbx_getStorageAt</code>,{" "}
                   <code className="text-xs bg-muted px-1 rounded">zbx_call</code>,{" "}
                   <code className="text-xs bg-muted px-1 rounded">zbx_getLogs</code>,{" "}
-                  <code className="text-xs bg-muted px-1 rounded">zbx_getEvmReceipt</code>,{" "}
-                  <code className="text-xs bg-muted px-1 rounded">zbx_sendRawEvmTransaction</code>.
+                  <code className="text-xs bg-muted px-1 rounded">zbx_getZvmReceipt</code>,{" "}
+                  <code className="text-xs bg-muted px-1 rounded">zbx_getZvmTransaction</code>,{" "}
+                  <code className="text-xs bg-muted px-1 rounded">zbx_sendRawZvmTransaction</code>{" "}
+                  <span className="text-muted-foreground">(plus deprecated <code className="text-xs bg-muted px-1 rounded">zbx_*Evm*</code> legacy aliases — still accepted for backward compat)</span>.
                   Each routes through{" "}
-                  <code className="text-xs bg-muted px-1 rounded">try_evm_dispatch</code> in{" "}
+                  <code className="text-xs bg-muted px-1 rounded">try_zvm_dispatch</code> in{" "}
                   <code className="text-xs bg-muted px-1 rounded">rpc.rs</code> to the same handler as
                   its <code className="text-xs bg-muted px-1 rounded">eth_*</code> /{" "}
                   <code className="text-xs bg-muted px-1 rounded">web3_*</code> partner.
@@ -503,14 +505,14 @@ export default function SmartContractsPage() {
                   <TableCell className="font-mono text-xs">eth_getBalance · zbx_getBalance</TableCell>
                   <TableCell className="text-xs"><Badge variant="outline" className="text-emerald-400 border-emerald-500/40">always-on</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    Routed by the <code className="text-xs bg-muted px-1 rounded">rpc.rs</code> arm against the native ZBX account ledger (<code className="text-xs bg-muted px-1 rounded">CF_ACCOUNTS</code>). <strong>Caveat:</strong> ZVM-side balance changes are journaled into <code className="text-xs bg-muted px-1 rounded">CF_EVM</code> via <code className="text-xs bg-muted px-1 rounded">apply_journal</code> and not synced back to <code className="text-xs bg-muted px-1 rounded">CF_ACCOUNTS</code> — so after ZVM activity the two ledgers can diverge for the same secp256k1 address (cross-domain settlement is C.3 work).
+                    Routed by the <code className="text-xs bg-muted px-1 rounded">rpc.rs</code> arm against the native ZBX account ledger (<code className="text-xs bg-muted px-1 rounded">CF_ACCOUNTS</code>). <strong>Caveat:</strong> ZVM-side balance changes are journaled into <code className="text-xs bg-muted px-1 rounded">CF_ZVM</code> via <code className="text-xs bg-muted px-1 rounded">apply_journal</code> and not synced back to <code className="text-xs bg-muted px-1 rounded">CF_ACCOUNTS</code> — so after ZVM activity the two ledgers can diverge for the same secp256k1 address (cross-domain settlement is C.3 work).
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
                   <TableCell className="font-mono text-xs">zbx_getNonce</TableCell>
                   <TableCell className="text-xs"><Badge variant="outline" className="text-emerald-400 border-emerald-500/40">always-on</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    Returns native ZBX nonce as <code className="text-xs bg-muted px-1 rounded">u64</code> (decimal number, NOT hex — schema differs from <code className="text-xs bg-muted px-1 rounded">eth_getTransactionCount</code>). Use this in dashboards / mobile clients; <code className="text-xs bg-muted px-1 rounded">eth_getTransactionCount</code> goes through <code className="text-xs bg-muted px-1 rounded">evm_rpc</code> against <code className="text-xs bg-muted px-1 rounded">CF_EVM</code> and only resolves on ZVM-feature builds.
+                    Returns native ZBX nonce as <code className="text-xs bg-muted px-1 rounded">u64</code> (decimal number, NOT hex — schema differs from <code className="text-xs bg-muted px-1 rounded">eth_getTransactionCount</code>). Use this in dashboards / mobile clients; <code className="text-xs bg-muted px-1 rounded">eth_getTransactionCount</code> goes through <code className="text-xs bg-muted px-1 rounded">zvm_rpc</code> against <code className="text-xs bg-muted px-1 rounded">CF_ZVM</code> and only resolves on ZVM-feature builds.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
@@ -524,7 +526,7 @@ export default function SmartContractsPage() {
                   <TableCell className="font-mono text-xs">web3_clientVersion · zbx_clientVersion</TableCell>
                   <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features zvm</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    <code className="text-xs bg-muted px-1 rounded">"Zebvix/0.1.0/rust1.83/cancun-evm"</code>. Presence of <code className="text-xs bg-muted px-1 rounded">cancun-evm</code> in the string is the recommended runtime probe for whether the ZVM feature was compiled in. Both names route to the same handler in <code className="text-xs bg-muted px-1 rounded">evm_rpc::dispatch</code>.
+                    <code className="text-xs bg-muted px-1 rounded">"Zebvix/0.1.0/rust1.83/zvm-cancun"</code>. Presence of <code className="text-xs bg-muted px-1 rounded">zvm-cancun</code> in the string is the recommended runtime probe for whether the ZVM feature was compiled in. Both names route to the same handler in <code className="text-xs bg-muted px-1 rounded">zvm_rpc::dispatch</code>.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
@@ -545,7 +547,7 @@ export default function SmartContractsPage() {
                   <TableCell className="font-mono text-xs">eth_getTransactionCount &nbsp;·&nbsp; eth_getCode · zbx_getCode &nbsp;·&nbsp; eth_getStorageAt · zbx_getStorageAt</TableCell>
                   <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features zvm</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    Served by <code className="text-xs bg-muted px-1 rounded">evm_rpc::dispatch</code> over <code className="text-xs bg-muted px-1 rounded">CF_EVM</code> (account.nonce, code, slots). <code className="text-xs bg-muted px-1 rounded">eth_getTransactionCount</code> is intentionally <strong>not</strong> aliased to <code className="text-xs bg-muted px-1 rounded">zbx_getNonce</code> — the latter is an <strong>always-on</strong> native method in <code className="text-xs bg-muted px-1 rounded">rpc.rs</code> that returns a flat <code className="text-xs bg-muted px-1 rounded">u64</code> (different shape from the <code className="text-xs bg-muted px-1 rounded">"0x…"</code> hex quantity here), so use <code className="text-xs bg-muted px-1 rounded">zbx_getNonce</code> on stripped builds and either name on ZVM builds.
+                    Served by <code className="text-xs bg-muted px-1 rounded">zvm_rpc::dispatch</code> over <code className="text-xs bg-muted px-1 rounded">CF_ZVM</code> (account.nonce, code, slots). <code className="text-xs bg-muted px-1 rounded">eth_getTransactionCount</code> is intentionally <strong>not</strong> aliased to <code className="text-xs bg-muted px-1 rounded">zbx_getNonce</code> — the latter is an <strong>always-on</strong> native method in <code className="text-xs bg-muted px-1 rounded">rpc.rs</code> that returns a flat <code className="text-xs bg-muted px-1 rounded">u64</code> (different shape from the <code className="text-xs bg-muted px-1 rounded">"0x…"</code> hex quantity here), so use <code className="text-xs bg-muted px-1 rounded">zbx_getNonce</code> on stripped builds and either name on ZVM builds.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
@@ -556,10 +558,10 @@ export default function SmartContractsPage() {
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
-                  <TableCell className="font-mono text-xs">eth_sendRawTransaction · zbx_sendRawEvmTransaction</TableCell>
+                  <TableCell className="font-mono text-xs">eth_sendRawTransaction · zbx_sendRawZvmTransaction</TableCell>
                   <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features zvm</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    Accepts EIP-1559 (type-2), EIP-2930 (type-1), and <strong>EIP-155-protected legacy</strong> RLP envelopes; <strong>rejects</strong> unprotected legacy tx (no chain-id) to prevent cross-chain replay. Decoded into <code className="text-xs bg-muted px-1 rounded">EvmTxEnvelope::Create</code> or <code className="text-xs bg-muted px-1 rounded">::Call</code> and executed; returns the canonical Ethereum tx hash. The <code className="text-xs bg-muted px-1 rounded">zbx_sendRawEvmTransaction</code> alias exists so a Zebvix-namespace-only client can submit RLP without referencing the <code className="text-xs bg-muted px-1 rounded">eth_*</code> family — distinct from the always-on native <code className="text-xs bg-muted px-1 rounded">zbx_sendRawTransaction</code> which takes hex-encoded bincode, not RLP.
+                    Accepts EIP-1559 (type-2), EIP-2930 (type-1), and <strong>EIP-155-protected legacy</strong> RLP envelopes; <strong>rejects</strong> unprotected legacy tx (no chain-id) to prevent cross-chain replay. Decoded into <code className="text-xs bg-muted px-1 rounded">ZvmTxEnvelope::Create</code> or <code className="text-xs bg-muted px-1 rounded">::Call</code> and executed; returns the canonical Ethereum-spec tx hash. The <code className="text-xs bg-muted px-1 rounded">zbx_sendRawZvmTransaction</code> alias exists so a Zebvix-namespace-only client can submit RLP without referencing the <code className="text-xs bg-muted px-1 rounded">eth_*</code> family — distinct from the always-on native <code className="text-xs bg-muted px-1 rounded">zbx_sendRawTransaction</code> which takes hex-encoded bincode, not RLP. Legacy <code className="text-xs bg-muted px-1 rounded">zbx_sendRawEvmTransaction</code> still accepted as a deprecated alias.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
@@ -570,17 +572,17 @@ export default function SmartContractsPage() {
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
-                  <TableCell className="font-mono text-xs">eth_getTransactionByHash · zbx_getEvmTransaction</TableCell>
+                  <TableCell className="font-mono text-xs">eth_getTransactionByHash · zbx_getZvmTransaction</TableCell>
                   <TableCell className="text-xs"><Badge variant="outline" className="text-emerald-400 border-emerald-500/40">LIVE (native)</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     Phase C.2.1 — resolves any tx hash present in the recent-tx ring buffer (rolling cap of 1000 native ZBX tx) into a synthetic Ethereum-shape JSON object: <code className="text-xs bg-muted px-1 rounded">{"{ hash, blockHash, blockNumber, transactionIndex, from, to, value, gas: 0x5208, gasPrice: 0x0, nonce, input: 0x, type: 0x0, chainId: 0x1ec6, v: 0x0, r: 0x0, s: 0x0 }"}</code>. Hash→seq mapping is maintained as a side-index in CF_META under <code className="text-xs bg-muted px-1 rounded">rtx/h/{"<32-byte hash>"}</code>; cascade-deleted on ring eviction. Returns <code className="text-xs bg-muted px-1 rounded">null</code> when the hash is outside the rolling window OR the tx is a ZVM (Solidity) tx — ZVM tx are not yet indexed (C.3).
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
-                  <TableCell className="font-mono text-xs">eth_getTransactionReceipt · zbx_getEvmReceipt</TableCell>
+                  <TableCell className="font-mono text-xs">eth_getTransactionReceipt · zbx_getZvmReceipt</TableCell>
                   <TableCell className="text-xs"><Badge variant="outline" className="text-emerald-400 border-emerald-500/40">LIVE (native)</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    Phase C.2.1 — for any native ZBX tx hash present in the ring buffer, returns a synthetic receipt: <code className="text-xs bg-muted px-1 rounded">{"{ status: 0x1, transactionHash, transactionIndex, blockHash, blockNumber, from, to, cumulativeGasUsed: 0x5208, gasUsed: 0x5208, contractAddress: null, logs: [], logsBloom: 0x00…(256), type: 0x0, effectiveGasPrice: 0x0 }"}</code>. <strong>status=0x1 by construction</strong> — failed native txs are never indexed in the ring buffer (only successful applies are pushed). Aliased as <code className="text-xs bg-muted px-1 rounded">zbx_getEvmReceipt</code>. Real ZVM receipts (with on-execution gasUsed, contractAddress, logs[]) ship in C.3 together with log persistence + ZVM-tx ring-buffer indexing.
+                    Phase C.2.1 — for any native ZBX tx hash present in the ring buffer, returns a synthetic receipt: <code className="text-xs bg-muted px-1 rounded">{"{ status: 0x1, transactionHash, transactionIndex, blockHash, blockNumber, from, to, cumulativeGasUsed: 0x5208, gasUsed: 0x5208, contractAddress: null, logs: [], logsBloom: 0x00…(256), type: 0x0, effectiveGasPrice: 0x0 }"}</code>. <strong>status=0x1 by construction</strong> — failed native txs are never indexed in the ring buffer (only successful applies are pushed). Aliased as <code className="text-xs bg-muted px-1 rounded">zbx_getZvmReceipt</code> (legacy <code className="text-xs bg-muted px-1 rounded">zbx_getEvmReceipt</code> still accepted). Real ZVM receipts (with on-execution gasUsed, contractAddress, logs[]) ship in C.3 together with log persistence + ZVM-tx ring-buffer indexing.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
@@ -617,8 +619,8 @@ export default function SmartContractsPage() {
             Solidity contracts can call them like any other contract — gas costs
             are hard-coded and deterministic. <strong>Phase C.2 status:</strong> the precompile dispatchers currently return deterministic preview / stand-in values so contracts can gas-estimate and ABI-decode the return shape. <strong>The actual native side-effects (bridge transfer, AMM settlement, multisig registration, Pay-ID lookup) are NOT yet committed on the <code className="text-xs bg-muted px-1 rounded">eth_sendRawTransaction</code> path</strong> — the post-frame intent-capture hook into <code className="text-xs bg-muted px-1 rounded">state::apply_tx</code> is the remaining C.2 work. Native module RPCs (<code className="text-xs bg-muted px-1 rounded">zbx_bridge*</code>, <code className="text-xs bg-muted px-1 rounded">zbx_pool*</code>, <code className="text-xs bg-muted px-1 rounded">zbx_multisig*</code>) continue to be the production path today.
             Source:{" "}
-            <code className="text-xs bg-muted px-1 rounded">evm_precompiles::dispatch</code>,{" "}
-            <code className="text-xs bg-muted px-1 rounded">evm_rpc::eth_sendRawTransaction</code>.
+            <code className="text-xs bg-muted px-1 rounded">zvm_precompiles::dispatch</code>,{" "}
+            <code className="text-xs bg-muted px-1 rounded">zvm_rpc::eth_sendRawTransaction</code>.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -888,11 +890,11 @@ console.log("hash:", tx.hash);`}
         <CardContent>
           <div className="grid md:grid-cols-2 gap-4">
             <div className="border border-border rounded-lg p-4 bg-card/40">
-              <div className="font-semibold text-primary mb-2">CF_EVM</div>
+              <div className="font-semibold text-primary mb-2">CF_ZVM</div>
               <ul className="text-sm text-muted-foreground space-y-1.5 list-disc pl-5">
                 <li>
                   <code className="text-xs bg-muted px-1 rounded">acct/&lt;addr&gt;</code> →{" "}
-                  <code className="text-xs bg-muted px-1 rounded">EvmAccount &#123; nonce, balance, code_hash, storage_root &#125;</code>
+                  <code className="text-xs bg-muted px-1 rounded">ZvmAccount &#123; nonce, balance, code_hash, storage_root &#125;</code>
                 </li>
                 <li>
                   <code className="text-xs bg-muted px-1 rounded">code/&lt;keccak256&gt;</code> → raw runtime bytecode (content-addressed, deduplicated across deployments)
@@ -913,7 +915,7 @@ console.log("hash:", tx.hash);`}
                   <code className="text-xs bg-muted px-1 rounded">iter_logs(from, to)</code> performs a single bounded RocksDB range scan; <code className="text-xs bg-muted px-1 rounded">eth_getLogs</code> then applies address &amp; topic filters in memory before returning. Topic indexing (a secondary key on <code className="text-xs bg-muted px-1 rounded">topic0..topic3</code>) is a future optimisation, not the current model.
                 </li>
                 <li>
-                  <strong>C.2 gap:</strong> <code className="text-xs bg-muted px-1 rounded">store_logs</code> is defined in <code className="text-xs bg-muted px-1 rounded">evm_state.rs</code> but currently has <em>no call sites</em> — neither the ZVM tx path (<code className="text-xs bg-muted px-1 rounded">eth_sendRawTransaction</code>) nor any native module writes into <code className="text-xs bg-muted px-1 rounded">CF_LOGS</code> today, so <code className="text-xs bg-muted px-1 rounded">eth_getLogs</code> always returns an empty array. C.3 wires the producers (ZVM frame return + native modules) to <code className="text-xs bg-muted px-1 rounded">store_logs</code>, stamps the canonical tx hash, and ships the receipts table on top.
+                  <strong>C.2 gap:</strong> <code className="text-xs bg-muted px-1 rounded">store_logs</code> is defined in <code className="text-xs bg-muted px-1 rounded">zvm_state.rs</code> but currently has <em>no call sites</em> — neither the ZVM tx path (<code className="text-xs bg-muted px-1 rounded">eth_sendRawTransaction</code>) nor any native module writes into <code className="text-xs bg-muted px-1 rounded">CF_LOGS</code> today, so <code className="text-xs bg-muted px-1 rounded">eth_getLogs</code> always returns an empty array. C.3 wires the producers (ZVM frame return + native modules) to <code className="text-xs bg-muted px-1 rounded">store_logs</code>, stamps the canonical tx hash, and ships the receipts table on top.
                 </li>
               </ul>
             </div>
@@ -938,7 +940,7 @@ console.log("hash:", tx.hash);`}
               <code className="text-xs bg-muted px-1 rounded">ParamChange</code> · block_gas_limit
             </div>
             <p>
-              <strong>Proposal API live, runtime read deferred to C.3.</strong> Validators can pass <code className="text-xs bg-muted px-1 rounded">Proposal &#123; kind: ParamChange, key: "block_gas_limit", value: "60000000" &#125;</code> and the new value lands in <code className="text-xs bg-muted px-1 rounded">CF_META</code> under <code className="text-xs bg-muted px-1 rounded">ff/block_gas_limit</code>, but ZVM execution currently always reads the <code className="text-xs bg-muted px-1 rounded">DEFAULT_BLOCK_GAS_LIMIT = 30_000_000</code> constant — wiring the flag into <code className="text-xs bg-muted px-1 rounded">EvmContext</code> is the C.3 task.
+              <strong>Proposal API live, runtime read deferred to C.3.</strong> Validators can pass <code className="text-xs bg-muted px-1 rounded">Proposal &#123; kind: ParamChange, key: "block_gas_limit", value: "60000000" &#125;</code> and the new value lands in <code className="text-xs bg-muted px-1 rounded">CF_META</code> under <code className="text-xs bg-muted px-1 rounded">ff/block_gas_limit</code>, but ZVM execution currently always reads the <code className="text-xs bg-muted px-1 rounded">DEFAULT_BLOCK_GAS_LIMIT = 30_000_000</code> constant — wiring the flag into <code className="text-xs bg-muted px-1 rounded">ZvmContext</code> is the C.3 task.
             </p>
           </div>
           <div className="border border-border rounded-md p-3 bg-card/40">

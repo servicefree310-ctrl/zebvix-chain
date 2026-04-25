@@ -1,7 +1,10 @@
-//! # ZVM State Backend — `CF_EVM` column family
+//! # ZVM State Backend — `CF_ZVM` column family
 //!
 //! Concrete [`ZvmDb`] implementation backed by the existing `state.rs`
-//! RocksDB instance. Adds a new column family (`evm`) that holds three
+//! RocksDB instance. Adds a new column family — the Rust constant is
+//! `CF_ZVM` but the on-disk name is the legacy string `"evm"` (kept for
+//! backward compat so an existing validator's RocksDB opens cleanly with
+//! the rebranded binary, no migration needed). The CF holds three
 //! key-prefixed namespaces:
 //!
 //! ```text
@@ -16,7 +19,7 @@
 //!
 //! ## Concurrency
 //! Reads are lock-free (RocksDB MVCC). Writes are batched via
-//! [`StateJournalApplier`] which wraps a `WriteBatch` so the entire EVM
+//! [`StateJournalApplier`] which wraps a `WriteBatch` so the entire ZVM
 //! diff for one transaction commits atomically with the chain's other
 //! state mutations in `state::apply_tx`.
 
@@ -31,7 +34,7 @@ use rocksdb::{ColumnFamilyDescriptor, Options, WriteBatch, DB};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-pub const CF_EVM: &str = "evm";
+pub const CF_ZVM: &str = "evm";
 pub const CF_LOGS: &str = "evm_logs";
 
 const PREFIX_ACCT: u8 = 0x01;
@@ -87,7 +90,7 @@ fn log_key(block_height: u64, log_index: u32) -> Vec<u8> {
 /// call. Wire by appending these to the `cfs` vec before `DB::open_cf_descriptors`.
 pub fn evm_column_families() -> Vec<ColumnFamilyDescriptor> {
     vec![
-        ColumnFamilyDescriptor::new(CF_EVM, Options::default()),
+        ColumnFamilyDescriptor::new(CF_ZVM, Options::default()),
         ColumnFamilyDescriptor::new(CF_LOGS, Options::default()),
     ]
 }
@@ -108,13 +111,13 @@ impl CfZvmDb {
     }
 
     pub fn record_block_hash(&self, num: u64, hash: H256) -> Result<()> {
-        let cf = self.db.cf_handle(CF_EVM).context("CF_EVM missing")?;
+        let cf = self.db.cf_handle(CF_ZVM).context("CF_ZVM missing")?;
         self.db.put_cf(cf, key_blockhash(num), hash.as_bytes())?;
         Ok(())
     }
 
     pub fn put_account(&self, addr: &Address, acct: &ZvmAccount) -> Result<()> {
-        let cf = self.db.cf_handle(CF_EVM).context("CF_EVM missing")?;
+        let cf = self.db.cf_handle(CF_ZVM).context("CF_ZVM missing")?;
         let bytes = bincode::serialize(acct)?;
         self.db.put_cf(cf, key_acct(addr), bytes)?;
         self.cache.write().insert(*addr, acct.clone());
@@ -122,13 +125,13 @@ impl CfZvmDb {
     }
 
     pub fn put_code(&self, hash: &[u8; 32], code: &[u8]) -> Result<()> {
-        let cf = self.db.cf_handle(CF_EVM).context("CF_EVM missing")?;
+        let cf = self.db.cf_handle(CF_ZVM).context("CF_ZVM missing")?;
         self.db.put_cf(cf, key_code(hash), code)?;
         Ok(())
     }
 
     pub fn put_storage(&self, addr: &Address, slot: &H256, val: &H256) -> Result<()> {
-        let cf = self.db.cf_handle(CF_EVM).context("CF_EVM missing")?;
+        let cf = self.db.cf_handle(CF_ZVM).context("CF_ZVM missing")?;
         if val == &H256::zero() {
             // Optimization: deleting a slot is cheaper than storing zeros.
             self.db.delete_cf(cf, key_stor(addr, slot))?;
@@ -142,7 +145,7 @@ impl CfZvmDb {
     /// Uses a single RocksDB `WriteBatch` so the entire diff lands together
     /// (no half-applied state if a node crashes mid-write).
     pub fn apply_journal(&self, journal: &StateJournal) -> Result<()> {
-        let cf = self.db.cf_handle(CF_EVM).context("CF_EVM missing")?;
+        let cf = self.db.cf_handle(CF_ZVM).context("CF_ZVM missing")?;
         let mut batch = WriteBatch::default();
 
         for (addr, acct) in &journal.touched_accounts {
@@ -206,7 +209,7 @@ impl CfZvmDb {
         if self.cache.read().contains_key(addr) {
             return true;
         }
-        let cf = match self.db.cf_handle(CF_EVM) { Some(cf) => cf, None => return false };
+        let cf = match self.db.cf_handle(CF_ZVM) { Some(cf) => cf, None => return false };
         self.db.get_cf(cf, key_acct(addr)).map(|o| o.is_some()).unwrap_or(false)
     }
 }
@@ -216,18 +219,18 @@ impl ZvmDb for CfZvmDb {
         if let Some(a) = self.cache.read().get(addr) {
             return Some(a.clone());
         }
-        let cf = self.db.cf_handle(CF_EVM)?;
+        let cf = self.db.cf_handle(CF_ZVM)?;
         let bytes = self.db.get_cf(cf, key_acct(addr)).ok().flatten()?;
         bincode::deserialize::<ZvmAccount>(&bytes).ok()
     }
 
     fn code(&self, hash: &[u8; 32]) -> Option<Vec<u8>> {
-        let cf = self.db.cf_handle(CF_EVM)?;
+        let cf = self.db.cf_handle(CF_ZVM)?;
         self.db.get_cf(cf, key_code(hash)).ok().flatten()
     }
 
     fn storage(&self, addr: &Address, key: &H256) -> H256 {
-        let cf = match self.db.cf_handle(CF_EVM) { Some(cf) => cf, None => return H256::zero() };
+        let cf = match self.db.cf_handle(CF_ZVM) { Some(cf) => cf, None => return H256::zero() };
         match self.db.get_cf(cf, key_stor(addr, key)) {
             Ok(Some(bytes)) if bytes.len() == 32 => {
                 let mut buf = [0u8; 32];
@@ -239,7 +242,7 @@ impl ZvmDb for CfZvmDb {
     }
 
     fn block_hash(&self, number: u64) -> H256 {
-        let cf = match self.db.cf_handle(CF_EVM) { Some(cf) => cf, None => return H256::zero() };
+        let cf = match self.db.cf_handle(CF_ZVM) { Some(cf) => cf, None => return H256::zero() };
         match self.db.get_cf(cf, key_blockhash(number)) {
             Ok(Some(bytes)) if bytes.len() == 32 => {
                 let mut buf = [0u8; 32];

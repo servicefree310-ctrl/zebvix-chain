@@ -33,7 +33,7 @@ export interface ZebvixProviderOptions {
  * All standard ethers methods (getBalance, getBlockNumber, etc.) work because
  * Zebvix exposes the full eth_, net_ and web3_ namespaces. The extra zbx_ methods
  * give you typed access to Zebvix-native data (proposals, multisigs, AMM, bridge,
- * staking, Pay-ID) that has no EVM equivalent.
+ * staking, Pay-ID) that has no Ethereum-spec equivalent.
  */
 export class ZebvixProvider extends JsonRpcProvider {
   readonly chainInfo: ZebvixChainInfo;
@@ -328,18 +328,31 @@ export class ZebvixProvider extends JsonRpcProvider {
   // ── Tx submission ────────────────────────────────────────────────────
   /**
    * Submit a hex-encoded native Zebvix transaction (TxEnvelope bincode).
-   * For standard EVM transactions, use `sendRawEvmTransaction()` or
-   * `wallet.sendTransaction()` (inherited from ethers.Wallet).
+   * For standard ZVM (EVM-compatible) transactions, use
+   * `sendRawZvmTransaction()` or `wallet.sendTransaction()` (inherited
+   * from ethers.Wallet).
    */
   async sendRawZbxTransaction(hexTx: Hex | string): Promise<Hex> {
     return this.send("zbx_sendRawTransaction", [hexTx]);
   }
-  /** EVM-format raw transaction submit (RLP-encoded). */
-  async sendRawEvmTransaction(hexTx: Hex | string): Promise<Hex> {
-    return this.send("zbx_sendRawEvmTransaction", [hexTx]);
+  /**
+   * ZVM-format raw transaction submit (RLP-encoded). Wire format is identical
+   * to `eth_sendRawTransaction` — this is just the `zbx_*` namespaced alias
+   * pointed at the same handler. Most callers should prefer
+   * `wallet.sendTransaction()` which constructs and signs for you.
+   */
+  async sendRawZvmTransaction(hexTx: Hex | string): Promise<Hex> {
+    return this.send("zbx_sendRawZvmTransaction", [hexTx]);
   }
-  async getEvmReceipt(txHash: Hex): Promise<unknown> {
-    return this.send("zbx_getEvmReceipt", [txHash]);
+  /**
+   * Fetch a synthesized Geth-shaped receipt for a tx hash. This is the
+   * `zbx_*` alias for `eth_getTransactionReceipt` and resolves to the same
+   * handler. For typed ethers v6 receipts, prefer the inherited
+   * `provider.getTransactionReceipt(hash)` which does the JSON → object
+   * conversion for you.
+   */
+  async getZvmReceipt(txHash: Hex): Promise<unknown> {
+    return this.send("zbx_getZvmReceipt", [txHash]);
   }
 }
 

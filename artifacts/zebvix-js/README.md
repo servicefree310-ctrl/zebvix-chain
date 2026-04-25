@@ -1,10 +1,10 @@
 # zebvix.js
 
-Official TypeScript SDK for the **Zebvix L1 blockchain** — a thin, type-safe wrapper around `ethers.js v6` that exposes Zebvix-native `zbx_*` RPC methods alongside the standard EVM (`eth_*` / `net_*` / `web3_*`) namespace.
+Official TypeScript SDK for the **Zebvix L1 blockchain** — a thin, type-safe wrapper around `ethers.js v6` that exposes Zebvix-native `zbx_*` RPC methods alongside the standard Ethereum-spec (`eth_*` / `net_*` / `web3_*`) namespace. The Zebvix execution layer (ZVM) is Cancun-EVM-bytecode compatible, so MetaMask, Hardhat, Foundry, ethers and viem all work zero-config.
 
 ## Why use this SDK?
 
-- **Drop-in `ethers.js` compatibility** — `ZebvixProvider` extends `JsonRpcProvider`, `ZebvixWallet` extends `Wallet`. All standard EVM operations work unchanged.
+- **Drop-in `ethers.js` compatibility** — `ZebvixProvider` extends `JsonRpcProvider`, `ZebvixWallet` extends `Wallet`. All standard ZVM operations work unchanged.
 - **Native `zbx_*` access** — typed wrappers for 60+ Zebvix-specific RPC methods (governance, multisig, AMM, bridge, staking, Pay-ID).
 - **Built-in chain config** — `ZEBVIX_MAINNET` constant with chain ID, RPC URL, precompile addresses.
 - **Tiny surface area** — only depends on `ethers ^6.13`.
@@ -37,12 +37,20 @@ const pool = await provider.getPool();
 const wallet = new ZebvixWallet(process.env.ZBX_PRIVATE_KEY!, provider);
 console.log("Balance:", formatZBX(await wallet.getZbxBalance()), "ZBX");
 
-// Standard EVM transfer (inherited from ethers.Wallet)
+// Standard ZVM transfer (inherited from ethers.Wallet — same wire format
+// as Ethereum, so any wallet/library that speaks EVM speaks Zebvix).
 const tx = await wallet.sendTransaction({
   to: "0xRecipient...",
   value: parseZBX("1.5"),
 });
 await tx.wait();
+
+// Look up the tx + receipt by hash — uses standard eth_getTransactionByHash /
+// eth_getTransactionReceipt under the hood (added in Phase C.2.1). Native
+// recent-tx ring buffer also exposed via provider.recentTxs(limit).
+const txInfo = await provider.getTransaction(tx.hash);
+const receipt = await provider.getTransactionReceipt(tx.hash);
+console.log("Status:", receipt?.status, "Block:", receipt?.blockNumber);
 ```
 
 ## API surface
@@ -92,7 +100,7 @@ formatGwei(20000000000n)         // → "20.0"
 
 **Logs:** `getZbxLogs`
 
-**Tx submit:** `sendRawZbxTransaction`, `sendRawEvmTransaction`, `getEvmReceipt`
+**Tx submit:** `sendRawZbxTransaction` (native bincode path), `sendRawZvmTransaction` (RLP path — same wire format as `eth_sendRawTransaction`), `getZvmReceipt` (alias for `eth_getTransactionReceipt`)
 
 ### `ZebvixWallet` helpers
 
