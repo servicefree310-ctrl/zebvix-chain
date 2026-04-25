@@ -211,7 +211,7 @@ head -3 Cargo.toml        # expect: name = "zebvix-node"`}
             code={`# Default build (consensus + state + RPC + P2P + zSwap AMM + governance)
 cargo build --release
 
-# OR: build with the native EVM enabled (Cancun-fork interpreter + eth_* RPC
+# OR: build with the native ZVM enabled (Cancun-fork interpreter + eth_* RPC
 # + Zebvix precompiles 0x80-0x83). Production VPS uses this profile.
 cargo build --release --features zvm
 

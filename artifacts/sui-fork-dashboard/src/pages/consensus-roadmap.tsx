@@ -422,7 +422,7 @@ export default function ConsensusRoadmap() {
                 The zebvix-chain source uses Phase-letter markers (
                 <code className="text-blue-300 font-mono">//! Phase A / B.* / C.* / D</code>) to label
                 feature areas — Phase A = p2p, Phase B = core chain modules including B.3.2.x consensus
-                sub-milestones, Phase C = EVM, Phase D = forkless governance. This page uses{" "}
+                sub-milestones, Phase C = ZVM, Phase D = forkless governance. This page uses{" "}
                 <strong className="text-blue-200">"Stage" labels</strong> for the consensus-engine evolution
                 narrative so it does not collide with chain feature phase letters. Cross-reference the{" "}
                 <strong className="text-blue-200">Implementation Roadmap</strong> page for the full list of

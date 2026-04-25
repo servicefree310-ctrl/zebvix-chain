@@ -71,7 +71,7 @@ const RUST_CHANGES: ChangeItem[] = [
     lines: "1944 → 1948 (+4 net, 8 lines changed)",
     icon: Cpu,
     color: "text-cyan-400",
-    summary: "20-byte EVM-compatible address format (last 20 of Blake2b256)",
+    summary: "20-byte ZVM-compatible address format (last 20 of Blake2b256)",
     details: [
       "SUI_ADDRESS_LENGTH: usize = ObjectID::LENGTH  →  = 20  (was 32)",
       "impl From<&T: SuiPublicKey> for SuiAddress → hash[12..32] last 20 bytes",
@@ -81,7 +81,7 @@ const RUST_CHANGES: ChangeItem[] = [
       "impl From<ObjectID> for SuiAddress → bytes[12..] last 20 of 32",
       "impl From<AccountAddress> for SuiAddress → bytes[12..] last 20 of 32",
       "NEW: impl From<SuiAddress> for AccountAddress → pad 20 → 32 with leading 0x00×12",
-      "Address display: 0x + 40 hex chars (EVM style)",
+      "Address display: 0x + 40 hex chars (ZVM style)",
     ],
   },
   {
@@ -332,7 +332,7 @@ const STATS = [
   { label: "Config / Script Files", value: "4+", color: "text-blue-400", sub: "genesis, scripts, INSTALL.md" },
   { label: "Total Lines Changed", value: "~2,400", color: "text-violet-400", sub: "across all files" },
   { label: "Supply Changed", value: "10B → 150M", color: "text-red-400", sub: "ZBX max supply" },
-  { label: "Address Size", value: "32 → 20 bytes", color: "text-cyan-400", sub: "EVM-compatible" },
+  { label: "Address Size", value: "32 → 20 bytes", color: "text-cyan-400", sub: "ZVM-compatible" },
 ];
 
 // ── Sub-components ─────────────────────────────────────────────────────────

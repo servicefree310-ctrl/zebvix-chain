@@ -24,7 +24,7 @@ const GROUPS: FeatureGroup[] = [
     icon: "⛓",
     features: [
       {
-        name: "20-byte EVM-style addresses",
+        name: "20-byte ZVM-style addresses",
         desc: "Keccak256(pubkey)[12..] — Ethereum compatible address format",
         status: "done",
         version: "v0.1",
@@ -87,7 +87,7 @@ const GROUPS: FeatureGroup[] = [
       },
       {
         name: "Refund-on-failure for pool transactions",
-        desc: "If an auto-swap fails (e.g. dust amount below 0.01 zUSD minimum, pool not initialized, output overflow), the sender's principal amount is REFUNDED — only the gas fee is kept. EVM-style 'revert with gas spent' UX. Pool reserves are never touched on failure (atomic via match-on-Result in apply_tx).",
+        desc: "If an auto-swap fails (e.g. dust amount below 0.01 zUSD minimum, pool not initialized, output overflow), the sender's principal amount is REFUNDED — only the gas fee is kept. ZVM-style 'revert with gas spent' UX. Pool reserves are never touched on failure (atomic via match-on-Result in apply_tx).",
         status: "done",
         version: "v0.1.3",
         files: ["src/state.rs"],
@@ -115,7 +115,7 @@ const GROUPS: FeatureGroup[] = [
       },
       {
         name: "18 decimals",
-        desc: "EVM standard — wei = 1e-18 ZBX",
+        desc: "ZVM standard — wei = 1e-18 ZBX",
         status: "done",
         version: "v0.1",
       },
@@ -448,12 +448,12 @@ const GROUPS: FeatureGroup[] = [
     ],
   },
   {
-    group: "Smart Contracts (EVM Layer — Phase C)",
+    group: "Smart Contracts (ZVM Layer — Phase C)",
     icon: "📜",
     features: [
       {
-        name: "EVM via revm",
-        desc: "Embed Rust-native revm 7.x as the contract execution engine. Full EVM bytecode compatibility (London/Shanghai/Cancun forks); Solidity 0.8+ contracts compile and run unchanged. Gas metered per opcode, hard cap per block (3M default, governable).",
+        name: "ZVM via revm",
+        desc: "Embed Rust-native revm 7.x as the contract execution engine. Full ZVM bytecode compatibility (London/Shanghai/Cancun forks); Solidity 0.8+ contracts compile and run unchanged. Gas metered per opcode, hard cap per block (3M default, governable).",
         status: "planned",
         version: "C.1",
         files: ["src/evm.rs (planned)", "src/state.rs"],
@@ -472,7 +472,7 @@ const GROUPS: FeatureGroup[] = [
       },
       {
         name: "Contract account state",
-        desc: "EVM accounts have nonce, balance (in ZBX wei), code_hash, storage_root. Stored in CF_EVM column family with merkle-patricia-trie compatible layout. Code stored content-addressed (keccak256(code) → bytecode). State root hashed into block header for light-client proofs.",
+        desc: "ZVM accounts have nonce, balance (in ZBX wei), code_hash, storage_root. Stored in CF_EVM column family with merkle-patricia-trie compatible layout. Code stored content-addressed (keccak256(code) → bytecode). State root hashed into block header for light-client proofs.",
         status: "planned",
         version: "C.1",
         files: ["src/state.rs", "src/evm_state.rs (planned)"],
@@ -486,7 +486,7 @@ const GROUPS: FeatureGroup[] = [
       },
       {
         name: "Logs / Events (eth_getLogs)",
-        desc: "EVM LOG0–LOG4 opcodes emit events indexed by (contract_addr, topic0..topic3). Stored in CF_LOGS keyed by (block_height, log_index). RPC zbx_getLogs accepts standard filter object {fromBlock, toBlock, address, topics} — drop-in replacement for eth_getLogs so The Graph / Subgraph indexers work.",
+        desc: "ZVM LOG0–LOG4 opcodes emit events indexed by (contract_addr, topic0..topic3). Stored in CF_LOGS keyed by (block_height, log_index). RPC zbx_getLogs accepts standard filter object {fromBlock, toBlock, address, topics} — drop-in replacement for eth_getLogs so The Graph / Subgraph indexers work.",
         status: "planned",
         version: "C.2",
       },
@@ -498,7 +498,7 @@ const GROUPS: FeatureGroup[] = [
       },
       {
         name: "ERC-20 / ERC-721 / ERC-1155 ready",
-        desc: "No special chain support needed — these are pure Solidity standards on top of EVM. OpenZeppelin contracts deploy as-is. zUSD itself can later be migrated from native ledger entry to a canonical ERC-20 contract for unified tooling.",
+        desc: "No special chain support needed — these are pure Solidity standards on top of ZVM. OpenZeppelin contracts deploy as-is. zUSD itself can later be migrated from native ledger entry to a canonical ERC-20 contract for unified tooling.",
         status: "planned",
         version: "C.2",
       },
@@ -521,8 +521,8 @@ const GROUPS: FeatureGroup[] = [
         version: "C.1",
       },
       {
-        name: "EVM <-> native bridge (cross-VM calls)",
-        desc: "Solidity contracts can call native chain features (transfer ZBX, swap ZBX↔zUSD, BridgeOut to BSC) via custom precompiles. Conversely, native txs can target EVM contracts via TxKind::EvmCall. Single state, single fee market, single nonce-space per address.",
+        name: "ZVM <-> native bridge (cross-VM calls)",
+        desc: "Solidity contracts can call native chain features (transfer ZBX, swap ZBX↔zUSD, BridgeOut to BSC) via custom precompiles. Conversely, native txs can target ZVM contracts via TxKind::EvmCall. Single state, single fee market, single nonce-space per address.",
         status: "planned",
         version: "C.2",
       },
@@ -670,7 +670,7 @@ const GROUPS: FeatureGroup[] = [
       },
       {
         name: "MetaMask network registration ready",
-        desc: "Chain ID 7878, RPC http://93.127.213.192:8545, currency ZBX (18 dec) — users can add Zebvix as custom EVM-style network in MetaMask",
+        desc: "Chain ID 7878, RPC http://93.127.213.192:8545, currency ZBX (18 dec) — users can add Zebvix as custom ZVM-style network in MetaMask",
         status: "done",
         version: "B.11",
         files: ["src/rpc.rs"],
@@ -685,7 +685,7 @@ const GROUPS: FeatureGroup[] = [
     ],
   },
   {
-    group: "BEP20 / EVM Bridge Module (Phase B.12) ✅ LIVE",
+    group: "BEP20 / ZVM Bridge Module (Phase B.12) ✅ LIVE",
     icon: "🌉",
     features: [
       {

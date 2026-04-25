@@ -351,7 +351,7 @@ fn mint_zbx(
             </thead>
             <tbody className="divide-y divide-border">
               {[
-                ["Address format", "EVM 20-byte", "Rust — sui-types"],
+                ["Address format", "ZVM 20-byte", "Rust — sui-types"],
                 ["Genesis supply", "2,000,000 ZBX", "genesis.yaml"],
                 ["Hard cap (max ever)", "150,000,000 ZBX", "Rust — mint function"],
                 ["1st halving trigger", "@ 50M ZBX minted", "Rust — reward module"],
@@ -389,7 +389,7 @@ fn mint_zbx(
         <div className="space-y-2">
           {[
             { step: "1", label: "genesis.yaml — supply, block time, validator stake req", type: "No rebuild needed",  color: "green" },
-            { step: "2", label: "EVM 20-byte address (sui-types)", type: "Full rebuild", color: "yellow" },
+            { step: "2", label: "ZVM 20-byte address (sui-types)", type: "Full rebuild", color: "yellow" },
             { step: "3", label: "MAX_TOTAL_SUPPLY hard cap in mint function", type: "Full rebuild", color: "yellow" },
             { step: "4", label: "Halving multiplier in reward module", type: "Full rebuild", color: "yellow" },
             { step: "5", label: "Gas fee split: 22% node / 30% val / 20% del / 18% treasury / 10% burn", type: "Full rebuild", color: "yellow" },

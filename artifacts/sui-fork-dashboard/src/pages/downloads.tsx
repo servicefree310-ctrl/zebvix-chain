@@ -7,7 +7,7 @@ const files = [
   {
     key: "newchain",
     title: "Zebvix Chain v0.1 (Scratch — Recommended)",
-    desc: "Brand new Rust L1 — scratch se likhi hui clean chain. EVM-style 20-byte addresses, RocksDB, JSON-RPC, halving tokenomics. Build + deploy in minutes.",
+    desc: "Brand new Rust L1 — scratch se likhi hui clean chain. ZVM-style 20-byte addresses, RocksDB, JSON-RPC, halving tokenomics. Build + deploy in minutes.",
     size: "13 KB source",
     badge: "NEW · Production",
     badgeColor: "bg-purple-500/20 text-purple-300 border-purple-500/40",
@@ -15,7 +15,7 @@ const files = [
       "150M ZBX cap · 10M founder pre-mine · 140M block-mined",
       "Initial reward 3 ZBX/block · halving every 25M blocks (~3.96 yrs)",
       "Single-validator PoA (v0.1) · multi-validator BFT roadmap (v0.2)",
-      "EVM smart contracts coming via revm in v0.2",
+      "ZVM smart contracts coming via revm in v0.2",
       "Chain ID 7878 · 5s block time · Ed25519 signatures",
       "8 Rust files · 1027 lines · builds in ~3 min on VPS",
     ],

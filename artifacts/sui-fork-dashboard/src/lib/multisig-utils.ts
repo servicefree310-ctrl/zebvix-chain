@@ -12,7 +12,7 @@
 //     || [threshold]          (1 byte)
 //     || salt.to_le_bytes()   (8 bytes, little-endian u64)
 //     || creator              (20 bytes)
-//   )[12..32]                 // last 20 bytes (EVM-style)
+//   )[12..32]                 // last 20 bytes (ZVM-style)
 
 import { keccak_256 } from "@noble/hashes/sha3.js";
 import { hexToBytes, bytesToHex } from "@noble/hashes/utils.js";

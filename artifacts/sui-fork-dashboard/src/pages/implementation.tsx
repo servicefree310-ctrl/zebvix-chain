@@ -250,7 +250,7 @@ journalctl -u zebvix-node -n 200 --no-pager | grep -E '🌐 p2p listening|🔗 c
     status: "LIVE",
     steps: [
       {
-        title: "Initial eth_* namespace shipped without EVM execution",
+        title: "Initial eth_* namespace shipped without ZVM execution",
         files: ["zebvix-chain/src/evm_rpc.rs:10", "zebvix-chain/src/evm_rpc.rs:195"],
         description: "C.1 inspected the EIP-155 / EIP-2930 / EIP-1559 envelope-kind discriminator and exposed read-only methods (eth_chainId, eth_blockNumber, eth_getBalance, eth_getTransactionCount, …) so wallets could connect.",
         detail: "Send-raw-tx existed but rejected anything that needed actual interpretation. Phase C.2 fills in the execution.",
@@ -261,7 +261,7 @@ journalctl -u zebvix-node -n 200 --no-pager | grep -E '🌐 p2p listening|🔗 c
   // ─────────────────────── Phase C.2 ───────────────────────
   {
     id: "C.2",
-    title: "Phase C.2 — RLP + Sender Recovery + Cancun EVM Execution",
+    title: "Phase C.2 — RLP + Sender Recovery + Cancun ZVM Execution",
     subtitle: "Full Cancun-targeted interpreter, gated behind cargo --features zvm — partial coverage with documented gaps",
     status: "PARTIAL",
     steps: [
@@ -284,15 +284,15 @@ journalctl -u zebvix-node -n 200 --no-pager | grep -E '🌐 p2p listening|🔗 c
         detail: "MULMOD is correctly at opcode 0x09, not the precompile slot.",
       },
       {
-        title: "Custom Zebvix precompiles 0x80–0x83 — preview-only on EVM path",
+        title: "Custom Zebvix precompiles 0x80–0x83 — preview-only on ZVM path",
         files: ["zebvix-chain/src/evm_precompiles.rs:55", "zebvix-chain/src/evm_precompiles.rs:292"],
         description: "0x80 PC_BRIDGE_OUT, 0x81 PC_PAYID_RESOLVE, 0x82 PC_AMM_SWAP, 0x83 PC_MULTISIG_PROPOSE. These return preview values (correct gas + ABI shape) but the native side-effects are NOT committed when called via eth_sendRawTransaction.",
-        detail: "Production must use the zbx_* RPC namespace for state-mutating bridge / AMM / multisig / Pay-ID operations. Post-frame intent capture so Solidity contracts can trigger native side-effects through the EVM is the headline C.3 work.",
+        detail: "Production must use the zbx_* RPC namespace for state-mutating bridge / AMM / multisig / Pay-ID operations. Post-frame intent capture so Solidity contracts can trigger native side-effects through the ZVM is the headline C.3 work.",
       },
       {
         title: "Logs / receipts gap — eth_getLogs and eth_getTransactionReceipt are empty today",
         files: ["zebvix-chain/src/evm_state.rs"],
-        description: "store_logs is defined but has zero call sites. Neither the EVM tx path nor native modules write to CF_LOGS today, so eth_getLogs always returns [] and eth_getTransactionReceipt returns null.",
+        description: "store_logs is defined but has zero call sites. Neither the ZVM tx path nor native modules write to CF_LOGS today, so eth_getLogs always returns [] and eth_getTransactionReceipt returns null.",
         detail: "Emitted log entries inside the interpreter carry tx_hash=0x00 placeholder. C.3 wires the producers, canonical tx-hash stamping, and a proper receipts table. Until then, use the zbx_* namespace or re-read state via balanceOf-style getters for verification (the dashboard's Smart Contracts page Hardhat snippet does this).",
       },
     ],
@@ -323,15 +323,15 @@ journalctl -u zebvix-node -n 200 --no-pager | grep -E '🌐 p2p listening|🔗 c
   // ─────────────────────── Phase C.3 PLANNED ───────────────────────
   {
     id: "C.3",
-    title: "Phase C.3 — EVM Maturity (PLANNED)",
+    title: "Phase C.3 — ZVM Maturity (PLANNED)",
     subtitle: "Cross-domain settlement + EIP-2929/3529 + receipts/logs + ParamChange runtime read + custom-precompile commit path",
     status: "PLANNED",
     steps: [
       {
         title: "Cross-domain settlement: CF_EVM ↔ CF_ACCOUNTS sync",
         files: ["zebvix-chain/src/state.rs", "zebvix-chain/src/evm_state.rs"],
-        description: "Today eth_getBalance reads CF_ACCOUNTS via the legacy rpc.rs path, but EVM-side balance changes are journaled into CF_EVM via apply_journal and NOT synced back. The two ledgers can diverge for the same secp256k1 address after EVM activity.",
-        detail: "C.3 either makes CF_EVM authoritative for balance or runs a tx-end settlement pass that mirrors deltas back into CF_ACCOUNTS so legacy and EVM views stay coherent.",
+        description: "Today eth_getBalance reads CF_ACCOUNTS via the legacy rpc.rs path, but ZVM-side balance changes are journaled into CF_EVM via apply_journal and NOT synced back. The two ledgers can diverge for the same secp256k1 address after ZVM activity.",
+        detail: "C.3 either makes CF_EVM authoritative for balance or runs a tx-end settlement pass that mirrors deltas back into CF_ACCOUNTS so legacy and ZVM views stay coherent.",
       },
       {
         title: "EIP-2929/3529 warm/cold gas + refund-cap enforcement",
@@ -342,7 +342,7 @@ journalctl -u zebvix-node -n 200 --no-pager | grep -E '🌐 p2p listening|🔗 c
       {
         title: "CF_LOGS producers wired + canonical tx-hash stamping + receipts table",
         files: ["zebvix-chain/src/evm_state.rs", "zebvix-chain/src/state.rs"],
-        description: "Wire EVM tx path (and select native modules) to actually call store_logs. Stamp emitted logs with the real tx_hash. Persist a receipts table so eth_getTransactionReceipt returns the standard JSON shape.",
+        description: "Wire ZVM tx path (and select native modules) to actually call store_logs. Stamp emitted logs with the real tx_hash. Persist a receipts table so eth_getTransactionReceipt returns the standard JSON shape.",
         detail: "Until this lands, Hardhat scripts MUST verify by re-reading state (balanceOf, etc.), not by polling eth_getTransactionReceipt — the receipt will return null even for a successfully-mined tx.",
       },
       {
@@ -549,8 +549,8 @@ export default function Implementation() {
       {/* Footer note */}
       <div className="p-4 rounded-lg border border-border bg-card/40 text-xs text-muted-foreground space-y-1.5">
         <div className="font-semibold text-foreground text-sm mb-1">Reading order tips</div>
-        <div>• Phase A → B series → D ran in numeric order; Phase C (the EVM stack) is tracked separately because it is gated behind <code className="text-xs bg-muted px-1 rounded">cargo --features zvm</code> and ships in its own slice.</div>
-        <div>• Items in <strong className="text-foreground">PARTIAL</strong> phases are usable today within the documented caveats — see the linked dashboard pages (Smart Contracts EVM, Cross-Chain Bridge) for exact behavior.</div>
+        <div>• Phase A → B series → D ran in numeric order; Phase C (the ZVM stack) is tracked separately because it is gated behind <code className="text-xs bg-muted px-1 rounded">cargo --features zvm</code> and ships in its own slice.</div>
+        <div>• Items in <strong className="text-foreground">PARTIAL</strong> phases are usable today within the documented caveats — see the linked dashboard pages (Smart Contracts ZVM, Cross-Chain Bridge) for exact behavior.</div>
         <div>• <strong className="text-foreground">PLANNED</strong> entries are intentionally pulled out so integrators know what they are building against vs. what is coming. Nothing in PLANNED has merged into <code className="text-xs bg-muted px-1 rounded">main</code> yet.</div>
       </div>
     </div>

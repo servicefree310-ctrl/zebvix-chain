@@ -65,7 +65,7 @@ export default function Bridge() {
       {/* ── Stat tiles ─────────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { icon: ArrowLeftRight, label: "Direction", value: "ZBX/zUSD ↔ EVM" },
+          { icon: ArrowLeftRight, label: "Direction", value: "ZBX/zUSD ↔ ZVM" },
           { icon: Lock, label: "Lock vault", value: "0x7a627264670…" },
           { icon: Layers, label: "Networks", value: "Admin-registered" },
           { icon: Coins, label: "Native assets", value: "ZBX (18d) · zUSD (6d)" },
@@ -185,7 +185,7 @@ export default function Bridge() {
                    │                                     │
                    ▼                                     ▲
         ┌──────────────────────┐              ┌──────────────────────┐
-        │  Foreign EVM chain   │              │  Foreign EVM chain   │
+        │  Foreign ZVM chain   │              │  Foreign ZVM chain   │
         │  e.g. BSC chain_id=56│              │  vault contract      │
         │  ERC-20/BEP-20 mint  │              │  user deposits here  │
         └──────────────────────┘              └──────────────────────┘`}
@@ -236,7 +236,7 @@ export default function Bridge() {
                   <TableCell className="font-mono text-xs">RegisterAsset {"{ network_id, native, contract, decimals }"}</TableCell>
                   <TableCell><Badge variant="outline" className="text-amber-400 border-amber-400/40">admin</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    Maps a Zebvix-native asset (<code className="text-xs bg-muted px-1 rounded">NativeAsset::{"{Zbx, Zusd}"}</code>) to a foreign-chain token. For EVM kinds, <code className="text-xs bg-muted px-1 rounded">contract</code> must be 40 hex chars (the <code className="text-xs bg-muted px-1 rounded">0x</code> prefix is optional — the validator strips it before length/hex check). Allocates a fresh <code className="text-xs bg-muted px-1 rounded">asset_id = (network_id &lt;&lt; 32) | local_seq</code> — globally unique across networks.
+                    Maps a Zebvix-native asset (<code className="text-xs bg-muted px-1 rounded">NativeAsset::{"{Zbx, Zusd}"}</code>) to a foreign-chain token. For ZVM kinds, <code className="text-xs bg-muted px-1 rounded">contract</code> must be 40 hex chars (the <code className="text-xs bg-muted px-1 rounded">0x</code> prefix is optional — the validator strips it before length/hex check). Allocates a fresh <code className="text-xs bg-muted px-1 rounded">asset_id = (network_id &lt;&lt; 32) | local_seq</code> — globally unique across networks.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
@@ -250,7 +250,7 @@ export default function Bridge() {
                   <TableCell className="font-mono text-xs">BridgeOut {"{ asset_id, dest_address }"}</TableCell>
                   <TableCell><Badge variant="outline" className="text-emerald-400 border-emerald-400/40">user</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    Locks <code className="text-xs bg-muted px-1 rounded">tx.body.amount</code> (wei for ZBX, micro for zUSD) into <code className="text-xs bg-muted px-1 rounded">BRIDGE_LOCK_ADDRESS</code> (<code className="text-xs bg-muted px-1 rounded">0x7a62726467…</code> = ASCII "zbrdg"), bumps <code className="text-xs bg-muted px-1 rounded">bridge_locked_zbx</code> / <code className="text-xs bg-muted px-1 rounded">_zusd</code> counter, and appends a <code className="text-xs bg-muted px-1 rounded">BridgeOutEvent</code> (seq++) to the 4096-cap ring. <code className="text-xs bg-muted px-1 rounded">dest_address</code> is validated per network kind (EVM = 40 hex chars, optional <code className="text-xs bg-muted px-1 rounded">0x</code> prefix; ≤ 128 chars total).
+                    Locks <code className="text-xs bg-muted px-1 rounded">tx.body.amount</code> (wei for ZBX, micro for zUSD) into <code className="text-xs bg-muted px-1 rounded">BRIDGE_LOCK_ADDRESS</code> (<code className="text-xs bg-muted px-1 rounded">0x7a62726467…</code> = ASCII "zbrdg"), bumps <code className="text-xs bg-muted px-1 rounded">bridge_locked_zbx</code> / <code className="text-xs bg-muted px-1 rounded">_zusd</code> counter, and appends a <code className="text-xs bg-muted px-1 rounded">BridgeOutEvent</code> (seq++) to the 4096-cap ring. <code className="text-xs bg-muted px-1 rounded">dest_address</code> is validated per network kind (ZVM = 40 hex chars, optional <code className="text-xs bg-muted px-1 rounded">0x</code> prefix; ≤ 128 chars total).
                   </TableCell>
                 </TableRow>
                 <TableRow className="hover:bg-muted/30">
@@ -421,7 +421,7 @@ export default function Bridge() {
             <div className="text-sm font-semibold mb-2">1 · Admin: bootstrap registry (one-time per network)</div>
             <CodeBlock
               language="bash"
-              code={`# Register BSC (chain-id 56) as a bridgeable EVM destination
+              code={`# Register BSC (chain-id 56) as a bridgeable ZVM destination
 zebvix-node bridge-register-network \\
   --signer-key /root/admin.key \\
   --id 56 --name "BSC" --kind evm \\
@@ -583,7 +583,7 @@ zebvix-node bridge-in --source-tx-hash 0xDEADBEEF... ...
               <strong className="text-foreground">Per-block bridge-out throttle.</strong> Cap how many <code className="text-xs bg-muted px-1 rounded">BridgeOut</code> tx can land per block to bound the ring-buffer eviction risk (not strictly needed at current chain volume, but cheap insurance).
             </li>
             <li>
-              <strong className="text-foreground">EVM-side <code className="text-xs bg-muted px-1 rounded">0x80</code> precompile wiring.</strong> The chain reserves precompile address <code className="text-xs bg-muted px-1 rounded">0x80</code> for in-EVM bridge calls (Phase C.2 returns a deterministic preview value but does NOT commit the side-effect on <code className="text-xs bg-muted px-1 rounded">eth_sendRawTransaction</code> path). Wiring the post-frame intent capture so Solidity contracts can call <code className="text-xs bg-muted px-1 rounded">bridge_out(asset_id, dest)</code> natively is C.2 finishing work — see Smart Contracts (EVM) page.
+              <strong className="text-foreground">ZVM-side <code className="text-xs bg-muted px-1 rounded">0x80</code> precompile wiring.</strong> The chain reserves precompile address <code className="text-xs bg-muted px-1 rounded">0x80</code> for in-ZVM bridge calls (Phase C.2 returns a deterministic preview value but does NOT commit the side-effect on <code className="text-xs bg-muted px-1 rounded">eth_sendRawTransaction</code> path). Wiring the post-frame intent capture so Solidity contracts can call <code className="text-xs bg-muted px-1 rounded">bridge_out(asset_id, dest)</code> natively is C.2 finishing work — see Smart Contracts (ZVM) page.
             </li>
           </ul>
         </CardContent>

@@ -26,7 +26,7 @@ export const categoriesOrdered: ChecklistCategory[] = [
   },
   {
     name: "2. Pre-flight Configuration",
-    description: "Decide chain_id, founder rotation strategy, and whether to enable the EVM feature flag BEFORE genesis.",
+    description: "Decide chain_id, founder rotation strategy, and whether to enable the ZVM feature flag BEFORE genesis.",
   },
   {
     name: "3. Genesis",
@@ -88,14 +88,14 @@ const defaultItems: ChecklistItem[] = [
   {
     id: "build-baseline",
     category: "1. Repo & Build",
-    text: "Build the baseline (non-EVM) zebvix-node binary in release mode and confirm `zebvix-node --version`",
+    text: "Build the baseline (non-ZVM) zebvix-node binary in release mode and confirm `zebvix-node --version`",
     ref: "cargo build --release  →  ./target/release/zebvix-node --version",
     completed: false,
   },
   {
     id: "build-evm",
     category: "1. Repo & Build",
-    text: "(Optional) Build with EVM enabled if Solidity contracts are part of launch scope",
+    text: "(Optional) Build with ZVM enabled if Solidity contracts are part of launch scope",
     ref: "cargo build --release --features zvm  (Phase C.2 — see Smart Contracts page caveats)",
     completed: false,
   },
@@ -118,7 +118,7 @@ const defaultItems: ChecklistItem[] = [
   {
     id: "pre-evm-flag",
     category: "2. Pre-flight Configuration",
-    text: "Decide if --features zvm is part of the launch binary. The flag is sticky — every validator and full-node MUST run the same feature set, otherwise blocks containing EVM tx will fail on non-EVM nodes.",
+    text: "Decide if --features zvm is part of the launch binary. The flag is sticky — every validator and full-node MUST run the same feature set, otherwise blocks containing ZVM tx will fail on non-ZVM nodes.",
     ref: "Phase C.2 — gated by `cargo build --release --features zvm`",
     completed: false,
   },
@@ -370,7 +370,7 @@ const defaultItems: ChecklistItem[] = [
   {
     id: "main-public-docs",
     category: "9. Mainnet Cutover",
-    text: "Publish the public RPC URL, chain_id (7878), EVM JSON-RPC endpoint, MetaMask add-network instructions, and explorer URL. MetaMask: Network Name = Zebvix, RPC = https://…, Chain ID = 7878, Symbol = ZBX, Decimals = 18.",
+    text: "Publish the public RPC URL, chain_id (7878), ZVM JSON-RPC endpoint, MetaMask add-network instructions, and explorer URL. MetaMask: Network Name = Zebvix, RPC = https://…, Chain ID = 7878, Symbol = ZBX, Decimals = 18.",
     ref: "",
     completed: false,
   },
@@ -386,8 +386,8 @@ const defaultItems: ChecklistItem[] = [
   {
     id: "trust-evm-partial",
     category: "10. Trust-Model Sign-off (must read)",
-    text: "ACCEPT: EVM (Phase C.2) is PARTIAL — gated behind --features zvm. eth_getTransactionReceipt is a stub returning null; eth_getLogs is implemented but errors with \"CF_LOGS missing\" because State::open() does not open CF_LOGS in the runtime build (and store_logs has zero production callers anyway). Custom Zebvix precompiles 0x80–0x83 return preview values but do NOT commit native side-effects on eth_sendRawTransaction; EIP-2929/3529 warm/cold gas not modelled. Production Solidity flows MUST verify by re-reading state, and any feature requiring committed bridge/swap/multisig from inside Solidity must wait for Phase C.3.",
-    ref: "Smart Contracts (EVM) page — full caveat list",
+    text: "ACCEPT: ZVM (Phase C.2) is PARTIAL — gated behind --features zvm. eth_getTransactionReceipt is a stub returning null; eth_getLogs is implemented but errors with \"CF_LOGS missing\" because State::open() does not open CF_LOGS in the runtime build (and store_logs has zero production callers anyway). Custom Zebvix precompiles 0x80–0x83 return preview values but do NOT commit native side-effects on eth_sendRawTransaction; EIP-2929/3529 warm/cold gas not modelled. Production Solidity flows MUST verify by re-reading state, and any feature requiring committed bridge/swap/multisig from inside Solidity must wait for Phase C.3.",
+    ref: "Smart Contracts (ZVM) page — full caveat list",
     completed: false,
   },
   {

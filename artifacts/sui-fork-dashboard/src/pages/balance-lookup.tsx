@@ -110,7 +110,7 @@ const lc = (s: string) => (s || "").trim().toLowerCase();
 const isMagicAddr = (a: string, magic: string) => lc(a) === magic;
 
 // `zbx_getNonce` returns a u64 number per rpc.rs:151 — but older builds, the
-// EVM bridge (`eth_getTransactionCount`), and any custom proxy may return a
+// ZVM bridge (`eth_getTransactionCount`), and any custom proxy may return a
 // hex string ("0xa") or decimal string ("10"). Accept all three.
 function parseNonce(v: unknown): number {
   if (typeof v === "number" && Number.isFinite(v)) return v;
@@ -271,7 +271,7 @@ const ROLE_META: Record<AddressRole, { label: string; color: string; icon: React
   governor:  { label: "Governor",            color: "text-pink-300 bg-pink-500/15 border-pink-500/30",     icon: Shield,    tip: "Current chain governor (validator-set ops + governance controls)" },
   validator: { label: "Validator",           color: "text-emerald-300 bg-emerald-500/15 border-emerald-500/30", icon: Server, tip: "Active in the consensus validator set — earns block rewards" },
   multisig:  { label: "Multisig Wallet",     color: "text-sky-300 bg-sky-500/15 border-sky-500/30",        icon: Landmark,  tip: "On-chain M-of-N multisig — funds can move only when ≥M owners co-sign" },
-  contract:  { label: "EVM Contract",        color: "text-indigo-300 bg-indigo-500/15 border-indigo-500/30", icon: FileCode2, tip: "Has bytecode at this address (Phase C.2 EVM)" },
+  contract:  { label: "ZVM Contract",        color: "text-indigo-300 bg-indigo-500/15 border-indigo-500/30", icon: FileCode2, tip: "Has bytecode at this address (Phase C.2 ZVM)" },
 };
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -1085,7 +1085,7 @@ function IdentityPanel({
         <div className="flex items-start gap-3 p-3 rounded border border-indigo-500/30 bg-indigo-500/5">
           <FileCode2 className="h-4 w-4 text-indigo-400 mt-0.5 shrink-0" />
           <div className="flex-1">
-            <div className="text-[10px] uppercase tracking-wider text-indigo-400/70">EVM CONTRACT (Phase C.2)</div>
+            <div className="text-[10px] uppercase tracking-wider text-indigo-400/70">ZVM CONTRACT (Phase C.2)</div>
             <div className="text-sm font-semibold text-indigo-300">
               Deployed bytecode — {Math.floor((data.contractCode.length - 2) / 2).toLocaleString()} bytes
             </div>

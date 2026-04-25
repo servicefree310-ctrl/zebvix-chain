@@ -10,7 +10,7 @@ import {
 // ZVM Explorer — Phase C.2 native zbx_* + eth_* RPC playground (ZVM = Zebvix Virtual Machine)
 // Native zbx_* methods are always available; eth_*/net_*/web3_* only when the
 // node binary is built with --features zvm. UI prefers zbx_* labels for the
-// always-on path and falls back to eth_* labels for EVM-only methods.
+// always-on path and falls back to eth_* labels for ZVM-only methods.
 // ─────────────────────────────────────────────────────────────────────────────
 export default function ZvmExplorer() {
   const [seed, setSeed] = useState<string>("");
@@ -49,7 +49,7 @@ function Header() {
         <div className="space-y-2">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 animate-pulse">
-              <Wifi className="h-3 w-3" /> EVM ENDPOINT LIVE
+              <Wifi className="h-3 w-3" /> ZVM ENDPOINT LIVE
             </span>
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border border-violet-500/40 bg-violet-500/10 text-violet-300">
               <Cpu className="h-3 w-3" /> Phase C.2 — Cancun
@@ -63,7 +63,7 @@ function Header() {
           </h1>
           <p className="text-sm text-muted-foreground max-w-2xl">
             Native Zebvix RPC playground. <span className="font-mono text-foreground">zbx_*</span> methods (always-on)
-            aur <span className="font-mono text-foreground">eth_*</span>/<span className="font-mono text-foreground">net_*</span>/<span className="font-mono text-foreground">web3_*</span> EVM-namespace
+            aur <span className="font-mono text-foreground">eth_*</span>/<span className="font-mono text-foreground">net_*</span>/<span className="font-mono text-foreground">web3_*</span> ZVM-namespace
             (gated behind <span className="font-mono text-foreground">--features zvm</span>) directly Zebvix L1 par execute hote hain — koi proxy emulation nahi.
           </p>
         </div>
@@ -73,7 +73,7 @@ function Header() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Net status grid — mix of always-on zbx_* and EVM-gated eth_*/net_*/web3_*
+// Net status grid — mix of always-on zbx_* and ZVM-gated eth_*/net_*/web3_*
 // `zbx_blockNumber` returns an object {height, hex, hash, timestamp_ms,
 // proposer} per rpc.rs:125-139, so we read `.height` (number) for display
 // and reconstruct a hex view-string. The accept-string branch is defensive
@@ -171,7 +171,7 @@ function BalanceTool() {
   return (
     <ToolCard title="zbx_getBalance" icon={Wallet} accent="emerald">
       <div className="space-y-2">
-        <input value={addr} onChange={(e) => setAddr(e.target.value)} placeholder="0x… (20-byte EVM address)"
+        <input value={addr} onChange={(e) => setAddr(e.target.value)} placeholder="0x… (20-byte ZVM address)"
           className="w-full px-3 py-2 text-xs font-mono rounded-md bg-background border border-border focus:border-primary outline-none" />
         <button onClick={lookup} disabled={loading || !addr}
           className="w-full px-3 py-1.5 rounded-md bg-emerald-500 hover:bg-emerald-400 text-emerald-950 text-xs font-semibold disabled:opacity-50 flex items-center justify-center gap-1.5">
@@ -252,7 +252,7 @@ function NonceCodeTool() {
 }
 
 // Parse `zbx_getNonce` response — accepts u64 number, decimal string, or
-// hex string for forward-compat with EVM-bridged nonces. Mirrors the same
+// hex string for forward-compat with ZVM-bridged nonces. Mirrors the same
 // helper on the Balance Lookup page so both pages stay schema-tolerant.
 function parseNonceLocal(v: unknown): number {
   if (typeof v === "number" && Number.isFinite(v)) return v;
@@ -265,11 +265,11 @@ function parseNonceLocal(v: unknown): number {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Block Tool — combines eth_getBlockByNumber (EVM-shaped fields like number,
+// Block Tool — combines eth_getBlockByNumber (ZVM-shaped fields like number,
 // hash, gasLimit, gasUsed, baseFeePerGas, transactions[]) with the native
-// zbx_getBlockByNumber (which carries Zebvix-specific fields the EVM layer
+// zbx_getBlockByNumber (which carries Zebvix-specific fields the ZVM layer
 // does not expose: real proposer address — eth_getBlockByNumber returns
-// miner=0x00…0 because there is no EVM coinbase concept on Zebvix).
+// miner=0x00…0 because there is no ZVM coinbase concept on Zebvix).
 //
 // Resolution flow:
 //   1. Decide whether `tag` is a string tag (latest/earliest/pending/finalized/
@@ -311,7 +311,7 @@ function BlockTool() {
       const heightDec = parseInt(ethBlock.number, 16);
 
       // Best-effort enrichment from native side. The chain's eth_getBlockByNumber
-      // does NOT include `hash` or `parentHash` (incomplete EVM RPC impl), so we
+      // does NOT include `hash` or `parentHash` (incomplete ZVM RPC impl), so we
       // recover them from the native methods:
       //   - header.parent_hash from zbx_getBlockByNumber(height) → parentHash
       //   - own hash:   * if h is the tip → zbx_blockNumber.hash
@@ -382,11 +382,11 @@ function BlockTool() {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tx Tool — tries eth_getTransactionByHash + eth_getTransactionReceipt FIRST
-// (for any future EVM-tx wiring), then falls back to the native ring-buffer
+// (for any future ZVM-tx wiring), then falls back to the native ring-buffer
 // `zbx_recentTxs` which is the source of truth for indexed Zebvix txs today
 // (Transfer / Staking / Proposal / Bridge / Multisig / Swap …). This prevents
 // a hard error when eth_getTransactionByHash is unsupported on-chain or when
-// looking up a native (non-EVM) tx hash that has no EVM receipt.
+// looking up a native (non-ZVM) tx hash that has no ZVM receipt.
 // ─────────────────────────────────────────────────────────────────────────────
 type NativeTx = {
   hash: string;
@@ -421,16 +421,16 @@ function TxTool() {
     setLoading(true);
     const lower = hash.toLowerCase();
     try {
-      // 1. Try the EVM path. Both calls are best-effort — the chain may
-      //    return -32000 "unsupported EVM method" for eth_getTransactionByHash,
-      //    and eth_getTransactionReceipt returns null for non-EVM txs.
+      // 1. Try the ZVM path. Both calls are best-effort — the chain may
+      //    return -32000 "unsupported ZVM method" for eth_getTransactionByHash,
+      //    and eth_getTransactionReceipt returns null for non-ZVM txs.
       const [t, r] = await Promise.all([
         rpc<any>("eth_getTransactionByHash", [lower]).catch(() => null),
         rpc<any>("eth_getTransactionReceipt", [lower]).catch(() => null),
       ]);
       setTx(t); setReceipt(r);
 
-      // 2. If EVM path produced nothing, fall back to native ring buffer.
+      // 2. If ZVM path produced nothing, fall back to native ring buffer.
       if (!t && !r) {
         const ring = await rpc<{ txs: NativeTx[]; total_indexed: number; max_cap: number }>(
           "zbx_recentTxs",
@@ -439,12 +439,12 @@ function TxTool() {
         const found = ring?.txs?.find((x) => x.hash.toLowerCase() === lower) ?? null;
         if (found) {
           setNativeTx(found);
-          setInfo(`Found in native tx index (no EVM receipt — kind: ${found.kind})`);
+          setInfo(`Found in native tx index (no ZVM receipt — kind: ${found.kind})`);
         } else {
           const indexed = ring?.total_indexed ?? 0;
           const cap = ring?.max_cap ?? 1000;
           setErr(
-            `Hash not found. EVM eth_getTransactionByHash is not wired on-chain yet, ` +
+            `Hash not found. ZVM eth_getTransactionByHash is not wired on-chain yet, ` +
             `and the hash is not in the native ring buffer (${indexed} indexed, cap ${cap}). ` +
             `Older tx? It may have rolled out of the buffer — try fetching the block directly.`,
           );
@@ -475,7 +475,7 @@ function TxTool() {
           <div className="grid md:grid-cols-2 gap-3 pt-2 text-xs">
             <div className="p-3 rounded-md border border-border bg-background/40">
               <div className="text-[10px] uppercase font-bold text-muted-foreground mb-2">
-                {tx ? "Transaction (EVM)" : nativeTx ? "Transaction (native)" : "Transaction"}
+                {tx ? "Transaction (ZVM)" : nativeTx ? "Transaction (native)" : "Transaction"}
               </div>
               {tx ? (
                 <div className="space-y-1">
@@ -515,7 +515,7 @@ function TxTool() {
                 </div>
               ) : nativeTx ? (
                 <div className="space-y-1 text-muted-foreground">
-                  <div className="text-[11px]">Native txs are committed atomically — no EVM receipt is emitted.</div>
+                  <div className="text-[11px]">Native txs are committed atomically — no ZVM receipt is emitted.</div>
                   <Kv label="status" value={"COMMITTED (native)"} highlight color="emerald" />
                   <Kv label="block" value={`#${nativeTx.height}`} />
                   <Kv label="fee paid" value={`${fmtZbx(nativeTx.fee, 6, "0")} ZBX`} mono />
@@ -742,7 +742,7 @@ function detectKind(raw: string): DetectKind {
 
 function kindMeta(k: DetectKind): { label: string; color: string; icon: any; help: string } {
   switch (k) {
-    case "address":      return { label: "EVM Address",  color: "emerald", icon: Wallet,    help: "20-byte account or contract" };
+    case "address":      return { label: "ZVM Address",  color: "emerald", icon: Wallet,    help: "20-byte account or contract" };
     case "hash":         return { label: "32-byte Hash", color: "amber",   icon: Hash,      help: "Block or tx hash" };
     case "block_number": return { label: "Block Number", color: "cyan",    icon: Box,       help: "Decimal or 0x-hex height" };
     case "block_tag":    return { label: "Block Tag",    color: "cyan",    icon: Box,       help: "latest / earliest / pending" };
@@ -807,7 +807,7 @@ function SmartSearch({ seed, onSeed }: { seed: string; onSeed: (v: string) => vo
         <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
         <span>
           <span className="font-semibold">Heads-up:</span> numeric block lookups use the native <code className="font-mono">zbx_getBlockByNumber</code> path
-          (the EVM passthrough returns tip for any height). Hash lookups try <code className="font-mono">eth_getBlockByHash</code> /
+          (the ZVM passthrough returns tip for any height). Hash lookups try <code className="font-mono">eth_getBlockByHash</code> /
           <code className="font-mono"> eth_getTransactionByHash</code> first and fall back to the native indexed-tx ring buffer
           while the on-chain Phase C.3 wiring is pending.
         </span>
@@ -959,7 +959,7 @@ function AddressResult({ addr, onCrossLink }: { addr: string; onCrossLink: (v: s
 // — Block result ──────────────────────────────────────────────────────────────
 // Block fetch uses TWO sources because the on-chain `eth_getBlockByNumber`
 // currently ignores the height parameter and always returns the tip — only
-// tags like `latest` / `earliest` / `pending` work via the EVM passthrough.
+// tags like `latest` / `earliest` / `pending` work via the ZVM passthrough.
 // For numeric heights we fall back to the native `zbx_getBlockByNumber`
 // which respects the requested height and returns the canonical block.
 function BlockResult({ tag, onCrossLink }: { tag: string; onCrossLink: (v: string) => void }) {

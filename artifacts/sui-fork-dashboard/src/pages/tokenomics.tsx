@@ -316,7 +316,7 @@ export default function Tokenomics() {
           icon={Layers}
           label="Decimals"
           value="18"
-          subtext="1 ZBX = 10^18 wei (EVM standard)"
+          subtext="1 ZBX = 10^18 wei (ZVM standard)"
           iconColor="text-violet-400"
         />
         <HeroStat

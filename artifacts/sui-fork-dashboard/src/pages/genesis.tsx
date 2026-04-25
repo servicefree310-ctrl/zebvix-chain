@@ -56,7 +56,7 @@ export default function Genesis() {
 
       {/* Quick stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatTile icon={Hash} label="Chain ID" value="7878" sub="EVM hex: 0x1ec6" />
+        <StatTile icon={Hash} label="Chain ID" value="7878" sub="ZVM hex: 0x1ec6" />
         <StatTile icon={Coins} label="Token" value="ZBX" sub="18 decimals · cap 150M" />
         <StatTile icon={Clock} label="Block time" value="5 sec" sub="Constant — no jitter" />
         <StatTile icon={Users} label="Genesis validator" value="1" sub="Founder, deterministic" />
@@ -90,7 +90,7 @@ export default function Genesis() {
                   name="chain_id"
                   type="u64"
                   value="7878"
-                  desc="EIP-155 chain ID. Hex 0x1ec6. Prevents tx replay across other EVM networks."
+                  desc="EIP-155 chain ID. Hex 0x1ec6. Prevents tx replay across other ZVM networks."
                 />
                 <FieldRow
                   name="chain_name"

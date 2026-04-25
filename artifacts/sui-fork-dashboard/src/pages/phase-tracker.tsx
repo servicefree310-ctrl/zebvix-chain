@@ -25,7 +25,7 @@ const CHANGES_LOG = [
     color: "text-yellow-400",
     dot: "bg-yellow-500",
     entries: [
-      { type: "change", text: "SUI_ADDRESS_LENGTH: 32 → 20 bytes (EVM-compatible)" },
+      { type: "change", text: "SUI_ADDRESS_LENGTH: 32 → 20 bytes (ZVM-compatible)" },
       { type: "change", text: "Address derivation: last 20 bytes of Blake2b256 hash (4 functions)" },
       { type: "change", text: "ObjectID → SuiAddress: last 20 bytes of 32-byte ID" },
       { type: "change", text: "AccountAddress → SuiAddress: last 20 bytes" },
@@ -299,7 +299,7 @@ const PHASES = [
     ],
   },
   {
-    id: "P2", title: "EVM Address Format",
+    id: "P2", title: "ZVM Address Format",
     color: "from-yellow-500 to-orange-500", lightColor: "text-yellow-400",
     borderColor: "border-yellow-500/40", bgColor: "bg-yellow-500/5",
     points: [

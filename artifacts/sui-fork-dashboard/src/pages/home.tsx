@@ -227,7 +227,7 @@ export default function Home() {
         <MiniKpi icon={Flame} label="Gas (rec.)"
           value={fee ? `${weiHexToZbx(fee.recommended_fee_wei)} ZBX` : "—"}
           sub={fee?.source ?? ""} />
-        <MiniKpi icon={Cpu} label="EVM gasPrice"
+        <MiniKpi icon={Cpu} label="ZVM gasPrice"
           value={evmGasPriceHex ? `${weiHexToZbx(evmGasPriceHex)} ZBX` : "—"}
           sub={evmChainHex ? `chain ${evmChainHex}` : ""} />
       </div>
@@ -271,14 +271,14 @@ function Hero({ tip, flash, err, loading, price, validatorCount, evmChainHex, po
             </Badge>
             <Badge tone="violet"><Hash className="h-3 w-3" />chain_id 7878</Badge>
             <Badge tone="cyan"><ShieldCheck className="h-3 w-3" />{validatorCount} validators</Badge>
-            <Badge tone="amber"><Cpu className="h-3 w-3" />Phase C.2 EVM</Badge>
+            <Badge tone="amber"><Cpu className="h-3 w-3" />Phase C.2 ZVM</Badge>
           </div>
           <h1 className="text-3xl md:text-5xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-foreground via-foreground to-foreground/60 flex items-center gap-3">
             <Activity className="h-9 w-9 md:h-10 md:w-10 text-primary" />
             Zebvix Mission Control
           </h1>
           <p className="text-sm text-muted-foreground max-w-2xl">
-            Real-time on-chain telemetry for the Zebvix L1. Native EVM (Cancun) JSON-RPC live at <span className="font-mono text-foreground">93.127.213.192:8545</span> · auto-refresh 5s.
+            Real-time on-chain telemetry for the Zebvix L1. Native ZVM (Cancun) JSON-RPC live at <span className="font-mono text-foreground">93.127.213.192:8545</span> · auto-refresh 5s.
           </p>
           <div className="flex gap-2 mt-3 flex-wrap">
             <Link href="/live-chain">
@@ -327,8 +327,8 @@ function PhaseBanner() {
     { id: "B.10", label: "Native Rust L1", status: "LIVE" },
     { id: "B.11", label: "USD-pegged fees + AMM", status: "LIVE" },
     { id: "B.12", label: "BSC Bridge", status: "LIVE" },
-    { id: "C.1", label: "EVM Skeleton", status: "LIVE" },
-    { id: "C.2", label: "EVM JSON-RPC", status: "LIVE" },
+    { id: "C.1", label: "ZVM Skeleton", status: "LIVE" },
+    { id: "C.2", label: "ZVM JSON-RPC", status: "LIVE" },
     { id: "C.3", label: "Foundry Contracts", status: "NEXT" },
   ];
   return (
@@ -632,7 +632,7 @@ function ChainIdentityCard() {
         <Row label="Chain ID" value="7878 (0x1ec6)" mono />
         <Row label="RPC HTTP" value="http://93.127.213.192:8545" mono copy />
         <Row label="Consensus" value="Tendermint BFT (Phase B.2)" />
-        <Row label="ZVM" value="Native (Cancun-EVM) — Phase C.2 LIVE" />
+        <Row label="ZVM" value="Native (Cancun-ZVM) — Phase C.2 LIVE" />
         <Row label="VPS" value="srv1266996" mono />
         <Row label="Service" value="zebvix.service" mono />
       </div>
@@ -698,7 +698,7 @@ function MetaMaskConnectCard() {
         <h3 className="text-sm font-semibold">Connect MetaMask</h3>
       </div>
       <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
-        Phase C.2 LIVE means MetaMask, Foundry, ethers.js — sab kaam karte hain. Native EVM JSON-RPC bind hai 8545 pe.
+        Phase C.2 LIVE means MetaMask, Foundry, ethers.js — sab kaam karte hain. Native ZVM JSON-RPC bind hai 8545 pe.
       </p>
       <button onClick={addToMetaMask} disabled={adding}
         className="w-full px-4 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-amber-950 font-semibold text-sm flex items-center justify-center gap-2 transition disabled:opacity-50">
@@ -762,7 +762,7 @@ curl -s http://93.127.213.192:8545 \\
     <div className="rounded-xl border border-border bg-card overflow-hidden">
       <div className="p-3 border-b border-border bg-muted/30 flex items-center justify-between">
         <h3 className="text-sm font-semibold flex items-center gap-2">
-          <Code2 className="h-4 w-4 text-primary" /> Developer Integration — Phase C.2 EVM
+          <Code2 className="h-4 w-4 text-primary" /> Developer Integration — Phase C.2 ZVM
         </h3>
         <button onClick={() => { navigator.clipboard.writeText(cur.code); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
           className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1">
