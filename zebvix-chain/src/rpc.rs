@@ -1563,16 +1563,16 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 _ => None,
             });
             let (Some(tid), Some(amt)) = (token_id, amount_in) else {
-                return err(id, -32602, "params: [token_id, direction, amount_in]");
+                return Json(err(id, -32602, "params: [token_id, direction, amount_in]"));
             };
             let Some(pool) = ctx.state.get_token_pool(tid) else {
-                return err(id, -32004, "token pool not found");
+                return Json(err(id, -32004, "token pool not found"));
             };
             use crate::token_pool::TokenSwapDirection;
             let direction = match dir {
                 "zbx_to_token" => TokenSwapDirection::ZbxToToken,
                 "token_to_zbx" => TokenSwapDirection::TokenToZbx,
-                _ => return err(id, -32602, "direction must be 'zbx_to_token' or 'token_to_zbx'"),
+                _ => return Json(err(id, -32602, "direction must be 'zbx_to_token' or 'token_to_zbx'")),
             };
             let amount_out = pool.quote(direction, amt);
             // Compute the exact fee amount that would be deducted from input
