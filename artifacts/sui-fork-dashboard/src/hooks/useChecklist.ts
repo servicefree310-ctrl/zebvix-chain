@@ -303,8 +303,8 @@ const defaultItems: ChecklistItem[] = [
   {
     id: "test-evm",
     category: "7. Test on a Separate chain_id",
-    text: "(If --features zvm is on) Deploy a Solidity 0.8.24 contract via eth_sendRawTransaction, call a state-mutating method, verify by RE-READING state (e.g. balanceOf). The RPC dispatcher implements `eth_getLogs` (filter/range logic over CF_LOGS via iter_logs) and `eth_getTransactionReceipt` (stub returning null today, no receipts table). HOWEVER `State::open()` does NOT open CF_LOGS in the runtime build, so any `eth_getLogs` call returns a JSON-RPC error \"CF_LOGS missing\", and `store_logs` has zero production call sites. Receipts return null. Verify everything by re-reading state — do not depend on getLogs or getTransactionReceipt until Phase C.3 wires both the CF and the producers.",
-    ref: "evm_rpc.rs:238 eth_getLogs  +  evm_rpc.rs:259 eth_getTransactionReceipt  +  evm_state.rs:172 store_logs (no production callers)  +  state.rs:183-186 CF_LOGS not opened",
+    text: "(If --features zvm is on) Deploy a Solidity 0.8.24 contract via eth_sendRawTransaction, call a state-mutating method, verify by RE-READING state (e.g. balanceOf). Phase C.2.1: `eth_getTransactionByHash` + `eth_getTransactionReceipt` are wired for NATIVE ZBX tx (resolved via the recent-tx ring buffer's hash side-index, synthetic Ethereum-shape JSON, status=0x1 by construction). ZVM (Solidity) tx are NOT yet pushed into the ring buffer — for ZVM tx these RPCs return null (C.3 work). `eth_getLogs` returns [] for ZVM tx because store_logs has zero callers from the ZVM path. Verify Solidity-contract correctness by re-reading state — do not depend on getLogs or per-execution receipts until C.3 wires the producers + ZVM-tx ring-buffer indexing.",
+    ref: "zvm_rpc.rs eth_getTransactionByHash + eth_getTransactionReceipt (C.2.1, native ring buffer)  +  state.rs:find_tx_by_hash + META_RTX_HASH_PREFIX  +  evm_rpc.rs eth_getLogs  +  evm_state.rs store_logs (no ZVM callers)",
     completed: false,
   },
 
@@ -386,7 +386,7 @@ const defaultItems: ChecklistItem[] = [
   {
     id: "trust-evm-partial",
     category: "10. Trust-Model Sign-off (must read)",
-    text: "ACCEPT: ZVM (Phase C.2) is PARTIAL — gated behind --features zvm. eth_getTransactionReceipt is a stub returning null; eth_getLogs is implemented but errors with \"CF_LOGS missing\" because State::open() does not open CF_LOGS in the runtime build (and store_logs has zero production callers anyway). Custom Zebvix precompiles 0x80–0x83 return preview values but do NOT commit native side-effects on eth_sendRawTransaction; EIP-2929/3529 warm/cold gas not modelled. Production Solidity flows MUST verify by re-reading state, and any feature requiring committed bridge/swap/multisig from inside Solidity must wait for Phase C.3.",
+    text: "ACCEPT: ZVM (Phase C.2 + C.2.1) is PARTIAL — gated behind --features zvm. C.2.1 wired eth_getTransactionByHash + eth_getTransactionReceipt for NATIVE ZBX tx (synthetic from recent-tx ring buffer), but ZVM (Solidity) tx are NOT yet ring-indexed so those RPCs return null for ZVM tx. eth_getLogs returns [] for ZVM tx because store_logs has zero callers from the ZVM path (C.3 work). Custom Zebvix precompiles 0x80–0x83 return preview values but do NOT commit native side-effects on eth_sendRawTransaction; EIP-2929/3529 warm/cold gas not modelled. Production Solidity flows MUST verify by re-reading state, and any feature requiring committed bridge/swap/multisig from inside Solidity must wait for Phase C.3.",
     ref: "Smart Contracts (ZVM) page — full caveat list",
     completed: false,
   },

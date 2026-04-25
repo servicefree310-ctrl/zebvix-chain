@@ -290,10 +290,10 @@ journalctl -u zebvix-node -n 200 --no-pager | grep -E '🌐 p2p listening|🔗 c
         detail: "Production must use the zbx_* RPC namespace for state-mutating bridge / AMM / multisig / Pay-ID operations. Post-frame intent capture so Solidity contracts can trigger native side-effects through the ZVM is the headline C.3 work.",
       },
       {
-        title: "Logs / receipts gap — eth_getLogs and eth_getTransactionReceipt are empty today",
-        files: ["zebvix-chain/src/evm_state.rs"],
-        description: "store_logs is defined but has zero call sites. Neither the ZVM tx path nor native modules write to CF_LOGS today, so eth_getLogs always returns [] and eth_getTransactionReceipt returns null.",
-        detail: "Emitted log entries inside the interpreter carry tx_hash=0x00 placeholder. C.3 wires the producers, canonical tx-hash stamping, and a proper receipts table. Until then, use the zbx_* namespace or re-read state via balanceOf-style getters for verification (the dashboard's Smart Contracts page Hardhat snippet does this).",
+        title: "Logs gap — eth_getLogs is empty for ZVM tx; receipts wired only for native ZBX (Phase C.2.1)",
+        files: ["zebvix-chain/src/evm_state.rs", "zebvix-chain/src/zvm_rpc.rs", "zebvix-chain/src/state.rs"],
+        description: "Phase C.2.1 (live): eth_getTransactionByHash + eth_getTransactionReceipt are wired for native ZBX tx — they resolve any hash present in the recent-tx ring buffer (1000-tx rolling window) into a synthetic Ethereum-shape JSON (status=0x1 by construction, gas=21000, logs=[]). Hash→seq side-index maintained in CF_META under rtx/h/ with cascade-delete on eviction.",
+        detail: "Still gated to C.3: (a) ZVM (Solidity) tx are not yet indexed into the ring buffer — eth_sendRawTransaction goes straight into evm::execute() and the synthetic envelope is not pushed via push_recent_tx; (b) eth_getLogs returns [] because store_logs has zero callers from the ZVM path and emitted log entries inside the interpreter carry tx_hash=0x00 placeholder; (c) Real ZVM receipts (with per-execution gasUsed, contractAddress, logs[]) need the on-execution receipts table, not the synthetic 21000-gas envelope. C.3 wires (a)+(b)+(c) together with canonical tx-hash stamping.",
       },
     ],
   },
@@ -340,10 +340,10 @@ journalctl -u zebvix-node -n 200 --no-pager | grep -E '🌐 p2p listening|🔗 c
         detail: "Interpreter accumulates SSTORE clear refunds today but does not enforce the cap.",
       },
       {
-        title: "CF_LOGS producers wired + canonical tx-hash stamping + receipts table",
+        title: "CF_LOGS producers wired + canonical tx-hash stamping + ZVM-tx receipts table",
         files: ["zebvix-chain/src/evm_state.rs", "zebvix-chain/src/state.rs"],
-        description: "Wire ZVM tx path (and select native modules) to actually call store_logs. Stamp emitted logs with the real tx_hash. Persist a receipts table so eth_getTransactionReceipt returns the standard JSON shape.",
-        detail: "Until this lands, Hardhat scripts MUST verify by re-reading state (balanceOf, etc.), not by polling eth_getTransactionReceipt — the receipt will return null even for a successfully-mined tx.",
+        description: "Native ZBX-tx receipts already work (Phase C.2.1, synthetic from ring buffer). C.3 extends coverage to ZVM (Solidity) tx: (a) push ZVM tx envelopes through push_recent_tx so they're hash-indexed; (b) wire eth_sendRawTransaction → store_logs so emitted events are persisted into CF_LOGS; (c) stamp every log with the real tx hash (no more 0x00 placeholder); (d) persist a real receipts table with per-execution gasUsed + contractAddress + logs[] (vs the synthetic 21000-gas native receipt).",
+        detail: "Until this lands, Hardhat scripts targeting ZVM contracts MUST verify by re-reading state (balanceOf, etc.) — the receipt will return null for ZVM tx even for a successfully-mined contract call. Native ZBX-tx (transfer/stake/etc.) ARE queryable via eth_getTransactionReceipt today.",
       },
       {
         title: "ParamChange runtime read for DEFAULT_BLOCK_GAS_LIMIT",

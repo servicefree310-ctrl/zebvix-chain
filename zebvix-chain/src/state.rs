@@ -56,6 +56,13 @@ const META_MS_OWNER_PREFIX: &[u8] = b"mso/";
 // deleted so total stored entries are bounded by CAP.
 const META_RTX_PREFIX: &[u8] = b"rtx/";
 const META_RTX_SEQ: &[u8] = b"rtx_seq";
+// Phase C.2.1 — Secondary index `tx_hash → seq` so `eth_getTransactionByHash`
+// and `eth_getTransactionReceipt` can resolve a 32-byte hash to its
+// `RecentTxRecord` in one point lookup instead of a 1000-entry linear scan.
+// Maintained alongside the primary `rtx/<seq>` index by `push_recent_tx` and
+// cleared in lockstep on ring eviction. Falls back to linear scan in
+// `find_tx_by_hash` for legacy entries written before this index existed.
+const META_RTX_HASH_PREFIX: &[u8] = b"rtx/h/";
 
 // ── Phase B.3.3 — slashing evidence log (non-consensus / informational) ──
 // Evidence is recorded out-of-band when a node detects a double-sign vote.
@@ -1643,6 +1650,15 @@ impl State {
         k
     }
 
+    /// Secondary-index key: `b"rtx/h/" || tx_hash` → `seq.to_be_bytes()`.
+    /// Used by `eth_getTransactionByHash` / `eth_getTransactionReceipt` to
+    /// resolve a 32-byte hash to its sequence number in one point lookup.
+    fn rtx_hash_key(hash: &[u8; 32]) -> Vec<u8> {
+        let mut k = META_RTX_HASH_PREFIX.to_vec();
+        k.extend_from_slice(hash);
+        k
+    }
+
     /// Read the next-seq counter from CF_META (0 if uninitialized).
     fn rtx_next_seq(&self) -> u64 {
         let cf = self.db.cf_handle(CF_META).unwrap();
@@ -1666,14 +1682,67 @@ impl State {
         let cf = self.db.cf_handle(CF_META).unwrap();
         let next = self.rtx_next_seq();
         rec.seq = next;
+        let rec_hash = rec.hash; // capture before move
         self.db.put_cf(cf, Self::rtx_key(next), bincode::serialize(&rec)?)?;
-        // Evict the entry that just fell out of the rolling window.
+        // Phase C.2.1 — write secondary hash index so eth_getTransactionByHash
+        // and eth_getTransactionReceipt resolve in one point lookup.
+        self.db.put_cf(cf, Self::rtx_hash_key(&rec_hash), next.to_be_bytes())?;
+        // Evict the entry that just fell out of the rolling window. Both the
+        // primary `rtx/<seq>` entry AND the secondary `rtx/h/<hash>` mapping
+        // for that record must be deleted in lockstep so the hash index
+        // never points to a non-existent seq.
         if next >= RECENT_TX_CAP {
             let evict = next - RECENT_TX_CAP;
+            // Read evicted record first so we can also clean its hash index.
+            if let Ok(Some(bytes)) = self.db.get_cf(cf, Self::rtx_key(evict)) {
+                if let Ok(old) = bincode::deserialize::<RecentTxRecord>(&bytes) {
+                    let _ = self.db.delete_cf(cf, Self::rtx_hash_key(&old.hash));
+                }
+            }
             let _ = self.db.delete_cf(cf, Self::rtx_key(evict));
         }
         self.db.put_cf(cf, META_RTX_SEQ, (next + 1).to_be_bytes())?;
         Ok(())
+    }
+
+    /// Phase C.2.1 — Resolve a 32-byte tx hash to its `RecentTxRecord` via the
+    /// secondary hash index. Falls back to a linear scan over the ring buffer
+    /// for legacy entries written before the secondary index existed.
+    /// Returns `None` if the tx is not in the rolling window of the last
+    /// `RECENT_TX_CAP` (1000) committed transactions.
+    pub fn find_tx_by_hash(&self, hash: &[u8; 32]) -> Option<RecentTxRecord> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        // Fast path — secondary index lookup.
+        if let Ok(Some(seq_bytes)) = self.db.get_cf(cf, Self::rtx_hash_key(hash)) {
+            if seq_bytes.len() == 8 {
+                let mut a = [0u8; 8];
+                a.copy_from_slice(&seq_bytes);
+                let seq = u64::from_be_bytes(a);
+                if let Ok(Some(bytes)) = self.db.get_cf(cf, Self::rtx_key(seq)) {
+                    if let Ok(rec) = bincode::deserialize::<RecentTxRecord>(&bytes) {
+                        // Guard against a stale index pointing at an evicted seq.
+                        if rec.hash == *hash {
+                            return Some(rec);
+                        }
+                    }
+                }
+            }
+        }
+        // Slow path — linear scan over the ring (handles pre-index legacy txs).
+        for r in self.recent_txs(RECENT_TX_CAP as usize) {
+            if r.hash == *hash {
+                return Some(r);
+            }
+        }
+        None
+    }
+
+    /// Phase C.2.1 — height → block hash, used by ZVM RPC handlers when they
+    /// need to populate `blockHash` in `eth_getTransactionByHash` /
+    /// `eth_getTransactionReceipt` JSON responses. Returns `None` if the
+    /// height is above tip or below pruning horizon.
+    pub fn block_hash_at(&self, height: u64) -> Option<Hash> {
+        self.block_at(height).map(|b| block_hash(&b.header))
     }
 
     /// Total number of transactions ever indexed in the ring buffer (monotonic).

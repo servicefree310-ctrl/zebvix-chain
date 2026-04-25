@@ -103,8 +103,9 @@ export default function SmartContractsPage() {
                 directly into <code className="text-xs bg-muted px-1 rounded">evm::execute()</code> — they live in their own envelope (<code className="text-xs bg-muted px-1 rounded">EvmTxEnvelope</code>), not the native <code className="text-xs bg-muted px-1 rounded">TxKind</code>.
               </li>
               <li>
+                <code className="text-xs bg-muted px-1 rounded">eth_getTransactionByHash</code> and{" "}
                 <code className="text-xs bg-muted px-1 rounded">eth_getTransactionReceipt</code>{" "}
-                returns <code className="text-xs bg-muted px-1 rounded">null</code> today and <code className="text-xs bg-muted px-1 rounded">eth_getLogs</code> returns <code className="text-xs bg-muted px-1 rounded">[]</code> for ZVM tx — <code className="text-xs bg-muted px-1 rounded">eth_sendRawTransaction</code> doesn't yet call <code className="text-xs bg-muted px-1 rounded">store_logs</code>, and emitted log entries currently carry <code className="text-xs bg-muted px-1 rounded">tx_hash = 0x00</code>. Both pieces (log persistence + canonical tx-hash stamping + receipts table) land together in C.3. For now treat C.2 as deploy + execute, not as a queryable history surface.
+                are wired (Phase C.2.1) for <strong>native ZBX tx</strong> — they resolve any hash present in the recent-tx ring buffer (rolling window of 1000 txs) into a synthetic Ethereum-shape JSON (status=<code className="text-xs bg-muted px-1 rounded">0x1</code> by construction since failed txs are never indexed, gas=21000, type=0x0, v/r/s=0). <strong>ZVM (Solidity) tx are NOT yet indexed</strong> in the ring buffer, and <code className="text-xs bg-muted px-1 rounded">eth_getLogs</code> still returns <code className="text-xs bg-muted px-1 rounded">[]</code> for ZVM tx — <code className="text-xs bg-muted px-1 rounded">eth_sendRawTransaction</code> doesn't yet call <code className="text-xs bg-muted px-1 rounded">store_logs</code>, and emitted log entries carry <code className="text-xs bg-muted px-1 rounded">tx_hash = 0x00</code>. Full ZVM coverage (log persistence + canonical tx-hash stamping + ZVM receipts) lands in C.3.
               </li>
               <li>
                 <code className="text-xs bg-muted px-1 rounded">eth_getBlockByNumber</code>{" "}
@@ -569,10 +570,17 @@ export default function SmartContractsPage() {
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
-                  <TableCell className="font-mono text-xs">eth_getTransactionReceipt · zbx_getEvmReceipt</TableCell>
-                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features zvm</Badge></TableCell>
+                  <TableCell className="font-mono text-xs">eth_getTransactionByHash · zbx_getEvmTransaction</TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-emerald-400 border-emerald-500/40">LIVE (native)</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    <strong>C.3 work</strong> — returns <code className="text-xs bg-muted px-1 rounded">null</code> today. Receipts table (status, gasUsed, contractAddress, logs[]) ships together with ZVM log persistence; until then there is no first-class on-chain post-execution query path for an ZVM tx — clients should treat C.2 as fire-and-forget execute. Aliased as <code className="text-xs bg-muted px-1 rounded">zbx_getEvmReceipt</code> (not <code className="text-xs bg-muted px-1 rounded">zbx_getReceipt</code>) to leave the unqualified name free for the future native-tx receipt API.
+                    Phase C.2.1 — resolves any tx hash present in the recent-tx ring buffer (rolling cap of 1000 native ZBX tx) into a synthetic Ethereum-shape JSON object: <code className="text-xs bg-muted px-1 rounded">{"{ hash, blockHash, blockNumber, transactionIndex, from, to, value, gas: 0x5208, gasPrice: 0x0, nonce, input: 0x, type: 0x0, chainId: 0x1ec6, v: 0x0, r: 0x0, s: 0x0 }"}</code>. Hash→seq mapping is maintained as a side-index in CF_META under <code className="text-xs bg-muted px-1 rounded">rtx/h/{"<32-byte hash>"}</code>; cascade-deleted on ring eviction. Returns <code className="text-xs bg-muted px-1 rounded">null</code> when the hash is outside the rolling window OR the tx is a ZVM (Solidity) tx — ZVM tx are not yet indexed (C.3).
+                  </TableCell>
+                </TableRow>
+                <TableRow className="border-b border-border hover:bg-muted/30">
+                  <TableCell className="font-mono text-xs">eth_getTransactionReceipt · zbx_getEvmReceipt</TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-emerald-400 border-emerald-500/40">LIVE (native)</Badge></TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    Phase C.2.1 — for any native ZBX tx hash present in the ring buffer, returns a synthetic receipt: <code className="text-xs bg-muted px-1 rounded">{"{ status: 0x1, transactionHash, transactionIndex, blockHash, blockNumber, from, to, cumulativeGasUsed: 0x5208, gasUsed: 0x5208, contractAddress: null, logs: [], logsBloom: 0x00…(256), type: 0x0, effectiveGasPrice: 0x0 }"}</code>. <strong>status=0x1 by construction</strong> — failed native txs are never indexed in the ring buffer (only successful applies are pushed). Aliased as <code className="text-xs bg-muted px-1 rounded">zbx_getEvmReceipt</code>. Real ZVM receipts (with on-execution gasUsed, contractAddress, logs[]) ship in C.3 together with log persistence + ZVM-tx ring-buffer indexing.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">

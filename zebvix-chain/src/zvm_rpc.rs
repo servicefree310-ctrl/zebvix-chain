@@ -21,7 +21,8 @@
 //! | eth_gasPrice | ✅ (USD-pegged) |
 //! | eth_sendRawTransaction | ✅ (legacy, EIP-2930, EIP-1559) |
 //! | eth_getLogs | ✅ |
-//! | eth_getTransactionReceipt | ✅ |
+//! | eth_getTransactionByHash | ✅ (Phase C.2.1 — synthesized from native ring buffer) |
+//! | eth_getTransactionReceipt | ✅ (Phase C.2.1 — synthesized from native ring buffer, status=0x1) |
 //! | eth_getBlockByNumber | ✅ (proxies zbx_getBlockByNumber, EVM shape) |
 //! | eth_getBlockByHash | ✅ |
 //! | net_version | ✅ |
@@ -36,6 +37,7 @@ use crate::zvm::{
     execute, ZvmCall, ZvmContext, ZvmCreate, ZvmDb, ZvmTxEnvelope, DEFAULT_BLOCK_GAS_LIMIT,
 };
 use crate::zvm_state::CfZvmDb;
+use crate::state::State;
 use crate::types::Address;
 use primitive_types::{H256, U256};
 use serde_json::{json, Value};
@@ -99,6 +101,10 @@ pub fn parse_address(s: &str) -> Result<Address, String> {
 
 pub struct ZvmRpcCtx {
     pub db: Arc<CfZvmDb>,
+    /// Phase C.2.1 — read-only handle to the native State so handlers can
+    /// resolve `eth_getTransactionByHash` / `eth_getTransactionReceipt`
+    /// against the recent-tx ring buffer maintained by `state::apply_block`.
+    pub state: Arc<State>,
     pub chain_id: u64,
     pub current_height: u64,
     pub current_timestamp: u64,
@@ -289,10 +295,96 @@ pub fn dispatch(ctx: &ZvmRpcCtx, method: &str, params: &[Value]) -> Result<Value
             Ok(json!(filtered))
         }
 
+        "eth_getTransactionByHash" | "zbx_getEvmTransaction" => {
+            // Phase C.2.1 — resolves a 32-byte tx hash to an Ethereum-shaped
+            // tx object by reading the native recent-tx ring buffer (the
+            // ZVM tx path itself is not yet wired to push into this index;
+            // current coverage is native ZBX transfers + every other native
+            // TxKind variant). Returns `null` (Geth convention) when the
+            // hash is not found in the rolling window.
+            let raw = get_str(params, 0)?;
+            let bytes = parse_hex(raw)?;
+            if bytes.len() != 32 {
+                return Err(format!("tx hash must be 32 bytes, got {}", bytes.len()));
+            }
+            let mut h = [0u8; 32];
+            h.copy_from_slice(&bytes);
+            match ctx.state.find_tx_by_hash(&h) {
+                None => Ok(Value::Null),
+                Some(rec) => {
+                    let block_hash_hex = ctx.state.block_hash_at(rec.height)
+                        .map(|h| format!("0x{}", hex::encode(h.0)))
+                        .unwrap_or_else(|| format!("0x{}", "0".repeat(64)));
+                    Ok(json!({
+                        "blockHash": block_hash_hex,
+                        "blockNumber": quantity_u64(rec.height),
+                        "from": format!("0x{}", hex::encode(rec.from.as_bytes())),
+                        "to": format!("0x{}", hex::encode(rec.to.as_bytes())),
+                        "gas": quantity_u64(21_000),
+                        "gasPrice": format!("0x{:x}", ctx.base_fee),
+                        "hash": format!("0x{}", hex::encode(rec.hash)),
+                        // `input` is empty for native transfers; non-Transfer
+                        // kinds carry their structured args in the native
+                        // TxKind enum rather than a flat byte buffer, so we
+                        // expose `0x` here and let callers consult the native
+                        // `zbx_getTxByHash` (planned) for the typed payload.
+                        "input": "0x",
+                        "nonce": quantity_u64(rec.nonce),
+                        "transactionIndex": "0x0",
+                        "value": format!("0x{:x}", rec.amount),
+                        "type": "0x0",
+                        "chainId": quantity_u64(ctx.chain_id),
+                        // Signature components are not retained in the ring
+                        // buffer (the tx was already verified at apply time);
+                        // returning zeros keeps the JSON shape Geth-compatible
+                        // while signalling "synthesized from index, not raw RLP".
+                        "v": "0x0",
+                        "r": format!("0x{}", "0".repeat(64)),
+                        "s": format!("0x{}", "0".repeat(64)),
+                    }))
+                }
+            }
+        }
+
         "eth_getTransactionReceipt" | "zbx_getEvmReceipt" => {
-            // Reuse logs lookup via tx_hash — full receipts table built in C.2.
-            let _hash = get_str(params, 0)?;
-            Ok(Value::Null)
+            // Phase C.2.1 — synthetic receipt built from the native recent-tx
+            // index. Every entry in that index represents a tx that was
+            // successfully applied (failed txs are never indexed), so
+            // `status = 0x1` is correct by construction. `logs` is empty until
+            // C.3 wires `store_logs` producers; `gasUsed` reports the
+            // Ethereum-canonical 21000 for transfers. Returns `null` when
+            // the hash is outside the rolling window of the last 1000 txs.
+            let raw = get_str(params, 0)?;
+            let bytes = parse_hex(raw)?;
+            if bytes.len() != 32 {
+                return Err(format!("tx hash must be 32 bytes, got {}", bytes.len()));
+            }
+            let mut h = [0u8; 32];
+            h.copy_from_slice(&bytes);
+            match ctx.state.find_tx_by_hash(&h) {
+                None => Ok(Value::Null),
+                Some(rec) => {
+                    let block_hash_hex = ctx.state.block_hash_at(rec.height)
+                        .map(|h| format!("0x{}", hex::encode(h.0)))
+                        .unwrap_or_else(|| format!("0x{}", "0".repeat(64)));
+                    Ok(json!({
+                        "blockHash": block_hash_hex,
+                        "blockNumber": quantity_u64(rec.height),
+                        "contractAddress": Value::Null,
+                        "cumulativeGasUsed": quantity_u64(21_000),
+                        "effectiveGasPrice": format!("0x{:x}", ctx.base_fee),
+                        "from": format!("0x{}", hex::encode(rec.from.as_bytes())),
+                        "to": format!("0x{}", hex::encode(rec.to.as_bytes())),
+                        "gasUsed": quantity_u64(21_000),
+                        "logs": Vec::<Value>::new(),
+                        "logsBloom": format!("0x{}", "0".repeat(512)),
+                        "status": "0x1",
+                        "transactionHash": format!("0x{}", hex::encode(rec.hash)),
+                        "transactionIndex": "0x0",
+                        "type": "0x0",
+                    }))
+                }
+            }
         }
 
         "eth_getBlockByNumber" => {

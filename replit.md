@@ -38,7 +38,7 @@ The project uses a pnpm workspace monorepo, with packages like:
 - **Transactions:** `TxKind` enum supports `Transfer`, `ValidatorAdd`, `ValidatorRemove`, `Swap`, `Bridge`, and `Proposal`.
 - **Tokenomics:** 150M ZBX supply, Bitcoin-style halving. `MIN_SELF_BOND_WEI` set to 100 ZBX, `MIN_DELEGATION_WEI` to 10 ZBX.
 - **AMM:** On-chain zSwap AMM, `x·y=k` model with 0.3% fee.
-- **Recent Transactions:** RocksDB-backed ring buffer for fast retrieval.
+- **Recent Transactions:** RocksDB-backed ring buffer (rolling cap of 1000 native txs). Phase C.2.1 added a secondary `META_RTX_HASH_PREFIX = b"rtx/h/"` index in CF_META so `find_tx_by_hash()` does an O(1) point lookup; the ring's `push_recent_tx()` writes both indexes in lockstep and cascade-deletes the hash mapping on eviction. `eth_getTransactionByHash` / `eth_getTransactionReceipt` (and their `zbx_getEvmTransaction` / `zbx_getEvmReceipt` aliases) synthesize the standard Ethereum-shape JSON from this index — `status=0x1` is correct by construction since failed txs are never indexed. ZVM (Solidity) tx coverage + real per-execution receipts ship in Phase C.3.
 - **Cryptography:** Switched to secp256k1 (ECDSA) for ETH-compatible address derivation.
 - **Bridge Module:** On-chain `bridge` module with `BridgeNetwork` and `BridgeAsset` registries, lock/release pattern. Single-trusted-oracle MVP.
 - **Forkless On-chain Governance (Phase D):** `proposal` module with `ProposalKind` (FeatureFlag, ParamChange, ContractWhitelist, TextOnly). 14-day Testing phase, 76-day Voting phase (90 days total). 1 wallet = 1 vote, 90% approval + 5 votes quorum for auto-activation. Max 3 active proposals per proposer.

@@ -422,8 +422,13 @@ function TxTool() {
     const lower = hash.toLowerCase();
     try {
       // 1. Try the ZVM path. Both calls are best-effort — the chain may
-      //    return -32000 "unsupported ZVM method" for eth_getTransactionByHash,
-      //    and eth_getTransactionReceipt returns null for non-ZVM txs.
+      //    Both are wired in Phase C.2.1 — eth_getTransactionByHash and
+      //    eth_getTransactionReceipt now resolve native ZBX-tx hashes from
+      //    the recent-tx ring buffer (synthetic Ethereum-shape JSON, status=0x1
+      //    by construction since failed txs are never indexed). Returns
+      //    `null` only when the hash is outside the rolling window of 1000
+      //    txs OR when the tx is a ZVM (Solidity) tx — the ZVM execute path
+      //    is not yet wired into the ring buffer (C.3 work).
       const [t, r] = await Promise.all([
         rpc<any>("eth_getTransactionByHash", [lower]).catch(() => null),
         rpc<any>("eth_getTransactionReceipt", [lower]).catch(() => null),
@@ -444,9 +449,10 @@ function TxTool() {
           const indexed = ring?.total_indexed ?? 0;
           const cap = ring?.max_cap ?? 1000;
           setErr(
-            `Hash not found. ZVM eth_getTransactionByHash is not wired on-chain yet, ` +
-            `and the hash is not in the native ring buffer (${indexed} indexed, cap ${cap}). ` +
-            `Older tx? It may have rolled out of the buffer — try fetching the block directly.`,
+            `Hash not found. eth_getTransactionByHash + the native ring buffer ` +
+            `(${indexed} indexed, cap ${cap}) both came up empty. ` +
+            `Older tx? It may have rolled out of the buffer — try fetching the block directly. ` +
+            `ZVM (Solidity) tx hashes are not yet indexed in the ring buffer (Phase C.3).`,
           );
         }
       }

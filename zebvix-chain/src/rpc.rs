@@ -1391,7 +1391,8 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                     "zbx_clientVersion" | "zbx_syncing" | "zbx_accounts"
                     | "zbx_gasPrice" | "zbx_blobBaseFee" | "zbx_getCode"
                     | "zbx_getStorageAt" | "zbx_call" | "zbx_getLogs"
-                    | "zbx_getEvmReceipt" | "zbx_feeHistory"
+                    | "zbx_getEvmReceipt" | "zbx_getEvmTransaction"
+                    | "zbx_feeHistory"
                     | "zbx_sendRawEvmTransaction"
                 )
             {
@@ -1432,6 +1433,9 @@ fn try_evm_dispatch(
 
     let zvm_ctx = crate::zvm_rpc::ZvmRpcCtx {
         db,
+        // Phase C.2.1 — share native State so eth_getTransactionByHash and
+        // eth_getTransactionReceipt can resolve hashes via find_tx_by_hash.
+        state: ctx.state.clone(),
         chain_id: CHAIN_ID,
         current_height: height,
         current_timestamp: block_ts_ms / 1000,
