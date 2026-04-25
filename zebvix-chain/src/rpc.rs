@@ -1347,8 +1347,29 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
             // `net_*`, or `web3_*` method that the legacy native dispatcher
             // above did not handle is routed to `evm_rpc::dispatch` so the
             // node speaks Geth-compatible JSON-RPC for wallets and tooling.
+            //
+            // We also forward a curated set of EVM-side `zbx_*` aliases
+            // (`zbx_clientVersion`, `zbx_syncing`, `zbx_accounts`,
+            // `zbx_gasPrice`, `zbx_blobBaseFee`, `zbx_getCode`,
+            // `zbx_getStorageAt`, `zbx_call`, `zbx_getLogs`,
+            // `zbx_getEvmReceipt`, `zbx_feeHistory`,
+            // `zbx_sendRawEvmTransaction`) — every one of these resolves to
+            // the SAME handler as its `eth_*` / `web3_*` partner inside
+            // `evm_rpc::dispatch`, so dashboards and CLIs that prefer the
+            // Zebvix-native namespace get identical results without ever
+            // touching the Ethereum-flavoured method names. These aliases
+            // require `--features evm`; without it, the dispatcher returns
+            // `method not found` just like the eth_* originals.
             #[cfg(feature = "evm")]
-            if m.starts_with("eth_") || m.starts_with("net_") || m.starts_with("web3_") {
+            if m.starts_with("eth_") || m.starts_with("net_") || m.starts_with("web3_")
+                || matches!(m,
+                    "zbx_clientVersion" | "zbx_syncing" | "zbx_accounts"
+                    | "zbx_gasPrice" | "zbx_blobBaseFee" | "zbx_getCode"
+                    | "zbx_getStorageAt" | "zbx_call" | "zbx_getLogs"
+                    | "zbx_getEvmReceipt" | "zbx_feeHistory"
+                    | "zbx_sendRawEvmTransaction"
+                )
+            {
                 if let Some(resp) = try_evm_dispatch(&ctx, &id, m, &req.params) {
                     return Json(resp);
                 }

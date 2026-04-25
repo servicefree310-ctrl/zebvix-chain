@@ -121,19 +121,52 @@ impl EvmRpcCtx {
 }
 
 /// Top-level dispatcher invoked by `rpc::handle()` when the method name
-/// starts with `eth_` or `net_` or `web3_` and is not already handled by
-/// the legacy native shim.
+/// starts with `eth_` / `net_` / `web3_` (Geth-compatible names) **or** one
+/// of the EVM-feature-gated `zbx_*` aliases listed below — both names route
+/// to the exact same handler so wallets can pick whichever namespace they
+/// prefer once the node is built with `--features evm`.
+///
+/// Aliases that live here (EVM-only, requires `--features evm`):
+/// `web3_clientVersion` ↔ `zbx_clientVersion`,
+/// `eth_syncing`        ↔ `zbx_syncing`,
+/// `eth_accounts`       ↔ `zbx_accounts`,
+/// `eth_gasPrice`       ↔ `zbx_gasPrice`,
+/// `eth_blobBaseFee`    ↔ `zbx_blobBaseFee`,
+/// `eth_getCode`        ↔ `zbx_getCode`,
+/// `eth_getStorageAt`   ↔ `zbx_getStorageAt`,
+/// `eth_call`           ↔ `zbx_call`,
+/// `eth_getLogs`        ↔ `zbx_getLogs`,
+/// `eth_getTransactionReceipt` ↔ `zbx_getEvmReceipt`,
+/// `eth_feeHistory`     ↔ `zbx_feeHistory`,
+/// `eth_sendRawTransaction` ↔ `zbx_sendRawEvmTransaction`.
+///
+/// `eth_chainId`, `net_version`, and `eth_getBalance` are intentionally
+/// **not** aliased here — their `zbx_*` partners (`zbx_chainId`,
+/// `zbx_netVersion`, `zbx_getBalance`) live in `rpc.rs` as **always-on**
+/// methods so wallets can read them on stripped builds with no EVM feature.
+/// Likewise `eth_blockNumber`, `eth_estimateGas`, `eth_getTransactionCount`,
+/// and `eth_getBlockByNumber` each have a richer Zebvix-native counterpart
+/// in `rpc.rs` with a different return shape, so we deliberately keep their
+/// names distinct (no `zbx_blockNumber`/`zbx_estimateGas`/`zbx_getNonce`/
+/// `zbx_getBlockByNumber` aliases inside this dispatcher).
+///
+/// Note on `eth_sendRawTransaction`: it **is** aliased above to
+/// `zbx_sendRawEvmTransaction` (RLP path). The qualifier "Evm" in the alias
+/// name is what keeps it distinct from the always-on native
+/// `zbx_sendRawTransaction` in `rpc.rs`, which accepts hex-encoded bincode
+/// `SignedTx`, not RLP — two separate submission paths, two separate names,
+/// no collision.
 pub fn dispatch(ctx: &EvmRpcCtx, method: &str, params: &[Value]) -> Result<Value, String> {
     match method {
         "eth_chainId" => Ok(json!(quantity_u64(ctx.chain_id))),
         "net_version" => Ok(json!(ctx.chain_id.to_string())),
-        "web3_clientVersion" => Ok(json!("Zebvix/0.1.0/rust1.83/cancun-evm")),
+        "web3_clientVersion" | "zbx_clientVersion" => Ok(json!("Zebvix/0.1.0/rust1.83/cancun-evm")),
 
         "eth_blockNumber" => Ok(json!(quantity_u64(ctx.current_height))),
-        "eth_syncing" => Ok(json!(false)),
-        "eth_accounts" => Ok(json!(Vec::<String>::new())),
-        "eth_gasPrice" => Ok(json!(format!("0x{:x}", ctx.base_fee))),
-        "eth_blobBaseFee" => Ok(json!("0x1")),
+        "eth_syncing"     | "zbx_syncing"     => Ok(json!(false)),
+        "eth_accounts"    | "zbx_accounts"    => Ok(json!(Vec::<String>::new())),
+        "eth_gasPrice"    | "zbx_gasPrice"    => Ok(json!(format!("0x{:x}", ctx.base_fee))),
+        "eth_blobBaseFee" | "zbx_blobBaseFee" => Ok(json!("0x1")),
 
         "eth_getBalance" => {
             let addr = parse_address(get_str(params, 0)?)?;
@@ -147,7 +180,7 @@ pub fn dispatch(ctx: &EvmRpcCtx, method: &str, params: &[Value]) -> Result<Value
             Ok(json!(quantity_u64(nonce)))
         }
 
-        "eth_getCode" => {
+        "eth_getCode" | "zbx_getCode" => {
             let addr = parse_address(get_str(params, 0)?)?;
             let code = ctx.db.account(&addr)
                 .and_then(|a| ctx.db.code(&a.code_hash))
@@ -155,7 +188,7 @@ pub fn dispatch(ctx: &EvmRpcCtx, method: &str, params: &[Value]) -> Result<Value
             Ok(json!(data_hex(&code)))
         }
 
-        "eth_getStorageAt" => {
+        "eth_getStorageAt" | "zbx_getStorageAt" => {
             let addr = parse_address(get_str(params, 0)?)?;
             let key = parse_u256(get_str(params, 1)?)?;
             let k = key.to_big_endian();
@@ -163,7 +196,7 @@ pub fn dispatch(ctx: &EvmRpcCtx, method: &str, params: &[Value]) -> Result<Value
             Ok(json!(format!("0x{}", hex::encode(v.as_bytes()))))
         }
 
-        "eth_call" => {
+        "eth_call" | "zbx_call" => {
             let call_obj = params.first().ok_or("missing call object")?;
             let env = parse_call_envelope(call_obj)?;
             let from = call_obj.get("from")
@@ -191,7 +224,7 @@ pub fn dispatch(ctx: &EvmRpcCtx, method: &str, params: &[Value]) -> Result<Value
             Ok(json!(quantity_u64(estimate)))
         }
 
-        "eth_sendRawTransaction" => {
+        "eth_sendRawTransaction" | "zbx_sendRawEvmTransaction" => {
             // Phase C.2: full RLP decode + sender recovery + actual execution.
             let raw = parse_hex(get_str(params, 0)?)?;
             let (tx, sender, declared_chain_id) =
@@ -235,7 +268,7 @@ pub fn dispatch(ctx: &EvmRpcCtx, method: &str, params: &[Value]) -> Result<Value
             Ok(json!(format!("0x{}", hex::encode(hash))))
         }
 
-        "eth_getLogs" => {
+        "eth_getLogs" | "zbx_getLogs" => {
             let filter = params.first().ok_or("missing filter")?;
             let from_block = parse_block_tag(filter.get("fromBlock"), ctx.current_height)?;
             let to_block = parse_block_tag(filter.get("toBlock"), ctx.current_height)?;
@@ -256,7 +289,7 @@ pub fn dispatch(ctx: &EvmRpcCtx, method: &str, params: &[Value]) -> Result<Value
             Ok(json!(filtered))
         }
 
-        "eth_getTransactionReceipt" => {
+        "eth_getTransactionReceipt" | "zbx_getEvmReceipt" => {
             // Reuse logs lookup via tx_hash — full receipts table built in C.2.
             let _hash = get_str(params, 0)?;
             Ok(Value::Null)
@@ -275,7 +308,7 @@ pub fn dispatch(ctx: &EvmRpcCtx, method: &str, params: &[Value]) -> Result<Value
             }))
         }
 
-        "eth_feeHistory" => {
+        "eth_feeHistory" | "zbx_feeHistory" => {
             let count = parse_u256(get_str(params, 0).unwrap_or("0x1"))?.as_u64().min(1024);
             let mut base_fees = vec![];
             for _ in 0..=count {
