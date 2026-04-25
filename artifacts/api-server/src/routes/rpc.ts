@@ -53,6 +53,12 @@ const ALLOWED_METHODS = new Set<string>([
   "zbx_getCode",
   // ── Phase B.3.3 — Slashing evidence (read-only) ────────────────────
   "zbx_listEvidence",
+  // ── Phase C.2 — Native ZVM tx/receipt (canonical + legacy aliases) ─
+  "zbx_getZvmTransaction",
+  "zbx_getZvmReceipt",
+  "zbx_getEvmTransaction",
+  "zbx_getEvmReceipt",
+  "zbx_supply",
   // ── Phase D — On-chain governance (read-only) ──────────────────────
   "zbx_proposalsList",
   "zbx_proposalGet",

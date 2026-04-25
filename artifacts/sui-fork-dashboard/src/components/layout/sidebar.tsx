@@ -33,7 +33,8 @@ import {
   AtSign,
   Smartphone,
   Cpu,
-  Vote
+  Vote,
+  Terminal
 } from "lucide-react";
 import { useChecklist } from "@/hooks/useChecklist";
 import { Progress } from "@/components/ui/progress";
@@ -56,6 +57,9 @@ const CORE_NAV = [
 
 const LIVE_NAV = [
   { href: "/live-chain", label: "Live Chain Status", icon: Activity },
+  { href: "/wallet", label: "ZBX Wallet (Send / MetaMask)", icon: Wallet },
+  { href: "/block-explorer", label: "Block Explorer", icon: Search },
+  { href: "/rpc-playground", label: "RPC Playground", icon: Terminal },
   { href: "/zvm-explorer", label: "ZVM Explorer (C.2)", icon: Cpu },
   { href: "/pool-explorer", label: "Pool / AMM", icon: Droplets },
   { href: "/balance-lookup", label: "Balance Lookup", icon: Wallet },
@@ -72,8 +76,6 @@ const ADDON_NAV = [
   { href: "/implementation", label: "Implementation Roadmap", icon: Map },
   { href: "/rebranding", label: "Rebranding Guide", icon: Paintbrush },
   { href: "/zbx-tokenomics", label: "ZBX Tokenomics Design", icon: Coins },
-  { href: "/block-explorer", label: "Block Explorer", icon: Search },
-  { href: "/wallet", label: "ZBX Wallet", icon: Wallet },
   { href: "/faucet", label: "Testnet Faucet", icon: Droplets },
   { href: "/bridge", label: "Cross-Chain Bridge", icon: ArrowLeftRight },
   { href: "/staking", label: "Staking Dashboard", icon: TrendingUp },

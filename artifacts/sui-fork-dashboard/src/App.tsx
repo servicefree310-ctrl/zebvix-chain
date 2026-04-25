@@ -43,6 +43,7 @@ import ZvmExplorer from "@/pages/zvm-explorer";
 import PoolExplorer from "@/pages/pool-explorer";
 import GovernancePage from "@/pages/governance";
 import SmartContracts from "@/pages/smart-contracts";
+import RpcPlayground from "@/pages/rpc-playground";
 
 const queryClient = new QueryClient();
 
@@ -88,6 +89,7 @@ function Router() {
         <Route path="/pool-explorer" component={PoolExplorer} />
         <Route path="/governance" component={GovernancePage} />
         <Route path="/smart-contracts" component={SmartContracts} />
+        <Route path="/rpc-playground" component={RpcPlayground} />
         <Route component={NotFound} />
       </Switch>
     </Shell>

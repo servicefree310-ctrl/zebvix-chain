@@ -218,3 +218,148 @@ export function fmtUsd(n: number): string {
   if (n >= 1) return `$${n.toFixed(2)}`;
   return `$${n.toFixed(6).replace(/0+$/, "").replace(/\.$/, "")}`;
 }
+
+// ──────────────────────────────────────────────────────────────────────
+// Block / tx explorer helpers
+// ──────────────────────────────────────────────────────────────────────
+
+export interface EthBlock {
+  number: string;            // hex
+  hash: string;
+  parentHash: string;
+  timestamp: string;         // hex (seconds)
+  miner: string;
+  gasUsed: string;           // hex
+  gasLimit: string;          // hex
+  baseFeePerGas?: string;
+  size?: string;
+  transactions: string[] | EthTxLite[];
+}
+
+export interface EthTxLite {
+  hash: string;
+  from: string;
+  to: string | null;
+  value: string;             // hex wei
+  nonce: string;             // hex
+  gas: string;
+  gasPrice?: string;
+  blockNumber?: string | null;
+  blockHash?: string | null;
+  transactionIndex?: string | null;
+  input?: string;
+}
+
+export interface EthReceipt {
+  transactionHash: string;
+  blockNumber: string;
+  blockHash: string;
+  from: string;
+  to: string | null;
+  status: string;            // "0x1" success, "0x0" revert
+  gasUsed: string;
+  cumulativeGasUsed?: string;
+  contractAddress?: string | null;
+  logs?: unknown[];
+}
+
+export interface ZbxTipInfo {
+  height: number;
+  hash: string;
+  proposer: string;
+  timestamp_ms: number;
+  hex: string;
+}
+
+/** Tip header (height + proposer + ts). */
+export async function getTip(): Promise<ZbxTipInfo | null> {
+  try {
+    const r = (await rpc<unknown>("zbx_blockNumber")) as ZbxTipInfo | null;
+    return r ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Fetch a block via eth_getBlockByNumber. `tag` is "latest" or a number. */
+export async function getEthBlock(
+  tag: number | "latest",
+  includeTxs = false,
+): Promise<EthBlock | null> {
+  const param = tag === "latest" ? "latest" : "0x" + tag.toString(16);
+  try {
+    return (await rpc<EthBlock | null>("eth_getBlockByNumber", [param, includeTxs])) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Last `n` blocks ending at `tip` (newest first). */
+export async function getRecentBlocks(tip: number, n = 10): Promise<EthBlock[]> {
+  const heights: number[] = [];
+  for (let i = 0; i < n && tip - i >= 0; i++) heights.push(tip - i);
+  const blocks = await Promise.all(heights.map((h) => getEthBlock(h, true)));
+  return blocks.filter((b): b is EthBlock => !!b);
+}
+
+export async function getEthTx(hash: string): Promise<EthTxLite | null> {
+  try {
+    return (await rpc<EthTxLite | null>("eth_getTransactionByHash", [hash])) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getEthReceipt(hash: string): Promise<EthReceipt | null> {
+  try {
+    return (await rpc<EthReceipt | null>("eth_getTransactionReceipt", [hash])) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Poll `eth_getTransactionReceipt(hash)` until a receipt arrives or until we
+ * hit `timeoutMs`. Calls `onTick` on every poll with the latest snapshot so
+ * UIs can render intermediate state ("waiting for inclusion…"). Resolves with
+ * the final receipt (or null on timeout).
+ */
+export async function pollReceipt(
+  hash: string,
+  opts: {
+    intervalMs?: number;
+    timeoutMs?: number;
+    onTick?: (snap: { receipt: EthReceipt | null; elapsedMs: number }) => void;
+  } = {},
+): Promise<EthReceipt | null> {
+  const interval = opts.intervalMs ?? 4000;
+  const deadline = Date.now() + (opts.timeoutMs ?? 90_000);
+  while (Date.now() < deadline) {
+    const r = await getEthReceipt(hash);
+    opts.onTick?.({ receipt: r, elapsedMs: Date.now() - (deadline - (opts.timeoutMs ?? 90_000)) });
+    if (r) return r;
+    await new Promise((res) => setTimeout(res, interval));
+  }
+  return null;
+}
+
+/** Hex to decimal (safe for u64-sized numbers). */
+export function hexToInt(hex: string | null | undefined): number {
+  if (!hex) return 0;
+  const s = hex.startsWith("0x") ? hex.slice(2) : hex;
+  if (!s) return 0;
+  return parseInt(s, 16);
+}
+
+export function detectQueryKind(q: string): "block-num" | "block-hash" | "tx-hash" | "address" | "unknown" {
+  const s = q.trim();
+  if (/^\d+$/.test(s)) return "block-num";
+  if (/^0x[0-9a-fA-F]{64}$/.test(s)) {
+    // Heuristic: try tx first (chain has both block hashes and tx hashes as 32B);
+    // we'll let the caller try tx, fall back to block.
+    return "tx-hash";
+  }
+  if (/^0x[0-9a-fA-F]{40}$/.test(s)) return "address";
+  return "unknown";
+}
+

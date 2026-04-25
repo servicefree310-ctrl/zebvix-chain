@@ -399,7 +399,15 @@ export async function sendSwap(opts: {
 
 // ── Tx history (per-browser, persisted) ────────────────────────────────────
 
-export type TxStatus = "submitted" | "failed" | "invalid";
+export type TxStatus =
+  | "submitted"        // signed + broadcast, no receipt yet
+  | "included"         // mined into a block, receipt fetched
+  | "confirmed"        // receipt status == success
+  | "reverted"         // receipt status == revert
+  | "failed"           // local broadcast error (never reached mempool)
+  | "invalid";
+
+export type TxKind = "native" | "metamask";
 
 export interface TxRecord {
   hash: string | null;
@@ -410,6 +418,14 @@ export interface TxRecord {
   ts: number;
   status: TxStatus;
   error?: string;
+  /** Block height containing the tx, once included. */
+  block?: number;
+  /** Wall-clock ms when the receipt was first observed. */
+  confirmedTs?: number;
+  /** Where the tx originated — native signer vs MetaMask provider. */
+  kind?: TxKind;
+  /** Optional Solidity calldata hex (MetaMask flow). */
+  data?: string;
 }
 
 const HIST_KEY = "zbx.web.tx.history.v1";
@@ -428,6 +444,15 @@ export function loadHistory(): TxRecord[] {
 
 export function recordTx(r: TxRecord) {
   const list = [r, ...loadHistory()].slice(0, HIST_MAX);
+  localStorage.setItem(HIST_KEY, JSON.stringify(list));
+}
+
+/** Patch the first record matching `hash`; no-op if not found. */
+export function updateTxByHash(hash: string, patch: Partial<TxRecord>) {
+  const list = loadHistory();
+  const idx = list.findIndex((r) => r.hash && r.hash.toLowerCase() === hash.toLowerCase());
+  if (idx < 0) return;
+  list[idx] = { ...list[idx], ...patch };
   localStorage.setItem(HIST_KEY, JSON.stringify(list));
 }
 
