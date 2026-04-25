@@ -1,0 +1,64 @@
+root@srv1266996:/home/zebvix-chain# cd /home/zebvix-chain && \
+echo '--- cargo build (incremental cache invalidated due to file renames, expect 5-15 min) ---' && \
+time cargo build --release --features zvm 2>&1 | tail -20 && \
+echo '--- restart service ---' && \
+systemctl restart zebvix.service && \
+sleep 3 && \
+systemctl status zebvix.service --no-pager -l | head -12 && \
+echo '--- alias spot check ---' && \
+echo '* web3_clientVersion (should now show zvm-cancun) *' && \
+curl -fsS -X POST http://127.0.0.1:8545 -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"web3_clientVersion","params":[]}' && echo && \
+echo '* zbx_clientVersion (alias, same response) *' && \
+curl -fsS -X POST http://127.0.0.1:8545 -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"zbx_clientVersion","params":[]}' && echo && \
+echo '* eth_chainId *' && \
+curl -fsS -X POST http://127.0.0.1:8545 -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":3,"method":"eth_chainId","params":[]}' && echo && \
+echo '* zbx_chainId (always-on alias) *' && \
+curl -fsS -X POST http://127.0.0.1:8545 -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":4,"method":"zbx_chainId","params":[]}' && echo && \
+echo '* zbx_blockNumber *' && \
+curl -fsS -X POST http://127.0.0.1:8545 -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":5,"method":"zbx_blockNumber","params":[]}' && echo
+--- cargo build (incremental cache invalidated due to file renames, expect 5-15 min) ---
+   Compiling zebvix-node v0.1.0 (/home/zebvix-chain)
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:393:4
+    |
+393 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 1m 34s
+
+real    1m34.286s
+user    2m24.585s
+sys     0m5.717s
+--- restart service ---
+● zebvix.service - Zebvix L1 Blockchain Node
+     Loaded: loaded (/etc/systemd/system/zebvix.service; enabled; preset: enabled)
+     Active: active (running) since Sat 2026-04-25 05:37:47 UTC; 3s ago
+   Main PID: 145996 (zebvix-node)
+      Tasks: 7 (limit: 9483)
+     Memory: 3.6M (peak: 4.1M)
+        CPU: 35ms
+     CGroup: /system.slice/zebvix.service
+             └─145996 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333 --no-mdns
+
+Apr 25 05:37:47 srv1266996.hstgr.cloud zebvix-node[145996]: 2026-04-25T05:37:47.306642Z  INFO zebvix_node: 🚀 Zebvix node starting
+Apr 25 05:37:47 srv1266996.hstgr.cloud zebvix-node[145996]: 2026-04-25T05:37:47.306680Z  INFO zebvix_node:    chain_id  : 7878
+--- alias spot check ---
+* web3_clientVersion (should now show zvm-cancun) *
+{"jsonrpc":"2.0","id":1,"result":"Zebvix/0.1.0/rust1.83/zvm-cancun"}
+* zbx_clientVersion (alias, same response) *
+{"jsonrpc":"2.0","id":2,"result":"Zebvix/0.1.0/rust1.83/zvm-cancun"}
+* eth_chainId *
+{"jsonrpc":"2.0","id":3,"result":"0x1ec6"}
+* zbx_chainId (always-on alias) *
+{"jsonrpc":"2.0","id":4,"result":"0x1ec6"}
+* zbx_blockNumber *
+{"jsonrpc":"2.0","id":5,"result":{"hash":"0x0a25d1baf37e82fd6f20edf2329cae17ffa5ce0ed63c25fafb8d8fb184c056a8","height":12613,"hex":"0x3145","proposer":"0x40907000ac0a1a73e4cd89889b4d7ee8980c0315","timestamp_ms":1777095467069}}
+root@srv1266996:/home/zebvix-chain# 
