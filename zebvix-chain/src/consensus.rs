@@ -92,10 +92,20 @@ impl Producer {
             crate::crypto::keccak256(&buf)
         };
 
+        // Phase B.3.3 — populate state_root with the parent's post-state
+        // (Tendermint AppHash convention). Until activation height is
+        // reached on a given chain, fall back to ZERO for backward compat
+        // with already-mined blocks.
+        let state_root = if next_height >= *crate::state::STATE_ROOT_ACTIVATION_HEIGHT {
+            self.state.compute_state_root()
+        } else {
+            Hash::ZERO
+        };
+
         let header = BlockHeader {
             height: next_height,
             parent_hash: parent,
-            state_root: Hash::ZERO, // v0.1: skip state root (compute in v0.2 with Merkle Patricia)
+            state_root,
             tx_root,
             timestamp_ms: Self::now_ms(),
             proposer: self.proposer_address(),

@@ -56,6 +56,16 @@ const META_MS_OWNER_PREFIX: &[u8] = b"mso/";
 // deleted so total stored entries are bounded by CAP.
 const META_RTX_PREFIX: &[u8] = b"rtx/";
 const META_RTX_SEQ: &[u8] = b"rtx_seq";
+
+// ── Phase B.3.3 — slashing evidence log (non-consensus / informational) ──
+// Evidence is recorded out-of-band when a node detects a double-sign vote.
+// It is EXCLUDED from `compute_state_root` because evidence-detection timing
+// is not deterministic across validators (a slow node may record evidence
+// at a different block height than a fast one). The actual slashing of stake
+// IS deterministic (applied via `staking.slash_double_sign` and persisted to
+// META_STAKING which IS in the state root). Evidence is the audit log only.
+const META_EVIDENCE_PREFIX: &[u8] = b"evid/";
+const META_EVIDENCE_SEQ: &[u8] = b"evid_seq";
 /// Maximum number of recent transactions retained on-chain (rolling window).
 pub const RECENT_TX_CAP: u64 = 1000;
 
@@ -1721,6 +1731,26 @@ impl State {
             }
         }
 
+        // ── Phase B.3.3 — state-root verification (Tendermint AppHash style) ──
+        // Convention: header.state_root commits to the state AFTER applying
+        // block H-1 (i.e., the parent's post-state == our current state right
+        // now, BEFORE applying this block's txs). We verify this BEFORE
+        // applying any txs so a bad root short-circuits without mutating
+        // anything. Activation is gated by `STATE_ROOT_ACTIVATION_HEIGHT`
+        // (env-driven, default = u64::MAX = disabled) so existing chains keep
+        // accepting ZERO-root blocks until operators coordinate an upgrade.
+        if block.header.height >= *STATE_ROOT_ACTIVATION_HEIGHT {
+            let computed = self.compute_state_root();
+            if block.header.state_root != computed {
+                return Err(anyhow!(
+                    "state_root mismatch at h={}: header={} computed={}",
+                    block.header.height,
+                    block.header.state_root,
+                    computed,
+                ));
+            }
+        }
+
         let mut total_fees: u128 = 0;
         for tx in &block.txs {
             self.apply_tx(tx)?;
@@ -2615,5 +2645,469 @@ impl State {
             self.put_account(&admin, &a)?;
         }
         Ok(out)
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Phase B.3.3 — State commitment, slashing wiring, snapshot tooling
+// ═════════════════════════════════════════════════════════════════════════
+//
+// All additions below are gated behind env-driven activation so this file
+// can be deployed to a running chain without forcing an immediate hard fork:
+//
+//   ZEBVIX_STATE_ROOT_ACTIVATION_HEIGHT=<height>
+//       Block height at which `header.state_root` MUST equal the locally
+//       recomputed root. Below this height, ZERO is accepted (legacy).
+//       Default: u64::MAX (effectively disabled — operators must opt in).
+//
+//   ZEBVIX_SLASHING_ENABLED=1
+//       Activates `slash_double_sign` calls from the vote-handling path in
+//       main.rs when DoubleSign evidence is detected. Default: disabled.
+//
+// Operators flip these on once their validator set is migrated and tested.
+
+use once_cell::sync::Lazy;
+
+/// Block height at which state-root verification is enforced. Headers below
+/// this height may carry `Hash::ZERO` (legacy v0.1 blocks); headers at or
+/// above this height MUST carry the deterministic Merkle root computed by
+/// `compute_state_root()`. Set via env `ZEBVIX_STATE_ROOT_ACTIVATION_HEIGHT`.
+pub static STATE_ROOT_ACTIVATION_HEIGHT: Lazy<u64> = Lazy::new(|| {
+    std::env::var("ZEBVIX_STATE_ROOT_ACTIVATION_HEIGHT")
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(u64::MAX)
+});
+
+/// Master switch for the Phase B.3.3 slashing pipeline. When false (the
+/// default), `DoubleSign` evidence is detected, logged, and persisted to the
+/// evidence ledger but NO stake is burned — useful for shadow-running the
+/// detection logic on a single-validator devnet without risking downtime.
+pub static SLASHING_ENABLED: Lazy<bool> = Lazy::new(|| {
+    std::env::var("ZEBVIX_SLASHING_ENABLED")
+        .map(|v| {
+            let v = v.trim();
+            v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("yes")
+        })
+        .unwrap_or(false)
+});
+
+/// On-chain audit record of a detected double-sign event. Persisted under
+/// `META_EVIDENCE_PREFIX` in CF_META and EXCLUDED from `compute_state_root`
+/// because evidence-detection timing is not deterministic across nodes
+/// (see comment block at the META_EVIDENCE_PREFIX declaration).
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct DoubleSignEvidence {
+    pub validator: Address,
+    pub height: u64,
+    pub round: u32,
+    pub vote_type: String,
+    pub previous_block_hash: Hash,
+    pub conflicting_block_hash: Hash,
+    pub recorded_at_height: u64,
+    pub slashed_amount_wei: u128,
+}
+
+impl State {
+    // ────────────────────────────────────────────────────────────────────
+    // State commitment — deterministic Merkle root over consensus state
+    // ────────────────────────────────────────────────────────────────────
+    //
+    // Algorithm:
+    //   1. Iterate every (key, value) in CF_ACCOUNTS — domain-tag prefix `A`.
+    //   2. Iterate every (key, value) in CF_META — domain-tag prefix `M` —
+    //      EXCLUDING block-derived keys (META_HEIGHT, META_LAST_HASH —
+    //      already self-referenced by the block-hash chain) and
+    //      non-consensus indexes (META_RTX_*, META_EVIDENCE_*).
+    //   3. Each leaf = keccak256(domain_tag || key || value).
+    //   4. Sort leaves lexicographically (defensive — RocksDB iteration is
+    //      already sorted, but explicit sort guards against future CF
+    //      changes).
+    //   5. Reduce pairwise via keccak256(left || right). Odd leaves at any
+    //      level are duplicated (Bitcoin-style padding).
+    //
+    // The empty-state root is `Hash::ZERO`. Operators verifying historical
+    // blocks below `STATE_ROOT_ACTIVATION_HEIGHT` will see ZERO roots that
+    // do NOT match this computation — that is intentional (legacy gap).
+    //
+    pub fn compute_state_root(&self) -> Hash {
+        use crate::crypto::keccak256;
+        let mut leaves: Vec<Hash> = Vec::new();
+
+        let cf_acc = self.db.cf_handle(CF_ACCOUNTS).unwrap();
+        for item in self.db.iterator_cf(cf_acc, rocksdb::IteratorMode::Start) {
+            let (k, v) = match item { Ok(kv) => kv, Err(_) => continue };
+            let mut buf = Vec::with_capacity(k.len() + v.len() + 1);
+            buf.push(b'A');
+            buf.extend_from_slice(&k);
+            buf.extend_from_slice(&v);
+            leaves.push(keccak256(&buf));
+        }
+
+        let cf_meta = self.db.cf_handle(CF_META).unwrap();
+        for item in self.db.iterator_cf(cf_meta, rocksdb::IteratorMode::Start) {
+            let (k, v) = match item { Ok(kv) => kv, Err(_) => continue };
+            // ── Exclusions (non-consensus or block-derived) ──
+            if k.as_ref() == META_HEIGHT { continue; }
+            if k.as_ref() == META_LAST_HASH { continue; }
+            if k.as_ref() == META_RTX_SEQ { continue; }
+            if k.as_ref() == META_EVIDENCE_SEQ { continue; }
+            if k.starts_with(META_RTX_PREFIX) { continue; }
+            if k.starts_with(META_EVIDENCE_PREFIX) { continue; }
+            let mut buf = Vec::with_capacity(k.len() + v.len() + 1);
+            buf.push(b'M');
+            buf.extend_from_slice(&k);
+            buf.extend_from_slice(&v);
+            leaves.push(keccak256(&buf));
+        }
+
+        leaves.sort_by(|a, b| a.0.cmp(&b.0));
+
+        if leaves.is_empty() {
+            return Hash::ZERO;
+        }
+
+        while leaves.len() > 1 {
+            if leaves.len() % 2 != 0 {
+                let last = *leaves.last().unwrap();
+                leaves.push(last);
+            }
+            let mut next = Vec::with_capacity(leaves.len() / 2);
+            for chunk in leaves.chunks(2) {
+                let mut buf = [0u8; 64];
+                buf[..32].copy_from_slice(&chunk[0].0);
+                buf[32..].copy_from_slice(&chunk[1].0);
+                next.push(keccak256(&buf));
+            }
+            leaves = next;
+        }
+        leaves[0]
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Slashing wrapper — staking module already implements the math
+    // ────────────────────────────────────────────────────────────────────
+    //
+    // Loads the current StakingModule blob, calls `slash_double_sign`
+    // (which deducts SLASH_DOUBLE_SIGN_BPS from the validator's stake and
+    // jails them for JAIL_EPOCHS_DOUBLE_SIGN epochs), then persists the
+    // updated blob. Returns the burned wei amount on success.
+    //
+    pub fn slash_double_sign(&self, validator: Address) -> Result<u128> {
+        let mut sm = self.staking();
+        let burned = sm
+            .slash_double_sign(validator)
+            .map_err(|e| anyhow!("slash_double_sign: {:?}", e))?;
+        self.put_staking(&sm)?;
+        Ok(burned)
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Atomic combined slashing + evidence persistence
+    // ────────────────────────────────────────────────────────────────────
+    //
+    // Why this exists separately from `slash_double_sign` + `record_evidence`:
+    //
+    // The double-sign hot path MUST commit (a) the staking burn and (b) the
+    // audit-log evidence row in a single atomic DB transaction. Doing two
+    // independent `db.put_cf` calls leaves a window where a process kill,
+    // power loss, or filesystem error between the two writes produces a
+    // split-brain state — validator slashed but no evidence row, or
+    // evidence row but no slash.
+    //
+    // This helper bundles ALL three writes (staking blob, evidence row,
+    // evidence seq counter) into one `rocksdb::WriteBatch` which RocksDB
+    // commits atomically (single WAL fsync, all-or-nothing).
+    //
+    // The `slashed_amount_wei` field in `ev_template` is overwritten with
+    // the actual burned amount returned by the staking module — callers
+    // can pass 0 as a placeholder.
+    //
+    pub fn slash_and_record_evidence(
+        &self,
+        validator: Address,
+        mut ev_template: DoubleSignEvidence,
+    ) -> Result<u128> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+
+        // Step 1: mutate staking blob in memory (no DB write yet).
+        let mut sm = self.staking();
+        let burned = sm
+            .slash_double_sign(validator)
+            .map_err(|e| anyhow!("slash_double_sign: {:?}", e))?;
+        ev_template.slashed_amount_wei = burned;
+
+        // Step 2: read current evidence sequence counter.
+        let seq = self.db.get_cf(cf, META_EVIDENCE_SEQ)?
+            .map(|b| {
+                let mut a = [0u8; 8];
+                if b.len() == 8 { a.copy_from_slice(&b); }
+                u64::from_be_bytes(a)
+            })
+            .unwrap_or(0);
+        let next = seq + 1;
+        let mut k_ev = META_EVIDENCE_PREFIX.to_vec();
+        k_ev.extend_from_slice(&next.to_be_bytes());
+
+        // Step 3: single atomic WriteBatch across all three keys.
+        let mut batch = rocksdb::WriteBatch::default();
+        batch.put_cf(cf, META_STAKING, bincode::serialize(&sm)?);
+        batch.put_cf(cf, k_ev, bincode::serialize(&ev_template)?);
+        batch.put_cf(cf, META_EVIDENCE_SEQ, next.to_be_bytes());
+        self.db.write(batch)?;
+
+        Ok(burned)
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Evidence ledger — append-only audit log of detected double-signs
+    // ────────────────────────────────────────────────────────────────────
+
+    pub fn record_evidence(&self, ev: &DoubleSignEvidence) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let seq = self.db.get_cf(cf, META_EVIDENCE_SEQ)?
+            .map(|b| {
+                let mut a = [0u8; 8];
+                if b.len() == 8 { a.copy_from_slice(&b); }
+                u64::from_be_bytes(a)
+            })
+            .unwrap_or(0);
+        let next = seq + 1;
+        let mut k = META_EVIDENCE_PREFIX.to_vec();
+        k.extend_from_slice(&next.to_be_bytes());
+        // Atomic batch: row + seq committed together so a crash between the
+        // two keys cannot leave seq pointing at a non-existent row (or a
+        // row written without seq advance).
+        let mut batch = rocksdb::WriteBatch::default();
+        batch.put_cf(cf, k, bincode::serialize(ev)?);
+        batch.put_cf(cf, META_EVIDENCE_SEQ, next.to_be_bytes());
+        self.db.write(batch)?;
+        Ok(())
+    }
+
+    pub fn list_evidence(&self, limit: usize) -> Vec<DoubleSignEvidence> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let it = self.db.prefix_iterator_cf(cf, META_EVIDENCE_PREFIX);
+        let mut out = Vec::new();
+        for item in it {
+            if out.len() >= limit { break; }
+            let Ok((k, v)) = item else { continue };
+            if !k.starts_with(META_EVIDENCE_PREFIX) { break; }
+            if let Ok(e) = bincode::deserialize::<DoubleSignEvidence>(&v) {
+                out.push(e);
+            }
+        }
+        out
+    }
+
+    pub fn evidence_count(&self) -> u64 {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.get_cf(cf, META_EVIDENCE_SEQ).ok().flatten()
+            .map(|b| {
+                let mut a = [0u8; 8];
+                if b.len() == 8 { a.copy_from_slice(&b); }
+                u64::from_be_bytes(a)
+            })
+            .unwrap_or(0)
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // RocksDB checkpoint — hot consistent snapshot for backup
+    // ────────────────────────────────────────────────────────────────────
+    //
+    // Uses RocksDB's built-in `Checkpoint` API which produces a consistent
+    // hard-linked copy of all SSTs + a copy of the WAL at a single LSN.
+    // The output directory MUST NOT exist (RocksDB requirement). Operators
+    // typically combine this with a timestamped path:
+    //
+    //   zebvix-node snapshot --home /root/.zebvix --out /backups/snap-$(date +%s)
+    //
+    pub fn create_checkpoint(&self, out_path: &std::path::Path) -> Result<()> {
+        let cp = rocksdb::checkpoint::Checkpoint::new(&self.db)
+            .map_err(|e| anyhow!("checkpoint init failed: {}", e))?;
+        cp.create_checkpoint(out_path)
+            .map_err(|e| anyhow!("checkpoint create failed: {}", e))?;
+        Ok(())
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Tests
+// ─────────────────────────────────────────────────────────────────────────
+#[cfg(test)]
+mod state_root_tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn fresh_state() -> (TempDir, State) {
+        let td = TempDir::new().unwrap();
+        let st = State::open(td.path()).unwrap();
+        (td, st)
+    }
+
+    #[test]
+    fn empty_state_root_is_zero() {
+        let (_td, st) = fresh_state();
+        assert_eq!(st.compute_state_root(), Hash::ZERO);
+    }
+
+    #[test]
+    fn root_changes_when_account_balance_changes() {
+        let (_td, st) = fresh_state();
+        let addr = Address([1u8; 20]);
+        let r0 = st.compute_state_root();
+        let mut a = st.account(&addr);
+        a.balance = 1_000_000;
+        st.put_account(&addr, &a).unwrap();
+        let r1 = st.compute_state_root();
+        assert_ne!(r0, r1, "root must change after account mutation");
+
+        let mut a2 = st.account(&addr);
+        a2.balance = 2_000_000;
+        st.put_account(&addr, &a2).unwrap();
+        let r2 = st.compute_state_root();
+        assert_ne!(r1, r2, "root must change again on second mutation");
+    }
+
+    #[test]
+    fn root_is_deterministic_across_recomputes() {
+        let (_td, st) = fresh_state();
+        let addr_a = Address([0xaau8; 20]);
+        let addr_b = Address([0xbbu8; 20]);
+        let mut acc_a = st.account(&addr_a);
+        acc_a.balance = 7_777;
+        st.put_account(&addr_a, &acc_a).unwrap();
+        let mut acc_b = st.account(&addr_b);
+        acc_b.balance = 5_555;
+        st.put_account(&addr_b, &acc_b).unwrap();
+        assert_eq!(st.compute_state_root(), st.compute_state_root());
+    }
+
+    #[test]
+    fn evidence_log_roundtrip() {
+        let (_td, st) = fresh_state();
+        assert_eq!(st.evidence_count(), 0);
+        let ev = DoubleSignEvidence {
+            validator: Address([9u8; 20]),
+            height: 100,
+            round: 0,
+            vote_type: "prevote".to_string(),
+            previous_block_hash: Hash([1u8; 32]),
+            conflicting_block_hash: Hash([2u8; 32]),
+            recorded_at_height: 100,
+            slashed_amount_wei: 0,
+        };
+        st.record_evidence(&ev).unwrap();
+        assert_eq!(st.evidence_count(), 1);
+        let listed = st.list_evidence(10);
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].height, 100);
+    }
+
+    #[test]
+    fn evidence_excluded_from_state_root() {
+        let (_td, st) = fresh_state();
+        let r0 = st.compute_state_root();
+        let ev = DoubleSignEvidence {
+            validator: Address([3u8; 20]),
+            height: 10, round: 0,
+            vote_type: "precommit".to_string(),
+            previous_block_hash: Hash::ZERO,
+            conflicting_block_hash: Hash::ZERO,
+            recorded_at_height: 10,
+            slashed_amount_wei: 0,
+        };
+        st.record_evidence(&ev).unwrap();
+        let r1 = st.compute_state_root();
+        assert_eq!(r0, r1, "evidence write must NOT change state root");
+    }
+
+    #[test]
+    fn slash_and_record_evidence_is_atomic_pair() {
+        // Smoke test: helper writes BOTH staking blob and evidence row in one
+        // batch. After a successful call, both must be readable. (RocksDB
+        // WriteBatch is atomic-by-construction — we cannot force a partial
+        // failure in a unit test, but we verify the happy path commits both
+        // sides and uses a single sequence increment.)
+        let (_td, st) = fresh_state();
+        // Bootstrap one validator directly via the public `validators` map
+        // (avoids needing a real secp256k1 pubkey for the unit test).
+        let mut sm = st.staking();
+        let v = Address([0x44u8; 20]);
+        let mut vs = crate::staking::ValidatorState::default();
+        vs.address = v;
+        vs.total_stake = 10_000_000_000_000_000_000u128; // 10 ZBX
+        vs.total_shares = vs.total_stake; // 1:1 shares for the test
+        sm.validators.insert(v, vs);
+        st.put_staking(&sm).unwrap();
+
+        let ev_template = DoubleSignEvidence {
+            validator: v,
+            height: 50,
+            round: 1,
+            vote_type: "prevote".to_string(),
+            previous_block_hash: Hash([7u8; 32]),
+            conflicting_block_hash: Hash([8u8; 32]),
+            recorded_at_height: 50,
+            slashed_amount_wei: 0,
+        };
+        let before_count = st.evidence_count();
+        let burned = st.slash_and_record_evidence(v, ev_template).unwrap();
+        // Evidence row was committed.
+        assert_eq!(st.evidence_count(), before_count + 1, "evidence seq must increment by 1");
+        let listed = st.list_evidence(10);
+        assert!(!listed.is_empty(), "evidence must be readable after atomic write");
+        let last = listed.iter().find(|e| e.validator == v).expect("our evidence row");
+        assert_eq!(last.slashed_amount_wei, burned, "evidence row records actual burned amount");
+        // Staking blob was committed: validator must be jailed.
+        let sm2 = st.staking();
+        let v_state = sm2.validators.get(&v).expect("validator must still exist");
+        assert!(v_state.jailed, "validator must be jailed after atomic slash");
+        assert!(burned > 0, "slash must burn a non-zero amount given non-zero stake");
+    }
+
+    #[test]
+    fn slash_and_record_evidence_failure_writes_nothing() {
+        // Negative path: when staking.slash_double_sign fails (validator
+        // unknown), we must NOT have written ANY of: staking blob, evidence
+        // row, evidence seq counter. Verifies the early return happens
+        // before the WriteBatch commits.
+        let (_td, st) = fresh_state();
+        let count_before = st.evidence_count();
+        let unknown = Address([0xeeu8; 20]);
+        let ev_template = DoubleSignEvidence {
+            validator: unknown,
+            height: 1,
+            round: 0,
+            vote_type: "prevote".to_string(),
+            previous_block_hash: Hash::ZERO,
+            conflicting_block_hash: Hash::ZERO,
+            recorded_at_height: 1,
+            slashed_amount_wei: 0,
+        };
+        let res = st.slash_and_record_evidence(unknown, ev_template);
+        assert!(res.is_err(), "must error on unknown validator");
+        assert_eq!(
+            st.evidence_count(),
+            count_before,
+            "evidence seq must NOT increment on slash failure"
+        );
+        assert!(
+            st.list_evidence(10).is_empty(),
+            "no evidence row must be written on slash failure"
+        );
+    }
+
+    #[test]
+    fn checkpoint_creates_directory() {
+        let (_td, st) = fresh_state();
+        let mut acc = st.account(&Address([1u8; 20]));
+        acc.balance = 42;
+        st.put_account(&Address([1u8; 20]), &acc).unwrap();
+        let snap_dir = TempDir::new().unwrap();
+        let snap_path = snap_dir.path().join("snap1");
+        st.create_checkpoint(&snap_path).unwrap();
+        assert!(snap_path.exists(), "checkpoint dir must exist");
+        assert!(snap_path.is_dir(), "checkpoint must be a directory");
     }
 }

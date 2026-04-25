@@ -50,7 +50,7 @@ use axum::{extract::State as AxState, routing::post, Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 
 #[derive(Clone)]
 pub struct RpcCtx {
@@ -955,6 +955,30 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
             "decimals": 18,
             "block_time_secs": crate::tokenomics::BLOCK_TIME_SECS,
         })),
+        // Phase B.3.3 — slashing evidence ledger (read-only)
+        "zbx_listEvidence" => {
+            let limit = req.params.get(0).and_then(|v| v.as_u64()).unwrap_or(50) as usize;
+            let limit = limit.min(1000);
+            let evs = ctx.state.list_evidence(limit);
+            let total = ctx.state.evidence_count();
+            let arr: Vec<Value> = evs.iter().map(|e| json!({
+                "validator": e.validator.to_hex(),
+                "height": e.height,
+                "round": e.round,
+                "vote_type": e.vote_type,
+                "previous_block_hash": e.previous_block_hash.to_string(),
+                "conflicting_block_hash": e.conflicting_block_hash.to_string(),
+                "recorded_at_height": e.recorded_at_height,
+                "slashed_amount_wei": e.slashed_amount_wei.to_string(),
+            })).collect();
+            ok(id, json!({
+                "count": arr.len(),
+                "total_recorded": total,
+                "slashing_enabled": *crate::state::SLASHING_ENABLED,
+                "evidence": arr,
+            }))
+        }
+
         // Phase B.1: validator-set RPCs
         "zbx_listValidators" => {
             let vals = ctx.state.validators();
@@ -1428,9 +1452,50 @@ fn try_evm_dispatch(
 }
 
 pub fn router(ctx: RpcCtx) -> Router {
-    let cors = CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any);
+    // ── Phase B.3.3 — RPC hardening ──
+    //
+    // CORS: default behaviour preserved (open) so existing dashboards keep
+    // working. Operators lock down to a specific allowlist by setting
+    //   ZEBVIX_RPC_CORS_ORIGINS=https://app.example.com,https://admin.example.com
+    //
+    // Body limit: 256 KiB caps payload-flood DOS. The largest legitimate
+    // JSON-RPC request on this chain is a raw EVM tx (~128 KiB ceiling),
+    // so 256 KiB is plenty of headroom.
+    //
+    // Per-IP rate limiting is intentionally NOT done in-process — operators
+    // should put nginx / Cloudflare in front of the public RPC for that
+    // (out-of-process limiters survive node restarts and can share state
+    // across multiple RPC nodes). The chain still enforces:
+    //   • mempool fee floor (MIN_TX_FEE_WEI) → economic rate-limit on writes
+    //   • mempool max_size (50 000) → hard upper bound on pending state
+    //   • per-block tx cap (MAX_TXS_PER_BLOCK = 5 000) → consensus throttle
+    //
+    let cors = match std::env::var("ZEBVIX_RPC_CORS_ORIGINS") {
+        Ok(csv) if !csv.trim().is_empty() => {
+            let origins: Vec<axum::http::HeaderValue> = csv
+                .split(',')
+                .filter_map(|s| {
+                    let t = s.trim();
+                    if t.is_empty() { None } else { axum::http::HeaderValue::from_str(t).ok() }
+                })
+                .collect();
+            tracing::info!(
+                "🛡  RPC CORS locked down to {} origin(s) via ZEBVIX_RPC_CORS_ORIGINS",
+                origins.len()
+            );
+            CorsLayer::new()
+                .allow_origin(AllowOrigin::list(origins))
+                .allow_methods(Any)
+                .allow_headers(Any)
+        }
+        _ => CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any),
+    };
+
+    let body_limit = axum::extract::DefaultBodyLimit::max(256 * 1024);
+
     Router::new()
         .route("/", post(handle))
+        .layer(body_limit)
         .with_state(ctx)
         .layer(cors)
 }

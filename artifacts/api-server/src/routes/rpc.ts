@@ -51,6 +51,8 @@ const ALLOWED_METHODS = new Set<string>([
   "zbx_gasPrice",
   "zbx_syncing",
   "zbx_getCode",
+  // ── Phase B.3.3 — Slashing evidence (read-only) ────────────────────
+  "zbx_listEvidence",
   // ── Phase D — On-chain governance (read-only) ──────────────────────
   "zbx_proposalsList",
   "zbx_proposalGet",

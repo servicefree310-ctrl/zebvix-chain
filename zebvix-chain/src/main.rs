@@ -752,6 +752,29 @@ enum Cmd {
         #[arg(long, default_value = "http://127.0.0.1:8545")]
         rpc_url: String,
     },
+    /// Phase B.3.3 — Create a hot consistent RocksDB snapshot of the chain DB.
+    /// Output dir must NOT exist; typical use:
+    ///   zebvix-node snapshot --home /root/.zebvix --out /backups/snap-$(date +%s)
+    Snapshot {
+        #[arg(long)]
+        home: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Phase B.3.3 — Generate a fresh validator-signing key (separate from the
+    /// economic admin key). Writes the 32-byte secret to <out> with 0600 perms
+    /// and prints the derived address + pubkey for `validator-add` registration.
+    ValidatorKey {
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Phase B.3.3 — Read-only: list recorded double-sign evidence from a node.
+    EvidenceList {
+        #[arg(long, default_value_t = 50)]
+        limit: u64,
+        #[arg(long, default_value = "http://127.0.0.1:8545")]
+        rpc_url: String,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -1117,6 +1140,10 @@ async fn cmd_start(
                                 let r = vote.data.round;
                                 let vt = vote.data.vote_type;
                                 let voter = vote.validator_address;
+                                // Cache the conflicting vote's block hash before pool_in.add()
+                                // takes ownership of `vote` — used by the DoubleSign arm to
+                                // record evidence linking previous + conflicting hashes.
+                                let vote_block_hash_for_evid = vote.data.block_hash;
                                 match pool_in.add(vote, &vset) {
                                     AddVoteResult::Inserted { reached_quorum } => {
                                         tracing::info!("🗳  vote {} h={} r={} from {}{}",
@@ -1126,8 +1153,58 @@ async fn cmd_start(
                                     AddVoteResult::Duplicate => {
                                         tracing::debug!("vote dup from {voter}");
                                     }
-                                    AddVoteResult::DoubleSign { .. } => {
-                                        tracing::warn!("⚠️  DOUBLE-SIGN by {voter} at h={h} r={r} {} (slashable in B.3+)", vt.as_str());
+                                    AddVoteResult::DoubleSign { previous } => {
+                                        tracing::warn!(
+                                            "⚠️  DOUBLE-SIGN by {voter} at h={h} r={r} {} — recording evidence",
+                                            vt.as_str()
+                                        );
+                                        // Phase B.3.3 — wire detection → evidence log + actual slashing.
+                                        // Slashing is gated behind ZEBVIX_SLASHING_ENABLED=1 so existing
+                                        // single-validator devnets do not auto-jail their only validator
+                                        // on any vote-handling bug. Operators flip the env on once they
+                                        // are confident in the detection logic + have N≥4 validators.
+                                        //
+                                        // When slashing is ENABLED we use the atomic
+                                        // `slash_and_record_evidence` helper which commits the staking
+                                        // burn AND the evidence row in one RocksDB WriteBatch — this
+                                        // prevents a process crash between the two writes from leaving
+                                        // a split-brain state (slashed-but-no-evidence or vice versa).
+                                        // When slashing is DISABLED we just record evidence; the
+                                        // `record_evidence` helper is itself a 2-key WriteBatch
+                                        // (row + seq) so the evidence-only path is also crash-safe.
+                                        let recorded_at = st.tip().0;
+                                        let ev_template = zebvix_node::state::DoubleSignEvidence {
+                                            validator: voter,
+                                            height: h,
+                                            round: r,
+                                            vote_type: vt.as_str().to_string(),
+                                            previous_block_hash: previous.data.block_hash,
+                                            conflicting_block_hash: vote_block_hash_for_evid,
+                                            recorded_at_height: recorded_at,
+                                            slashed_amount_wei: 0,
+                                        };
+                                        if *zebvix_node::state::SLASHING_ENABLED {
+                                            match st.slash_and_record_evidence(voter, ev_template) {
+                                                Ok(amt) => {
+                                                    tracing::warn!(
+                                                        "💥 SLASHED {} wei from {voter} for double-sign (evidence persisted atomically)",
+                                                        amt
+                                                    );
+                                                }
+                                                Err(e) => {
+                                                    tracing::warn!(
+                                                        "slash_and_record_evidence failed for {voter}: {e} (no partial state written)"
+                                                    );
+                                                }
+                                            }
+                                        } else {
+                                            tracing::info!(
+                                                "(slashing disabled — set ZEBVIX_SLASHING_ENABLED=1 to activate)"
+                                            );
+                                            if let Err(e) = st.record_evidence(&ev_template) {
+                                                tracing::warn!("record_evidence failed: {e}");
+                                            }
+                                        }
                                     }
                                     AddVoteResult::BadSignature => {
                                         tracing::warn!("vote bad signature from {voter}");
@@ -1471,7 +1548,117 @@ async fn main() -> Result<()> {
         Cmd::ProposalsList { limit, rpc_url } => cmd_proposals_list(limit, rpc_url).await,
         Cmd::ProposalGet { id, rpc_url } => cmd_proposal_get(id, rpc_url).await,
         Cmd::FeatureFlagsList { rpc_url } => cmd_feature_flags_list(rpc_url).await,
+        // ─── Phase B.3.3 — operational tooling ───
+        Cmd::Snapshot { home, out } => cmd_snapshot(home, out),
+        Cmd::ValidatorKey { out } => cmd_validator_key(out),
+        Cmd::EvidenceList { limit, rpc_url } => cmd_evidence_list(limit, rpc_url).await,
     }
+}
+
+// ─────────── Phase B.3.3 — snapshot / validator-key / evidence handlers ───────────
+
+fn cmd_snapshot(home: PathBuf, out: PathBuf) -> Result<()> {
+    if out.exists() {
+        return Err(anyhow!(
+            "snapshot output path already exists: {} (RocksDB requires a fresh dir)",
+            out.display()
+        ));
+    }
+    if let Some(parent) = out.parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    let data_path = home.join("data");
+    if !data_path.exists() {
+        return Err(anyhow!("chain data dir not found: {}", data_path.display()));
+    }
+    println!("📸 Opening chain DB at {} (read-only handle via State::open)", data_path.display());
+    let state = State::open(&data_path)?;
+    let (h, hash) = state.tip();
+    println!("   tip height : {}", h);
+    println!("   tip hash   : {}", hash);
+    println!("   creating checkpoint at: {}", out.display());
+    state.create_checkpoint(&out)?;
+    println!("✅ Snapshot complete.");
+    println!("   Restore by pointing a fresh node's --home at <out>/.. with `data` symlinked to {}.", out.display());
+    Ok(())
+}
+
+fn cmd_validator_key(out: PathBuf) -> Result<()> {
+    if out.exists() {
+        return Err(anyhow!(
+            "validator key file already exists: {} (refusing to overwrite)",
+            out.display()
+        ));
+    }
+    if let Some(parent) = out.parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    let (sk, pk) = generate_keypair();
+    let addr = address_from_pubkey(&pk);
+    write_keyfile(&out, &sk, &pk)?;
+    // Best-effort tighten perms to 0600 on Unix.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = std::fs::metadata(&out) {
+            let mut perms = meta.permissions();
+            perms.set_mode(0o600);
+            let _ = std::fs::set_permissions(&out, perms);
+        }
+    }
+    println!();
+    println!("{C_CYAN_B}🔐  New Validator-Signing Key Generated{C_RESET}");
+    println!();
+    println!("   address    : {}", addr);
+    println!("   pubkey     : 0x{}", hex::encode(pk));
+    println!("   key file   : {} (perms: 0600)", out.display());
+    println!();
+    println!("{C_GREEN}Next step:{C_RESET} register this validator on-chain by signing a");
+    println!("`validator-add` (or `validator-create`) tx with your ECONOMIC ADMIN key");
+    println!("(NOT this signing key). Example:");
+    println!();
+    println!("   zebvix-node validator-add \\");
+    println!("       --signer-key /cold/admin.key \\");
+    println!("       --pubkey 0x{} \\", hex::encode(pk));
+    println!("       --power 1");
+    println!();
+    println!("{C_GREEN}Security:{C_RESET} keep this key file on the validator host only. The");
+    println!("economic admin key should live OFFLINE in cold storage (multisig). This");
+    println!("key is hot — it can be slashed if double-signing is detected, but it");
+    println!("CANNOT move funds, change governance, or affect treasury.");
+    Ok(())
+}
+
+async fn cmd_evidence_list(limit: u64, rpc_url: String) -> Result<()> {
+    let req = serde_json::json!({
+        "jsonrpc":"2.0","id":1,"method":"zbx_listEvidence","params":[limit]
+    });
+    let resp = http_post(&rpc_url, &req).await?;
+    let result = resp.get("result").ok_or_else(|| anyhow!("rpc error: {}", resp))?;
+    let count = result.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
+    let total = result.get("total_recorded").and_then(|v| v.as_u64()).unwrap_or(0);
+    let items = result.get("evidence").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    println!("{C_CYAN_B}⚖  Slashing evidence{C_RESET}  (returned {count} of {total} total)");
+    if items.is_empty() {
+        println!("   (no double-sign events recorded — chain is healthy)");
+        return Ok(());
+    }
+    for e in items {
+        println!(
+            "   h={} r={} {} validator={} slashed={} wei",
+            e["height"], e["round"],
+            e["vote_type"].as_str().unwrap_or("?"),
+            e["validator"].as_str().unwrap_or("?"),
+            e["slashed_amount_wei"].as_str().unwrap_or("0"),
+        );
+        println!("      previous: {}", e["previous_block_hash"].as_str().unwrap_or(""));
+        println!("      conflict: {}", e["conflicting_block_hash"].as_str().unwrap_or(""));
+    }
+    Ok(())
 }
 
 // ─────────── Phase B.6 — pool & status inspectors ───────────
