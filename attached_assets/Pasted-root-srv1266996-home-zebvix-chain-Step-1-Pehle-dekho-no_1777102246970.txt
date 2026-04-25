@@ -1,0 +1,40 @@
+root@srv1266996:/home/zebvix-chain# # Step 1: Pehle dekho node abhi kaise chal raha hai
+ps aux | grep zebvix-node | grep -v grep
+
+# Step 2: Graceful stop (SIGTERM, jisse RocksDB clean close ho)
+pkill -TERM -f 'zebvix-node start' || pkill -TERM -f 'zebvix-node.*start'
+sleep 5
+
+# Confirm process gaya:
+ps aux | grep zebvix-node | grep -v grep || echo "stopped cleanly"
+
+# Step 3: Naya binary background me start karo (logs file me)
+mkdir -p /var/log/zebvix
+nohup /home/zebvix-chain/target/release/zebvix-node start \
+  --home /root/.zebvix \
+  > /var/log/zebvix/node.log 2>&1 &
+disown
+
+# Step 4: 5 sec wait + verify
+sleep 5
+tail -30 /var/log/zebvix/node.log
+echo "── tip check ──"
+curl -s http://localhost:8545 -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"zbx_chainInfo","params":[]}' | head -c 500
+root      145996  0.1  0.2 996112 21448 ?        Ssl  05:37   0:08 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333 --no-mdns
+stopped cleanly
+[1] 181222
+nohup: ignoring input
+2026-04-25T07:30:24.124971Z  INFO zebvix_node: 🚀 Zebvix node starting
+2026-04-25T07:30:24.124997Z  INFO zebvix_node:    chain_id  : 7878
+2026-04-25T07:30:24.125001Z  INFO zebvix_node:    proposer  : 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315
+2026-04-25T07:30:24.125042Z  INFO zebvix_node:    tip       : height=13798 hash=0xa7d1b09fea1159c11bc90a7f29908807a2cae83da21a4534eb23777acf6e0046
+2026-04-25T07:30:24.125047Z  INFO zebvix_node:    rpc       : http://0.0.0.0:8545
+2026-04-25T07:30:24.125573Z  INFO zebvix_node:    p2p       : tcp/30333  peer_id=12D3KooWLRtwp7sdFThmK49CfgoKApryHMiKFK9c6gnQUyNK6JB5
+2026-04-25T07:30:24.126473Z  INFO zebvix_node::consensus: ⛏  producer started: my_address=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315, mode=ROUND_ROBIN+TIMEOUTS (B.3.2.2) pacing=5s propose_timeout=8s tick=500ms
+2026-04-25T07:30:24.126824Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWLRtwp7sdFThmK49CfgoKApryHMiKFK9c6gnQUyNK6JB5
+2026-04-25T07:30:24.126839Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/93.127.213.192/tcp/30333/p2p/12D3KooWLRtwp7sdFThmK49CfgoKApryHMiKFK9c6gnQUyNK6JB5
+── tip check ──
+{"jsonrpc":"2.0","id":1,"result":{"block_time_secs":5,"chain_id":7878,"decimals":18,"name":"Zebvix","token":"ZBX"}}root@srv1266996:/home/zebvix-chain# 
+root@srv1266996:/home/zebvix-chain# 
+root@srv1266996:/home/zebvix-chain# 
