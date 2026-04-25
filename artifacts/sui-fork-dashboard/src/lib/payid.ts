@@ -204,13 +204,27 @@ export interface PayIdRecord {
   name?: string;
 }
 
+/**
+ * Returns the on-chain record for a Pay-ID, or `null` if the handle is not
+ * registered (free to claim). Throws on real network / RPC failures so callers
+ * can distinguish "not registered" (null) from "could not check" (throw).
+ *
+ * The chain returns an RPC error like "pay-id 'foo@zbx' not registered" for
+ * absent handles — we normalise that to `null` here.
+ */
 export async function lookupPayIdForward(payId: string): Promise<PayIdRecord | null> {
   const v = validatePayIdInput(payId);
   const q = v.ok && v.canonical ? v.canonical : payId.trim();
-  // Note: throws on RPC/network failure. Callers must handle errors so they
-  // do not confuse a network outage with "handle is free".
-  const r = await rpc<PayIdRecord>("zbx_lookupPayId", [q]);
-  return r ?? null;
+  try {
+    const r = await rpc<PayIdRecord>("zbx_lookupPayId", [q]);
+    return r ?? null;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/not\s*(registered|found)|unknown|does\s*not\s*exist/i.test(msg)) {
+      return null;
+    }
+    throw e;
+  }
 }
 
 export async function lookupPayIdReverse(addr: string): Promise<PayIdRecord | null> {

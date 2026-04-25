@@ -15,12 +15,8 @@ import { rpc, weiHexToZbx, shortAddr } from "@/lib/zbx-rpc";
 import { PageHeader } from "@/components/ui/page-header";
 import { SectionCard, Stat } from "@/components/ui/section-card";
 import { useToast } from "@/hooks/use-toast";
-
-interface PayIdRecord {
-  pay_id?: string;
-  address?: string;
-  name?: string;
-}
+import { lookupPayIdForward, lookupPayIdReverse } from "@/lib/payid";
+import type { PayIdRecord } from "@/lib/payid";
 
 export default function PayIdResolver() {
   const [count, setCount] = useState<number | null>(null);
@@ -54,14 +50,12 @@ export default function PayIdResolver() {
     setForwardRes(null);
     setForwardLoading(true);
     try {
-      const q = forwardQ.trim().toLowerCase();
-      const canon = q.endsWith("@zbx") ? q : `${q}@zbx`;
-      const rec = await rpc<PayIdRecord>("zbx_lookupPayId", [canon]);
+      const rec = await lookupPayIdForward(forwardQ.trim());
       const addr = rec?.address;
       const bal = addr
         ? await rpc<string>("zbx_getBalance", [addr]).catch(() => "0x0")
         : "0x0";
-      setForwardRes({ rec, bal });
+      setForwardRes({ rec: rec ?? {}, bal });
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -75,9 +69,9 @@ export default function PayIdResolver() {
     setReverseRes(null);
     setReverseLoading(true);
     try {
-      const rec = await rpc<PayIdRecord>("zbx_getPayIdOf", [reverseQ.trim()]);
+      const rec = await lookupPayIdReverse(reverseQ.trim());
       const bal = await rpc<string>("zbx_getBalance", [reverseQ.trim()]).catch(() => "0x0");
-      setReverseRes({ rec, bal });
+      setReverseRes({ rec: rec ?? {}, bal });
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {

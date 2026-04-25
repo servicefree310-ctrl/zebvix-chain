@@ -72,12 +72,16 @@ export default function PayIdRegister() {
         const rec = await lookupPayIdForward(idCheck.canonical!);
         setAvail(!rec?.address ? "available" : "taken");
       } catch (e) {
-        setAvail("error");
-        setReason(
-          e instanceof Error
-            ? `network error: ${e.message}`
-            : "could not reach RPC",
-        );
+        const msg = e instanceof Error ? e.message : String(e);
+        // Chain RPC returns an error like "pay-id '...' not registered" /
+        // "not found" when the handle is free — that's exactly the case
+        // we want; treat it as available, not as a network failure.
+        if (/not\s*(registered|found)|unknown|does\s*not\s*exist/i.test(msg)) {
+          setAvail("available");
+        } else {
+          setAvail("error");
+          setReason(`network error: ${msg}`);
+        }
       }
     }, 350);
     return () => {
