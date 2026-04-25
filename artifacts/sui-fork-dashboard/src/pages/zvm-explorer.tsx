@@ -265,9 +265,20 @@ function parseNonceLocal(v: unknown): number {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Block Tool — zbx_getBlockByNumber. Native zbx_getBlockByNumber accepts
-// only numeric heights, so we resolve aliases ("latest"/"pending") to the
-// current tip via zbx_blockNumber first.
+// Block Tool — combines eth_getBlockByNumber (EVM-shaped fields like number,
+// hash, gasLimit, gasUsed, baseFeePerGas, transactions[]) with the native
+// zbx_getBlockByNumber (which carries Zebvix-specific fields the EVM layer
+// does not expose: real proposer address — eth_getBlockByNumber returns
+// miner=0x00…0 because there is no EVM coinbase concept on Zebvix).
+//
+// Resolution flow:
+//   1. Decide whether `tag` is a string tag (latest/earliest/pending/finalized/
+//      safe), a decimal height, or a hex height.
+//   2. Call eth_getBlockByNumber(tagOrHex, false) — works for ALL of those
+//      directly.
+//   3. Use the returned `number` (hex) to derive the numeric height, then
+//      call zbx_getBlockByNumber(height) to fetch native fields and
+//      override `miner` with the actual proposer.
 // ─────────────────────────────────────────────────────────────────────────────
 function BlockTool() {
   const [tag, setTag] = useState("latest");
@@ -279,21 +290,56 @@ function BlockTool() {
     setLoading(true); setErr(null); setBlock(null);
     try {
       const t = tag.trim().toLowerCase();
-      let height: number;
+      // Build the eth-RPC-compatible param. eth_getBlockByNumber natively
+      // accepts the tag strings AND a hex-encoded height; it does NOT
+      // accept a bare decimal number.
+      let ethParam: string;
       if (/^\d+$/.test(t)) {
-        height = parseInt(t, 10);
+        ethParam = "0x" + parseInt(t, 10).toString(16);
       } else if (/^0x[0-9a-f]+$/.test(t)) {
-        height = parseInt(t, 16);
-      } else if (t === "latest" || t === "pending") {
-        const tip = await rpc<{ height: number }>("zbx_blockNumber");
-        height = tip.height;
-      } else if (t === "earliest") {
-        height = 0;
+        ethParam = t;
+      } else if (["latest", "earliest", "pending", "finalized", "safe"].includes(t)) {
+        ethParam = t;
       } else {
         throw new Error(`unrecognized block tag: ${tag}`);
       }
-      const b = await rpc<any>("zbx_getBlockByNumber", [height]);
-      setBlock(b);
+
+      const ethBlock = await rpc<any>("eth_getBlockByNumber", [ethParam, false]);
+      if (!ethBlock) {
+        throw new Error("block not found");
+      }
+      const heightDec = parseInt(ethBlock.number, 16);
+
+      // Best-effort enrichment from native side. The chain's eth_getBlockByNumber
+      // does NOT include `hash` or `parentHash` (incomplete EVM RPC impl), so we
+      // recover them from the native methods:
+      //   - header.parent_hash from zbx_getBlockByNumber(height) → parentHash
+      //   - own hash:   * if h is the tip → zbx_blockNumber.hash
+      //                 * else → zbx_getBlockByNumber(h+1).header.parent_hash
+      //                   (Merkle property: child header always commits to parent hash)
+      //   - header.proposer → miner (override eth's 0x000…0)
+      const [nativeBlock, nativeNext, tipInfo] = await Promise.all([
+        rpc<any>("zbx_getBlockByNumber", [heightDec]).catch(() => null),
+        rpc<any>("zbx_getBlockByNumber", [heightDec + 1]).catch(() => null),
+        rpc<any>("zbx_blockNumber").catch(() => null),
+      ]);
+
+      const proposer = nativeBlock?.header?.proposer ?? null;
+      const parentHash = nativeBlock?.header?.parent_hash ?? null;
+      let ownHash: string | null = null;
+      if (nativeNext?.header?.parent_hash) {
+        ownHash = nativeNext.header.parent_hash;
+      } else if (tipInfo?.height === heightDec && tipInfo?.hash) {
+        ownHash = tipInfo.hash;
+      }
+
+      setBlock({
+        ...ethBlock,
+        hash: ownHash ?? ethBlock.hash ?? null,
+        parentHash: parentHash ?? ethBlock.parentHash ?? null,
+        miner: proposer ?? ethBlock.miner,
+        _heightDec: heightDec,
+      });
     } catch (e: any) { setErr(e?.message ?? String(e)); }
     finally { setLoading(false); }
   }
@@ -318,11 +364,11 @@ function BlockTool() {
         {err && <ErrorBox msg={err} />}
         {block && (
           <div className="grid grid-cols-2 gap-1 pt-2 text-xs">
-            <Kv label="number" value={`${fmtBig(block.number)} (${block.number ?? "—"})`} mono />
+            <Kv label="number" value={`${block._heightDec ?? "—"} (${block.number ?? "—"})`} mono />
             <Kv label="hash" value={short(block.hash)} mono />
             <Kv label="parent" value={short(block.parentHash)} mono />
             <Kv label="timestamp" value={fmtTimestamp(block.timestamp)} />
-            <Kv label="miner" value={short(block.miner)} mono />
+            <Kv label="proposer" value={short(block.miner)} mono />
             <Kv label="gasLimit" value={fmtBig(block.gasLimit)} mono />
             <Kv label="gasUsed" value={fmtBig(block.gasUsed)} mono />
             <Kv label="baseFeePerGas" value={block.baseFeePerGas ? `${fmtBig(block.baseFeePerGas)} wei` : "—"} mono />
@@ -335,24 +381,75 @@ function BlockTool() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tx Tool — eth_getTransactionByHash + eth_getTransactionReceipt
+// Tx Tool — tries eth_getTransactionByHash + eth_getTransactionReceipt FIRST
+// (for any future EVM-tx wiring), then falls back to the native ring-buffer
+// `zbx_recentTxs` which is the source of truth for indexed Zebvix txs today
+// (Transfer / Staking / Proposal / Bridge / Multisig / Swap …). This prevents
+// a hard error when eth_getTransactionByHash is unsupported on-chain or when
+// looking up a native (non-EVM) tx hash that has no EVM receipt.
 // ─────────────────────────────────────────────────────────────────────────────
+type NativeTx = {
+  hash: string;
+  from: string;
+  to: string;
+  amount: string;
+  fee: string;
+  nonce: number;
+  height: number;
+  timestamp_ms: number;
+  kind: string;
+};
+
 function TxTool() {
   const [hash, setHash] = useState("");
   const [tx, setTx] = useState<any>(null);
   const [receipt, setReceipt] = useState<any>(null);
+  const [nativeTx, setNativeTx] = useState<NativeTx | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
 
   async function lookup() {
-    if (!/^0x[0-9a-fA-F]{64}$/.test(hash)) { setErr("Invalid tx hash (need 0x + 64 hex)"); return; }
-    setLoading(true); setErr(null); setTx(null); setReceipt(null);
+    // Always clear prior results FIRST so a fresh lookup never leaves
+    // stale data on screen (especially important when re-querying with a
+    // hash that doesn't resolve — the prior success card must not linger).
+    setTx(null); setReceipt(null); setNativeTx(null); setInfo(null); setErr(null);
+    if (!/^0x[0-9a-fA-F]{64}$/.test(hash)) {
+      setErr("Invalid tx hash (need 0x + 64 hex)");
+      return;
+    }
+    setLoading(true);
+    const lower = hash.toLowerCase();
     try {
+      // 1. Try the EVM path. Both calls are best-effort — the chain may
+      //    return -32000 "unsupported EVM method" for eth_getTransactionByHash,
+      //    and eth_getTransactionReceipt returns null for non-EVM txs.
       const [t, r] = await Promise.all([
-        rpc<any>("eth_getTransactionByHash", [hash.toLowerCase()]),
-        rpc<any>("eth_getTransactionReceipt", [hash.toLowerCase()]).catch(() => null),
+        rpc<any>("eth_getTransactionByHash", [lower]).catch(() => null),
+        rpc<any>("eth_getTransactionReceipt", [lower]).catch(() => null),
       ]);
       setTx(t); setReceipt(r);
+
+      // 2. If EVM path produced nothing, fall back to native ring buffer.
+      if (!t && !r) {
+        const ring = await rpc<{ txs: NativeTx[]; total_indexed: number; max_cap: number }>(
+          "zbx_recentTxs",
+          [1000],
+        ).catch(() => null);
+        const found = ring?.txs?.find((x) => x.hash.toLowerCase() === lower) ?? null;
+        if (found) {
+          setNativeTx(found);
+          setInfo(`Found in native tx index (no EVM receipt — kind: ${found.kind})`);
+        } else {
+          const indexed = ring?.total_indexed ?? 0;
+          const cap = ring?.max_cap ?? 1000;
+          setErr(
+            `Hash not found. EVM eth_getTransactionByHash is not wired on-chain yet, ` +
+            `and the hash is not in the native ring buffer (${indexed} indexed, cap ${cap}). ` +
+            `Older tx? It may have rolled out of the buffer — try fetching the block directly.`,
+          );
+        }
+      }
     } catch (e: any) { setErr(e?.message ?? String(e)); }
     finally { setLoading(false); }
   }
@@ -369,10 +466,17 @@ function TxTool() {
           </button>
         </div>
         {err && <ErrorBox msg={err} />}
-        {(tx || receipt) && (
+        {info && (
+          <div className="px-3 py-2 rounded-md border border-cyan-500/40 bg-cyan-500/10 text-cyan-200 text-[11px]">
+            {info}
+          </div>
+        )}
+        {(tx || receipt || nativeTx) && (
           <div className="grid md:grid-cols-2 gap-3 pt-2 text-xs">
             <div className="p-3 rounded-md border border-border bg-background/40">
-              <div className="text-[10px] uppercase font-bold text-muted-foreground mb-2">Transaction</div>
+              <div className="text-[10px] uppercase font-bold text-muted-foreground mb-2">
+                {tx ? "Transaction (EVM)" : nativeTx ? "Transaction (native)" : "Transaction"}
+              </div>
               {tx ? (
                 <div className="space-y-1">
                   <Kv label="from" value={short(tx.from)} mono />
@@ -382,6 +486,19 @@ function TxTool() {
                   <Kv label="nonce" value={fmtBig(tx.nonce, "0")} mono />
                   <Kv label="type" value={tx.type ?? "0x0"} mono />
                   <Kv label="block" value={tx.blockNumber ? `#${fmtBig(tx.blockNumber)}` : "pending"} />
+                </div>
+              ) : nativeTx ? (
+                <div className="space-y-1">
+                  <Kv label="kind" value={nativeTx.kind} highlight />
+                  <Kv label="from" value={short(nativeTx.from)} mono />
+                  <Kv label="to" value={short(nativeTx.to)} mono />
+                  <Kv label="amount" value={`${fmtZbx(nativeTx.amount, 6, "0")} ZBX`} highlight />
+                  <Kv label="fee" value={`${fmtZbx(nativeTx.fee, 6, "0")} ZBX`} mono />
+                  <Kv label="nonce" value={String(nativeTx.nonce)} mono />
+                  <Kv label="block" value={`#${nativeTx.height}`} />
+                  {/* fmtTimestamp expects unix seconds (multiplies by 1000 internally),
+                      so divide ms timestamp by 1000 first. */}
+                  <Kv label="timestamp" value={fmtTimestamp("0x" + Math.floor(nativeTx.timestamp_ms / 1000).toString(16))} />
                 </div>
               ) : <div className="text-muted-foreground">tx not found</div>}
             </div>
@@ -395,6 +512,13 @@ function TxTool() {
                   <Kv label="effectiveGasPrice" value={receipt.effectiveGasPrice ? `${fmtBig(receipt.effectiveGasPrice)} wei` : "—"} mono />
                   <Kv label="contractAddress" value={receipt.contractAddress ?? "—"} mono />
                   <Kv label="logs" value={Array.isArray(receipt.logs) ? receipt.logs.length : 0} highlight />
+                </div>
+              ) : nativeTx ? (
+                <div className="space-y-1 text-muted-foreground">
+                  <div className="text-[11px]">Native txs are committed atomically — no EVM receipt is emitted.</div>
+                  <Kv label="status" value={"COMMITTED (native)"} highlight color="emerald" />
+                  <Kv label="block" value={`#${nativeTx.height}`} />
+                  <Kv label="fee paid" value={`${fmtZbx(nativeTx.fee, 6, "0")} ZBX`} mono />
                 </div>
               ) : <div className="text-muted-foreground">no receipt yet (pending or not found)</div>}
             </div>
