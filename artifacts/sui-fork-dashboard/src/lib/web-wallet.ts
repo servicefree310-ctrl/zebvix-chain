@@ -15,7 +15,6 @@
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { keccak_256 } from "@noble/hashes/sha3.js";
-import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, hexToBytes, randomBytes } from "@noble/hashes/utils.js";
 import { rpc } from "./zbx-rpc";
 
@@ -359,7 +358,7 @@ export async function sendTransfer(opts: {
   //   sk.sign(msg) == ECDSA(sha256(msg)) — so we pre-hash with SHA-256 and
   //   sign the digest. `secp256k1.sign` returns a 64-byte `Uint8Array` in
   //   compact `r || s` form (low-S normalized) directly.
-  const sig = secp256k1.sign(sha256(body), seed, { lowS: true });
+  const sig = secp256k1.sign(body, seed, { lowS: true });
   const signed = concat(body, pubkeyBincode(pub), sig);  // 152 + 76 + 64 = 292
   const hexHex = "0x" + bytesToHex(signed);
 
@@ -409,7 +408,7 @@ export async function sendSwap(opts: {
     chainId,
   });
 
-  const sig = secp256k1.sign(sha256(body), seed, { lowS: true });
+  const sig = secp256k1.sign(body, seed, { lowS: true });
   const signed = concat(body, pubkeyBincode(pub), sig);  // 172 + 76 + 64 = 312
   const hexHex = "0x" + bytesToHex(signed);
 

@@ -13,7 +13,6 @@
 // Sending raw 33 bytes here yields "bad bincode: io error" from the chain.
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
-import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import {
   publicKeyFromSeed,
@@ -202,7 +201,11 @@ export async function registerPayId(opts: {
     chainId,
   });
 
-  const sig = secp256k1.sign(sha256(body), seed, { lowS: true });
+  // @noble/curves defaults to `prehash: true` — it SHA-256s the input itself.
+  // We pass the raw body so the lib produces sig over SHA-256(body), exactly
+  // matching the chain's `k256::ecdsa::SigningKey::sign(msg)` (which also
+  // internally hashes msg with SHA-256). Pre-hashing here would double-hash.
+  const sig = secp256k1.sign(body, seed, { lowS: true });
   const signed = concat(body, pubkeyBincode(pub), sig);
   const hexHex = "0x" + bytesToHex(signed);
 
