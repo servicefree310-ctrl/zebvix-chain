@@ -1,14 +1,32 @@
-//! Minimal JSON-RPC HTTP server. Methods (Ethereum-style naming):
-//!   - eth_chainId            -> "0x1ec6"  (7878)
-//!   - eth_blockNumber        -> "0x..."   (Ethereum-compatible hex)
-//!   - zbx_blockNumber        -> { height, hex, hash, timestamp_ms, proposer }
-//!   - eth_getBalance         -> "0x..."  (wei)
-//!   - zbx_getNonce           -> u64
+//! Minimal JSON-RPC HTTP server. Methods are exposed under TWO equivalent
+//! namespaces wherever a native Zebvix-side handler exists:
+//!
+//!   * `zbx_*` — Zebvix-native, ALWAYS-ON (compiled into every node, no
+//!     feature flag required). This is the production / canonical surface
+//!     mobile/light/dashboard clients should use.
+//!   * `eth_*` / `net_*` / `web3_*` — Ethereum-compatible aliases. The
+//!     ones listed below are mirrored by `rpc.rs` itself (always-on);
+//!     anything else in the EVM namespace (eth_call, eth_estimateGas,
+//!     eth_sendRawTransaction, eth_getCode, eth_getStorageAt,
+//!     eth_getTransactionReceipt, eth_getLogs, eth_gasPrice,
+//!     web3_clientVersion, eth_syncing …) is gated behind the
+//!     `--features evm` build flag and lives in `evm_rpc.rs`.
+//!
+//!   Always-on dual-name methods (no `--features evm` needed):
+//!   - eth_chainId      | zbx_chainId       -> "0x1ec6"  (7878)
+//!   - net_version      | zbx_netVersion    -> "7878"
+//!   - eth_blockNumber                       -> "0x..."   (Ethereum hex tip)
+//!   - zbx_blockNumber                       -> { height, hex, hash,
+//!                                                 timestamp_ms, proposer }
+//!   - eth_getBalance   | zbx_getBalance    -> "0x..." (wei, native ledger)
+//!   - zbx_getNonce                          -> u64
+//!
+//!   Always-on Zebvix-only methods (no eth_* alias):
 //!   - zbx_sendTransaction    -> tx hash (accepts JSON SignedTx)
-//!   - zbx_sendRawTransaction -> tx hash (accepts hex-encoded bincode SignedTx;
-//!                                preferred for mobile/light clients to avoid
-//!                                JSON encoding pitfalls with u128 / fixed-size
-//!                                byte arrays)
+//!   - zbx_sendRawTransaction -> tx hash (accepts hex-encoded bincode
+//!                                SignedTx; preferred for mobile/light
+//!                                clients to avoid JSON encoding pitfalls
+//!                                with u128 / fixed-size byte arrays)
 //!   - zbx_getBlockByNumber   -> Block JSON
 //!   - zbx_supply             -> { minted_wei, premine_wei, pool_seed_wei,
 //!                                  pool_reserve_wei, burned_wei,
@@ -116,8 +134,14 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
     let _ = req.jsonrpc;
     let id = req.id.clone();
     let resp = match req.method.as_str() {
-        "eth_chainId" => ok(id, json!(format!("0x{:x}", CHAIN_ID))),
-        "net_version" => ok(id, json!(CHAIN_ID.to_string())),
+        // Always-on dual-name aliases. zbx_chainId / zbx_netVersion let
+        // mobile + dashboard clients call the canonical Zebvix namespace
+        // even on nodes built WITHOUT --features evm; eth_chainId /
+        // net_version remain so MetaMask / web3 / hardhat etc. work
+        // unchanged. Both arms share the same handler — no behaviour
+        // divergence is possible.
+        "eth_chainId" | "zbx_chainId" => ok(id, json!(format!("0x{:x}", CHAIN_ID))),
+        "net_version" | "zbx_netVersion" => ok(id, json!(CHAIN_ID.to_string())),
         "eth_blockNumber" => {
             let (h, _) = ctx.state.tip();
             ok(id, json!(format!("0x{:x}", h)))

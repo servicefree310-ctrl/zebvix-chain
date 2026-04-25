@@ -380,88 +380,180 @@ export default function SmartContractsPage() {
             JSON-RPC Surface
           </CardTitle>
           <CardDescription>
-            Standard <code className="text-xs bg-muted px-1 rounded">eth_*</code> namespace from{" "}
-            <code className="text-xs bg-muted px-1 rounded">evm_rpc.rs</code> — what every Ethereum
-            client expects. Served alongside Zebvix-native{" "}
-            <code className="text-xs bg-muted px-1 rounded">zbx_*</code> on the same{" "}
-            <code className="text-xs bg-muted px-1 rounded">:8545</code> endpoint.
+            Two namespaces are served on the same{" "}
+            <code className="text-xs bg-muted px-1 rounded">:8545</code> endpoint:{" "}
+            <code className="text-xs bg-muted px-1 rounded">zbx_*</code> (Zebvix-native, always-on)
+            and <code className="text-xs bg-muted px-1 rounded">eth_*</code> /{" "}
+            <code className="text-xs bg-muted px-1 rounded">net_*</code> /{" "}
+            <code className="text-xs bg-muted px-1 rounded">web3_*</code> (Ethereum-compatible).
+            A handful of always-on aliases live in <code className="text-xs bg-muted px-1 rounded">rpc.rs</code> directly so wallets work even on
+            non-EVM builds; everything else in the EVM namespace is gated behind{" "}
+            <code className="text-xs bg-muted px-1 rounded">--features evm</code> (file:{" "}
+            <code className="text-xs bg-muted px-1 rounded">evm_rpc.rs</code>).
           </CardDescription>
         </CardHeader>
         <CardContent>
+          <div className="border-l-4 border-l-emerald-500/60 bg-emerald-500/5 p-3 rounded-md flex gap-3 mb-4 text-xs">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+            <div className="space-y-1 text-muted-foreground">
+              <div className="text-foreground font-semibold">Recommended client behaviour</div>
+              <p>
+                Mobile, light, and dashboard clients should prefer the{" "}
+                <code className="text-xs bg-muted px-1 rounded">zbx_*</code> name — it's the canonical
+                Zebvix surface and cannot return <code className="text-xs bg-muted px-1 rounded">-32601</code> ("method not
+                found") on a stripped-down validator. MetaMask / Hardhat / web3.js continue to use
+                <code className="text-xs bg-muted px-1 rounded">eth_*</code> and Just Work; both names
+                share the same handler so behaviour is identical. Every other EVM-namespace method
+                (e.g. <code className="text-xs bg-muted px-1 rounded">eth_call</code>,{" "}
+                <code className="text-xs bg-muted px-1 rounded">eth_estimateGas</code>,{" "}
+                <code className="text-xs bg-muted px-1 rounded">eth_sendRawTransaction</code>,{" "}
+                <code className="text-xs bg-muted px-1 rounded">eth_getCode</code>,{" "}
+                <code className="text-xs bg-muted px-1 rounded">eth_getStorageAt</code>,{" "}
+                <code className="text-xs bg-muted px-1 rounded">eth_getTransactionCount</code>,{" "}
+                <code className="text-xs bg-muted px-1 rounded">eth_getLogs</code>,{" "}
+                <code className="text-xs bg-muted px-1 rounded">eth_getTransactionReceipt</code>,{" "}
+                <code className="text-xs bg-muted px-1 rounded">eth_getBlockByNumber</code>,{" "}
+                <code className="text-xs bg-muted px-1 rounded">eth_gasPrice</code>,{" "}
+                <code className="text-xs bg-muted px-1 rounded">eth_blobBaseFee</code>,{" "}
+                <code className="text-xs bg-muted px-1 rounded">eth_feeHistory</code>,{" "}
+                <code className="text-xs bg-muted px-1 rounded">eth_accounts</code>,{" "}
+                <code className="text-xs bg-muted px-1 rounded">eth_syncing</code>,{" "}
+                <code className="text-xs bg-muted px-1 rounded">web3_clientVersion</code>) has no{" "}
+                <code className="text-xs bg-muted px-1 rounded">zbx_*</code> alias and requires{" "}
+                <code className="text-xs bg-muted px-1 rounded">--features evm</code> at build time —
+                the per-method "Build gate" badges in the table below are the canonical reference.
+              </p>
+            </div>
+          </div>
           <div className="border border-border rounded-md overflow-hidden bg-card/40">
             <Table>
               <TableHeader>
                 <TableRow className="border-b border-border hover:bg-transparent">
-                  <TableHead className="text-foreground w-72">Method</TableHead>
+                  <TableHead className="text-foreground w-80">Method</TableHead>
+                  <TableHead className="text-foreground w-28">Build gate</TableHead>
                   <TableHead className="text-foreground">Returns / Behaviour</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 <TableRow className="border-b border-border hover:bg-muted/30">
-                  <TableCell className="font-mono text-xs">eth_chainId</TableCell>
+                  <TableCell className="font-mono text-xs">eth_chainId · zbx_chainId</TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-emerald-400 border-emerald-500/40">always-on</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    <code className="text-xs bg-muted px-1 rounded">"0x1ec6"</code> (= 7878)
+                    <code className="text-xs bg-muted px-1 rounded">"0x1ec6"</code> (= 7878). Both names share the same arm in <code className="text-xs bg-muted px-1 rounded">rpc.rs</code>.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
-                  <TableCell className="font-mono text-xs">net_version</TableCell>
+                  <TableCell className="font-mono text-xs">net_version · zbx_netVersion</TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-emerald-400 border-emerald-500/40">always-on</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    <code className="text-xs bg-muted px-1 rounded">"7878"</code>
+                    <code className="text-xs bg-muted px-1 rounded">"7878"</code>. Same handler as above; decimal string per <code className="text-xs bg-muted px-1 rounded">net_version</code> spec.
+                  </TableCell>
+                </TableRow>
+                <TableRow className="border-b border-border hover:bg-muted/30">
+                  <TableCell className="font-mono text-xs">eth_blockNumber</TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-emerald-400 border-emerald-500/40">always-on</Badge></TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    Tip height as 0x-hex string. For a richer payload (hash, timestamp, proposer) use the native{" "}
+                    <code className="text-xs bg-muted px-1 rounded">zbx_blockNumber</code> below.
+                  </TableCell>
+                </TableRow>
+                <TableRow className="border-b border-border hover:bg-muted/30">
+                  <TableCell className="font-mono text-xs">zbx_blockNumber</TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-emerald-400 border-emerald-500/40">always-on</Badge></TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    <code className="text-xs bg-muted px-1 rounded">{"{ height, hex, hash, timestamp_ms, proposer }"}</code> — the canonical Zebvix tip query, always available.
+                  </TableCell>
+                </TableRow>
+                <TableRow className="border-b border-border hover:bg-muted/30">
+                  <TableCell className="font-mono text-xs">eth_getBalance · zbx_getBalance</TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-emerald-400 border-emerald-500/40">always-on</Badge></TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    Routed by the <code className="text-xs bg-muted px-1 rounded">rpc.rs</code> arm against the native ZBX account ledger (<code className="text-xs bg-muted px-1 rounded">CF_ACCOUNTS</code>). <strong>Caveat:</strong> EVM-side balance changes are journaled into <code className="text-xs bg-muted px-1 rounded">CF_EVM</code> via <code className="text-xs bg-muted px-1 rounded">apply_journal</code> and not synced back to <code className="text-xs bg-muted px-1 rounded">CF_ACCOUNTS</code> — so after EVM activity the two ledgers can diverge for the same secp256k1 address (cross-domain settlement is C.3 work).
+                  </TableCell>
+                </TableRow>
+                <TableRow className="border-b border-border hover:bg-muted/30">
+                  <TableCell className="font-mono text-xs">zbx_getNonce</TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-emerald-400 border-emerald-500/40">always-on</Badge></TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    Returns native ZBX nonce as <code className="text-xs bg-muted px-1 rounded">u64</code> (decimal number, NOT hex — schema differs from <code className="text-xs bg-muted px-1 rounded">eth_getTransactionCount</code>). Use this in dashboards / mobile clients; <code className="text-xs bg-muted px-1 rounded">eth_getTransactionCount</code> goes through <code className="text-xs bg-muted px-1 rounded">evm_rpc</code> against <code className="text-xs bg-muted px-1 rounded">CF_EVM</code> and only resolves on EVM-feature builds.
+                  </TableCell>
+                </TableRow>
+                <TableRow className="border-b border-border hover:bg-muted/30">
+                  <TableCell className="font-mono text-xs">zbx_sendTransaction · zbx_sendRawTransaction</TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-emerald-400 border-emerald-500/40">always-on</Badge></TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    Native Zebvix submit path — accepts JSON <code className="text-xs bg-muted px-1 rounded">SignedTx</code> or hex-encoded bincode. Returns the Zebvix tx hash. This is what wallet / mobile / Pay-ID flows use; <code className="text-xs bg-muted px-1 rounded">eth_sendRawTransaction</code> below is the EVM-only alternative.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
                   <TableCell className="font-mono text-xs">web3_clientVersion</TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features evm</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    <code className="text-xs bg-muted px-1 rounded">"Zebvix/0.1.0/rust1.83/cancun-evm"</code>
+                    <code className="text-xs bg-muted px-1 rounded">"Zebvix/0.1.0/rust1.83/cancun-evm"</code>. Presence of <code className="text-xs bg-muted px-1 rounded">cancun-evm</code> in the string is the recommended runtime probe for whether the EVM feature was compiled in.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
-                  <TableCell className="font-mono text-xs">eth_blockNumber · eth_syncing · eth_accounts</TableCell>
+                  <TableCell className="font-mono text-xs">eth_syncing · eth_accounts</TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features evm</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    Tip height (hex), <code className="text-xs bg-muted px-1 rounded">false</code>, <code className="text-xs bg-muted px-1 rounded">[]</code> — node never holds wallet keys.
+                    <code className="text-xs bg-muted px-1 rounded">false</code>, <code className="text-xs bg-muted px-1 rounded">[]</code> — node never holds wallet keys.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
                   <TableCell className="font-mono text-xs">eth_gasPrice · eth_blobBaseFee · eth_feeHistory</TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features evm</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     Live base-fee from the AMM-pegged window; blob base fee is a constant <code className="text-xs bg-muted px-1 rounded">"0x1"</code> stub (no blob market).
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
-                  <TableCell className="font-mono text-xs">eth_getBalance · eth_getTransactionCount · eth_getCode · eth_getStorageAt</TableCell>
+                  <TableCell className="font-mono text-xs">eth_getTransactionCount · eth_getCode · eth_getStorageAt</TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features evm</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    Standard read-state lookups. <code className="text-xs bg-muted px-1 rounded">eth_getBalance</code> is routed by the legacy <code className="text-xs bg-muted px-1 rounded">rpc.rs</code> branch against the native ZBX account ledger (<code className="text-xs bg-muted px-1 rounded">CF_ACCOUNTS</code>). <strong>Caveat:</strong> EVM-side balance changes are journaled into <code className="text-xs bg-muted px-1 rounded">CF_EVM</code> via <code className="text-xs bg-muted px-1 rounded">apply_journal</code>, not synced back to <code className="text-xs bg-muted px-1 rounded">CF_ACCOUNTS</code> — so after EVM activity the two ledgers can diverge for the same secp256k1 address (cross-domain settlement is C.3 work). <code className="text-xs bg-muted px-1 rounded">eth_getTransactionCount</code>, <code className="text-xs bg-muted px-1 rounded">eth_getCode</code>, and <code className="text-xs bg-muted px-1 rounded">eth_getStorageAt</code> are served by <code className="text-xs bg-muted px-1 rounded">evm_rpc::dispatch</code> over <code className="text-xs bg-muted px-1 rounded">CF_EVM</code> (account.nonce, code, slots).
+                    Served by <code className="text-xs bg-muted px-1 rounded">evm_rpc::dispatch</code> over <code className="text-xs bg-muted px-1 rounded">CF_EVM</code> (account.nonce, code, slots). Use <code className="text-xs bg-muted px-1 rounded">zbx_getNonce</code> as the always-on substitute for <code className="text-xs bg-muted px-1 rounded">eth_getTransactionCount</code>.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
                   <TableCell className="font-mono text-xs">eth_call · eth_estimateGas</TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features evm</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     Execute against tip state without committing — ideal for view functions and pre-flight gas estimates.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
                   <TableCell className="font-mono text-xs">eth_sendRawTransaction</TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features evm</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     Accepts EIP-1559 (type-2), EIP-2930 (type-1), and <strong>EIP-155-protected legacy</strong> RLP envelopes; <strong>rejects</strong> unprotected legacy tx (no chain-id) to prevent cross-chain replay. Decoded into <code className="text-xs bg-muted px-1 rounded">EvmTxEnvelope::Create</code> or <code className="text-xs bg-muted px-1 rounded">::Call</code> and executed; returns the canonical Ethereum tx hash.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
                   <TableCell className="font-mono text-xs">eth_getLogs</TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features evm</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     Wired to <code className="text-xs bg-muted px-1 rounded">CF_LOGS</code> (key = <code className="text-xs bg-muted px-1 rounded">(block_height, log_index)</code>, range scan + in-memory address/topic filter). <strong>Caveat:</strong> the <code className="text-xs bg-muted px-1 rounded">eth_sendRawTransaction</code> path does <em>not</em> currently call <code className="text-xs bg-muted px-1 rounded">store_logs</code>, so EVM tx produce no log entries to query today. The persistence wire-up + canonical tx-hash stamping land in C.3.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
                   <TableCell className="font-mono text-xs">eth_getTransactionReceipt</TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features evm</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     <strong>C.3 work</strong> — returns <code className="text-xs bg-muted px-1 rounded">null</code> today. Receipts table (status, gasUsed, contractAddress, logs[]) ships together with EVM log persistence; until then there is no first-class on-chain post-execution query path for an EVM tx — clients should treat C.2 as fire-and-forget execute.
                   </TableCell>
                 </TableRow>
-                <TableRow className="hover:bg-muted/30">
+                <TableRow className="border-b border-border hover:bg-muted/30">
                   <TableCell className="font-mono text-xs">eth_getBlockByNumber</TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features evm</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     C.2 stub — returns tip-only object{" "}
-                    <code className="text-xs bg-muted px-1 rounded">{"{ number, timestamp, gasLimit, baseFeePerGas, miner, transactions: [] }"}</code>. Full historical block projection (with embedded txs, hex hashes, gasUsed) lands alongside the receipts table in C.3. Native <code className="text-xs bg-muted px-1 rounded">zbx_getBlockByNumber</code> already returns full Zebvix block bodies.
+                    <code className="text-xs bg-muted px-1 rounded">{"{ number, timestamp, gasLimit, baseFeePerGas, miner, transactions: [] }"}</code>. Full historical block projection (with embedded txs, hex hashes, gasUsed) lands alongside the receipts table in C.3.
+                  </TableCell>
+                </TableRow>
+                <TableRow className="hover:bg-muted/30">
+                  <TableCell className="font-mono text-xs">zbx_getBlockByNumber</TableCell>
+                  <TableCell className="text-xs"><Badge variant="outline" className="text-emerald-400 border-emerald-500/40">always-on</Badge></TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    Returns the full Zebvix block body (header + native txs + multisig events + Pay-ID intents). Use this for explorer UIs; the EVM-flavoured stub above is purely for wallet compatibility.
                   </TableCell>
                 </TableRow>
               </TableBody>
