@@ -26,6 +26,7 @@ import {
   TOKEN_NAME_MAX_LEN,
   TOKEN_SYMBOL_MAX_LEN,
   TOKEN_SYMBOL_MIN_LEN,
+  tokenStandard,
   type TokenInfo,
 } from "@/lib/tokens";
 import { Button } from "@/components/ui/button";
@@ -704,9 +705,15 @@ function StatusBox({ status, onReset }: { status: Status; onReset: () => void })
   if (status.kind === "confirmed") {
     return (
       <div className="rounded-md border border-emerald-500/40 bg-emerald-500/5 p-4 space-y-2">
-        <div className="flex items-center gap-2 text-emerald-500 font-semibold">
+        <div className="flex items-center gap-2 text-emerald-500 font-semibold flex-wrap">
           <CheckCircle2 className="h-4 w-4" />
-          Token created — id #{status.tokenId}
+          <span>Token created — id #{status.tokenId}</span>
+          <span
+            className="ml-auto text-[10px] uppercase tracking-wider font-mono text-primary border border-primary/40 bg-primary/5 rounded px-1.5 py-0.5"
+            data-testid="badge-token-standard"
+          >
+            {tokenStandard(status.info)}
+          </span>
         </div>
         {status.info && (
           <div className="grid sm:grid-cols-2 gap-2 text-xs">
@@ -719,6 +726,7 @@ function StatusBox({ status, onReset }: { status: Status; onReset: () => void })
             />
             <Row label="Created at block" value={`#${status.info.created_at_height}`} />
             <Row label="Token ID" value={`#${status.info.id}`} mono />
+            <Row label="Standard" value={tokenStandard(status.info)} mono />
           </div>
         )}
         <HashRow hash={status.hash} />
@@ -810,6 +818,7 @@ function RecentTokens({
               <th className="text-left px-4 py-2 font-medium">ID</th>
               <th className="text-left px-4 py-2 font-medium">Symbol</th>
               <th className="text-left px-4 py-2 font-medium">Name</th>
+              <th className="text-left px-4 py-2 font-medium">Standard</th>
               <th className="text-right px-4 py-2 font-medium">Decimals</th>
               <th className="text-right px-4 py-2 font-medium">Supply</th>
               <th className="text-left px-4 py-2 font-medium">Creator</th>
@@ -818,14 +827,14 @@ function RecentTokens({
           <tbody>
             {loading && tokens.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
                   Loading tokens…
                 </td>
               </tr>
             ) : tokens.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
                   No user-created tokens yet — be the first.
                 </td>
               </tr>
@@ -844,6 +853,11 @@ function RecentTokens({
                           you
                         </span>
                       )}
+                    </td>
+                    <td className="px-4 py-2">
+                      <span className="text-[10px] uppercase tracking-wider font-mono text-primary border border-primary/40 bg-primary/5 rounded px-1.5 py-0.5">
+                        {tokenStandard(t)}
+                      </span>
                     </td>
                     <td className="px-4 py-2 text-right tabular-nums">{t.decimals}</td>
                     <td className="px-4 py-2 text-right tabular-nums">

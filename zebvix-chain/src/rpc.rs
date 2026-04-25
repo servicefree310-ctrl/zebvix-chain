@@ -118,6 +118,9 @@ fn token_info_to_json(t: &crate::state::TokenInfo) -> Value {
         "total_supply": t.total_supply.to_string(),
         "total_supply_hex": format!("0x{:x}", t.total_supply),
         "created_at_height": t.created_at_height,
+        // Formal token class label (e.g. "ZBX-20"). Hydrated to
+        // DEFAULT_TOKEN_STANDARD on read for legacy records.
+        "standard": t.standard,
     })
 }
 

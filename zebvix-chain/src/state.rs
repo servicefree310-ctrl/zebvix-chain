@@ -1675,6 +1675,10 @@ impl State {
                     decimals: *decimals,
                     total_supply: *initial_supply,
                     created_at_height: self.tip().0.saturating_add(1),
+                    // All tokens minted via `TokenCreate` are fungible ZBX-20.
+                    // Future NFT / SFT classes will use dedicated tx kinds
+                    // that set their own standard label.
+                    standard: crate::tokenomics::DEFAULT_TOKEN_STANDARD.to_string(),
                 };
                 self.put_token(&info)?;
                 self.put_token_symbol(&symbol_lc, id)?;
@@ -2411,10 +2415,31 @@ impl State {
     }
 
     /// Look up a token by its id.
+    ///
+    /// Backward-compat: tries the current schema first, then falls back to
+    /// `TokenInfoV1` (pre-`standard` field) and hydrates the missing
+    /// `standard` with `DEFAULT_TOKEN_STANDARD`. The next `put_token` write
+    /// for that id will silently upgrade the on-disk record.
     pub fn get_token(&self, id: u64) -> Option<TokenInfo> {
         let cf = self.db.cf_handle(CF_META).unwrap();
         let raw = self.db.get_cf(cf, Self::token_key(id)).ok().flatten()?;
-        bincode::deserialize::<TokenInfo>(&raw).ok()
+        if let Ok(info) = bincode::deserialize::<TokenInfo>(&raw) {
+            return Some(info);
+        }
+        // Fallback: legacy v1 record (no `standard` field). Hydrate with
+        // the default — semantically every pre-existing token IS a fungible
+        // ZBX-20 because no other token kind shipped before this field.
+        let v1: TokenInfoV1 = bincode::deserialize(&raw).ok()?;
+        Some(TokenInfo {
+            id: v1.id,
+            creator: v1.creator,
+            name: v1.name,
+            symbol: v1.symbol,
+            decimals: v1.decimals,
+            total_supply: v1.total_supply,
+            created_at_height: v1.created_at_height,
+            standard: crate::tokenomics::DEFAULT_TOKEN_STANDARD.to_string(),
+        })
     }
 
     /// Look up a token by symbol (case-insensitive).
@@ -2498,6 +2523,11 @@ impl State {
 // new fields may be appended for non-breaking upgrades.
 
 /// Persisted record describing a user-created fungible token.
+///
+/// **Schema versioning note**: bincode is positional, so existing fields are
+/// FROZEN — never reorder or remove. New fields are appended at the END and
+/// MUST be paired with backward-compat handling in `get_token()` so legacy
+/// records (written before the field existed) deserialize cleanly.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct TokenInfo {
     /// Unique 1-based id assigned at creation.
@@ -2515,6 +2545,25 @@ pub struct TokenInfo {
     pub total_supply: u128,
     /// Block height at which the token was created (for audit + UI).
     pub created_at_height: u64,
+    /// Formal token-class label (e.g. `"ZBX-20"` for fungible). Appended
+    /// after the v1 schema; see `get_token()` for the legacy-record
+    /// hydration that backfills `DEFAULT_TOKEN_STANDARD` on read.
+    pub standard: String,
+}
+
+/// Legacy on-disk schema (pre-`standard` field). Used only by
+/// `get_token()` as a deserialize fallback for records written by older
+/// chain versions. NEVER serialize through this — always go through
+/// `TokenInfo` so new writes carry the upgraded schema.
+#[derive(serde::Deserialize)]
+struct TokenInfoV1 {
+    id: u64,
+    creator: Address,
+    name: String,
+    symbol: String,
+    decimals: u8,
+    total_supply: u128,
+    created_at_height: u64,
 }
 
 impl State {

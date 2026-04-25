@@ -300,6 +300,16 @@ export interface TokenInfo {
   total_supply: string;        // base-unit decimal string
   total_supply_hex: string;
   created_at_height: number;
+  /** Formal token-class label, e.g. "ZBX-20" for fungible. Optional for
+   *  forward-compat with chain nodes that predate this field — UI should
+   *  fall back to "ZBX-20" when missing/empty. */
+  standard?: string;
+}
+
+/** UI helper — never let a missing/empty `standard` leak as an empty badge. */
+export function tokenStandard(t: Pick<TokenInfo, "standard"> | null | undefined): string {
+  const s = (t?.standard ?? "").trim();
+  return s || "ZBX-20";
 }
 
 export interface TokenListResp {

@@ -65,6 +65,20 @@ pub const TOKEN_SYMBOL_MAX_LEN: usize = 10;
 /// Maximum decimals (mirrors ERC-20 / ETH convention).
 pub const TOKEN_MAX_DECIMALS: u8 = 18;
 
+/// Default formal standard label assigned to fungible tokens created via
+/// `TxKind::TokenCreate`. Mirrors the EVM ERC-20 / BSC BEP-20 / Tron TRC-20
+/// branding convention. Stored on every `TokenInfo` so explorers, wallets,
+/// and indexers can group tokens by class without inferring from `TxKind`.
+///
+/// Future kinds (NFTs, semi-fungible) will use distinct labels (e.g.
+/// `"ZBX-721"`, `"ZBX-1155"`) emitted by their dedicated tx kinds.
+pub const DEFAULT_TOKEN_STANDARD: &str = "ZBX-20";
+
+/// Hard cap on the length of any `TokenInfo.standard` string. Keeps the
+/// persisted record small and bounds bincode deserialize cost. Tokens
+/// created before this field existed will hydrate with `DEFAULT_TOKEN_STANDARD`.
+pub const TOKEN_STANDARD_MAX_LEN: usize = 16;
+
 // ───────── Dynamic gas pricing (USD-pegged, consensus-enforced) ─────────
 
 /// Target USD value per standard transfer, in micro-USD ($0.001 = 1000).
