@@ -1,0 +1,40 @@
+root@srv1266996:/home/zebvix-chain# echo "═══════════════════════════════════════════════"
+echo "  ZEBVIX MAINNET — FULL CLI VERIFICATION"══════════════════════════════════════
+echo "═══════════════════════════════════════════════"
+echo ""══════════════════════════════════════════════"
+echo "── 1. Chain liveness (height should increase by ~1 every 5s) ──"
+for i in 1 2 3; doliveness (height should increase by ~1 every 5s) ──"
+  H=$(curl -s -X POST -H "Content-Type: application/json" \
+    --data '{"jsonrpc":"2.0","id":1,"method":"zbx_blockNumber","params":[]}' \
+    http://localhost:8545 | python3 -c "import sys,json; r=json.load(sys.stdin)['result']; print(f\"height={r['height']} hash={r['hash'][:18]}... proposer={r['proposer'][:18]}... ts={r['timestamp_ms']}\")")3 -c "import sys,json; r=json.load(sys.stdin)['result']; print(f\"height={r['height']} hash={r['hash'][:18]}... proposer={r['proposer'][:1
+  echo "  tick $i: $H"p_ms']}\")")
+  sleep 6 tick $i: $H"
+doneeep 6
+═══════════════════════════════════════════════
+  ZEBVIX MAINNET — FULL CLI VERIFICATION
+═══════════════════════════════════════════════
+
+── 1. Chain liveness (height should increase by ~1 every 5s) ──
+  tick 1: height=14905 hash=0x7c0c44e843ab88f4... proposer=0x40907000ac0a1a73... ts=1777108615923
+  tick 2: height=14906 hash=0x07f125866da14c5a... proposer=0x40907000ac0a1a73... ts=1777108621426
+  tick 3: height=14907 hash=0xae6a242ec22e323d... proposer=0x40907000ac0a1a73... ts=1777108626923
+root@srv1266996:/home/zebvix-chain# echo ""
+echo "── 2. Native ZBX RPCs ──"
+echo -n "  zbx_chainId        : "; curl -s -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","id":1,"method":"zbx_chainId","params":[]}' http://localhost:8545
+echo
+echo -n "  zbx_supply         : "; curl -s -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","id":2,"method":"zbx_supply","params":[]}' http://localhost:8545
+echo
+echo -n "  zbx_getValidators  : "; curl -s -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","id":3,"method":"zbx_getValidators","params":[]}' http://localhost:8545
+echo
+echo -n "  zbx_getNonce       : "; curl -s -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","id":4,"method":"zbx_getNonce","params":["0x40907000ac0a1a73e4cd89889b4d7ee8980c0315"]}' http://localhost:8545
+echo
+echo -n "  zbx_getBalance     : "; curl -s -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","id":5,"method":"zbx_getBalance","params":["0x40907000ac0a1a73e4cd89889b4d7ee8980c0315"]}' http://localhost:8545
+echo
+
+── 2. Native ZBX RPCs ──
+  zbx_chainId        : {"jsonrpc":"2.0","id":1,"result":"0x1ec6"}
+  zbx_supply         : {"jsonrpc":"2.0","id":2,"result":{"burned_wei":"1800000000000000","circulating_wei":"30034735998200000000000000","current_block_reward_wei":"3000000000000000000","height":14912,"max_wei":"150000000000000000000000000","minted_wei":"44736000000000000000000","pool_reserve_wei":"20000000000000000000000000","pool_seed_wei":"20000000000000000000000000","premine_wei":"9990000000000000000000000"}}
+  zbx_getValidators  : {"jsonrpc":"2.0","id":3,"error":{"code":-32601,"message":"method not found: zbx_getValidators"}}
+  zbx_getNonce       : {"jsonrpc":"2.0","id":4,"result":4}
+  zbx_getBalance     : {"jsonrpc":"2.0","id":5,"result":"0x84ba8ea90311330578000"}
+root@srv1266996:/home/zebvix-chain# 
