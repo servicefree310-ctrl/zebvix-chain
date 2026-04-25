@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useMemo } from "react";
 import { useLocation } from "wouter";
-import { rpc, weiHexToZbx, shortAddr, weiToUsd, fmtUsd } from "@/lib/zbx-rpc";
+import { rpc, weiHexToZbx, shortAddr, weiToUsd, fmtUsd, getRecommendedFeeWei } from "@/lib/zbx-rpc";
 import {
   loadWallets, getActiveAddress, getWallet, sendTransfer, parseNonce,
   type StoredWallet,
@@ -1543,7 +1543,23 @@ function QuickSendPanel({
 
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
-  const [fee, setFee] = useState("0.002");
+  // Display value mirrors the chain's currently-recommended fee (AMM-pegged).
+  // `feeEdited` flips true once the user types — when false, submit() passes
+  // `feeZbx: undefined` so the lib signs with the exact recommended bigint
+  // instead of the 6-decimal-truncated display string.
+  const [fee, setFee] = useState("");
+  const [feeEdited, setFeeEdited] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const wei = await getRecommendedFeeWei();
+        const zbx = weiHexToZbx("0x" + wei.toString(16));
+        if (!cancelled) setFee((cur) => (cur === "" ? zbx : cur));
+      } catch { /* leave empty — submit() will fetch again */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
   const [busy, setBusy] = useState(false);
   const [okHash, setOkHash] = useState<string | null>(null);
   const [errMsg, setErrMsg] = useState<string | null>(null);
@@ -1599,11 +1615,14 @@ function QuickSendPanel({
     setOkHash(null);
     setErrMsg(null);
     try {
+      const userFee = feeEdited ? fee.trim() : "";
       const r = await sendTransfer({
         privateKeyHex: active.privateKey,
         to: to.trim(),
         amountZbx: amount,
-        feeZbx: fee || "0.002",
+        // Defer to lib's exact-bigint resolver when user didn't override —
+        // dodges the AMM-pegged dynamic-fee silent-drop bug.
+        feeZbx: userFee || undefined,
       });
       setOkHash(r.hash);
       setTo("");
@@ -1715,8 +1734,8 @@ function QuickSendPanel({
           />
           <input
             value={fee}
-            onChange={(e) => setFee(e.target.value)}
-            placeholder="fee"
+            onChange={(e) => { setFee(e.target.value); setFeeEdited(true); }}
+            placeholder="fee (auto)"
             type="number"
             min="0"
             step="0.0001"

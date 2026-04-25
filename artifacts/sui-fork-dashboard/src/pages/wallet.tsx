@@ -39,6 +39,7 @@ import {
   shortAddr,
   pollReceipt,
   hexToInt,
+  getRecommendedFeeWei,
   type EthReceipt,
 } from "@/lib/zbx-rpc";
 import {
@@ -488,7 +489,28 @@ function SendTab(props: {
   const { toast } = useToast();
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
-  const [fee, setFee] = useState("0.002");
+  // Fee starts empty; we pre-fill with the chain-recommended (AMM-pegged)
+  // value via the effect below so the user always sees — and pays — a fee
+  // that clears the dynamic floor inside `apply_tx`. Hardcoded 0.002 was
+  // silently rejected at block-build time when the pool spot price drifted.
+  //
+  // `feeEdited` flips to true when the user types in the fee input, so we
+  // know whether to sign with the user's exact override or to defer to the
+  // library's dynamic resolver (which signs with the exact bigint and
+  // avoids the 6-decimal display truncation in weiHexToZbx).
+  const [fee, setFee] = useState("");
+  const [feeEdited, setFeeEdited] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const wei = await getRecommendedFeeWei();
+        const zbx = weiHexToZbx("0x" + wei.toString(16));
+        if (!cancelled) setFee((cur) => (cur === "" ? zbx : cur));
+      } catch { /* leave empty — submit() will resolve again */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [status, setStatus] = useState<LiveStatus>({ phase: "idle" });
   const [resolve, setResolve] = useState<ResolveStatus>({ phase: "idle" });
@@ -572,18 +594,32 @@ function SendTab(props: {
     safeSet({ phase: "signing" });
     const ts = Date.now();
     let hash = "";
+    // Resolve the actual fee once so both the signed tx and the recorded
+    // history row report the same value. If the user typed in the fee
+    // input, sign with that exact string. Otherwise defer to the library's
+    // dynamic resolver (signs with full bigint precision from the chain)
+    // and pull the display string for the history row separately.
+    const userFee = feeEdited ? fee.trim() : "";
+    let actualFeeZbx = userFee;
+    if (!actualFeeZbx) {
+      const wei = await getRecommendedFeeWei();
+      actualFeeZbx = weiHexToZbx("0x" + wei.toString(16));
+    }
     try {
       safeSet({ phase: "submitting" });
       const r = await sendTransfer({
         privateKeyHex: active.privateKey,
         to: resolvedTo,
         amountZbx: amount,
-        feeZbx: fee || "0.002",
+        // Pass undefined when the user did not override so the lib signs
+        // with the exact recommended bigint (avoids 6-decimal precision
+        // loss from the display formatter).
+        feeZbx: userFee || undefined,
       });
       hash = r.hash;
       recordTx({
         hash, from: active.address, to: resolvedTo,
-        amountZbx: amount, feeZbx: fee || "0.002",
+        amountZbx: amount, feeZbx: actualFeeZbx,
         ts, status: "submitted", kind: "native",
       });
       safeSet({ phase: "in-mempool", hash, secs: 0 });
@@ -618,7 +654,7 @@ function SendTab(props: {
       safeSet({ phase: "error", message: msg });
       recordTx({
         hash: hash || null, from: active.address, to: resolvedTo ?? to.trim(),
-        amountZbx: amount, feeZbx: fee || "0.002",
+        amountZbx: amount, feeZbx: actualFeeZbx,
         ts, status: "failed", error: msg, kind: "native",
       });
       if (mountedRef.current) onSent();
@@ -653,7 +689,9 @@ function SendTab(props: {
         <div>
           <Label htmlFor="fee">Fee (ZBX)</Label>
           <Input id="fee" type="number" min="0" step="0.0001"
-            value={fee} onChange={(e) => setFee(e.target.value)}
+            placeholder="auto (chain-recommended)"
+            value={fee}
+            onChange={(e) => { setFee(e.target.value); setFeeEdited(true); }}
             data-testid="input-send-fee" />
         </div>
       </div>
@@ -689,7 +727,7 @@ function SendTab(props: {
               <ReviewRow label="To" value={resolvedTo ?? ""} mono />
             )}
             <ReviewRow label="Amount" value={`${amount} ZBX`} />
-            <ReviewRow label="Fee" value={`${fee || "0.002"} ZBX`} />
+            <ReviewRow label="Fee" value={`${fee || "auto"} ZBX`} />
             <ReviewRow label="Total" value={`${totalZbx} ZBX`} highlight />
             <ReviewRow label="Next nonce" value={nonce !== null ? String(nonce) : "—"} />
             <ReviewRow label="Chain id" value={`${CHAIN_ID_HEX} (${CHAIN_ID})`} mono />

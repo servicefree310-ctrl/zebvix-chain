@@ -18,7 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { rpc, shortAddr } from "@/lib/zbx-rpc";
+import { rpc, shortAddr, weiHexToZbx, getRecommendedFeeWei } from "@/lib/zbx-rpc";
 import {
   loadWallets,
   getActiveAddress,
@@ -351,12 +351,17 @@ export default function SwapPage() {
     setSubmitting(true);
     setLastResult(null);
     try {
+      // Pull the chain-recommended fee for display + history. We pass
+      // `feeZbx: undefined` to sendSwap so the lib resolves the exact
+      // bigint internally (avoids the 6-decimal display truncation in
+      // weiHexToZbx affecting the signed value).
+      const feeWei = await getRecommendedFeeWei();
+      const feeZbxStr = weiHexToZbx("0x" + feeWei.toString(16));
       const r = await sendSwap({
         privateKeyHex: w.privateKey,
         direction,
         amountIn: amountInWei,
         minOut: minOutWei,
-        feeZbx: "0.002",
       });
       setLastResult({ ok: true, msg: `swap submitted — output ≥ ${formatToken(minOutWei, 6)} ${outputSym}`, hash: r.hash });
       recordTx({
@@ -364,7 +369,7 @@ export default function SwapPage() {
         from: active,
         to: active,
         amountZbx: amountIn,
-        feeZbx: "0.002",
+        feeZbx: feeZbxStr,
         ts: Date.now(),
         status: "submitted",
       });
@@ -389,7 +394,21 @@ export default function SwapPage() {
 
   // Every swap pays the gas fee in ZBX from .balance, regardless of direction.
   // For ZbxToZusd we also need `amountIn` worth of ZBX in .balance.
-  const FEE_ZBX_WEI = useMemo(() => zbxToWei("0.002"), []);
+  // We track the chain's currently-recommended fee here (refreshed on mount)
+  // so the balance gate matches the fee we'll actually sign with. Fallback
+  // is 0.005 ZBX — comfortably above all observed dynamic floors.
+  const [feeZbxWei, setFeeZbxWei] = useState<bigint>(5_000_000_000_000_000n);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const wei = await getRecommendedFeeWei();
+        if (!cancelled) setFeeZbxWei(wei);
+      } catch { /* keep fallback */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  const FEE_ZBX_WEI = feeZbxWei;
   const insufficientGas = useMemo(() => {
     if (!active) return false;
     try {

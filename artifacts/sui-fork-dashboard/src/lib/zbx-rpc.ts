@@ -351,6 +351,45 @@ export function hexToInt(hex: string | null | undefined): number {
   return parseInt(s, 16);
 }
 
+// ── Dynamic fee bounds ────────────────────────────────────────────────────
+//
+// The chain enforces an AMM-pegged fee floor (≈ $0.001 USD worth of ZBX at
+// current pool spot price) inside `apply_tx`. A hardcoded 0.002 ZBX default
+// can silently fall *under* this floor when the pool moves, causing txs to
+// be admitted to mempool but then dropped at block-build time (no receipt,
+// no error). This helper fetches the live `recommended_fee_wei` and caches
+// it for a few seconds so every signing path uses a fee that is guaranteed
+// to clear the dynamic floor.
+
+export interface FeeBoundsResp {
+  min_fee_wei: string;
+  max_fee_wei: string;
+  recommended_fee_wei: string;
+  pool_initialized: boolean;
+  source: string;
+}
+
+let feeBoundsCache: { wei: bigint; ts: number } | null = null;
+const FEE_CACHE_MS = 10_000;
+// Safety net: 0.005 ZBX is comfortably above all observed dynamic minimums
+// and below the dynamic max — used only if `zbx_feeBounds` RPC fails.
+const FEE_FALLBACK_WEI = 5_000_000_000_000_000n;
+
+export async function getRecommendedFeeWei(): Promise<bigint> {
+  const now = Date.now();
+  if (feeBoundsCache && now - feeBoundsCache.ts < FEE_CACHE_MS) {
+    return feeBoundsCache.wei;
+  }
+  try {
+    const b = await rpc<FeeBoundsResp>("zbx_feeBounds");
+    const wei = BigInt(b.recommended_fee_wei);
+    feeBoundsCache = { wei, ts: now };
+    return wei;
+  } catch {
+    return FEE_FALLBACK_WEI;
+  }
+}
+
 export function detectQueryKind(q: string): "block-num" | "block-hash" | "tx-hash" | "address" | "unknown" {
   const s = q.trim();
   if (/^\d+$/.test(s)) return "block-num";

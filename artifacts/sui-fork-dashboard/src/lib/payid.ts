@@ -20,7 +20,7 @@ import {
   parseNonce,
   zbxToWei,
 } from "./web-wallet";
-import { rpc } from "./zbx-rpc";
+import { rpc, getRecommendedFeeWei } from "./zbx-rpc";
 
 // ── Bincode primitives ─────────────────────────────────────────────────────
 
@@ -190,13 +190,15 @@ export async function registerPayId(opts: {
   const nonce = parseNonce(nonceRaw);
 
   const chainId = opts.chainId ?? 7878;
-  const feeZbx = opts.feeZbx ?? "0.002";
+  const feeWei = opts.feeZbx !== undefined
+    ? zbxToWei(opts.feeZbx)
+    : await getRecommendedFeeWei();
 
   const body = encodeRegisterPayIdBody({
     from,
     payId: idChk.canonical,
     name: nameChk.canonical,
-    feeWei: zbxToWei(feeZbx),
+    feeWei,
     nonce,
     chainId,
   });

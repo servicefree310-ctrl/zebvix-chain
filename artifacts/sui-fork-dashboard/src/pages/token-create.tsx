@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { useWallet } from "@/contexts/wallet-context";
 import { useToast } from "@/hooks/use-toast";
-import { rpc, weiHexToZbx, shortAddr, pollReceipt } from "@/lib/zbx-rpc";
+import { rpc, weiHexToZbx, shortAddr, pollReceipt, getRecommendedFeeWei } from "@/lib/zbx-rpc";
 import {
   baseToDisplay,
   displayToBase,
@@ -32,8 +32,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-const FEE_ZBX = "0.002";
-const TOTAL_COST_ZBX = "0.002"; // gas-only (no burn)
+// NOTE: the network fee is no longer hardcoded — it is fetched live from
+// `zbx_feeBounds` on mount. The chain enforces an AMM-pegged dynamic
+// minimum inside `apply_tx`, so a fixed 0.002 ZBX default would silently
+// be dropped at block-build time whenever the pool spot price drifts up.
 const REFRESH_MS = 20_000;
 
 type SymbolStatus =
@@ -59,7 +61,21 @@ export default function TokenCreatePage() {
   const [symbol, setSymbol] = useState("");
   const [decimals, setDecimals] = useState<number>(18);
   const [supply, setSupply] = useState("1000000");
-  const [feeZbx] = useState(FEE_ZBX);
+  // Pre-filled on mount from `zbx_feeBounds` recommended_fee_wei. Kept in
+  // state so the cost panel + submit always reflect the same value the user
+  // is about to sign for.
+  const [feeZbx, setFeeZbx] = useState<string>("");
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const wei = await getRecommendedFeeWei();
+        const zbx = weiHexToZbx("0x" + wei.toString(16));
+        if (!cancelled) setFeeZbx(zbx);
+      } catch { /* leave empty — submit() will fall back to lib default */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [symbolStatus, setSymbolStatus] = useState<SymbolStatus>({ kind: "idle" });
   const [balanceZbx, setBalanceZbx] = useState<string>("—");
@@ -173,8 +189,9 @@ export default function TokenCreatePage() {
     }
   }, [balanceZbx]);
 
-  // Need a small gas buffer (~0.01 ZBX) above the standard 0.002 fee so
-  // intermittent fee bumps don't cause an avoidable rejection.
+  // Need a small gas buffer (~0.01 ZBX) above the chain's dynamic fee floor
+  // (currently ≈ 0.004 ZBX recommended) so intermittent AMM-driven fee
+  // bumps don't cause an avoidable rejection.
   const insufficient =
     balanceWei !== null &&
     balanceWei < TOKEN_CREATION_BURN_WEI + 10_000_000_000_000_000n;
@@ -202,7 +219,11 @@ export default function TokenCreatePage() {
         symbol: sym,
         decimals,
         initialSupplyDisplay: supply,
-        feeZbx,
+        // Always defer to the lib's dynamic fee resolver — it signs with the
+        // exact recommended bigint from `zbx_feeBounds` (cached 10s). The
+        // `feeZbx` UI state above is display-only (truncated to 6 decimals
+        // by weiHexToZbx) and must NOT round-trip into the signed tx.
+        feeZbx: undefined,
       });
       const hash = r.hash;
       if (!hash) throw new Error("Empty tx hash from RPC");
@@ -328,7 +349,7 @@ export default function TokenCreatePage() {
         </div>
       </header>
 
-      <CostPanel />
+      <CostPanel feeZbx={feeZbx} />
 
       {!active ? (
         <NoWalletNotice />
@@ -421,7 +442,7 @@ export default function TokenCreatePage() {
           <div className="text-xs text-muted-foreground">
             Total cost:{" "}
             <span className="text-foreground font-semibold tabular-nums">
-              {TOTAL_COST_ZBX} ZBX
+              {feeZbx ? `${feeZbx} ZBX` : "loading…"}
             </span>{" "}
             (gas only — no burn)
           </div>
@@ -464,10 +485,11 @@ export default function TokenCreatePage() {
 
 // ── Sub-components ─────────────────────────────────────────────────────────
 
-function CostPanel() {
+function CostPanel({ feeZbx }: { feeZbx: string }) {
+  const display = feeZbx ? `${feeZbx} ZBX` : "loading…";
   return (
     <div className="grid md:grid-cols-3 gap-3">
-      <StatCard icon={Coins} label="Network Fee" value={`${FEE_ZBX} ZBX`} sub="standard gas fee only" />
+      <StatCard icon={Coins} label="Network Fee" value={display} sub="chain-recommended (AMM-pegged)" />
       <StatCard icon={Flame} label="Creation Burn" value="None" sub="zero extra burn — gas-only" />
       <StatCard icon={CheckCircle2} label="Permissionless" value="Anyone" sub="no admin / governor gate" />
     </div>

@@ -30,7 +30,7 @@ import {
   parseNonce,
   zbxToWei,
 } from "./web-wallet";
-import { rpc } from "./zbx-rpc";
+import { rpc, getRecommendedFeeWei } from "./zbx-rpc";
 
 // ── Bincode primitives (mirror of payid.ts / web-wallet.ts) ────────────────
 
@@ -251,7 +251,11 @@ async function withHeader<T extends object>(
   const nonceRaw = (await rpc<unknown>("zbx_getNonce", [from])) as number | string;
   const nonce = parseNonce(nonceRaw);
   const chainId = opts.chainId ?? 7878;
-  const feeWei = zbxToWei(opts.feeZbx ?? "0.002");
+  // Use chain-recommended fee when caller didn't override — the AMM-pegged
+  // dynamic floor inside `apply_tx` can drift above hardcoded 0.002 ZBX.
+  const feeWei = opts.feeZbx !== undefined
+    ? zbxToWei(opts.feeZbx)
+    : await getRecommendedFeeWei();
   const body = build({ from, feeWei, nonce, chainId }, from);
   const result = await signAndSend(opts.privateKeyHex, body);
   return { result, from };

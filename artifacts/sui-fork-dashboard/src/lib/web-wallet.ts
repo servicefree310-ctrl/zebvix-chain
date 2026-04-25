@@ -16,7 +16,7 @@
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { keccak_256 } from "@noble/hashes/sha3.js";
 import { bytesToHex, hexToBytes, randomBytes } from "@noble/hashes/utils.js";
-import { rpc } from "./zbx-rpc";
+import { rpc, getRecommendedFeeWei } from "./zbx-rpc";
 
 const STORAGE_KEY = "zbx.wallets.v1";
 const ACTIVE_KEY = "zbx.wallet.active";
@@ -343,13 +343,17 @@ export async function sendTransfer(opts: {
   const nonce = parseNonce(nonceRaw);
 
   const chainId = opts.chainId ?? 7878;
-  const feeZbx = opts.feeZbx ?? "0.002";
+  // Use chain-recommended fee when caller didn't override — clears the
+  // AMM-pegged dynamic fee floor inside `apply_tx`.
+  const feeWei = opts.feeZbx !== undefined
+    ? zbxToWei(opts.feeZbx)
+    : await getRecommendedFeeWei();
 
   const body = encodeTransferBody({
     from,
     to: opts.to,
     amountWei: zbxToWei(opts.amountZbx),
-    feeWei: zbxToWei(feeZbx),
+    feeWei,
     nonce,
     chainId,
   });
@@ -396,14 +400,16 @@ export async function sendSwap(opts: {
   const nonce = parseNonce(nonceRaw);
 
   const chainId = opts.chainId ?? 7878;
-  const feeZbx = opts.feeZbx ?? "0.002";
+  const feeWei = opts.feeZbx !== undefined
+    ? zbxToWei(opts.feeZbx)
+    : await getRecommendedFeeWei();
 
   const body = encodeSwapBody({
     from,
     amountIn: opts.amountIn,
     direction: opts.direction,
     minOut: opts.minOut,
-    feeWei: zbxToWei(feeZbx),
+    feeWei,
     nonce,
     chainId,
   });
