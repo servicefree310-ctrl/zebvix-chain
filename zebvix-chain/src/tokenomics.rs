@@ -49,6 +49,23 @@ pub const MIN_TX_FEE_WEI: u128 = MIN_GAS_UNITS as u128 * MIN_GAS_PRICE_WEI;
 /// Future versions will compute by actual gas usage (EVM ops).
 pub const STANDARD_TX_FEE_WEI: u128 = MIN_TX_FEE_WEI;
 
+/// Anti-spam burn for `TxKind::TokenCreate` — 100 ZBX is permanently
+/// destroyed (sent to the burn address) on every successful token
+/// creation, ON TOP of the standard tx fee. Without this, an attacker
+/// could spam thousands of trash tokens at near-zero cost and bloat
+/// state. The burn applies AFTER the symbol-uniqueness check so a
+/// rejected creation only costs the standard tx fee.
+pub const TOKEN_CREATION_BURN_WEI: u128 = 100u128 * 1_000_000_000_000_000_000u128;
+
+/// Maximum length of a user-created token's display name.
+pub const TOKEN_NAME_MAX_LEN: usize = 50;
+/// Minimum length of a user-created token's symbol.
+pub const TOKEN_SYMBOL_MIN_LEN: usize = 2;
+/// Maximum length of a user-created token's symbol.
+pub const TOKEN_SYMBOL_MAX_LEN: usize = 10;
+/// Maximum decimals (mirrors ERC-20 / ETH convention).
+pub const TOKEN_MAX_DECIMALS: u8 = 18;
+
 // ───────── Dynamic gas pricing (USD-pegged, consensus-enforced) ─────────
 
 /// Target USD value per standard transfer, in micro-USD ($0.001 = 1000).

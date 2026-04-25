@@ -76,6 +76,147 @@ The project uses a pnpm workspace monorepo, with packages like:
 - Defined VPS topology for Node-1 (founder/proposer) and Node-2 (follower).
 - CLI tools for validator management, pool genesis, and bridge operations.
 
+## Security Hardening (April 2026 Audit Pass)
+
+A full audit of the chain identified 7 CRITICAL and 8 HIGH-severity findings.
+The following hardening passes have been applied; the remaining items
+(BFT-quorum gating, multi-sig bridge oracle) are documented as known
+limitations for a future hard fork.
+
+### Block forgery defense (`state.rs::apply_block`)
+- **Proposer signature verification** — every incoming block is rejected
+  unless `block.header.proposer` is in the on-chain validator set AND
+  `block.signature` is a valid ECDSA-secp256k1 signature over the
+  header signing-bytes by that validator's pubkey. Works correctly with
+  N=1 too (the single validator's own signed blocks pass; anyone else's
+  forged blocks are rejected).
+- **Two-phase apply (pre-validation pass)** — before any state mutation,
+  every tx in the block is replayed against a simulated `(nonce, balance)`
+  map. If any tx would fail (bad nonce, insufficient balance, fee out of
+  bounds), the entire block is rejected — never mutated partially.
+- **Fail-loud apply policy** — any `apply_tx` error inside the runtime
+  loop FAILS the whole block AND leaves `META_BLOCK_APPLYING` set so
+  the next startup refuses to boot until the operator investigates.
+  Pre-validation already filters nonce / balance / fee-bound rejects,
+  so a runtime error here indicates either a kind-specific
+  authorization failure the proposer's mempool failed to catch
+  (proposer misbehaviour) or a real storage / internal error. Either
+  way, silently committing half-applied state is a strictly worse
+  outcome than refusing to boot.
+- **Crash-safety marker** — `META_BLOCK_APPLYING = (height, hash)` is
+  written before any state mutation and cleared ONLY after the full
+  block (header, fees, rewards, ring-buffer index) commits. On
+  startup, if a stuck marker is found and the tip didn't advance to
+  that height, the node refuses to start with a clear error so the
+  operator can investigate before silent corruption accumulates.
+- **In-process marker guard** — `apply_block` itself refuses to run
+  while the marker is set (unless the marker matches the current tip,
+  in which case it's a stale leftover and is cleared). This prevents
+  the producer or p2p delivery loops from silently overwriting the
+  marker on the next block after a fatal error. After such a fatal
+  error the chain stalls and the operator must restart the node and
+  follow the recovery procedure (snapshot restore OR manually delete
+  `META_BLOCK_APPLYING` from RocksDB if the partial commit was
+  determined to be safe).
+
+### Mempool DoS hardening (`mempool.rs`)
+- **Balance check** — sender's on-chain balance must cover `amount + fee`
+  before a tx is admitted. Closes the zero-balance flooding vector.
+- **Nonce window** — `tx.body.nonce <= cur_nonce + 256`; rejects
+  far-future nonces that would saturate slots without ever executing.
+
+### RPC default-secure (`rpc.rs`)
+- **CORS default = localhost-only.** Public-RPC operators must opt in by
+  setting `ZEBVIX_RPC_CORS_ORIGINS=<csv>` to an explicit allow-list, or
+  `ZEBVIX_RPC_CORS_ORIGINS=*` to explicitly request open CORS (logged
+  loudly). Previous default of `Any` is no longer reachable without an
+  explicit env opt-in.
+- Body limit (256 KiB), per-mempool fee floor, and consensus tx-cap
+  remain as before.
+
+### Slashing default ON (`state.rs`)
+- `SLASHING_ENABLED` defaults to **TRUE**. Detected `DoubleSign` evidence
+  now automatically burns the offender's stake. Operators can opt out
+  via `ZEBVIX_SLASHING_DISABLED=1` (emergency override) or the legacy
+  `ZEBVIX_SLASHING_ENABLED=0`. On a single-validator devnet there is no
+  risk because the lone proposer cannot double-sign against itself.
+
+### State-root verification (operator action recommended)
+- `ZEBVIX_STATE_ROOT_ACTIVATION_HEIGHT` still defaults to `u64::MAX`
+  (disabled) for upgrade-safety. **For fresh chains, operators should
+  set `ZEBVIX_STATE_ROOT_ACTIVATION_HEIGHT=0` so every block enforces
+  Merkle-root parity.** Without this, a corrupted follower could ship
+  divergent state without any consensus-layer detection.
+
+### Known limitations (future hard fork)
+- **BFT quorum gating (C-4):** the 2/3 prevote+precommit gate from
+  Tendermint is NOT yet enforced; a single producer can finalize blocks.
+  Acceptable on a 1-validator devnet, MUST be addressed before adding
+  any independent validators.
+- **Multi-sig bridge oracle (C-6):** `BridgeIn` mints are signed by a
+  single oracle key. A multi-sig wrapper requires bridge-protocol
+  changes and is tracked separately.
+
+## Censorship-Resistance Guarantees
+
+Zebvix is **Bitcoin-like** in one critical respect: **no admin / governor /
+oracle role can block, freeze, or confiscate user transfers.** The
+on-chain admin ladder gates ONLY the following TxKinds:
+
+| Kind                  | Admin/Governor gated? | Notes                                  |
+|-----------------------|-----------------------|----------------------------------------|
+| `Transfer`            | ❌ NO                 | Anyone with balance + nonce            |
+| `TokenTransfer`       | ❌ NO                 | Anyone holding the token               |
+| `TokenCreate`         | ❌ NO                 | Permissionless (100 ZBX burn)          |
+| `TokenBurn`           | ❌ NO                 | Anyone burns their OWN balance         |
+| `TokenMint`           | ⚠ Creator-only       | Only the recorded creator may mint     |
+| `Swap`                | ❌ NO                 | Anyone with balance                    |
+| `Staking::Stake`      | ❌ NO                 | Anyone with ≥ 10 ZBX                   |
+| `Multisig::Execute`   | ❌ NO                 | Pre-approved by required signatures    |
+| `RegisterPayId`       | ❌ NO                 | Anyone, one-time                       |
+| `Proposal::Submit`    | ❌ NO                 | Anyone with ≥ 1000 ZBX balance         |
+| `Proposal::Vote`      | ❌ NO                 | Anyone, one vote per proposal          |
+| `ValidatorAdd/Edit/Remove` | ✅ Governor only | Validator-set governance               |
+| `GovernorChange`      | ✅ Current governor   | Capped at MAX_GOVERNOR_CHANGES         |
+| `Bridge::BridgeIn`    | ✅ Bridge oracle      | Mints from foreign-chain locks         |
+| `Bridge::register*`   | ✅ Admin              | Network/asset registry only            |
+
+The mempool also has **no admin filter and no address blacklist** — any
+well-formed, well-funded tx from any signer is accepted. The only
+admission gates are economic (fee floor, balance, nonce window).
+
+## User-Creatable Fungible Tokens (Phase E)
+
+Anyone can create their own ERC-20-style token on Zebvix. The four
+token transactions (`TokenCreate`, `TokenTransfer`, `TokenMint`,
+`TokenBurn` — bincode tags 11..=14) are appended to `TxKind` so existing
+binary wire-format tags 0..=10 are preserved (no chain reset).
+
+### Creation rules
+- Symbol: 2–10 chars, `[A-Z0-9]` only, **case-insensitive uniqueness**.
+- Name: 1–50 UTF-8 chars.
+- Decimals: 0–18 (mirrors ERC-20 / ETH convention).
+- Initial supply: > 0, ≤ `u128::MAX`.
+- Cost: standard tx fee + a one-time burn of **100 ZBX** (anti-spam,
+  sent to the burn address). Burn applies AFTER the symbol-uniqueness
+  check so a rejected creation only costs the standard tx fee.
+- Creator address is recorded for `Mint` authorization. Anyone (not
+  just the creator) may `Transfer` or `Burn` their own token balance.
+
+### State storage
+- `tok_count`                    — u64 BE next-token-id (1-based).
+- `tok/<id_be8>`                 — bincode `TokenInfo`.
+- `tokb/<id_be8><addr20>`        — 16-byte u128 BE balance (zeroed
+  entries are deleted to save space).
+- `toks/<symbol_lc>`             — 8-byte u64 BE id (uniqueness index).
+
+### RPC methods
+- `zbx_tokenInfo(token_id)` → `TokenInfo` JSON.
+- `zbx_tokenInfoBySymbol(symbol)` → `TokenInfo` JSON.
+- `zbx_tokenBalanceOf(token_id, address)` → `{ balance, balance_hex }`.
+- `zbx_listTokens(offset, limit)` → `{ total, offset, limit, tokens[] }`.
+- `zbx_tokenCount()` → `{ total }`.
+
 # External Dependencies
 
 - **Monorepo:** pnpm workspaces

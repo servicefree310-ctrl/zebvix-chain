@@ -1,6 +1,6 @@
 //! Persistent state: balances, nonces, blocks. Backed by RocksDB.
 
-use crate::crypto::{block_hash, tx_hash, verify_tx, verify_txs_batch};
+use crate::crypto::{block_hash, header_signing_bytes, tx_hash, verify_signature, verify_tx, verify_txs_batch};
 use crate::pool::Pool;
 use crate::tokenomics::{
     reward_at_height, ADMIN_ADDRESS_HEX, BOOTSTRAP_DEL_THRESHOLD, BOOTSTRAP_VAL_THRESHOLD,
@@ -63,6 +63,29 @@ const META_RTX_SEQ: &[u8] = b"rtx_seq";
 // cleared in lockstep on ring eviction. Falls back to linear scan in
 // `find_tx_by_hash` for legacy entries written before this index existed.
 const META_RTX_HASH_PREFIX: &[u8] = b"rtx/h/";
+
+// ── Security Hardening — crash-safety marker for apply_block ──
+// Set BEFORE any state mutation in apply_block, cleared AFTER block header
+// is committed. On startup, if this key is present and tip equals the
+// height stored here, the node refuses to start so the operator can
+// investigate (we cannot guarantee partial-write recovery without a real
+// WriteBatch refactor — this marker turns silent corruption into loud
+// failure). Stored as 8-byte BE height followed by 32-byte block hash.
+const META_BLOCK_APPLYING: &[u8] = b"block_applying";
+
+// ── Phase E — User-creatable fungible tokens ──
+// Layout (all under CF_META):
+//   tok_count                    → u64 BE next-token-id (1-based)
+//   tok/<id_be8>                 → bincode(TokenInfo)
+//   tokb/<id_be8><addr20>        → 16-byte u128 BE balance
+//   toks/<symbol_lc>             → 8-byte u64 BE token_id (uniqueness index)
+//
+// SECURITY: keys are isolated by prefix so they cannot collide with any
+// existing meta-key. Tokens never share storage with native ZBX balances.
+const META_TOKEN_COUNT: &[u8] = b"tok_count";
+const META_TOKEN_PREFIX: &[u8] = b"tok/";
+const META_TOKEN_BAL_PREFIX: &[u8] = b"tokb/";
+const META_TOKEN_SYMBOL_PREFIX: &[u8] = b"toks/";
 
 // ── Phase B.3.3 — slashing evidence log (non-consensus / informational) ──
 // Evidence is recorded out-of-band when a node detects a double-sign vote.
@@ -1574,6 +1597,188 @@ impl State {
                     }
                 }
             }
+            // ─────────────────────────────────────────────────────────
+            // Phase E — User-creatable fungible tokens
+            //
+            // Censorship-resistance: NO admin/governor gating on any of
+            // these arms. Anyone with sufficient balance + valid nonce
+            // can call them; only `TokenMint` is gated to the recorded
+            // creator (because mint trivially dilutes other holders).
+            // No address blacklist, no freeze. Once a user receives a
+            // token balance, only they (or an explicit on-chain spend
+            // by them) can move it.
+            // ─────────────────────────────────────────────────────────
+            crate::types::TxKind::TokenCreate { name, symbol, decimals, initial_supply } => {
+                // Validation — return refund() on every error path so that
+                // the sender pays only the standard fee on rejection.
+                if name.is_empty() || name.len() > crate::tokenomics::TOKEN_NAME_MAX_LEN {
+                    return refund(&mut from, format!(
+                        "token-create: name length must be 1..={} chars (got {})",
+                        crate::tokenomics::TOKEN_NAME_MAX_LEN, name.len()
+                    ));
+                }
+                let sym_len = symbol.len();
+                if sym_len < crate::tokenomics::TOKEN_SYMBOL_MIN_LEN
+                    || sym_len > crate::tokenomics::TOKEN_SYMBOL_MAX_LEN
+                {
+                    return refund(&mut from, format!(
+                        "token-create: symbol length must be {}..={} chars (got {})",
+                        crate::tokenomics::TOKEN_SYMBOL_MIN_LEN,
+                        crate::tokenomics::TOKEN_SYMBOL_MAX_LEN,
+                        sym_len
+                    ));
+                }
+                if !symbol.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit()) {
+                    return refund(&mut from,
+                        "token-create: symbol must be uppercase ASCII letters or digits only".into());
+                }
+                if *decimals > crate::tokenomics::TOKEN_MAX_DECIMALS {
+                    return refund(&mut from, format!(
+                        "token-create: decimals must be 0..={} (got {})",
+                        crate::tokenomics::TOKEN_MAX_DECIMALS, decimals
+                    ));
+                }
+                if *initial_supply == 0 {
+                    return refund(&mut from,
+                        "token-create: initial_supply must be > 0".into());
+                }
+                let symbol_lc = symbol.to_ascii_lowercase();
+                if self.get_token_by_symbol(&symbol_lc).is_some() {
+                    return refund(&mut from, format!(
+                        "token-create: symbol '{}' already taken", symbol
+                    ));
+                }
+                // Anti-spam burn — must be on top of the fee already debited.
+                let burn_wei = crate::tokenomics::TOKEN_CREATION_BURN_WEI;
+                if from.balance < burn_wei {
+                    return refund(&mut from, format!(
+                        "token-create: insufficient balance for {} ZBX creation burn \
+                         (need {} wei more, after fee)",
+                        burn_wei / 1_000_000_000_000_000_000u128, burn_wei
+                    ));
+                }
+                from.balance -= burn_wei;
+                let mut burn_acc = self.account(&burn_address());
+                burn_acc.balance = burn_acc.balance.saturating_add(burn_wei);
+                self.put_account(&burn_address(), &burn_acc)?;
+
+                // Allocate id and persist token.
+                let id = self.token_count().saturating_add(1);
+                let info = TokenInfo {
+                    id,
+                    creator: tx.body.from,
+                    name: name.clone(),
+                    symbol: symbol.clone(),
+                    decimals: *decimals,
+                    total_supply: *initial_supply,
+                    created_at_height: self.tip().0.saturating_add(1),
+                };
+                self.put_token(&info)?;
+                self.put_token_symbol(&symbol_lc, id)?;
+                self.put_token_count(id)?;
+                // Credit creator with the entire initial supply.
+                self.put_token_balance(id, &tx.body.from, *initial_supply)?;
+                // Refund body.amount (it was debited at top of apply_tx).
+                from.balance = from.balance.saturating_add(tx.body.amount);
+                self.put_account(&tx.body.from, &from)?;
+                tracing::info!(
+                    "🪙 token-create id={} symbol={} decimals={} supply={} creator={}",
+                    id, symbol, decimals, initial_supply, tx.body.from,
+                );
+                return Ok(());
+            }
+            crate::types::TxKind::TokenTransfer { token_id, to, amount } => {
+                if *amount == 0 {
+                    return refund(&mut from, "token-transfer: amount must be > 0".into());
+                }
+                if self.get_token(*token_id).is_none() {
+                    return refund(&mut from, format!(
+                        "token-transfer: token id {} does not exist", token_id
+                    ));
+                }
+                let from_bal = self.token_balance_of(*token_id, &tx.body.from);
+                if from_bal < *amount {
+                    return refund(&mut from, format!(
+                        "token-transfer: insufficient token balance: have {}, need {}",
+                        from_bal, amount
+                    ));
+                }
+                let to_bal = self.token_balance_of(*token_id, to);
+                let new_to = to_bal.checked_add(*amount).ok_or_else(|| {
+                    anyhow!("token-transfer: recipient balance overflow")
+                })?;
+                self.put_token_balance(*token_id, &tx.body.from, from_bal - amount)?;
+                self.put_token_balance(*token_id, to, new_to)?;
+                from.balance = from.balance.saturating_add(tx.body.amount);
+                self.put_account(&tx.body.from, &from)?;
+                tracing::info!(
+                    "🪙 token-transfer id={} {} → {} amount={}",
+                    token_id, tx.body.from, to, amount,
+                );
+                return Ok(());
+            }
+            crate::types::TxKind::TokenMint { token_id, to, amount } => {
+                if *amount == 0 {
+                    return refund(&mut from, "token-mint: amount must be > 0".into());
+                }
+                let mut info = match self.get_token(*token_id) {
+                    Some(t) => t,
+                    None => return refund(&mut from, format!(
+                        "token-mint: token id {} does not exist", token_id
+                    )),
+                };
+                if tx.body.from != info.creator {
+                    return refund(&mut from, format!(
+                        "token-mint: only creator {} may mint id {}",
+                        info.creator, token_id
+                    ));
+                }
+                let new_supply = info.total_supply.checked_add(*amount).ok_or_else(|| {
+                    anyhow!("token-mint: total_supply overflow")
+                })?;
+                let to_bal = self.token_balance_of(*token_id, to);
+                let new_to = to_bal.checked_add(*amount).ok_or_else(|| {
+                    anyhow!("token-mint: recipient balance overflow")
+                })?;
+                info.total_supply = new_supply;
+                self.put_token(&info)?;
+                self.put_token_balance(*token_id, to, new_to)?;
+                from.balance = from.balance.saturating_add(tx.body.amount);
+                self.put_account(&tx.body.from, &from)?;
+                tracing::info!(
+                    "🪙 token-mint id={} → {} amount={} new_supply={}",
+                    token_id, to, amount, new_supply,
+                );
+                return Ok(());
+            }
+            crate::types::TxKind::TokenBurn { token_id, amount } => {
+                if *amount == 0 {
+                    return refund(&mut from, "token-burn: amount must be > 0".into());
+                }
+                let mut info = match self.get_token(*token_id) {
+                    Some(t) => t,
+                    None => return refund(&mut from, format!(
+                        "token-burn: token id {} does not exist", token_id
+                    )),
+                };
+                let from_bal = self.token_balance_of(*token_id, &tx.body.from);
+                if from_bal < *amount {
+                    return refund(&mut from, format!(
+                        "token-burn: insufficient token balance: have {}, need {}",
+                        from_bal, amount
+                    ));
+                }
+                info.total_supply = info.total_supply.saturating_sub(*amount);
+                self.put_token(&info)?;
+                self.put_token_balance(*token_id, &tx.body.from, from_bal - amount)?;
+                from.balance = from.balance.saturating_add(tx.body.amount);
+                self.put_account(&tx.body.from, &from)?;
+                tracing::info!(
+                    "🪙 token-burn id={} from {} amount={} new_supply={}",
+                    token_id, tx.body.from, amount, info.total_supply,
+                );
+                return Ok(());
+            }
             crate::types::TxKind::Transfer => { /* fall through to legacy logic */ }
         }
 
@@ -1779,6 +1984,34 @@ impl State {
     }
 
     pub fn apply_block(&self, block: &Block) -> Result<()> {
+        // ── SECURITY: in-process fail-loud guard ──
+        // If a previous apply_block aborted with an error, the
+        // META_BLOCK_APPLYING marker is intentionally LEFT SET so the
+        // next process startup refuses to boot until the operator runs
+        // the recovery procedure. Without this guard, the next in-process
+        // apply_block call would simply overwrite the marker at
+        // set_block_applying_marker() below, defeating the guarantee.
+        // Refuse here too: any caller (consensus producer, p2p delivery)
+        // that keeps running after a fatal apply_block error will
+        // continue to receive errors instead of silently committing
+        // potentially-inconsistent follow-up blocks.
+        if let Some((stuck_h, stuck_hash)) = self.read_block_applying_marker() {
+            let (tip_h, tip_hash) = self.tip();
+            if !(tip_h >= stuck_h && tip_hash == stuck_hash) {
+                return Err(anyhow!(
+                    "🛑 ABORT: apply_block refusing to run — stuck apply-marker for #{stuck_h} ({stuck_hash}). \
+                     Tip is #{tip_h} ({tip_hash}). A previous apply_block aborted mid-flight. \
+                     Operator action required: stop the node and follow the startup recovery \
+                     procedure (restore from snapshot or manually clear META_BLOCK_APPLYING in RocksDB)."
+                ));
+            }
+            // Marker matches the committed tip — stale leftover, safe to clear and proceed.
+            tracing::warn!(
+                "apply_block: clearing stale apply-marker for #{stuck_h} (already at tip)"
+            );
+            self.clear_block_applying_marker()?;
+        }
+
         let (h, last) = self.tip();
         if block.header.height != h + 1 {
             return Err(anyhow!("non-contiguous height: tip {h} got {}", block.header.height));
@@ -1786,6 +2019,31 @@ impl State {
         if block.header.parent_hash != last {
             return Err(anyhow!("parent hash mismatch"));
         }
+
+        // ── SECURITY: proposer signature + validator-set membership check ──
+        // Without this, ANY peer can forge blocks claiming arbitrary proposer
+        // identity and have them applied as long as tx signatures are valid.
+        // We verify (a) proposer is currently in the validator set and (b)
+        // the block.signature is a valid ECDSA-secp256k1 signature over the
+        // header bytes by that validator's pubkey. This single check makes
+        // forged blocks impossible regardless of how many validators exist
+        // (works correctly with N=1 too).
+        let proposer_validator = self.get_validator(&block.header.proposer)
+            .ok_or_else(|| anyhow!(
+                "block #{}: proposer {} is NOT in validator set — block forgery attempt rejected",
+                block.header.height, block.header.proposer
+            ))?;
+        if !verify_signature(
+            &proposer_validator.pubkey,
+            &header_signing_bytes(&block.header),
+            &block.signature,
+        ) {
+            return Err(anyhow!(
+                "block #{}: proposer signature INVALID — block forgery attempt rejected",
+                block.header.height
+            ));
+        }
+
         // Phase B.12 — expose block timestamp to apply_tx (Bridge arm reads it).
         self.current_block_ts_ms.store(block.header.timestamp_ms, Ordering::SeqCst);
         if block.txs.len() >= 4 {
@@ -1797,6 +2055,73 @@ impl State {
                 if !verify_tx(tx) {
                     return Err(anyhow!("bad tx signature: {}", tx_hash(tx)));
                 }
+            }
+        }
+
+        // ── SECURITY: pre-validation pass (sig already done above) ──
+        // Walk every tx with a SIMULATED nonce + balance map (no disk
+        // mutation) and confirm each tx will not be rejected at apply_tx
+        // for nonce / fee-bound / insufficient-balance reasons. If ANY tx
+        // would fail, reject the WHOLE block here — never mutate state
+        // partially. This is our defense against C-2 style mid-block
+        // crashes leaving partial state.
+        //
+        // Kind-specific authorization checks (governor for ValidatorAdd,
+        // creator for TokenMint, etc.) are NOT replicated here. If
+        // apply_tx fails on those at runtime, the block is aborted with
+        // the crash-safety marker LEFT SET so startup refuses to boot
+        // until the operator investigates (see runtime loop below). On
+        // a healthy chain the proposer's own mempool simulates these
+        // checks before block-build, so this path should never fire on
+        // honest validators — its presence in a delivered block flags
+        // proposer misbehaviour or a chain bug.
+        {
+            let pool = self.pool();
+            let (min_fee_wei, max_fee_wei) = crate::pool::fee_bounds_wei(
+                &pool,
+                crate::tokenomics::MIN_FEE_USD_MICRO,
+                crate::tokenomics::MAX_FEE_USD_MICRO,
+                crate::tokenomics::BOOTSTRAP_MIN_FEE_WEI,
+                crate::tokenomics::BOOTSTRAP_MAX_FEE_WEI,
+            );
+            // Per-sender simulated state: (next_nonce, balance_remaining).
+            let mut sim: std::collections::HashMap<Address, (u64, u128)> =
+                std::collections::HashMap::new();
+            for (idx, tx) in block.txs.iter().enumerate() {
+                if tx.body.fee < min_fee_wei || tx.body.fee > max_fee_wei {
+                    return Err(anyhow!(
+                        "block #{}: tx[{idx}] fee {} out of dynamic bounds [{}, {}]",
+                        block.header.height, tx.body.fee, min_fee_wei, max_fee_wei
+                    ));
+                }
+                let entry = sim.entry(tx.body.from).or_insert_with(|| {
+                    let acc = self.account(&tx.body.from);
+                    (acc.nonce, acc.balance)
+                });
+                if entry.0 != tx.body.nonce {
+                    return Err(anyhow!(
+                        "block #{}: tx[{idx}] from {} bad nonce: simulated {}, got {}",
+                        block.header.height, tx.body.from, entry.0, tx.body.nonce
+                    ));
+                }
+                // For Swap ZusdToZbx, only fee comes from balance (amount is in
+                // zUSD, separate ledger). Mirror apply_tx's pre_debit logic.
+                let pre_debit = match &tx.body.kind {
+                    crate::types::TxKind::Swap {
+                        direction: crate::transaction::SwapDirection::ZusdToZbx, ..
+                    } => tx.body.fee,
+                    _ => tx.body.amount.checked_add(tx.body.fee).ok_or_else(|| anyhow!(
+                        "block #{}: tx[{idx}] amount+fee overflow", block.header.height
+                    ))?,
+                };
+                if entry.1 < pre_debit {
+                    return Err(anyhow!(
+                        "block #{}: tx[{idx}] from {} insufficient balance: have {}, need {}",
+                        block.header.height, tx.body.from, entry.1, pre_debit
+                    ));
+                }
+                entry.0 += 1;
+                entry.1 -= pre_debit;
             }
         }
 
@@ -1820,19 +2145,47 @@ impl State {
             }
         }
 
+        // ── SECURITY: write crash-safety marker BEFORE any state mutation ──
+        // If the process dies between this and the marker-clear at the end,
+        // the next startup will detect a stuck marker and refuse to launch.
+        // This converts silent corruption into a loud failure that can be
+        // investigated by the operator.
+        self.set_block_applying_marker(block.header.height, &block_hash(&block.header))?;
+
         let mut total_fees: u128 = 0;
         for tx in &block.txs {
-            self.apply_tx(tx)?;
+            // SECURITY (audit follow-up): per-tx errors are FATAL to the
+            // whole block. Pre-validation above already filters nonce /
+            // balance / fee-bound rejections. If apply_tx still errors,
+            // it indicates either a kind-specific authorization failure
+            // (which the proposer's own mempool should have caught — its
+            // presence here suggests proposer misbehaviour or bug) or a
+            // genuine storage / internal error. Either way we MUST NOT
+            // silently swallow it: not all apply_tx arms have a clean
+            // refund pattern (some do partial writes before failing with
+            // `?`), so continuing risks committing half-applied state.
+            //
+            // We deliberately do NOT clear META_BLOCK_APPLYING here. The
+            // marker stays set so the next startup refuses to boot until
+            // the operator investigates and runs the recovery procedure
+            // documented in replit.md.
+            let tx_h = tx_hash(tx);
+            self.apply_tx(tx).map_err(|e| anyhow!(
+                "block #{}: tx {} apply failed (marker LEFT SET — operator action required): {e}",
+                block.header.height, tx_h
+            ))?;
             total_fees = total_fees.saturating_add(tx.body.fee);
             // Phase B.9 — index this tx into the recent-tx ring buffer.
-            // Failure here is logged but does NOT roll back the tx (the
-            // index is best-effort metadata, not consensus state).
+            // SECURITY: index failure now FAILS the block (was previously
+            // logged silently which let state and index diverge — H-8).
+            // Same marker-leak rule as above: do NOT clear the marker on
+            // failure so startup will catch the partial application.
             let kind_index = tx.body.kind.tag_index();
             let rec = RecentTxRecord {
                 seq: 0, // overwritten by push_recent_tx
                 height: block.header.height,
                 timestamp_ms: block.header.timestamp_ms,
-                hash: tx_hash(tx).0,
+                hash: tx_h.0,
                 from: tx.body.from,
                 to: tx.body.to,
                 amount: tx.body.amount,
@@ -1840,9 +2193,10 @@ impl State {
                 nonce: tx.body.nonce,
                 kind_index,
             };
-            if let Err(e) = self.push_recent_tx(rec) {
-                tracing::warn!("recent-tx index push failed (non-fatal): {e}");
-            }
+            self.push_recent_tx(rec).map_err(|e| anyhow!(
+                "block #{}: recent-tx index push failed (marker LEFT SET — operator action required): {e}",
+                block.header.height
+            ))?;
         }
         // ── Phase B.6: per-block mint accumulates in REWARDS_POOL ──
         // The 3 ZBX (or current halving value) flows into a holding address
@@ -1969,8 +2323,198 @@ impl State {
         self.db.put_cf(cf_m, META_HEIGHT, key)?;
         self.db.put_cf(cf_m, META_LAST_HASH, bh.0)?;
         *self.tip.write() = (block.header.height, bh);
+        // SECURITY: clear crash-safety marker — block fully committed.
+        self.clear_block_applying_marker()?;
         Ok(())
     }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Crash-safety marker — apply_block intent log
+    // ────────────────────────────────────────────────────────────────────
+
+    /// Persist a marker indicating that apply_block is mid-flight for the
+    /// given (height, hash). Cleared on successful commit. If a process
+    /// dies between these two writes, startup detects the stuck marker.
+    pub fn set_block_applying_marker(&self, height: u64, hash: &Hash) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let mut buf = Vec::with_capacity(40);
+        buf.extend_from_slice(&height.to_be_bytes());
+        buf.extend_from_slice(&hash.0);
+        self.db.put_cf(cf, META_BLOCK_APPLYING, buf)?;
+        Ok(())
+    }
+
+    /// Clear the apply-in-flight marker (called on successful block commit).
+    pub fn clear_block_applying_marker(&self) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.delete_cf(cf, META_BLOCK_APPLYING)?;
+        Ok(())
+    }
+
+    /// Read the marker, if present. Returns (height, hash) of the in-flight
+    /// block. Used at startup to detect a crashed mid-block apply.
+    pub fn read_block_applying_marker(&self) -> Option<(u64, Hash)> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let raw = self.db.get_cf(cf, META_BLOCK_APPLYING).ok().flatten()?;
+        if raw.len() != 40 {
+            return None;
+        }
+        let mut h_bytes = [0u8; 8];
+        h_bytes.copy_from_slice(&raw[..8]);
+        let mut hash_bytes = [0u8; 32];
+        hash_bytes.copy_from_slice(&raw[8..]);
+        Some((u64::from_be_bytes(h_bytes), Hash(hash_bytes)))
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Phase E — User-creatable fungible tokens (storage helpers)
+    // ────────────────────────────────────────────────────────────────────
+
+    fn token_count(&self) -> u64 {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        match self.db.get_cf(cf, META_TOKEN_COUNT).ok().flatten() {
+            Some(v) if v.len() == 8 => {
+                let mut b = [0u8; 8];
+                b.copy_from_slice(&v);
+                u64::from_be_bytes(b)
+            }
+            _ => 0,
+        }
+    }
+
+    fn put_token_count(&self, n: u64) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.put_cf(cf, META_TOKEN_COUNT, n.to_be_bytes())?;
+        Ok(())
+    }
+
+    fn token_key(id: u64) -> Vec<u8> {
+        let mut k = META_TOKEN_PREFIX.to_vec();
+        k.extend_from_slice(&id.to_be_bytes());
+        k
+    }
+
+    fn token_balance_key(id: u64, addr: &Address) -> Vec<u8> {
+        let mut k = META_TOKEN_BAL_PREFIX.to_vec();
+        k.extend_from_slice(&id.to_be_bytes());
+        k.extend_from_slice(&addr.0);
+        k
+    }
+
+    fn token_symbol_key(symbol_lc: &str) -> Vec<u8> {
+        let mut k = META_TOKEN_SYMBOL_PREFIX.to_vec();
+        k.extend_from_slice(symbol_lc.as_bytes());
+        k
+    }
+
+    /// Look up a token by its id.
+    pub fn get_token(&self, id: u64) -> Option<TokenInfo> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let raw = self.db.get_cf(cf, Self::token_key(id)).ok().flatten()?;
+        bincode::deserialize::<TokenInfo>(&raw).ok()
+    }
+
+    /// Look up a token by symbol (case-insensitive).
+    pub fn get_token_by_symbol(&self, symbol: &str) -> Option<TokenInfo> {
+        let lc = symbol.to_ascii_lowercase();
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let raw = self.db.get_cf(cf, Self::token_symbol_key(&lc)).ok().flatten()?;
+        if raw.len() != 8 {
+            return None;
+        }
+        let mut b = [0u8; 8];
+        b.copy_from_slice(&raw);
+        let id = u64::from_be_bytes(b);
+        self.get_token(id)
+    }
+
+    fn put_token(&self, info: &TokenInfo) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.put_cf(cf, Self::token_key(info.id), bincode::serialize(info)?)?;
+        Ok(())
+    }
+
+    /// Read a holder's balance of a given token (0 if no entry).
+    pub fn token_balance_of(&self, id: u64, addr: &Address) -> u128 {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        match self.db.get_cf(cf, Self::token_balance_key(id, addr)).ok().flatten() {
+            Some(v) if v.len() == 16 => {
+                let mut b = [0u8; 16];
+                b.copy_from_slice(&v);
+                u128::from_be_bytes(b)
+            }
+            _ => 0,
+        }
+    }
+
+    fn put_token_balance(&self, id: u64, addr: &Address, bal: u128) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        let k = Self::token_balance_key(id, addr);
+        if bal == 0 {
+            // Save space — delete zero-balance entries.
+            self.db.delete_cf(cf, k)?;
+        } else {
+            self.db.put_cf(cf, k, bal.to_be_bytes())?;
+        }
+        Ok(())
+    }
+
+    fn put_token_symbol(&self, symbol_lc: &str, id: u64) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.put_cf(cf, Self::token_symbol_key(symbol_lc), id.to_be_bytes())?;
+        Ok(())
+    }
+
+    /// Paginated list of all tokens (oldest-first by id).
+    pub fn list_tokens(&self, offset: u64, limit: u64) -> Vec<TokenInfo> {
+        let total = self.token_count();
+        if offset >= total {
+            return Vec::new();
+        }
+        let end = offset.saturating_add(limit).min(total);
+        let mut out = Vec::with_capacity((end - offset) as usize);
+        // ids are 1-based
+        for id in (offset + 1)..=end {
+            if let Some(t) = self.get_token(id) {
+                out.push(t);
+            }
+        }
+        out
+    }
+
+    /// Total number of tokens ever created.
+    pub fn total_token_count(&self) -> u64 { self.token_count() }
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Phase E — TokenInfo persisted record
+// ────────────────────────────────────────────────────────────────────
+//
+// Stored under META_TOKEN_PREFIX. **Field order is consensus-critical**
+// (bincode is positional). Existing fields must NEVER be reordered;
+// new fields may be appended for non-breaking upgrades.
+
+/// Persisted record describing a user-created fungible token.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct TokenInfo {
+    /// Unique 1-based id assigned at creation.
+    pub id: u64,
+    /// Original creator address (only address authorized to `Mint`).
+    pub creator: Address,
+    /// Display name (1-50 chars, UTF-8).
+    pub name: String,
+    /// Trading symbol (2-10 chars, [A-Z0-9], case-preserved on display
+    /// but uniqueness checked case-insensitively).
+    pub symbol: String,
+    /// Decimal places (0-18, mirrors ERC-20).
+    pub decimals: u8,
+    /// Current total supply across all holders.
+    pub total_supply: u128,
+    /// Block height at which the token was created (for audit + UI).
+    pub created_at_height: u64,
+}
+
+impl State {
 
     // ───────────────────── Phase D — Governance proposals & feature flags ─────────────────────
     //
@@ -2748,17 +3292,37 @@ pub static STATE_ROOT_ACTIVATION_HEIGHT: Lazy<u64> = Lazy::new(|| {
         .unwrap_or(u64::MAX)
 });
 
-/// Master switch for the Phase B.3.3 slashing pipeline. When false (the
-/// default), `DoubleSign` evidence is detected, logged, and persisted to the
-/// evidence ledger but NO stake is burned — useful for shadow-running the
-/// detection logic on a single-validator devnet without risking downtime.
+/// Master switch for the Phase B.3.3 slashing pipeline.
+///
+/// **SECURITY HARDENING (C/H audit):** default flipped to **TRUE** so any
+/// detected `DoubleSign` automatically burns the offender's stake. On a
+/// single-validator devnet there is no risk (the lone producer cannot
+/// double-sign against itself). Operators who need to disable slashing
+/// (e.g. during a planned validator-set migration) can set
+/// `ZEBVIX_SLASHING_DISABLED=1` for an emergency override.
+///
+/// Legacy override `ZEBVIX_SLASHING_ENABLED=0` is also still honored so
+/// upgrades from earlier binaries don't surprise operators.
 pub static SLASHING_ENABLED: Lazy<bool> = Lazy::new(|| {
-    std::env::var("ZEBVIX_SLASHING_ENABLED")
-        .map(|v| {
-            let v = v.trim();
-            v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("yes")
-        })
-        .unwrap_or(false)
+    // Highest-priority override: explicit disable flag (post-hardening).
+    if let Ok(v) = std::env::var("ZEBVIX_SLASHING_DISABLED") {
+        let v = v.trim();
+        if v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("yes") {
+            tracing::warn!(
+                "⚠  slashing DISABLED via ZEBVIX_SLASHING_DISABLED — \
+                 double-sign evidence will be logged but no stake will be burned"
+            );
+            return false;
+        }
+    }
+    // Legacy enable/disable: ZEBVIX_SLASHING_ENABLED=0 also disables.
+    if let Ok(v) = std::env::var("ZEBVIX_SLASHING_ENABLED") {
+        let v = v.trim();
+        let on = v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("yes");
+        return on;
+    }
+    // Default: ON (security-by-default).
+    true
 });
 
 /// On-chain audit record of a detected double-sign event. Persisted under
@@ -3178,5 +3742,377 @@ mod state_root_tests {
         st.create_checkpoint(&snap_path).unwrap();
         assert!(snap_path.exists(), "checkpoint dir must exist");
         assert!(snap_path.is_dir(), "checkpoint must be a directory");
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // Phase E + Audit hardening — block-forgery + token roundtrip tests
+    // ────────────────────────────────────────────────────────────────
+
+    use crate::crypto::{generate_keypair, sign_bytes};
+    use crate::transaction::TxKind;
+    use crate::types::{Block, BlockHeader, Validator};
+
+    fn install_validator(st: &State) -> ([u8; 32], [u8; 33], Address) {
+        let (sk, pk) = generate_keypair();
+        let addr = crate::crypto::address_from_pubkey(&pk);
+        st.put_validator(&Validator { address: addr, pubkey: pk, voting_power: 1 }).unwrap();
+        (sk, pk, addr)
+    }
+
+    fn build_block(
+        st: &State,
+        proposer: Address,
+        signing_secret: &[u8; 32],
+    ) -> Block {
+        let (h, parent) = st.tip();
+        let header = BlockHeader {
+            height: h + 1,
+            parent_hash: parent,
+            state_root: Hash::ZERO,
+            tx_root: Hash::ZERO,
+            timestamp_ms: 1_700_000_000_000,
+            proposer,
+        };
+        let sig = sign_bytes(signing_secret, &header_signing_bytes(&header));
+        Block { header, txs: Vec::new(), signature: sig }
+    }
+
+    #[test]
+    fn apply_block_accepts_well_signed_proposer() {
+        let (_td, st) = fresh_state();
+        let (sk, _pk, addr) = install_validator(&st);
+        let blk = build_block(&st, addr, &sk);
+        st.apply_block(&blk).expect("well-signed block from registered validator must apply");
+        let (h, _) = st.tip();
+        assert_eq!(h, 1, "tip must advance");
+    }
+
+    #[test]
+    fn apply_block_rejects_non_validator_proposer() {
+        let (_td, st) = fresh_state();
+        // Register validator A so the chain has at least one validator,
+        // but propose as attacker B (NOT in the set).
+        let (_sk_a, _pk_a, _addr_a) = install_validator(&st);
+        let (sk_b, pk_b) = generate_keypair();
+        let attacker = crate::crypto::address_from_pubkey(&pk_b);
+        let blk = build_block(&st, attacker, &sk_b);
+        let err = st.apply_block(&blk).expect_err("must reject non-validator proposer");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("NOT in validator set") || msg.contains("forgery"),
+            "error must call out forgery: {msg}"
+        );
+    }
+
+    #[test]
+    fn apply_block_rejects_forged_signature() {
+        let (_td, st) = fresh_state();
+        let (_sk_a, _pk_a, addr_a) = install_validator(&st);
+        // Build header claiming validator A as proposer, but sign with
+        // attacker B's key. A is in the validator set so the membership
+        // check passes — only the signature check must catch this.
+        let (sk_b, _pk_b) = generate_keypair();
+        let blk = build_block(&st, addr_a, &sk_b);
+        let err = st.apply_block(&blk).expect_err("forged signature must be rejected");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("signature INVALID") || msg.contains("forgery"),
+            "error must call out invalid signature: {msg}"
+        );
+    }
+
+    #[test]
+    fn mempool_rejects_insufficient_balance() {
+        use crate::mempool::Mempool;
+        use crate::transaction::TxBody;
+        use std::sync::Arc;
+        let (_td, st) = fresh_state();
+        let st = Arc::new(st);
+        // Sender has zero balance — any non-zero tx must be rejected.
+        let (sk, pk) = generate_keypair();
+        let from = crate::crypto::address_from_pubkey(&pk);
+        let body = TxBody {
+            from,
+            to: Address::ZERO,
+            amount: 1,
+            nonce: 0,
+            fee: crate::tokenomics::MIN_TX_FEE_WEI,
+            chain_id: 7878,
+            kind: TxKind::Transfer,
+        };
+        let tx = crate::crypto::sign_tx(&sk, body);
+        let mp = Mempool::new(st, 64);
+        let err = mp.add(tx).expect_err("zero-balance sender must be rejected");
+        let msg = format!("{err}");
+        assert!(msg.contains("insufficient balance"), "expected balance error: {msg}");
+    }
+
+    #[test]
+    fn mempool_rejects_nonce_too_far() {
+        use crate::mempool::{Mempool, MAX_NONCE_GAP};
+        use crate::transaction::TxBody;
+        use std::sync::Arc;
+        let (_td, st) = fresh_state();
+        // Fund sender so balance check passes — only nonce gap should fail.
+        let (sk, pk) = generate_keypair();
+        let from = crate::crypto::address_from_pubkey(&pk);
+        let mut acc = st.account(&from);
+        acc.balance = 10u128.pow(20);
+        st.put_account(&from, &acc).unwrap();
+        let st = Arc::new(st);
+        let body = TxBody {
+            from,
+            to: Address::ZERO,
+            amount: 1,
+            nonce: MAX_NONCE_GAP + 1, // cur=0, max gap window exceeded
+            fee: crate::tokenomics::MIN_TX_FEE_WEI,
+            chain_id: 7878,
+            kind: TxKind::Transfer,
+        };
+        let tx = crate::crypto::sign_tx(&sk, body);
+        let mp = Mempool::new(st, 64);
+        let err = mp.add(tx).expect_err("nonce far in future must be rejected");
+        let msg = format!("{err}");
+        assert!(msg.contains("nonce too far"), "expected nonce-gap error: {msg}");
+    }
+
+    #[test]
+    fn token_create_then_transfer_roundtrip() {
+        let (_td, st) = fresh_state();
+        // Two parties: creator (alice) and recipient (bob).
+        let (sk_a, pk_a) = generate_keypair();
+        let alice = crate::crypto::address_from_pubkey(&pk_a);
+        let (_sk_b, pk_b) = generate_keypair();
+        let bob = crate::crypto::address_from_pubkey(&pk_b);
+        // Fund alice with enough ZBX to cover fee + the 100-ZBX creation burn.
+        let mut acc = st.account(&alice);
+        acc.balance = 200u128 * 1_000_000_000_000_000_000u128;
+        st.put_account(&alice, &acc).unwrap();
+
+        let fee = crate::tokenomics::BOOTSTRAP_MIN_FEE_WEI.max(1_000_000_000_000_000);
+        let create_body = crate::transaction::TxBody {
+            from: alice,
+            to: Address::ZERO,
+            amount: 0,
+            nonce: 0,
+            fee,
+            chain_id: 7878,
+            kind: TxKind::TokenCreate {
+                name: "MyCoin".to_string(),
+                symbol: "MYC".to_string(),
+                decimals: 8,
+                initial_supply: 1_000_000,
+            },
+        };
+        let create_tx = crate::crypto::sign_tx(&sk_a, create_body);
+        st.apply_tx(&create_tx).expect("token create must succeed");
+
+        // Token #1 should now exist and alice should hold full supply.
+        let tok = st.get_token_by_symbol("MYC").expect("MYC token must exist");
+        assert_eq!(tok.id, 1);
+        assert_eq!(tok.creator, alice);
+        assert_eq!(tok.decimals, 8);
+        assert_eq!(tok.total_supply, 1_000_000);
+        assert_eq!(st.token_balance_of(tok.id, &alice), 1_000_000);
+        assert_eq!(st.token_balance_of(tok.id, &bob), 0);
+
+        // Now transfer 250_000 MYC alice -> bob.
+        let xfer_body = crate::transaction::TxBody {
+            from: alice,
+            to: Address::ZERO,
+            amount: 0,
+            nonce: 1,
+            fee,
+            chain_id: 7878,
+            kind: TxKind::TokenTransfer {
+                token_id: tok.id,
+                to: bob,
+                amount: 250_000,
+            },
+        };
+        let xfer_tx = crate::crypto::sign_tx(&sk_a, xfer_body);
+        st.apply_tx(&xfer_tx).expect("token transfer must succeed");
+        assert_eq!(st.token_balance_of(tok.id, &alice), 750_000);
+        assert_eq!(st.token_balance_of(tok.id, &bob), 250_000);
+        // Total supply unchanged on transfer.
+        let tok_after = st.get_token(tok.id).unwrap();
+        assert_eq!(tok_after.total_supply, 1_000_000);
+    }
+
+    #[test]
+    fn apply_block_fails_loud_on_runtime_tx_error() {
+        // Regression test for audit follow-up: any apply_tx error inside
+        // the runtime loop MUST abort the whole block AND leave the
+        // crash-safety marker set, so startup refuses to boot. We trigger
+        // this by including a TokenMint tx submitted by a non-creator
+        // (passes pre-validation: nonce/balance/fee all OK; fails at
+        // apply_tx with the creator-only check).
+        let (_td, st) = fresh_state();
+        let (sk_v, _pk_v, addr_v) = install_validator(&st);
+
+        // Alice creates a token outside of any block (direct apply_tx).
+        let (sk_a, pk_a) = generate_keypair();
+        let alice = crate::crypto::address_from_pubkey(&pk_a);
+        let mut acc_a = st.account(&alice);
+        acc_a.balance = 200u128 * 1_000_000_000_000_000_000u128;
+        st.put_account(&alice, &acc_a).unwrap();
+        let fee = crate::tokenomics::MIN_TX_FEE_WEI;
+        let create = crate::transaction::TxBody {
+            from: alice, to: Address::ZERO, amount: 0, nonce: 0, fee, chain_id: 7878,
+            kind: TxKind::TokenCreate {
+                name: "Foo".to_string(), symbol: "FOO".to_string(),
+                decimals: 6, initial_supply: 100,
+            },
+        };
+        st.apply_tx(&crate::crypto::sign_tx(&sk_a, create)).unwrap();
+        let tok = st.get_token_by_symbol("FOO").unwrap();
+
+        // Bob (non-creator) attempts to mint inside a block. Fund bob.
+        let (sk_b, pk_b) = generate_keypair();
+        let bob = crate::crypto::address_from_pubkey(&pk_b);
+        let mut acc_b = st.account(&bob);
+        acc_b.balance = 10u128 * 1_000_000_000_000_000_000u128;
+        st.put_account(&bob, &acc_b).unwrap();
+
+        let mint_body = crate::transaction::TxBody {
+            from: bob, to: Address::ZERO, amount: 0, nonce: 0, fee, chain_id: 7878,
+            kind: TxKind::TokenMint { token_id: tok.id, to: bob, amount: 999 },
+        };
+        let bad_tx = crate::crypto::sign_tx(&sk_b, mint_body);
+
+        // Build a block with that tx, signed by the registered validator.
+        let (h0, parent) = st.tip();
+        let header = BlockHeader {
+            height: h0 + 1,
+            parent_hash: parent,
+            state_root: Hash::ZERO,
+            tx_root: Hash::ZERO,
+            timestamp_ms: 1_700_000_000_000,
+            proposer: addr_v,
+        };
+        let sig = sign_bytes(&sk_v, &header_signing_bytes(&header));
+        let blk = Block { header, txs: vec![bad_tx], signature: sig };
+
+        let res = st.apply_block(&blk);
+        assert!(res.is_err(), "block with creator-only mint by non-creator must abort");
+
+        // Tip must NOT advance.
+        let (h1, _) = st.tip();
+        assert_eq!(h1, h0, "tip must not advance on aborted block");
+        // Marker MUST remain set so startup refuses to boot.
+        let marker = st.read_block_applying_marker();
+        assert!(marker.is_some(), "marker must remain set on aborted block");
+        let (mh, _) = marker.unwrap();
+        assert_eq!(mh, h0 + 1, "marker height must equal the failed block's height");
+        // Bob must NOT have received any minted balance.
+        assert_eq!(st.token_balance_of(tok.id, &bob), 0);
+
+        // ── In-process guard: any subsequent apply_block call must be
+        // refused while the marker is set, EVEN if the new block would
+        // otherwise be valid. The operator must restart and run the
+        // recovery procedure to clear the marker.
+        let header2 = BlockHeader {
+            height: h0 + 1,
+            parent_hash: parent,
+            state_root: Hash::ZERO,
+            tx_root: Hash::ZERO,
+            timestamp_ms: 1_700_000_001_000,
+            proposer: addr_v,
+        };
+        let sig2 = sign_bytes(&sk_v, &header_signing_bytes(&header2));
+        let blk2 = Block { header: header2, txs: vec![], signature: sig2 };
+        let res2 = st.apply_block(&blk2);
+        assert!(res2.is_err(), "apply_block must refuse while marker is stuck");
+        let msg = format!("{:?}", res2.err().unwrap());
+        assert!(
+            msg.contains("stuck apply-marker") || msg.contains("apply-marker"),
+            "error must mention stuck marker, got: {msg}"
+        );
+
+        // Operator recovery: clear the marker, then a valid block applies.
+        st.clear_block_applying_marker().unwrap();
+        let res3 = st.apply_block(&blk2);
+        assert!(res3.is_ok(), "after marker cleared, valid block must apply: {res3:?}");
+        let (h3, _) = st.tip();
+        assert_eq!(h3, h0 + 1, "tip advances after recovery");
+    }
+
+    #[test]
+    fn apply_block_auto_clears_stale_marker_matching_tip() {
+        // The marker == committed tip case can happen if the previous run
+        // committed the block fully but died before deleting the marker.
+        // apply_block must auto-clear and proceed; this test locks that in.
+        let (_td, st) = fresh_state();
+        let (sk_v, _pk_v, addr_v) = install_validator(&st);
+
+        // Apply one valid empty block to advance the tip.
+        let (h0, parent) = st.tip();
+        let header = BlockHeader {
+            height: h0 + 1, parent_hash: parent,
+            state_root: Hash::ZERO, tx_root: Hash::ZERO,
+            timestamp_ms: 1_700_000_000_000, proposer: addr_v,
+        };
+        let sig = sign_bytes(&sk_v, &header_signing_bytes(&header));
+        let blk = Block { header, txs: vec![], signature: sig };
+        st.apply_block(&blk).unwrap();
+        let (tip_h, tip_hash) = st.tip();
+        assert_eq!(tip_h, h0 + 1);
+
+        // Simulate a crash AFTER commit but BEFORE marker delete.
+        st.set_block_applying_marker(tip_h, &tip_hash).unwrap();
+        assert!(st.read_block_applying_marker().is_some());
+
+        // Next apply_block must auto-clear (marker matches tip) and proceed.
+        let header2 = BlockHeader {
+            height: tip_h + 1, parent_hash: tip_hash,
+            state_root: Hash::ZERO, tx_root: Hash::ZERO,
+            timestamp_ms: 1_700_000_001_000, proposer: addr_v,
+        };
+        let sig2 = sign_bytes(&sk_v, &header_signing_bytes(&header2));
+        let blk2 = Block { header: header2, txs: vec![], signature: sig2 };
+        st.apply_block(&blk2).expect("auto-clear path should allow valid block");
+        let (tip_h2, _) = st.tip();
+        assert_eq!(tip_h2, tip_h + 1);
+        // Marker cleared by successful commit.
+        assert!(st.read_block_applying_marker().is_none());
+    }
+
+    #[test]
+    fn token_mint_only_creator() {
+        let (_td, st) = fresh_state();
+        let (sk_a, pk_a) = generate_keypair();
+        let alice = crate::crypto::address_from_pubkey(&pk_a);
+        let (sk_b, pk_b) = generate_keypair();
+        let bob = crate::crypto::address_from_pubkey(&pk_b);
+        let fee = crate::tokenomics::BOOTSTRAP_MIN_FEE_WEI.max(1_000_000_000_000_000);
+        // Fund both
+        for (a, sk_amt) in [(alice, 200u128), (bob, 5u128)] {
+            let mut acc = st.account(&a);
+            acc.balance = sk_amt * 1_000_000_000_000_000_000u128;
+            st.put_account(&a, &acc).unwrap();
+            let _ = sk_amt;
+        }
+        // Alice creates the token.
+        let create_body = crate::transaction::TxBody {
+            from: alice, to: Address::ZERO, amount: 0, nonce: 0, fee, chain_id: 7878,
+            kind: TxKind::TokenCreate {
+                name: "AliceCoin".to_string(),
+                symbol: "ALC".to_string(),
+                decimals: 6,
+                initial_supply: 100,
+            },
+        };
+        st.apply_tx(&crate::crypto::sign_tx(&sk_a, create_body)).unwrap();
+        let tok = st.get_token_by_symbol("ALC").unwrap();
+
+        // Bob (non-creator) tries to mint — must fail; balance must NOT change.
+        let bob_mint = crate::transaction::TxBody {
+            from: bob, to: Address::ZERO, amount: 0, nonce: 0, fee, chain_id: 7878,
+            kind: TxKind::TokenMint { token_id: tok.id, to: bob, amount: 999 },
+        };
+        let res = st.apply_tx(&crate::crypto::sign_tx(&sk_b, bob_mint));
+        assert!(res.is_err(), "non-creator mint must fail");
+        assert_eq!(st.token_balance_of(tok.id, &bob), 0, "bob must not have minted");
+        assert_eq!(st.get_token(tok.id).unwrap().total_supply, 100);
     }
 }

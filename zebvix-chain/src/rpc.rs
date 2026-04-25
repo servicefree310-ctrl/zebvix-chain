@@ -105,6 +105,22 @@ fn parse_address(v: &Value) -> Option<Address> {
     Address::from_hex(s).ok()
 }
 
+/// Phase E — render a `TokenInfo` as user-facing JSON (used by the
+/// dashboard / explorer / wallet). u128 values are serialized as decimal
+/// strings to avoid the JSON 2^53 precision cliff.
+fn token_info_to_json(t: &crate::state::TokenInfo) -> Value {
+    json!({
+        "id": t.id,
+        "creator": t.creator.to_hex(),
+        "name": t.name,
+        "symbol": t.symbol,
+        "decimals": t.decimals,
+        "total_supply": t.total_supply.to_string(),
+        "total_supply_hex": format!("0x{:x}", t.total_supply),
+        "created_at_height": t.created_at_height,
+    })
+}
+
 /// Phase D — render a `ProposalKind` as user-facing JSON (used by the
 /// dashboard / explorer / wallet). Mirrors the on-chain enum exactly so the
 /// frontend never has to introspect type discriminants directly.
@@ -1367,6 +1383,84 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
             }
         }
         "zbx_multisigCount" => ok(id, json!({ "total": ctx.state.multisig_count() })),
+
+        // ─────────────────────────────────────────────────────────────
+        // Phase E — User-creatable fungible tokens
+        // ─────────────────────────────────────────────────────────────
+        "zbx_tokenInfo" => {
+            // params: [token_id (number or "0x"-hex string)]
+            let id_v = req.params.get(0);
+            let token_id: Option<u64> = match id_v {
+                Some(Value::Number(n)) => n.as_u64(),
+                Some(Value::String(s)) => {
+                    let s = s.trim();
+                    if let Some(hx) = s.strip_prefix("0x") {
+                        u64::from_str_radix(hx, 16).ok()
+                    } else {
+                        s.parse::<u64>().ok()
+                    }
+                }
+                _ => None,
+            };
+            match token_id.and_then(|i| ctx.state.get_token(i)) {
+                Some(t) => ok(id, token_info_to_json(&t)),
+                None => err(id, -32004, "token not found"),
+            }
+        }
+        "zbx_tokenInfoBySymbol" => {
+            // params: [symbol]
+            match req.params.get(0).and_then(|v| v.as_str()) {
+                Some(sym) => match ctx.state.get_token_by_symbol(sym) {
+                    Some(t) => ok(id, token_info_to_json(&t)),
+                    None => err(id, -32004, "token not found"),
+                },
+                None => err(id, -32602, "params: [symbol]"),
+            }
+        }
+        "zbx_tokenBalanceOf" => {
+            // params: [token_id, address]
+            let token_id: Option<u64> = req.params.get(0).and_then(|v| match v {
+                Value::Number(n) => n.as_u64(),
+                Value::String(s) => {
+                    let s = s.trim();
+                    if let Some(hx) = s.strip_prefix("0x") {
+                        u64::from_str_radix(hx, 16).ok()
+                    } else { s.parse::<u64>().ok() }
+                }
+                _ => None,
+            });
+            let addr = req.params.get(1).and_then(parse_address);
+            match (token_id, addr) {
+                (Some(tid), Some(a)) => {
+                    let bal = ctx.state.token_balance_of(tid, &a);
+                    ok(id, json!({
+                        "token_id": tid,
+                        "address": a.to_hex(),
+                        "balance": bal.to_string(),
+                        "balance_hex": format!("0x{:x}", bal),
+                    }))
+                }
+                _ => err(id, -32602, "params: [token_id, address]"),
+            }
+        }
+        "zbx_listTokens" => {
+            // params: [offset, limit] — both optional, default offset=0 limit=50.
+            let offset = req.params.get(0)
+                .and_then(|v| v.as_u64()).unwrap_or(0);
+            let limit = req.params.get(1)
+                .and_then(|v| v.as_u64()).unwrap_or(50).min(500);
+            let total = ctx.state.total_token_count();
+            let tokens: Vec<Value> = ctx.state.list_tokens(offset, limit)
+                .iter().map(token_info_to_json).collect();
+            ok(id, json!({
+                "total": total,
+                "offset": offset,
+                "limit": limit,
+                "tokens": tokens,
+            }))
+        }
+        "zbx_tokenCount" => ok(id, json!({ "total": ctx.state.total_token_count() })),
+
         m => {
             // Phase C.2 — Standard ZVM JSON-RPC fallthrough. Any `eth_*`,
             // `net_*`, or `web3_*` method that the legacy native dispatcher
@@ -1503,7 +1597,42 @@ pub fn router(ctx: RpcCtx) -> Router {
                 .allow_methods(Any)
                 .allow_headers(Any)
         }
-        _ => CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any),
+        // SECURITY (C-7): default CORS is locked to localhost ONLY.
+        // Operators who want public CORS must opt in by setting
+        // `ZEBVIX_RPC_CORS_ORIGINS` to a CSV of allowed origins, OR set
+        // `ZEBVIX_RPC_CORS_ORIGINS=*` to explicitly request open CORS for
+        // public RPC nodes (e.g. behind cloudflare). Wildcard is REJECTED
+        // when credentials are used by the browser, so prefer an explicit
+        // allow-list whenever possible.
+        Ok(s) if s.trim() == "*" => {
+            tracing::warn!(
+                "🛡  RPC CORS: open (Any) — explicitly enabled by ZEBVIX_RPC_CORS_ORIGINS=*"
+            );
+            CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any)
+        }
+        _ => {
+            let origins: Vec<axum::http::HeaderValue> = vec![
+                "http://localhost",
+                "http://127.0.0.1",
+                "http://localhost:5173",
+                "http://localhost:3000",
+                "http://localhost:8080",
+                "http://127.0.0.1:5173",
+                "http://127.0.0.1:3000",
+                "http://127.0.0.1:8080",
+            ]
+            .into_iter()
+            .filter_map(|s| axum::http::HeaderValue::from_str(s).ok())
+            .collect();
+            tracing::info!(
+                "🛡  RPC CORS: localhost-only (default). Set ZEBVIX_RPC_CORS_ORIGINS=<csv> \
+                 to add public origins, or ZEBVIX_RPC_CORS_ORIGINS=* to allow any."
+            );
+            CorsLayer::new()
+                .allow_origin(AllowOrigin::list(origins))
+                .allow_methods(Any)
+                .allow_headers(Any)
+        }
     };
 
     let body_limit = axum::extract::DefaultBodyLimit::max(256 * 1024);

@@ -987,6 +987,35 @@ async fn cmd_start(
     let proposer = address_from_pubkey(&pk);
 
     let state = Arc::new(State::open(&home.join("data"))?);
+
+    // ── SECURITY: crash-safety check on startup ──
+    // If the previous process died mid-apply_block, the marker key in CF_META
+    // will still be set. We refuse to start until the operator investigates,
+    // so silent state corruption never accumulates. The marker carries the
+    // (height, hash) of the in-flight block so the operator can either
+    // re-apply that block (if the state mutations completed) or restore
+    // from a snapshot (if they didn't).
+    if let Some((stuck_h, stuck_hash)) = state.read_block_applying_marker() {
+        let (tip_h, tip_hash) = state.tip();
+        if tip_h >= stuck_h && tip_hash == stuck_hash {
+            // Block was committed but marker not cleared — clean up and continue.
+            tracing::warn!(
+                "🧹 stale apply-marker for block #{stuck_h} {stuck_hash} (already committed) — clearing"
+            );
+            state.clear_block_applying_marker()?;
+        } else {
+            return Err(anyhow!(
+                "🛑 ABORT: previous run died mid-apply_block at #{stuck_h} ({stuck_hash}). \
+                 Tip is at #{tip_h} ({tip_hash}). State may be partially mutated. \
+                 Operator action required: either restore from a snapshot at or before \
+                 height {prev_h} OR (if you know the partial commit completed) clear the \
+                 marker by deleting the META_BLOCK_APPLYING key in RocksDB. \
+                 Refusing to start to prevent silent corruption.",
+                prev_h = stuck_h.saturating_sub(1)
+            ));
+        }
+    }
+
     let mempool = Arc::new(Mempool::new(state.clone(), 50_000));
 
     tracing::info!("🚀 Zebvix node starting");

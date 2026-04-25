@@ -118,6 +118,64 @@ pub enum TxKind {
     /// for both ops; only `body.fee` is consumed. `body.to` should equal
     /// `body.from` (enforced loosely — the field is unused).
     Proposal(crate::proposal::ProposalOp),
+
+    // ─────────────────────────────────────────────────────────────────
+    // Phase E — User-creatable fungible tokens (ERC-20-style)
+    //
+    // **Variant order is consensus-critical.** These four variants are
+    // APPENDED at the end of the enum so existing tags 0-10 keep their
+    // bincode discriminators (Transfer = 0, …, Proposal = 10). New tags:
+    //   TokenCreate   = 11
+    //   TokenTransfer = 12
+    //   TokenMint     = 13
+    //   TokenBurn     = 14
+    //
+    // CENSORSHIP NOTE: TokenCreate, TokenTransfer, and TokenBurn are
+    // permissionless — anyone with the standard tx fee (and the 100-ZBX
+    // burn for Create) can call them. TokenMint is gated to the token's
+    // recorded creator only. There is no admin / governor over-ride for
+    // any of these arms; once a token exists, no one can confiscate or
+    // freeze a holder's balance.
+    // ─────────────────────────────────────────────────────────────────
+
+    /// Phase E — create a new fungible token. `body.amount` is refunded;
+    /// `body.fee` plus a one-time `TOKEN_CREATION_BURN_WEI` (100 ZBX) is
+    /// consumed. Symbol is unique (case-insensitive); creator is recorded
+    /// for `Mint` authorization. `initial_supply` is credited to
+    /// `body.from`.
+    TokenCreate {
+        name: String,
+        symbol: String,
+        decimals: u8,
+        initial_supply: u128,
+    },
+
+    /// Phase E — transfer a user-token balance. `body.amount` and `body.to`
+    /// are unused (refunded); the actual amount and recipient are inside
+    /// the variant. `body.fee` is paid in ZBX wei. Permissionless — any
+    /// holder may transfer their own balance; there is no admin freeze.
+    TokenTransfer {
+        token_id: u64,
+        to: Address,
+        amount: u128,
+    },
+
+    /// Phase E — mint additional supply for an existing token. **Only the
+    /// recorded creator may call this**; any other sender is rejected
+    /// (fee is still consumed as anti-spam). `body.amount` is refunded.
+    TokenMint {
+        token_id: u64,
+        to: Address,
+        amount: u128,
+    },
+
+    /// Phase E — burn from the caller's own token balance. Reduces both
+    /// caller's balance and the token's total_supply. `body.amount` is
+    /// refunded; only `body.fee` is paid.
+    TokenBurn {
+        token_id: u64,
+        amount: u128,
+    },
 }
 
 /// Phase B.10 — direction of an AMM [`TxKind::Swap`].
@@ -168,6 +226,10 @@ impl TxKind {
             TxKind::Swap { .. } => "swap",
             TxKind::Bridge(_) => "bridge",
             TxKind::Proposal(_) => "proposal",
+            TxKind::TokenCreate { .. } => "token_create",
+            TxKind::TokenTransfer { .. } => "token_transfer",
+            TxKind::TokenMint { .. } => "token_mint",
+            TxKind::TokenBurn { .. } => "token_burn",
         }
     }
 
@@ -187,6 +249,10 @@ impl TxKind {
             TxKind::Swap { .. } => 8,
             TxKind::Bridge(_) => 9,
             TxKind::Proposal(_) => 10,
+            TxKind::TokenCreate { .. } => 11,
+            TxKind::TokenTransfer { .. } => 12,
+            TxKind::TokenMint { .. } => 13,
+            TxKind::TokenBurn { .. } => 14,
         }
     }
 
