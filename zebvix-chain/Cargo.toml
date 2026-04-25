@@ -55,3 +55,12 @@ opt-level = 3
 lto = "thin"
 codegen-units = 1
 strip = true
+# Phase H — abort the WHOLE PROCESS on panic instead of unwinding the
+# panicking thread. Critical for consensus safety: tokio::spawn() runs
+# block-application and networking on separate tasks, and a panic in one
+# task (e.g., a fail-closed read in `get_pool_token_id_by_address`) would
+# otherwise just kill that task, leaving the rest of the node running in
+# an inconsistent state — the exact divergence we panic to prevent. With
+# `panic = "abort"`, any panic immediately terminates the process so peers
+# see a clean disconnect rather than an accept-while-others-reject split.
+panic = "abort"

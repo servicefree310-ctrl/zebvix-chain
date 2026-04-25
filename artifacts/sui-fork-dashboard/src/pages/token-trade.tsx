@@ -290,6 +290,14 @@ export default function TokenTradePage() {
                   <span className="font-mono">{pool.lp_supply}</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Swaps</span>
                   <span className="font-mono">{pool.swap_count.toLocaleString()}</span></div>
+                <div className="flex justify-between gap-2"><span className="text-muted-foreground shrink-0">Pool address</span>
+                  <span
+                    className="font-mono text-xs truncate cursor-pointer hover:text-emerald-400"
+                    title={`${pool.address} — click to copy`}
+                    onClick={() => { navigator.clipboard?.writeText(pool.address).catch(() => {}); }}
+                  >
+                    {pool.address}
+                  </span></div>
               </div>
             )}
           </Card>

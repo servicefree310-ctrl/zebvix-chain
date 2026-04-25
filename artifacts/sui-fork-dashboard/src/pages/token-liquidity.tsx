@@ -177,16 +177,23 @@ export default function TokenLiquidityPage() {
           <div className="text-sm text-muted-foreground">No pools yet. Use the "Create Pool" tab to bootstrap one.</div>
         ) : (
           <div className="space-y-1 text-xs">
-            <div className="grid grid-cols-5 gap-2 font-semibold text-muted-foreground border-b border-border pb-1">
-              <span>Pair</span><span>ZBX reserve</span><span>Token reserve</span><span>Spot price</span><span>Swaps</span>
+            <div className="grid grid-cols-6 gap-2 font-semibold text-muted-foreground border-b border-border pb-1">
+              <span>Pair</span><span>ZBX reserve</span><span>Token reserve</span><span>Spot price</span><span>Swaps</span><span>Address</span>
             </div>
             {pools.map(p => (
-              <div key={p.token_id} className="grid grid-cols-5 gap-2 py-1 font-mono">
+              <div key={p.token_id} className="grid grid-cols-6 gap-2 py-1 font-mono">
                 <span>{p.token_symbol || `#${p.token_id}`} / ZBX</span>
                 <span>{fmtZbx(p.zbx_reserve, 4)}</span>
                 <span>{baseToDisplay(p.token_reserve, p.token_decimals, 4)}</span>
                 <span>{spotPriceZbxPerWholeToken(p).toFixed(6)} ZBX</span>
                 <span>{p.swap_count.toLocaleString()}</span>
+                <span
+                  className="truncate cursor-pointer hover:text-emerald-400"
+                  title={`${p.address} — click to copy`}
+                  onClick={() => { navigator.clipboard?.writeText(p.address).catch(() => {}); }}
+                >
+                  {p.address.slice(0, 6)}…{p.address.slice(-4)}
+                </span>
               </div>
             ))}
           </div>

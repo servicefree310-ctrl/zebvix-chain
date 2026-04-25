@@ -341,6 +341,46 @@ impl TokenPool {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Phase H — Deterministic pool address derivation
+// ─────────────────────────────────────────────────────────────────────────
+//
+// Every per-token AMM pool gets a deterministic 20-byte address derived
+// purely from its `token_id`. The derivation is:
+//
+//     pool_address = keccak256(POOL_ADDR_DOMAIN_TAG || token_id_be)[12..]
+//
+// The domain tag (`b"zbx-pool-v1"`) prevents any chance of collision with
+// a real ECDSA-derived externally-owned account: an EOA address comes from
+// `keccak256(uncompressed_pubkey_64bytes)[12..]`, so the preimage lengths
+// are completely different (19 vs 64 bytes) and the leading bytes also
+// differ structurally. Cryptographic collision probability is ~2^-160.
+//
+// Why a domain tag with a version suffix (`-v1`) rather than just a static
+// prefix? So that future protocol upgrades (e.g. multi-asset pools, V3
+// concentrated liquidity) can derive non-overlapping address spaces by
+// bumping the version, without the risk of accidentally re-using an
+// existing pool's address.
+//
+// **This function is consensus-critical.** Changing the bytes, the
+// hash function, or the byte ordering would silently re-route every
+// existing pool's custody to a different address on the next block.
+
+pub const POOL_ADDR_DOMAIN_TAG: &[u8] = b"zbx-pool-v1";
+
+/// Deterministic 20-byte address for the AMM pool of `token_id`.
+/// Pure function — same inputs always produce the same output. Safe to
+/// call from RPC handlers, indexers, and the dashboard's frontend code.
+pub fn pool_address(token_id: u64) -> crate::types::Address {
+    let mut buf = Vec::with_capacity(POOL_ADDR_DOMAIN_TAG.len() + 8);
+    buf.extend_from_slice(POOL_ADDR_DOMAIN_TAG);
+    buf.extend_from_slice(&token_id.to_be_bytes());
+    let h = crate::crypto::keccak256(&buf);
+    let mut out = [0u8; crate::types::ADDRESS_LEN];
+    out.copy_from_slice(&h.0[12..]);
+    crate::types::Address(out)
+}
+
 /// Integer square root for U256 — needed by `init` to size the LP supply.
 fn isqrt_u256(n: primitive_types::U256) -> u128 {
     use primitive_types::U256;

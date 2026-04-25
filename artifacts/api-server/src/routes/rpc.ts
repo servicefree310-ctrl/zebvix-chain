@@ -74,6 +74,9 @@ const ALLOWED_METHODS = new Set<string>([
   "zbx_tokenSwapQuote",
   "zbx_getTokenLpBalance",
   "zbx_tokenPoolStats",
+  // ── Phase H — Pool address derivation (read-only) ─────────────────
+  "zbx_getTokenPoolByAddress",
+  "zbx_isPoolAddress",
   // ── Phase D — On-chain governance (read-only) ──────────────────────
   "zbx_proposalsList",
   "zbx_proposalGet",

@@ -10,7 +10,7 @@ use crate::tokenomics::{
     TREASURY_ADDRESS_HEX, TREASURY_CUT_BPS_PHASE_A, TREASURY_CUT_BPS_PHASE_B,
 };
 use crate::types::{Address, Block, Hash, SignedTx, Validator};
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use parking_lot::RwLock;
 use rocksdb::{ColumnFamilyDescriptor, Options, DB};
 use std::path::Path;
@@ -23,6 +23,12 @@ const CF_META: &str = "meta";
 
 const META_HEIGHT: &[u8] = b"height";
 const META_LAST_HASH: &[u8] = b"last_hash";
+/// Phase H — durable migration marker. When this key is present in CF_META,
+/// `backfill_pool_address_index()` is a no-op. Set ONCE on the first boot
+/// after the Phase H upgrade completes successfully. Prevents the backfill
+/// from re-running on every restart (which would otherwise re-scan all
+/// tokens and risk wiping legitimate live-pool mirror reserves).
+const META_PHASE_H_BACKFILL_DONE: &[u8] = b"phaseh/backfill_done_v1";
 const META_POOL: &[u8] = b"pool";
 const META_LP_PREFIX: &[u8] = b"lp/";
 const META_ADMIN: &[u8] = b"admin";              // 20-byte current admin address (override)
@@ -99,6 +105,16 @@ const META_TOKEN_SYMBOL_PREFIX: &[u8] = b"toks/";
 const META_TOKEN_POOL_COUNT: &[u8] = b"tpool_count";
 const META_TOKEN_POOL_PREFIX: &[u8] = b"tpool/";
 const META_TOKEN_LP_PREFIX: &[u8] = b"tplp/";
+
+// ── Phase H — Reverse index: pool_address → token_id ──
+// Layout (under CF_META):
+//   poola/<address_20bytes>      → token_id_be8
+//
+// Lets us answer "is this address a pool?" and "which pool's address is
+// this?" in O(1) lookups without scanning all pools. Written exclusively
+// by the TokenPoolCreate apply branch — pools are never deleted, so this
+// index is monotonically growing.
+const META_POOL_ADDR_INDEX_PREFIX: &[u8] = b"poola/";
 
 // ── Phase G — Token metadata (logo, website, description, socials) ──
 // Layout (under CF_META):
@@ -256,11 +272,107 @@ impl State {
             .get_cf(db.cf_handle(CF_META).unwrap(), META_LAST_HASH)?
             .map(|b| { let mut a = [0u8; 32]; a.copy_from_slice(&b); Hash(a) })
             .unwrap_or(Hash::ZERO);
-        Ok(Self {
+        let st = Self {
             db: Arc::new(db),
             tip: RwLock::new((height, last)),
             current_block_ts_ms: AtomicU64::new(0),
-        })
+        };
+        // Phase H — one-time, fail-fast pool-address index backfill. See the
+        // detailed contract on `backfill_pool_address_index()` below. The
+        // critical safety property: ANY backfill failure (including partial
+        // writes) MUST refuse the boot, because divergent index state across
+        // validators causes `is_pool_address` to disagree, which in turn
+        // makes the transfer guards accept on one node and reject on another
+        // — a hard consensus split. We therefore propagate the error.
+        st.backfill_pool_address_index()
+            .context("phase-h: pool address index backfill failed (refusing to boot to avoid consensus divergence)")?;
+        Ok(st)
+    }
+
+    /// Phase H — ONE-TIME reverse-index backfill, guarded by a durable
+    /// migration marker (`META_PHASE_H_BACKFILL_DONE`). Behaviour:
+    ///
+    ///   * If the marker is already set, this is a no-op (returns immediately).
+    ///   * Otherwise, walks token ids `1..=token_count`. For each token:
+    ///       - If the pool address is not yet indexed, writes the reverse-
+    ///         index entry.
+    ///       - If AND ONLY IF no live `TokenPool` exists for that token,
+    ///         scrubs any stray ZBX balance / nonce / token balance found at
+    ///         the pool address. This is the critical guard: tokens whose
+    ///         pool is already open have legitimate mirrored reserves at
+    ///         their pool address, and the backfill MUST NOT zero them.
+    ///   * On success, atomically sets the marker so subsequent boots skip.
+    ///   * On any failure, returns `Err`; the caller refuses to start the
+    ///     node (avoiding consensus divergence between nodes that completed
+    ///     the migration and nodes that did not).
+    ///
+    /// Why scrubbing is consensus-safe for closed (no-pool) tokens: pre-
+    /// Phase-H, the deterministic derivation function was unknown outside
+    /// the dev team, and the pool address has no known ECDSA preimage
+    /// (cryptographic infeasibility of signing AS the pool address). Any
+    /// non-zero state at these addresses is therefore either a test artifact
+    /// or a deliberate pre-funding griefing attempt — burning it is the
+    /// conservative outcome (the alternative, absorbing into reserves,
+    /// would change consensus semantics and reward a griefer).
+    fn backfill_pool_address_index(&self) -> Result<()> {
+        let cf_meta = self.db.cf_handle(CF_META).unwrap();
+        // Marker check — if set, migration already ran, nothing to do.
+        if self.db.get_cf(cf_meta, META_PHASE_H_BACKFILL_DONE)?.is_some() {
+            return Ok(());
+        }
+        let total = self.token_count();
+        let mut indexed = 0u64;
+        let mut scrubbed_acct = 0u64;
+        let mut scrubbed_tok = 0u64;
+        let mut skipped_open = 0u64;
+        for id in 1..=total {
+            // Skip tokens whose record was deleted (defensive — shouldn't happen).
+            if self.get_token(id).is_none() { continue; }
+            let pool_addr = crate::token_pool::pool_address(id);
+            // (1) Index — write only if missing. Use the Result-returning
+            // variant so a startup-time DB error fails the migration cleanly
+            // (returns `Err` to `State::open`, which refuses to boot) rather
+            // than panic-aborting mid-walk. Marker stays unset so the next
+            // boot retries from scratch.
+            if self.try_get_pool_token_id_by_address(&pool_addr)?.is_none() {
+                self.put_pool_address_index(&pool_addr, id)?;
+                indexed += 1;
+            }
+            // (2) Scrub — ONLY when no live pool exists for this token.
+            // If a pool is already open, the address legitimately holds
+            // mirrored reserves (`zbx_reserve` and `token_reserve`) and we
+            // MUST leave them alone or we corrupt the custody invariant.
+            if self.get_token_pool(id).is_some() {
+                skipped_open += 1;
+                continue;
+            }
+            let acct = self.account(&pool_addr);
+            if acct.balance != 0 || acct.nonce != 0 {
+                tracing::warn!(
+                    "phase-h backfill: scrubbing stray account state at pool_addr 0x{} (token_id={}, prior balance={} nonce={})",
+                    hex::encode(pool_addr.0), id, acct.balance, acct.nonce,
+                );
+                self.put_account(&pool_addr, &Account::default())?;
+                scrubbed_acct += 1;
+            }
+            let tok_bal = self.token_balance_of(id, &pool_addr);
+            if tok_bal != 0 {
+                tracing::warn!(
+                    "phase-h backfill: scrubbing stray token balance at pool_addr 0x{} (token_id={}, prior token_bal={})",
+                    hex::encode(pool_addr.0), id, tok_bal,
+                );
+                self.put_token_balance(id, &pool_addr, 0)?;
+                scrubbed_tok += 1;
+            }
+        }
+        // Persist the marker LAST. If anything above failed with `?`, the
+        // marker is not written and the next boot retries from scratch.
+        self.db.put_cf(cf_meta, META_PHASE_H_BACKFILL_DONE, b"1")?;
+        tracing::info!(
+            "🔧 phase-h backfill complete: tokens={} indexed={} scrubbed_acct={} scrubbed_tok={} skipped_open_pools={}",
+            total, indexed, scrubbed_acct, scrubbed_tok, skipped_open,
+        );
+        Ok(())
     }
 
     pub fn tip(&self) -> (u64, Hash) { *self.tip.read() }
@@ -1711,9 +1823,21 @@ impl State {
                 // Refund body.amount (it was debited at top of apply_tx).
                 from.balance = from.balance.saturating_add(tx.body.amount);
                 self.put_account(&tx.body.from, &from)?;
+                // Phase H — RESERVE the deterministic pool address NOW, even
+                // though no AMM pool exists for this token yet. Without this,
+                // an attacker could compute pool_address(id) offline and pre-
+                // fund it with a single wei *before* anyone calls
+                // TokenPoolCreate, permanently bricking pool bootstrap (the
+                // `pre_acct.balance != 0` guard would refund forever). By
+                // registering the index at TokenCreate time, the transfer
+                // guards (`is_pool_address(...)`) start rejecting sends to
+                // that address immediately, BEFORE any pool can be opened.
+                let reserved_pool_addr = crate::token_pool::pool_address(id);
+                self.put_pool_address_index(&reserved_pool_addr, id)?;
                 tracing::info!(
-                    "🪙 token-create id={} symbol={} decimals={} supply={} creator={}",
+                    "🪙 token-create id={} symbol={} decimals={} supply={} creator={} pool_addr_reserved=0x{}",
                     id, symbol, decimals, initial_supply, tx.body.from,
+                    hex::encode(reserved_pool_addr.0),
                 );
                 return Ok(());
             }
@@ -1724,6 +1848,18 @@ impl State {
                 if self.get_token(*token_id).is_none() {
                     return refund(&mut from, format!(
                         "token-transfer: token id {} does not exist", token_id
+                    ));
+                }
+                // Phase H — externally-initiated transfers TO any pool address
+                // are rejected. Mirroring is owned exclusively by the four
+                // pool apply branches; an external donation would inflate the
+                // pool-address ledger entry without changing `pool.token_reserve`,
+                // breaking the custody invariant. Users who want to add real
+                // liquidity must use TokenPoolAddLiquidity.
+                if self.is_pool_address(to) {
+                    return refund(&mut from, format!(
+                        "token-transfer: address 0x{} is an AMM pool — use TokenPoolAddLiquidity to deposit",
+                        hex::encode(to.0),
                     ));
                 }
                 let from_bal = self.token_balance_of(*token_id, &tx.body.from);
@@ -1761,6 +1897,16 @@ impl State {
                     return refund(&mut from, format!(
                         "token-mint: only creator {} may mint id {}",
                         info.creator, token_id
+                    ));
+                }
+                // Phase H — minting directly into a pool address would silently
+                // expand the recipient's token balance without growing the
+                // pool's tracked `token_reserve`, breaking the custody mirror.
+                // Force creators to mint to an EOA and then add liquidity.
+                if self.is_pool_address(to) {
+                    return refund(&mut from, format!(
+                        "token-mint: cannot mint into AMM pool address 0x{} — mint to an EOA first, then add liquidity",
+                        hex::encode(to.0),
                     ));
                 }
                 let new_supply = info.total_supply.checked_add(*amount).ok_or_else(|| {
@@ -1848,6 +1994,23 @@ impl State {
                         tok_bal, token_amount
                     ));
                 }
+                // Phase H — defensive: refuse to open the pool if the derived
+                // pool address has any prior on-chain state. Without a domain
+                // tag this would be impossible (an EOA can't collide with a
+                // tagged-keccak address), so this branch is purely a belt-and-
+                // suspenders guard against a bug in `pool_address()` itself or
+                // a chain operator who somehow pre-funded the slot. Either
+                // way, refunding is the safe move — never silently overwrite
+                // a non-zero balance.
+                let pool_addr = crate::token_pool::pool_address(*token_id);
+                let pre_acct = self.account(&pool_addr);
+                let pre_tok_bal = self.token_balance_of(*token_id, &pool_addr);
+                if pre_acct.balance != 0 || pre_acct.nonce != 0 || pre_tok_bal != 0 {
+                    return refund(&mut from, format!(
+                        "token-pool-create: derived pool address 0x{} is not empty (balance={} nonce={} token_bal={}) — refusing to overwrite",
+                        hex::encode(pool_addr.0), pre_acct.balance, pre_acct.nonce, pre_tok_bal,
+                    ));
+                }
                 let mut pool = crate::token_pool::TokenPool::default();
                 let current_height = self.tip().0;
                 let creator_lp = match pool.init(
@@ -1863,6 +2026,10 @@ impl State {
                 self.put_token_pool_lp_balance(*token_id, &tx.body.from, creator_lp)?;
                 self.put_token_pool_count(self.token_pool_count().saturating_add(1))?;
                 self.put_account(&tx.body.from, &from)?;
+                // Phase H — register reverse index + mirror reserves into ledgers.
+                self.put_pool_address_index(&pool_addr, *token_id)?;
+                self.mirror_pool_zbx_balance(*token_id, pool.zbx_reserve)?;
+                self.mirror_pool_token_balance(*token_id, pool.token_reserve)?;
                 tracing::info!(
                     "💧 token-pool-create id={} zbx={} token={} lp_creator={} lp_locked={} creator={}",
                     token_id, zbx_amount, token_amount, creator_lp,
@@ -1921,6 +2088,9 @@ impl State {
                 self.put_token_pool_lp_balance(*token_id, &tx.body.from, new_lp)?;
                 self.put_token_pool(&pool)?;
                 self.put_account(&tx.body.from, &from)?;
+                // Phase H — mirror new reserves into ledgers.
+                self.mirror_pool_zbx_balance(*token_id, pool.zbx_reserve)?;
+                self.mirror_pool_token_balance(*token_id, pool.token_reserve)?;
                 tracing::info!(
                     "💧 token-pool-add id={} zbx_used={} token_used={} lp_minted={} lp_total={} addr={}",
                     token_id, zbx_used, token_used, lp_minted, new_lp, tx.body.from,
@@ -1965,6 +2135,9 @@ impl State {
                 self.put_token_pool_lp_balance(*token_id, &tx.body.from, lp_owned - lp_burn)?;
                 self.put_token_pool(&pool)?;
                 self.put_account(&tx.body.from, &from)?;
+                // Phase H — mirror new reserves into ledgers.
+                self.mirror_pool_zbx_balance(*token_id, pool.zbx_reserve)?;
+                self.mirror_pool_token_balance(*token_id, pool.token_reserve)?;
                 tracing::info!(
                     "💧 token-pool-remove id={} lp_burn={} zbx_out={} token_out={} addr={}",
                     token_id, lp_burn, zbx_out, token_out, tx.body.from,
@@ -2050,6 +2223,16 @@ impl State {
                         );
                     }
                 }
+                // Phase H — mirror new reserves into ledgers (both swap dirs).
+                // Use the in-memory `pool` we just persisted via `put_token_pool(&pool)`
+                // above, instead of re-reading from the DB. This eliminates a
+                // redundant read AND removes the need for an `expect`/panic
+                // path in the hot apply branch — any error here propagates as
+                // `Err` to `apply_block`, where the existing chain-halt-marker
+                // handles it gracefully (preferred over `panic = "abort"`-
+                // induced process termination).
+                self.mirror_pool_zbx_balance(*token_id, pool.zbx_reserve)?;
+                self.mirror_pool_token_balance(*token_id, pool.token_reserve)?;
                 return Ok(());
             }
             // ─────────────────────────────────────────────────────────
@@ -2112,6 +2295,21 @@ impl State {
                 return Ok(());
             }
             crate::types::TxKind::Transfer => { /* fall through to legacy logic */ }
+        }
+
+        // Phase H — pool address guard for legacy ZBX transfers. AMM token-pool
+        // addresses are derived deterministically; an external ZBX transfer to
+        // such an address would inflate `account(pool_addr).balance` without
+        // touching `pool.zbx_reserve`, breaking the custody mirror invariant.
+        // Use TokenPoolAddLiquidity / TokenPoolSwap to deposit ZBX instead.
+        if tx.body.amount > 0 && self.is_pool_address(&tx.body.to) {
+            // Refund principal, keep fee.
+            from.balance = from.balance.saturating_add(tx.body.amount);
+            self.put_account(&tx.body.from, &from)?;
+            return Err(anyhow!(
+                "transfer: address 0x{} is an AMM pool — use TokenPoolAddLiquidity or TokenPoolSwap to deposit ZBX (refunded {} wei, fee kept)",
+                hex::encode(tx.body.to.0), tx.body.amount,
+            ));
         }
 
         if tx.body.to == pool_addr && tx.body.amount > 0 {
@@ -2929,6 +3127,107 @@ impl State {
             }
         }
         out
+    }
+
+    // ────────────────── Phase H — pool address reverse index ──────────────────
+    //
+    // Custody invariant (enforced by apply_tx):
+    //   account(pool_address(token_id)).balance      == pool.zbx_reserve
+    //   token_balance_of(token_id, pool_address(id)) == pool.token_reserve
+    //
+    // Maintained by mirroring every reserve change into the standard balance
+    // ledgers AT the derived pool address. Externally-initiated transfers TO
+    // a pool address are rejected (would corrupt the mirror), so the only
+    // mutators of pool-address balances are the four pool apply branches.
+
+    fn pool_addr_index_key(addr: &Address) -> Vec<u8> {
+        let mut k = META_POOL_ADDR_INDEX_PREFIX.to_vec();
+        k.extend_from_slice(&addr.0);
+        k
+    }
+
+    /// Reverse lookup: given an address, return the token_id of the pool
+    /// that owns it (if any). O(1).
+    ///
+    /// FAIL-CLOSED on RocksDB read errors: this function is called from
+    /// consensus-critical apply paths (transfer guards in TokenTransfer /
+    /// TokenMint / legacy Transfer). If we silently treated a transient I/O
+    /// error as "not a pool", a node with the bad read would ACCEPT a
+    /// transfer that healthy peers REJECT — a hard consensus split. Instead,
+    /// we panic, which deterministically halts the entire process (the
+    /// release profile sets `panic = "abort"` so a panic in any tokio task
+    /// terminates the whole node — see `Cargo.toml [profile.release]`).
+    ///
+    /// **Use `try_get_pool_token_id_by_address` instead from any read-only
+    /// RPC path** — those should return a clean RPC error to the caller, not
+    /// crash the node, because RPC inputs are user-controlled and a bad
+    /// query shouldn't take down the validator.
+    pub fn get_pool_token_id_by_address(&self, addr: &Address) -> Option<u64> {
+        match self.try_get_pool_token_id_by_address(addr) {
+            Ok(opt) => opt,
+            Err(e) => panic!(
+                "phase-h: pool-address reverse index read failed in consensus path — halting node to prevent divergence: {}",
+                e,
+            ),
+        }
+    }
+
+    /// Same as `get_pool_token_id_by_address` but returns `Result` instead
+    /// of panicking on DB errors. Use from read-only RPC handlers so a bad
+    /// query (or a transient I/O hiccup) returns a JSON-RPC error rather
+    /// than crashing the validator process.
+    pub fn try_get_pool_token_id_by_address(&self, addr: &Address) -> Result<Option<u64>> {
+        let cf = self.db.cf_handle(CF_META)
+            .ok_or_else(|| anyhow!("phase-h: missing CF_META column family"))?;
+        let raw_opt = self.db.get_cf(cf, Self::pool_addr_index_key(addr))
+            .map_err(|e| anyhow!("phase-h: rocksdb read failed for pool-address reverse index: {}", e))?;
+        let Some(raw) = raw_opt else { return Ok(None); };
+        if raw.len() != 8 {
+            // Corrupt index entry. In the consensus wrapper this becomes a
+            // panic; here we return Err so RPC callers get a structured
+            // error instead of a crash.
+            return Err(anyhow!(
+                "phase-h: corrupt pool-address reverse-index value (got {} bytes, expected 8) for addr 0x{}",
+                raw.len(),
+                hex::encode(addr.0),
+            ));
+        }
+        let mut b = [0u8; 8];
+        b.copy_from_slice(&raw);
+        Ok(Some(u64::from_be_bytes(b)))
+    }
+
+    /// Cheap "is this an AMM pool address?" predicate. Used by transfer
+    /// guards in apply_tx and exposed via RPC for wallets. Inherits the
+    /// fail-closed (panic-on-DB-error) behaviour of `get_pool_token_id_by_address`.
+    /// RPC paths that need a non-panicking variant should call
+    /// `try_get_pool_token_id_by_address(...).map(|o| o.is_some())` directly.
+    pub fn is_pool_address(&self, addr: &Address) -> bool {
+        self.get_pool_token_id_by_address(addr).is_some()
+    }
+
+    fn put_pool_address_index(&self, addr: &Address, token_id: u64) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.put_cf(cf, Self::pool_addr_index_key(addr), token_id.to_be_bytes())?;
+        Ok(())
+    }
+
+    /// Re-write the ZBX balance ledger entry for the pool address so that it
+    /// equals the pool's `zbx_reserve` exactly. Called after every pool op.
+    fn mirror_pool_zbx_balance(&self, token_id: u64, new_reserve: u128) -> Result<()> {
+        let pool_addr = crate::token_pool::pool_address(token_id);
+        let mut acct = self.account(&pool_addr);
+        acct.balance = new_reserve;
+        self.put_account(&pool_addr, &acct)?;
+        Ok(())
+    }
+
+    /// Re-write the per-token balance ledger entry for the pool address so
+    /// that it equals the pool's `token_reserve` exactly.
+    fn mirror_pool_token_balance(&self, token_id: u64, new_reserve: u128) -> Result<()> {
+        let pool_addr = crate::token_pool::pool_address(token_id);
+        self.put_token_balance(token_id, &pool_addr, new_reserve)?;
+        Ok(())
     }
 
     // ────────────────────── Phase G — token metadata storage ──────────────────────

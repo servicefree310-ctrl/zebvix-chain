@@ -26,6 +26,7 @@
 // refunds `body.amount` and ignores `body.to` for every Token* arm.
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
+import { keccak_256 } from "@noble/hashes/sha3.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import {
   publicKeyFromSeed,
@@ -608,6 +609,12 @@ export async function sendTokenPoolSwap(opts: CommonOpts & {
 
 export interface TokenPoolJson {
   token_id: number;
+  /**
+   * Phase H — deterministic 20-byte pool address (lowercase 0x-prefixed hex).
+   * Derived as `keccak256("zbx-pool-v1" || token_id_be8)[12..]`. Same value
+   * across all nodes; equal to {@link derivePoolAddress}(token_id).
+   */
+  address: string;
   token_symbol: string;
   token_name: string;
   token_decimals: number;
@@ -645,6 +652,73 @@ export async function getTokenPool(tokenId: number): Promise<TokenPoolJson | nul
     if (/not found|-32004/i.test(msg)) return null;
     throw e;
   }
+}
+
+// ── Phase H — pool address derivation + lookups ───────────────────────────
+
+/**
+ * Domain tag used by the chain when deriving each pool's deterministic
+ * 20-byte address. MUST stay byte-for-byte in sync with
+ * `zebvix_chain::token_pool::POOL_ADDR_DOMAIN_TAG` — changing this string
+ * would silently send swaps to a different address than the chain expects.
+ */
+export const POOL_ADDR_DOMAIN_TAG = "zbx-pool-v1";
+
+/**
+ * Pure-JS mirror of `zebvix_chain::token_pool::pool_address`. Returns the
+ * lowercase 0x-prefixed 20-byte hex address of the AMM pool for `tokenId`.
+ *
+ * Useful for offline preview ("we'll create the pool at 0x...") and for
+ * reverse-checks before submitting a transfer ("am I about to send to a
+ * pool address?"). The same value is also returned by the chain in
+ * `TokenPoolJson.address`.
+ */
+export function derivePoolAddress(tokenId: number | bigint): string {
+  const id = BigInt(tokenId);
+  const tag = new TextEncoder().encode(POOL_ADDR_DOMAIN_TAG);
+  const buf = new Uint8Array(tag.length + 8);
+  buf.set(tag, 0);
+  // big-endian u64
+  for (let i = 7; i >= 0; i--) {
+    buf[tag.length + i] = Number(id >> BigInt((7 - i) * 8) & 0xffn);
+  }
+  const h = keccak_256(buf);
+  return "0x" + bytesToHex(h.slice(12));
+}
+
+/** Look up a pool by its derived address. Returns `null` if not a pool. */
+export async function getTokenPoolByAddress(address: string): Promise<TokenPoolJson | null> {
+  try {
+    return await rpc<TokenPoolJson>("zbx_getTokenPoolByAddress", [address]);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/not found|not a known|-32004/i.test(msg)) return null;
+    throw e;
+  }
+}
+
+export interface IsPoolAddressResp {
+  address: string;
+  /**
+   * True when the chain has reserved this address as a pool address (every
+   * token reserves its address at TokenCreate time, so this is true even
+   * before a pool has been bootstrapped). When `is_pool` is true, transfers
+   * to this address will be refunded by the chain (fee kept).
+   */
+  is_pool: boolean;
+  token_id: number | null;
+  /**
+   * True only after a TokenPoolCreate has actually opened the AMM pool. UI
+   * code can use this to render "live pool" vs "pool reserved (not yet
+   * bootstrapped)" badges differently.
+   */
+  pool_open: boolean;
+}
+
+/** O(1) "is this an AMM pool address?" check — wallets call this to warn
+ *  users before sending a transfer that the chain would reject anyway. */
+export async function isPoolAddress(address: string): Promise<IsPoolAddressResp> {
+  return rpc<IsPoolAddressResp>("zbx_isPoolAddress", [address]);
 }
 
 export interface TokenPoolStats {

@@ -154,8 +154,14 @@ fn token_info_to_json(t: &crate::state::TokenInfo, st: &Arc<crate::state::State>
 /// so the JSON parser doesn't lose precision.
 fn token_pool_to_json(p: &crate::token_pool::TokenPool, st: &Arc<crate::state::State>) -> Value {
     let token = st.get_token(p.token_id);
+    let pool_addr = crate::token_pool::pool_address(p.token_id);
     json!({
         "token_id":             p.token_id,
+        // Phase H — deterministic 20-byte pool address. Frontends and wallets
+        // can derive this locally from `token_id` (see `derivePoolAddress` in
+        // the dashboard), but we always echo it here so off-chain code never
+        // has to re-implement keccak256.
+        "address":              pool_addr.to_hex(),
         "token_symbol":         token.as_ref().map(|t| t.symbol.clone())
                                      .unwrap_or_else(|| String::new()),
         "token_name":           token.as_ref().map(|t| t.name.clone())
@@ -1616,6 +1622,68 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
         }
         "zbx_tokenPoolCount" => {
             ok(id, json!({ "total": ctx.state.token_pool_count() }))
+        }
+        // ─────────────────────────────────────────────────────────────
+        // Phase H — Pool address derivation lookups
+        // ─────────────────────────────────────────────────────────────
+        "zbx_getTokenPoolByAddress" => {
+            // params: [pool_address ("0x..." 20 bytes)]
+            // Returns the full pool JSON when a pool is open at this address,
+            // or an error when the address is not a (reserved or open) pool
+            // address. The "address is reserved but no pool opened yet" case
+            // returns -32004 with a distinct message so the dashboard can
+            // surface a "pool not yet bootstrapped" hint without crashing.
+            //
+            // Uses `try_get_pool_token_id_by_address` (Result-returning
+            // variant) — RPC paths must NOT panic the validator on DB errors;
+            // a structured JSON-RPC error is the right response to a bad
+            // user-controlled query.
+            let Some(addr) = req.params.get(0).and_then(parse_address) else {
+                return Json(err(id, -32602, "params: [pool_address: hex string]"));
+            };
+            match ctx.state.try_get_pool_token_id_by_address(&addr) {
+                Ok(Some(tid)) => match ctx.state.get_token_pool(tid) {
+                    Some(p) => ok(id, token_pool_to_json(&p, &ctx.state)),
+                    None => err(id, -32004, &format!(
+                        "pool address reserved for token id {} but no pool has been opened yet — call TokenPoolCreate first",
+                        tid,
+                    )),
+                },
+                Ok(None) => err(id, -32004, "address is not a token pool address"),
+                Err(e) => err(id, -32603, &format!("internal: {}", e)),
+            }
+        }
+        "zbx_isPoolAddress" => {
+            // params: [address]
+            // Returns: {
+            //   address:  "0x...",
+            //   is_pool:  bool,        // index hit (rejection-relevant flag)
+            //   token_id: number|null, // which token owns this address
+            //   pool_open: bool,       // true once a TokenPool has been opened
+            // }
+            //
+            // Phase H: every token's deterministic pool address is reserved
+            // at TokenCreate time, so `is_pool` is true even before a pool
+            // has been opened (transfer guards reject sends regardless).
+            // `pool_open` lets wallets render "pool reserved but not yet
+            // bootstrapped" vs "live pool" differently.
+            //
+            // Uses the non-panicking variant — RPC must not crash the node
+            // on DB-read errors triggered by user-controlled input.
+            let Some(addr) = req.params.get(0).and_then(parse_address) else {
+                return Json(err(id, -32602, "params: [address: hex string]"));
+            };
+            let tid = match ctx.state.try_get_pool_token_id_by_address(&addr) {
+                Ok(opt) => opt,
+                Err(e) => return Json(err(id, -32603, &format!("internal: {}", e))),
+            };
+            let pool_open = tid.and_then(|t| ctx.state.get_token_pool(t)).is_some();
+            ok(id, json!({
+                "address":   addr.to_hex(),
+                "is_pool":   tid.is_some(),
+                "token_id":  tid,
+                "pool_open": pool_open,
+            }))
         }
         "zbx_tokenSwapQuote" => {
             // params: [token_id, direction ("zbx_to_token"|"token_to_zbx"), amount_in (decimal string)]
