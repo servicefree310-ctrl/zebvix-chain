@@ -83,6 +83,7 @@ const ADDON_NAV = [
   { href: "/faucet", label: "Testnet Faucet", icon: Droplets },
   { href: "/bridge", label: "Cross-Chain Bridge", icon: ArrowLeftRight },
   { href: "/staking", label: "Staking Dashboard", icon: TrendingUp },
+  { href: "/token-create", label: "Create Your Token", icon: Sparkles },
   { href: "/dex", label: "DEX / Swap", icon: ArrowUpDown },
   { href: "/fabric-layer", label: "Zebvix Fabric Layer", icon: Layers },
   { href: "/code-review", label: "Code Review — What Changed", icon: FileCode2 },

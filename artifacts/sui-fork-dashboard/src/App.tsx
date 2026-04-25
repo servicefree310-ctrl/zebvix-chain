@@ -22,6 +22,7 @@ import WalletPage from "@/pages/wallet";
 import Faucet from "@/pages/faucet";
 import Bridge from "@/pages/bridge";
 import Staking from "@/pages/staking";
+import TokenCreate from "@/pages/token-create";
 import Dex from "@/pages/dex";
 import ZbxTokenomics from "@/pages/zbx-tokenomics";
 import Implementation from "@/pages/implementation";
@@ -69,6 +70,7 @@ function Router() {
         <Route path="/faucet" component={Faucet} />
         <Route path="/bridge" component={Bridge} />
         <Route path="/staking" component={Staking} />
+        <Route path="/token-create" component={TokenCreate} />
         <Route path="/dex" component={Dex} />
         <Route path="/zbx-tokenomics" component={ZbxTokenomics} />
         <Route path="/implementation" component={Implementation} />

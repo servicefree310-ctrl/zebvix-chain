@@ -59,6 +59,12 @@ const ALLOWED_METHODS = new Set<string>([
   "zbx_getEvmTransaction",
   "zbx_getEvmReceipt",
   "zbx_supply",
+  // ── User-launched fungible tokens (read-only) ─────────────────────
+  "zbx_listTokens",
+  "zbx_tokenInfo",
+  "zbx_tokenInfoBySymbol",
+  "zbx_tokenBalanceOf",
+  "zbx_tokenCount",
   // ── Phase D — On-chain governance (read-only) ──────────────────────
   "zbx_proposalsList",
   "zbx_proposalGet",

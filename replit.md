@@ -74,6 +74,8 @@ Zebvix is designed to prevent administrative interference with user transfers. `
 ## User-Creatable Fungible Tokens
 Users can create ERC-20-style tokens with custom symbols, names, decimals, and initial supply. Token creation requires a one-time burn of 100 ZBX. Creator address is recorded for `Mint` authorization, while `Transfer` and `Burn` are permissionless for token holders. RPC methods are provided for querying token information, balances, and listing tokens.
 
+- **Create Token Page (`/token-create`):** Permissionless launch page for `TxKind::TokenCreate` (tag 11). Inputs: name (1..50), symbol (2..10, uppercase A-Z + 0-9, globally unique case-insensitive), decimals (0..18), initial supply (whole tokens, scaled by 10^decimals to u128 base units). Features: cost cards (100 ZBX burn + 0.002 ZBX fee), wallet panel with insufficient-balance warning, debounced symbol availability check (`zbx_tokenInfoBySymbol`, race-safe per-keystroke epoch), live preview card, recent tokens table from `zbx_listTokens`, broadcast + receipt poll with 60s timeout fallback (queries token by symbol once more before surfacing timeout), submit lock during full submitting/broadcast lifecycle. Encoders + RPC helpers in `lib/tokens.ts`. New whitelisted RPCs in api-server: `zbx_listTokens`, `zbx_tokenInfo`, `zbx_tokenInfoBySymbol`, `zbx_tokenBalanceOf`, `zbx_tokenCount`.
+
 # External Dependencies
 
 - **Monorepo Management:** pnpm workspaces
