@@ -252,11 +252,29 @@ export default function PayIdRegister() {
               <div className="relative">
                 <input
                   value={handle}
-                  onChange={(e) =>
-                    setHandle(e.target.value.toLowerCase().replace(/[^a-z0-9_@]/g, ""))
-                  }
+                  onChange={(e) => {
+                    // Strip any user-typed "@zbx" / trailing "@" so the static
+                    // suffix on the right is the only one shown.
+                    const cleaned = e.target.value
+                      .toLowerCase()
+                      .replace(/@zbx.*$/g, "")
+                      .replace(/@+$/g, "")
+                      .replace(/[^a-z0-9_]/g, "");
+                    setHandle(cleaned);
+                  }}
+                  onPaste={(e) => {
+                    const text = e.clipboardData.getData("text") ?? "";
+                    if (/@zbx/i.test(text)) {
+                      e.preventDefault();
+                      const cleaned = text
+                        .toLowerCase()
+                        .replace(/@zbx.*$/g, "")
+                        .replace(/[^a-z0-9_]/g, "");
+                      setHandle(cleaned);
+                    }
+                  }}
                   placeholder="alice"
-                  maxLength={29}
+                  maxLength={25}
                   spellCheck={false}
                   autoCapitalize="off"
                   className="w-full rounded-md border border-border bg-background py-2.5 pl-3 pr-28 font-mono text-base focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
