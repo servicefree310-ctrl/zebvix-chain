@@ -1,0 +1,51 @@
+curl -fsSL --max-time 60 \
+  "https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/api/download/newchain" \
+  -o newchain.tgz
+
+echo "Downloaded: $(du -h newchain.tgz | cut -f1)"
+
+# 3) Extract in place (overwrites src/, Cargo.toml — keeps target/, Cargo.lock if present)
+tar -xzf newchain.tgz
+rm newchain.tgz
+
+# 4) Build (zvm feature for EVM-bytecode compat). Tail last 10 lines for status.
+cargo build --release --features zvm 2>&1 | tail -10
+
+# 5) Verify binary exists before restart
+test -x /home/zebvix-chain/target/release/zbx || { echo "BUILD FAILED — keeping old daemon running"; exit 1; }
+
+# 6) Restart + confirm
+sudo systemctl restart zebvix
+sleep 5
+sudo systemctl status zebvix --no-pager | head -10
+
+# 7) Smoke-test new field is exposed
+echo "--- RPC sanity check ---"
+curl -s -X POST -H 'content-type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"zbx_listTokens","params":[0,1]}' \
+  http://127.0.0.1:8545 | head -c 500
+echo
+Downloaded: 220K
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:393:4
+    |
+393 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 1m 39s
+● zebvix.service - Zebvix L1 Blockchain Node
+     Loaded: loaded (/etc/systemd/system/zebvix.service; enabled; preset: enabled)
+     Active: active (running) since Sat 2026-04-25 15:38:39 UTC; 5s ago
+   Main PID: 305286 (zebvix-node)
+      Tasks: 7 (limit: 9483)
+     Memory: 4.0M (peak: 4.4M)
+        CPU: 37ms
+     CGroup: /system.slice/zebvix.service
+             └─305286 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333 --no-mdns
+
+--- RPC sanity check ---
+{"jsonrpc":"2.0","id":1,"result":{"limit":1,"offset":0,"tokens":[{"created_at_height":18732,"creator":"0x5cd828760bb7303d786a42302596addc51208a1a","decimals":18,"id":1,"name":"Hold Token","standard":"ZBX-20","symbol":"HDT","total_supply":"100000000000000000000000000","total_supply_hex":"0x52b7d2dcc80cd2e4000000"}],"total":1}}
+root@srv1266996:/home/zebvix-chain# 
