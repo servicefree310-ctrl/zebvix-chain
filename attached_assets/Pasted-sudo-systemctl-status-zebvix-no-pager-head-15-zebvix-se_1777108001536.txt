@@ -1,0 +1,50 @@
+sudo systemctl status zebvix --no-pager | head -15
+● zebvix.service - Zebvix L1 Blockchain Node
+     Loaded: loaded (/etc/systemd/system/zebvix.service; enabled; preset: enabled)
+     Active: active (running) since Sat 2026-04-25 09:04:33 UTC; 1ms ago
+   Main PID: 210399 (9)
+      Tasks: 1 (limit: 9483)
+     Memory: 0B (peak: 0B)
+        CPU: 0
+     CGroup: /system.slice/zebvix.service
+             └─210399 "(vix-node)"
+
+Apr 25 09:04:33 srv1266996.hstgr.cloud systemd[1]: zebvix.service: Scheduled restart job, restart counter is at 1078.
+Apr 25 09:04:33 srv1266996.hstgr.cloud systemd[1]: Started zebvix.service - Zebvix L1 Blockchain Node.
+Apr 25 09:04:33 srv1266996.hstgr.cloud zebvix-node[210399]: Error: IO error: While lock file: /root/.zebvix/data/LOCK: Resource temporarily unavailable
+Apr 25 09:04:33 srv1266996.hstgr.cloud systemd[1]: zebvix.service: Main process exited, code=exited, status=1/FAILURE
+Apr 25 09:04:33 srv1266996.hstgr.cloud systemd[1]: zebvix.service: Failed with result 'exit-code'.
+root@srv1266996:/home/zebvix-chain# sudo systemctl stop zebvix && \
+sleep 2 && \
+echo "=== systemd stopped ===" && \
+sudo systemctl status zebvix --no-pager | head -8
+=== systemd stopped ===
+○ zebvix.service - Zebvix L1 Blockchain Node
+     Loaded: loaded (/etc/systemd/system/zebvix.service; enabled; preset: enabled)
+     Active: inactive (dead) (Result: exit-code) since Sat 2026-04-25 09:05:35 UTC; 2s ago
+   Duration: 11ms
+    Process: 210819 ExecStart=/usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333 --no-mdns (code=exited, status=1/FAILURE)
+   Main PID: 210819 (code=exited, status=1/FAILURE)
+        CPU: 11ms
+
+root@srv1266996:/home/zebvix-chain# echo "=== all zebvix-node processes ==="; \
+ps -ef | grep -E 'zebvix-node|target/release' | grep -v grep; \
+echo "=== process actually holding the LOCK file ==="; \
+sudo fuser -v /root/.zebvix/data/LOCK 2>&1; \
+echo "=== or via lsof ==="; \
+sudo lsof /root/.zebvix/data/LOCK 2>&1; \
+echo "=== tmux/screen sessions ==="; \
+tmux ls 2>/dev/null; screen -ls 2>/dev/null
+=== all zebvix-node processes ===
+root      181222       1  0 07:30 ?        00:00:08 /home/zebvix-chain/target/release/zebvix-node start --home /root/.zebvix
+=== process actually holding the LOCK file ===
+                     USER        PID ACCESS COMMAND
+/root/.zebvix/data/LOCK:
+                     root      181222 F.... zebvix-node
+=== or via lsof ===
+COMMAND      PID USER   FD   TYPE DEVICE SIZE/OFF    NODE NAME
+zebvix-no 181222 root   11uW  REG    8,1        0 3734396 /root/.zebvix/data/LOCK
+=== tmux/screen sessions ===
+No Sockets found in /run/screen/S-root.
+
+root@srv1266996:/home/zebvix-chain# 
