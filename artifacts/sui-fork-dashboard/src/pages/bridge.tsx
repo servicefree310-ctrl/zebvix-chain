@@ -148,11 +148,13 @@ export default function Bridge() {
           Convert wZBX back to ZBX
         </h2>
         <p className="text-sm text-muted-foreground mb-4 max-w-3xl">
-          Burn your wrapped ZBX (BEP-20) on BNB Smart Chain via MetaMask. The
-          relayer detects the burn after 15 BSC confirmations (~45 sec) and
-          unlocks native ZBX on Zebvix L1 to whatever recipient address you
-          specify below. Recipient can be any Zebvix address — it does not have
-          to be your burner wallet.
+          Burn your wrapped ZBX (BEP-20) on BNB Smart Chain — signed in-page
+          with your active in-browser wallet (no MetaMask required, since the
+          same secp256k1 key works on Zebvix L1 and BSC alike). The relayer
+          detects the burn after 15 BSC confirmations (~45 sec) and unlocks
+          native ZBX on Zebvix L1 to whatever recipient address you specify
+          below. Recipient can be any Zebvix address — it does not have to be
+          your burner wallet.
         </p>
         <BscSidePanel />
       </div>

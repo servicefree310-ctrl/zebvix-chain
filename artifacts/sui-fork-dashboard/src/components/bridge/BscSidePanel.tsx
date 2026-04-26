@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link as WLink } from "wouter";
 import {
   Wallet as WalletIcon,
   ExternalLink,
@@ -11,6 +12,9 @@ import {
   Flame,
   Activity,
   ShieldCheck,
+  Network,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,9 +23,12 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import {
   approveWzbx,
+  approveWzbxInBrowser,
   bscErc20Allowance,
   bscErc20Balance,
+  bscNativeBalance,
   burnToZebvix,
+  burnToZebvixInBrowser,
   connectMetaMask,
   ensureBscNetwork,
   fmtUnits18,
@@ -31,12 +38,9 @@ import {
   type BscBridgeConfig,
   type RelayerStatus,
 } from "@/lib/bsc-bridge";
+import { useWallet } from "@/contexts/wallet-context";
 
-const API_BASE = (() => {
-  // Always use the api-server artifact path (mounted at /api).
-  // The api-server runs alongside this artifact in the same workspace.
-  return "/api";
-})();
+const API_BASE = "/api";
 
 async function fetchJson<T>(url: string): Promise<T> {
   const r = await fetch(url);
@@ -65,37 +69,47 @@ function shortAddr(a: string, head = 6, tail = 4): string {
   return `${a.slice(0, head)}…${a.slice(-tail)}`;
 }
 
+type SignerMode = "browser" | "metamask";
+
 export default function BscSidePanel() {
   const { toast } = useToast();
 
-  // ── Config from api-server ───────────────────────────────────────────
+  // ── Config + relayer ─────────────────────────────────────────────────
   const cfgQ = useQuery({
     queryKey: ["bridge", "bsc-config"],
     queryFn: () => fetchJson<BscBridgeConfig>(`${API_BASE}/bridge/bsc-config`),
     staleTime: 60_000,
   });
-
-  // ── Relayer status ────────────────────────────────────────────────────
   const relayerQ = useQuery({
     queryKey: ["bridge", "relayer-status"],
     queryFn: () => fetchJson<RelayerStatus>(`${API_BASE}/bridge/relayer-status`),
     refetchInterval: 10_000,
   });
 
-  // ── MetaMask account ──────────────────────────────────────────────────
-  const [account, setAccount] = useState<string | null>(null);
+  // ── Signer mode toggle ──────────────────────────────────────────────
+  const [mode, setMode] = useState<SignerMode>("browser");
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // ── In-browser wallet — driven by the global WalletContext so same-tab
+  //     wallet swaps (top-bar picker, /wallet page) refresh us immediately.
+  const { wallets, active: activeWallet } = useWallet();
+  const browserAddr = activeWallet?.address.toLowerCase() ?? null;
+  const browserKey = activeWallet?.privateKey ?? null;
+
+  // ── MetaMask wallet state (fallback) ────────────────────────────────
+  const [mmAccount, setMmAccount] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     getMetaMaskAccount().then((a) => {
-      if (!cancelled) setAccount(a);
+      if (!cancelled) setMmAccount(a);
     });
     const eth = window.ethereum;
     if (eth?.on) {
       const handler = (...args: unknown[]) => {
         const accs = args[0] as string[] | undefined;
-        setAccount(accs?.[0]?.toLowerCase() ?? null);
+        setMmAccount(accs?.[0]?.toLowerCase() ?? null);
       };
       eth.on("accountsChanged", handler);
       return () => {
@@ -108,14 +122,16 @@ export default function BscSidePanel() {
     };
   }, []);
 
-  const onConnect = useCallback(async () => {
+  // Active account = whichever signer mode is active
+  const account = mode === "browser" ? browserAddr : mmAccount;
+
+  const onConnectMM = useCallback(async () => {
     setConnecting(true);
     try {
       const a = await connectMetaMask();
-      setAccount(a);
+      setMmAccount(a);
       if (cfgQ.data) {
         await ensureBscNetwork(cfgQ.data).catch((e) => {
-          // user-rejected switch is fine, just warn
           toast({
             title: "Network not switched",
             description: e instanceof Error ? e.message : String(e),
@@ -138,7 +154,7 @@ export default function BscSidePanel() {
     if (!cfgQ.data) return;
     try {
       await watchWzbx(cfgQ.data);
-      toast({ title: "wZBX added to wallet" });
+      toast({ title: "wZBX added to MetaMask" });
     } catch (e) {
       toast({
         title: "Add token failed",
@@ -148,9 +164,9 @@ export default function BscSidePanel() {
     }
   }, [cfgQ.data, toast]);
 
-  // ── wZBX balance + allowance ──────────────────────────────────────────
-  const balanceQ = useQuery({
-    queryKey: ["wzbx", "balance", cfgQ.data?.wzbx_address ?? "", account ?? ""],
+  // ── Balances on BSC for the active wallet ───────────────────────────
+  const wzbxBalQ = useQuery({
+    queryKey: ["bsc", "wzbx-bal", cfgQ.data?.wzbx_address ?? "", account ?? ""],
     queryFn: async () => {
       if (!cfgQ.data?.wzbx_address || !account) return null;
       return bscErc20Balance(cfgQ.data.bsc_rpc_url, cfgQ.data.wzbx_address, account);
@@ -159,9 +175,19 @@ export default function BscSidePanel() {
     refetchInterval: 12_000,
   });
 
+  const bnbBalQ = useQuery({
+    queryKey: ["bsc", "bnb-bal", account ?? ""],
+    queryFn: async () => {
+      if (!cfgQ.data?.bsc_rpc_url || !account) return null;
+      return bscNativeBalance(cfgQ.data.bsc_rpc_url, account);
+    },
+    enabled: !!(cfgQ.data?.bsc_rpc_url && account),
+    refetchInterval: 12_000,
+  });
+
   const allowanceQ = useQuery({
     queryKey: [
-      "wzbx",
+      "bsc",
       "allowance",
       cfgQ.data?.wzbx_address ?? "",
       cfgQ.data?.bridge_address ?? "",
@@ -180,7 +206,7 @@ export default function BscSidePanel() {
     refetchInterval: 12_000,
   });
 
-  // ── Reverse bridge form (BSC → Zebvix) ───────────────────────────────
+  // ── Burn form state ─────────────────────────────────────────────────
   const [destAddr, setDestAddr] = useState("");
   const [amountStr, setAmountStr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -196,22 +222,33 @@ export default function BscSidePanel() {
     }
   }, [amountStr]);
 
+  // The bridge contract calls `wZBX.burnFrom(msg.sender, amount)` — this
+  // requires the user to first `approve(bridge, amount)` so the bridge can
+  // pull their wZBX. Two-step UX: approve, then burn. We auto-show the
+  // approve button when current allowance < requested amount.
+  // While allowance is still loading, treat as "needs approve" to avoid a
+  // premature burn click that would revert. Once data arrives we re-evaluate.
+  const allowanceKnown = allowanceQ.data !== null && allowanceQ.data !== undefined;
   const needsApprove =
-    amountWei > 0n &&
-    allowanceQ.data !== null &&
-    allowanceQ.data !== undefined &&
-    allowanceQ.data < amountWei;
+    amountWei > 0n && (!allowanceKnown || (allowanceQ.data as bigint) < amountWei);
+
+  const lowBnb = bnbBalQ.data !== undefined && bnbBalQ.data !== null && bnbBalQ.data < 100_000_000_000_000n; // < 0.0001 BNB
 
   async function onApprove() {
     if (!cfgQ.data || !account) return;
     setErr(null);
     setBusy(true);
     try {
-      await ensureBscNetwork(cfgQ.data);
-      const hash = await approveWzbx(cfgQ.data, account, amountWei);
+      let hash: string;
+      if (mode === "browser") {
+        if (!browserKey) throw new Error("no in-browser wallet active");
+        hash = await approveWzbxInBrowser(cfgQ.data, browserKey, amountWei);
+      } else {
+        await ensureBscNetwork(cfgQ.data);
+        hash = await approveWzbx(cfgQ.data, account, amountWei);
+      }
       setLastTx({ hash, kind: "approve" });
       toast({ title: "Approve submitted", description: shortAddr(hash, 10, 8) });
-      // Refresh allowance after a delay (mempool → block).
       setTimeout(() => allowanceQ.refetch(), 6_000);
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e);
@@ -227,14 +264,21 @@ export default function BscSidePanel() {
     setErr(null);
     setBusy(true);
     try {
-      await ensureBscNetwork(cfgQ.data);
-      const hash = await burnToZebvix(cfgQ.data, account, destAddr.trim(), amountWei);
+      let hash: string;
+      if (mode === "browser") {
+        if (!browserKey) throw new Error("no in-browser wallet active");
+        hash = await burnToZebvixInBrowser(cfgQ.data, browserKey, destAddr.trim(), amountWei);
+      } else {
+        await ensureBscNetwork(cfgQ.data);
+        hash = await burnToZebvix(cfgQ.data, account, destAddr.trim(), amountWei);
+      }
       setLastTx({ hash, kind: "burn" });
       toast({ title: "Burn submitted", description: shortAddr(hash, 10, 8) });
       setAmountStr("");
       setTimeout(() => {
-        balanceQ.refetch();
+        wzbxBalQ.refetch();
         allowanceQ.refetch();
+        bnbBalQ.refetch();
       }, 6_000);
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e);
@@ -245,15 +289,24 @@ export default function BscSidePanel() {
     }
   }
 
-  // ── Render ────────────────────────────────────────────────────────────
+  // ── Render helpers ──────────────────────────────────────────────────
   const cfg = cfgQ.data;
   const cfgReady = !!(cfg?.wzbx_address && cfg?.bridge_address);
   const explorerTx = (h: string) => `${cfg?.bsc_explorer ?? "https://bscscan.com"}/tx/${h}`;
   const explorerAddr = (a: string) => `${cfg?.bsc_explorer ?? "https://bscscan.com"}/address/${a}`;
+  const burnDisabled =
+    busy ||
+    amountWei === 0n ||
+    !account ||
+    !cfgReady ||
+    !/^0x[0-9a-fA-F]{40}$/.test(destAddr.trim()) ||
+    (wzbxBalQ.data !== null && wzbxBalQ.data !== undefined && amountWei > wzbxBalQ.data) ||
+    lowBnb;
 
   return (
     <Card className="p-6 space-y-4">
-      <div className="flex items-center justify-between gap-2">
+      {/* ── Header ───────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
           <ShieldCheck className="h-5 w-5 text-primary" />
           <h2 className="text-lg font-bold">BSC side · wZBX & reverse bridge</h2>
@@ -262,6 +315,27 @@ export default function BscSidePanel() {
           </Badge>
         </div>
         <RelayerBadge q={relayerQ.data} loading={relayerQ.isLoading} />
+      </div>
+
+      {/* ── Network indicator (one wallet, two chains) ───────────────── */}
+      <div className="rounded-md border border-primary/20 bg-primary/5 p-3 flex items-center gap-3 text-xs">
+        <Network className="h-4 w-4 text-primary shrink-0" />
+        <div className="flex-1">
+          <div className="font-semibold text-foreground">
+            One wallet, two chains
+          </div>
+          <div className="text-muted-foreground mt-0.5">
+            Your active in-browser wallet works on{" "}
+            <Badge variant="outline" className="text-emerald-400 border-emerald-400/40 text-[10px] py-0">
+              Zebvix L1 · 7878
+            </Badge>{" "}
+            <span className="mx-1">+</span>
+            <Badge variant="outline" className="text-amber-400 border-amber-400/40 text-[10px] py-0">
+              BSC · {cfg?.bsc_chain_id ?? 56}
+            </Badge>{" "}
+            (same secp256k1 key, ETH-standard derivation). No network switch needed.
+          </div>
+        </div>
       </div>
 
       {!cfgReady && (
@@ -273,12 +347,13 @@ export default function BscSidePanel() {
               Operator: deploy <code>WrappedZBX</code> + <code>ZebvixBridge</code>{" "}
               with the Hardhat scripts in <code>lib/bsc-contracts</code>, then
               set <code>BSC_WZBX_ADDRESS</code> + <code>BSC_BRIDGE_ADDRESS</code>{" "}
-              in api-server env. See <code>lib/bsc-contracts/DEPLOY.md</code>.
+              in api-server env.
             </div>
           </div>
         </div>
       )}
 
+      {/* ── Contract addresses ──────────────────────────────────────── */}
       {cfg && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <ContractCard
@@ -294,26 +369,69 @@ export default function BscSidePanel() {
         </div>
       )}
 
-      {/* Wallet row */}
+      {/* ── Signer mode picker ─────────────────────────────────────── */}
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-muted-foreground">Signer:</span>
+        <button
+          onClick={() => setMode("browser")}
+          className={`px-2 py-1 rounded border text-xs ${
+            mode === "browser"
+              ? "border-primary bg-primary/10 text-primary font-semibold"
+              : "border-border/60 text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          In-browser wallet
+        </button>
+        <button
+          onClick={() => setMode("metamask")}
+          className={`px-2 py-1 rounded border text-xs ${
+            mode === "metamask"
+              ? "border-primary bg-primary/10 text-primary font-semibold"
+              : "border-border/60 text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          MetaMask
+        </button>
+      </div>
+
+      {/* ── Wallet card ─────────────────────────────────────────────── */}
       <div className="rounded-md border border-primary/30 bg-primary/5 p-3 space-y-2">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-sm font-semibold">
             <WalletIcon className="h-4 w-4 text-primary" />
-            BSC wallet (MetaMask)
+            {mode === "browser" ? "Active wallet (in-browser)" : "BSC wallet (MetaMask)"}
           </div>
-          {!account ? (
-            <Button size="sm" onClick={onConnect} disabled={connecting}>
+          {mode === "metamask" && !mmAccount && (
+            <Button size="sm" onClick={onConnectMM} disabled={connecting}>
               {connecting ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
               Connect
             </Button>
-          ) : (
+          )}
+          {mode === "metamask" && mmAccount && (
             <Button size="sm" variant="outline" onClick={onAddToken} disabled={!cfgReady}>
               <Plus className="h-3.5 w-3.5 mr-1" />
               Add wZBX
             </Button>
           )}
         </div>
-        {account ? (
+
+        {mode === "browser" && !browserAddr && (
+          <div className="text-xs text-muted-foreground space-y-2">
+            <div>
+              No active in-browser wallet. {wallets.length === 0
+                ? "Create or import one to use the bridge."
+                : "Select an active wallet first."}
+            </div>
+            <WLink
+              href="/wallet"
+              className="inline-flex items-center gap-1 text-primary hover:underline font-medium"
+            >
+              Open wallet manager <ExternalLink className="h-3 w-3" />
+            </WLink>
+          </div>
+        )}
+
+        {account && (
           <>
             <div className="font-mono text-xs break-all flex items-center gap-2">
               <a
@@ -327,42 +445,43 @@ export default function BscSidePanel() {
               </a>
               <CopyBtn value={account} />
             </div>
-            <div className="grid grid-cols-2 gap-2 pt-1">
-              <div>
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                  wZBX balance
-                </div>
-                <div className="font-bold tabular-nums text-primary">
-                  {balanceQ.data !== undefined && balanceQ.data !== null
-                    ? fmtUnits18(balanceQ.data)
-                    : balanceQ.isLoading
-                      ? "…"
-                      : "—"}
-                  <span className="ml-1 text-xs text-muted-foreground">wZBX</span>
-                </div>
-              </div>
-              <div>
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                  Allowance to bridge
-                </div>
-                <div className="font-bold tabular-nums">
-                  {allowanceQ.data !== undefined && allowanceQ.data !== null
-                    ? fmtUnits18(allowanceQ.data)
-                    : allowanceQ.isLoading
-                      ? "…"
-                      : "—"}
-                </div>
-              </div>
+            <div className="grid grid-cols-3 gap-2 pt-1">
+              <BalanceTile
+                label="wZBX (BSC)"
+                value={wzbxBalQ.data}
+                loading={wzbxBalQ.isLoading}
+                accent="text-primary"
+                suffix="wZBX"
+              />
+              <BalanceTile
+                label="BNB (gas)"
+                value={bnbBalQ.data}
+                loading={bnbBalQ.isLoading}
+                accent={lowBnb ? "text-amber-400" : "text-foreground"}
+                suffix="BNB"
+              />
+              <BalanceTile
+                label="Allowance"
+                value={allowanceQ.data}
+                loading={allowanceQ.isLoading}
+                accent="text-foreground"
+                suffix=""
+              />
             </div>
+            {lowBnb && (
+              <div className="text-[11px] text-amber-400 flex items-start gap-1.5 pt-1">
+                <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                <span>
+                  Low BNB — burn tx needs ~0.00001 BNB gas. Top up this address
+                  on BSC to enable the burn button.
+                </span>
+              </div>
+            )}
           </>
-        ) : (
-          <div className="text-xs text-muted-foreground">
-            Connect your MetaMask to see your wZBX balance and burn back to Zebvix.
-          </div>
         )}
       </div>
 
-      {/* Reverse bridge form */}
+      {/* ── Burn form ──────────────────────────────────────────────── */}
       <div className="rounded-md border border-border/60 bg-muted/20 p-3 space-y-3">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <Flame className="h-4 w-4 text-primary" />
@@ -382,6 +501,15 @@ export default function BscSidePanel() {
               className="font-mono"
               disabled={!account || !cfgReady || busy}
             />
+            {account && (
+              <button
+                type="button"
+                onClick={() => setDestAddr(account)}
+                className="text-[10px] text-primary hover:underline mt-1"
+              >
+                use my address
+              </button>
+            )}
           </div>
           <div>
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
@@ -396,6 +524,15 @@ export default function BscSidePanel() {
               className="font-mono"
               disabled={!account || !cfgReady || busy}
             />
+            {wzbxBalQ.data !== undefined && wzbxBalQ.data !== null && wzbxBalQ.data > 0n && (
+              <button
+                type="button"
+                onClick={() => setAmountStr(fmtUnits18(wzbxBalQ.data!))}
+                className="text-[10px] text-primary hover:underline mt-1"
+              >
+                max
+              </button>
+            )}
           </div>
         </div>
 
@@ -406,17 +543,7 @@ export default function BscSidePanel() {
               1) Approve {amountStr || "0"} wZBX
             </Button>
           ) : (
-            <Button
-              onClick={onBurn}
-              disabled={
-                busy ||
-                amountWei === 0n ||
-                !account ||
-                !cfgReady ||
-                !/^0x[0-9a-fA-F]{40}$/.test(destAddr.trim())
-              }
-              className="flex-1"
-            >
+            <Button onClick={onBurn} disabled={burnDisabled} className="flex-1">
               {busy ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Flame className="h-4 w-4 mr-2" />}
               Burn & redeem on Zebvix
             </Button>
@@ -424,9 +551,9 @@ export default function BscSidePanel() {
         </div>
 
         <div className="text-[11px] text-muted-foreground">
-          {needsApprove
-            ? "Two-step UX: first approve the bridge contract to burn this amount of your wZBX, then click again to burn."
-            : "Burns your wZBX on BSC and emits a BurnToZebvix event. The relayer detects it (after 15 BSC confirmations) and submits the unlock attestation on Zebvix."}
+          {mode === "browser"
+            ? "Tx is RLP-signed in-page using your active wallet's private key and broadcast to BSC. The relayer detects the burn after 15 BSC confirmations (~45 sec) and credits ZBX on Zebvix L1."
+            : "MetaMask will pop up to confirm the burn. The relayer detects it (after 15 BSC confirmations) and submits the unlock attestation on Zebvix."}
         </div>
 
         {err && (
@@ -454,7 +581,66 @@ export default function BscSidePanel() {
           </div>
         )}
       </div>
+
+      {/* ── Advanced collapsible (signer details) ──────────────────── */}
+      <button
+        type="button"
+        onClick={() => setShowAdvanced((s) => !s)}
+        className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+      >
+        {showAdvanced ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+        How signing works
+      </button>
+      {showAdvanced && (
+        <div className="text-[11px] text-muted-foreground rounded-md border border-border/40 bg-muted/10 p-3 space-y-2">
+          <p>
+            <strong className="text-foreground">In-browser mode</strong> uses
+            the same secp256k1 private key your wallet holds for Zebvix L1.
+            Because both Zebvix and BSC derive 20-byte addresses the same way
+            (<code>keccak256(uncompressed_pubkey[1..])[12..]</code>), one key
+            controls one identical address on both chains. The BSC tx is
+            RLP-encoded and signed locally; only the signed envelope is sent
+            to the public BSC RPC. Your private key never leaves the browser.
+          </p>
+          <p>
+            <strong className="text-foreground">MetaMask mode</strong> hands
+            signing off to your browser-extension wallet — useful if you want
+            hardware-wallet protection or to bridge with a different account
+            than your active in-browser one.
+          </p>
+        </div>
+      )}
     </Card>
+  );
+}
+
+function BalanceTile({
+  label,
+  value,
+  loading,
+  accent,
+  suffix,
+}: {
+  label: string;
+  value: bigint | null | undefined;
+  loading: boolean;
+  accent: string;
+  suffix: string;
+}) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+        {label}
+      </div>
+      <div className={`font-bold tabular-nums ${accent}`}>
+        {value !== undefined && value !== null
+          ? fmtUnits18(value)
+          : loading
+            ? "…"
+            : "—"}
+        {suffix && <span className="ml-1 text-xs text-muted-foreground">{suffix}</span>}
+      </div>
+    </div>
   );
 }
 

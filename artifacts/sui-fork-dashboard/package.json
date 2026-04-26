@@ -79,6 +79,7 @@
     "@noble/hashes": "^2.2.0",
     "@scure/bip32": "^2.2.0",
     "@scure/bip39": "^2.2.0",
+    "ethers": "^6.16.0",
     "qrcode.react": "^4.2.0"
   }
 }

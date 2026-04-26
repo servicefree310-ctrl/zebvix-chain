@@ -2,13 +2,17 @@
  * BSC-side bridge interactions.
  *
  * Read-only calls go through the configured public BSC RPC via fetch+JSON-RPC.
- * Write calls (burnToZebvix + ERC20.approve) are submitted via the user's
- * injected wallet (MetaMask) using EIP-1193 `window.ethereum.request`.
- *
- * No ethers dependency — keccak256 from @noble/hashes is enough for our
- * single-method ABI encoding (function selectors + balanceOf + allowance).
+ * Write calls (burnToZebvix + ERC20.approve) can be submitted via EITHER:
+ *   1. The in-browser Zebvix wallet (same secp256k1 key works on BSC because
+ *      Zebvix uses ETH-standard address derivation). Tx is RLP-signed locally
+ *      using ethers v6 and broadcast via the public BSC RPC's
+ *      `eth_sendRawTransaction`. No browser-extension wallet required —
+ *      this is the dashboard's primary path.
+ *   2. MetaMask (or any EIP-1193 injected wallet) — kept as a fallback for
+ *      users who want hardware-wallet signing or multi-account UX.
  */
 import { keccak_256 } from "@noble/hashes/sha3.js";
+import { Contract, JsonRpcProvider, Wallet } from "ethers";
 import type { EthProvider } from "./metamask";
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -107,6 +111,19 @@ async function bscCall(rpcUrl: string, method: string, params: unknown[]): Promi
   const j = (await res.json()) as { result?: unknown; error?: { message: string } };
   if (j.error) throw new Error(`BSC RPC ${method}: ${j.error.message}`);
   return j.result;
+}
+
+/** Native BNB balance for an address. Returns base-units bigint (18 decimals). */
+export async function bscNativeBalance(
+  rpcUrl: string,
+  account: string,
+): Promise<bigint> {
+  const result = (await bscCall(rpcUrl, "eth_getBalance", [
+    account,
+    "latest",
+  ])) as string;
+  if (!result || result === "0x") return 0n;
+  return BigInt(result);
 }
 
 /** ERC20.balanceOf(account). Returns base-units bigint (18 decimals for wZBX). */
@@ -268,6 +285,60 @@ export async function burnToZebvix(
     params: [{ from, to: cfg.bridge_address, data, value: "0x0" }],
   })) as string;
   return hash;
+}
+
+// ── In-browser wallet signing (no MetaMask) ──────────────────────────────
+//
+// Same secp256k1 private key the user holds in localStorage for Zebvix L1
+// also works on BSC because Zebvix uses ETH-standard address derivation.
+// We RLP-sign the BSC tx in the browser with ethers v6 and broadcast via
+// the public BSC RPC's `eth_sendRawTransaction`.
+
+const ERC20_APPROVE_ABI = [
+  "function approve(address spender, uint256 amount) returns (bool)",
+];
+const BRIDGE_BURN_ABI = [
+  "function burnToZebvix(string zebvixAddress, uint256 amount)",
+];
+
+function makeWallet(cfg: BscBridgeConfig, privateKey: string): Wallet {
+  const pk = privateKey.startsWith("0x") ? privateKey : "0x" + privateKey;
+  const provider = new JsonRpcProvider(cfg.bsc_rpc_url, {
+    chainId: cfg.bsc_chain_id,
+    name: cfg.bsc_chain_name,
+  });
+  return new Wallet(pk, provider);
+}
+
+/**
+ * Sign + broadcast `ERC20.approve(bridge, amount)` from the in-browser wallet.
+ * Returns the BSC tx hash.
+ */
+export async function approveWzbxInBrowser(
+  cfg: BscBridgeConfig,
+  privateKey: string,
+  amount: bigint,
+): Promise<string> {
+  const wallet = makeWallet(cfg, privateKey);
+  const token = new Contract(cfg.wzbx_address, ERC20_APPROVE_ABI, wallet);
+  const tx = await token.approve(cfg.bridge_address, amount);
+  return tx.hash;
+}
+
+/**
+ * Sign + broadcast `ZebvixBridge.burnToZebvix(dest, amount)` from the
+ * in-browser wallet. Returns the BSC tx hash.
+ */
+export async function burnToZebvixInBrowser(
+  cfg: BscBridgeConfig,
+  privateKey: string,
+  zebvixAddress: string,
+  amount: bigint,
+): Promise<string> {
+  const wallet = makeWallet(cfg, privateKey);
+  const bridge = new Contract(cfg.bridge_address, BRIDGE_BURN_ABI, wallet);
+  const tx = await bridge.burnToZebvix(zebvixAddress, amount);
+  return tx.hash;
 }
 
 // ── Format helpers ────────────────────────────────────────────────────────
