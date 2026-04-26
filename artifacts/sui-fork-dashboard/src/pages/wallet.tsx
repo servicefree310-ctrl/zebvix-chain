@@ -34,6 +34,7 @@ import {
   DialogTitle,
   DialogTrigger,
   DialogFooter,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
@@ -53,6 +54,7 @@ import {
   setupVault,
   vaultExists,
   vaultUnlocked,
+  unlockVault,
 } from "@/lib/wallet-vault";
 import { PLAINTEXT_WALLETS_KEY } from "@/lib/web-wallet";
 import {
@@ -633,6 +635,113 @@ function ManageTab(props: {
   const [importLabel, setImportLabel] = useState("Imported");
   const [createLabel, setCreateLabel] = useState("Wallet");
   const [showSecret, setShowSecret] = useState<Record<string, boolean>>({});
+  // Auto-hide reveal after this many ms — leaving private keys on screen
+  // forever defeats the point of the password gate.
+  const REVEAL_AUTOHIDE_MS = 30_000;
+  const revealTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  // Clear any pending auto-hide timers when the component unmounts so we
+  // don't leak them or call setState on an unmounted component.
+  useEffect(() => {
+    const timers = revealTimers.current;
+    return () => {
+      Object.values(timers).forEach((t) => clearTimeout(t));
+    };
+  }, []);
+
+  // Password verify gate for sensitive read actions ("reveal" private key
+  // on screen, "export" plaintext keystore JSON). The user must re-enter
+  // their vault password each time they want to view or export a key —
+  // having the vault unlocked in the tab is necessary but not sufficient
+  // for these high-risk actions, since an attacker with brief physical
+  // access shouldn't be able to dump keys from an already-unlocked tab.
+  type PwGate = { type: "reveal" | "export"; address: string };
+  const [pwGate, setPwGate] = useState<PwGate | null>(null);
+  const [pwGateInput, setPwGateInput] = useState("");
+  const [pwGateErr, setPwGateErr] = useState<string | null>(null);
+  const [pwGateBusy, setPwGateBusy] = useState(false);
+
+  const closePwGate = () => {
+    setPwGate(null);
+    setPwGateInput("");
+    setPwGateErr(null);
+    setPwGateBusy(false);
+  };
+
+  const requestReveal = (address: string) => {
+    // Toggle off is free — only the unlock direction is gated.
+    if (showSecret[address]) {
+      const t = revealTimers.current[address];
+      if (t) {
+        clearTimeout(t);
+        delete revealTimers.current[address];
+      }
+      setShowSecret((s) => {
+        const next = { ...s };
+        delete next[address];
+        return next;
+      });
+      return;
+    }
+    setPwGate({ type: "reveal", address });
+  };
+
+  const requestExport = (address: string) => {
+    setPwGate({ type: "export", address });
+  };
+
+  const performReveal = (address: string) => {
+    setShowSecret((s) => ({ ...s, [address]: true }));
+    const existing = revealTimers.current[address];
+    if (existing) clearTimeout(existing);
+    revealTimers.current[address] = setTimeout(() => {
+      delete revealTimers.current[address];
+      setShowSecret((s) => {
+        const next = { ...s };
+        delete next[address];
+        return next;
+      });
+    }, REVEAL_AUTOHIDE_MS);
+  };
+
+  const performExport = (address: string) => {
+    const w = wallets.find((x) => x.address === address);
+    if (!w) return;
+    const data = JSON.stringify(w, null, 2);
+    const blob = new Blob([data], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `zebvix-${w.address.slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const submitPwGate = async () => {
+    if (!pwGate || pwGateBusy) return;
+    if (!pwGateInput) {
+      setPwGateErr("Enter your wallet password");
+      return;
+    }
+    setPwGateBusy(true);
+    setPwGateErr(null);
+    try {
+      // unlockVault re-derives the AES key and decrypts the vault — this
+      // is the cheapest authoritative way to verify the password without
+      // adding a separate verifyPassword helper. It is idempotent on an
+      // already-unlocked vault (just refreshes the in-memory cache).
+      await unlockVault(pwGateInput);
+      const action = pwGate;
+      // Capture the action before clearing state so we still know what to
+      // perform after closePwGate wipes pwGate.
+      closePwGate();
+      if (action.type === "reveal") performReveal(action.address);
+      else performExport(action.address);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setPwGateErr(msg || "Wrong password");
+      setPwGateBusy(false);
+    }
+  };
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
 
@@ -779,17 +888,6 @@ function ManageTab(props: {
     }
   };
 
-  const handleExport = (w: StoredWallet) => {
-    const data = JSON.stringify(w, null, 2);
-    const blob = new Blob([data], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `zebvix-${w.address.slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   const handleDelete = (w: StoredWallet) => {
     if (!confirm(`Delete wallet ${shortAddr(w.address)}? Make sure you have a backup of the private key.`)) return;
     removeWallet(w.address);
@@ -921,6 +1019,69 @@ function ManageTab(props: {
         </DialogContent>
       </Dialog>
 
+      {/* Password verify gate for sensitive read actions (reveal / export). */}
+      <Dialog
+        open={!!pwGate}
+        onOpenChange={(o) => {
+          if (!o) closePwGate();
+        }}
+      >
+        <DialogContent data-testid="dialog-pw-verify">
+          <DialogHeader>
+            <DialogTitle>
+              {pwGate?.type === "export"
+                ? "Confirm password to export"
+                : "Confirm password to reveal"}
+            </DialogTitle>
+            <DialogDescription>
+              {pwGate?.type === "export"
+                ? "Enter your wallet password to download the unencrypted keystore JSON. The file contains the private key in plaintext — store it securely."
+                : "Enter your wallet password to view the private key. It will hide automatically after 30 seconds."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label htmlFor="input-pw-verify">Wallet password</Label>
+              <Input
+                id="input-pw-verify"
+                data-testid="input-pw-verify"
+                type="password"
+                autoFocus
+                value={pwGateInput}
+                onChange={(e) => setPwGateInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void submitPwGate();
+                }}
+              />
+            </div>
+            {pwGateErr && (
+              <p
+                className="text-xs text-red-400"
+                data-testid="text-pw-verify-error"
+              >
+                {pwGateErr}
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={closePwGate} disabled={pwGateBusy}>
+              Cancel
+            </Button>
+            <Button
+              data-testid="button-pw-verify-confirm"
+              onClick={() => void submitPwGate()}
+              disabled={pwGateBusy || !pwGateInput}
+            >
+              {pwGateBusy
+                ? "Verifying…"
+                : pwGate?.type === "export"
+                ? "Verify & download"
+                : "Verify & reveal"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {wallets.length === 0 ? (
         <Card className="p-6 text-center text-sm text-muted-foreground">
           No wallets yet — create or import one to get started.
@@ -950,7 +1111,7 @@ function ManageTab(props: {
                     <Button size="sm" variant="ghost" title="Copy address" onClick={() => onCopy(w.address, "Address copied")}>
                       <Copy className="h-3.5 w-3.5" />
                     </Button>
-                    <Button size="sm" variant="ghost" title="Export keystore JSON" onClick={() => handleExport(w)}>
+                    <Button size="sm" variant="ghost" title="Export keystore JSON (password required)" onClick={() => requestExport(w.address)}>
                       <Download className="h-3.5 w-3.5" />
                     </Button>
                     <Button size="sm" variant="ghost" title="Delete from this browser" onClick={() => handleDelete(w)}>
@@ -960,11 +1121,17 @@ function ManageTab(props: {
                 </div>
                 <div className="flex items-center gap-2 text-xs">
                   <button
-                    onClick={() => setShowSecret((s) => ({ ...s, [w.address]: !s[w.address] }))}
+                    onClick={() => requestReveal(w.address)}
                     className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
+                    data-testid={`button-reveal-${w.address}`}
                   >
                     {isShown ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
                     {isShown ? "Hide" : "Reveal"} private key
+                    {!isShown && (
+                      <span className="ml-1 text-[10px] text-muted-foreground/70">
+                        (password required)
+                      </span>
+                    )}
                   </button>
                   {isShown && (
                     <code className="font-mono text-[10px] text-amber-300 break-all flex-1">{w.privateKey}</code>
