@@ -208,6 +208,336 @@ fn proposal_kind_to_json(k: &crate::proposal::ProposalKind) -> Value {
     }
 }
 
+/// Phase H.1 — Decode a `StakeOp` into a JSON object whose `u128` fields
+/// (self_bond, amount, shares, etc) are stringified for precision safety.
+/// Do NOT use `serde_json::to_value(StakeOp)` — that would emit them as
+/// raw JSON numbers, silently truncating any value above 2^53.
+fn stake_op_to_json(op: &crate::staking::StakeOp) -> Value {
+    use crate::staking::StakeOp::*;
+    match op {
+        CreateValidator { pubkey, commission_bps, self_bond } => json!({
+            "op":             "create_validator",
+            "pubkey":         format!("0x{}", hex::encode(pubkey)),
+            "commission_bps": commission_bps,
+            "self_bond":      self_bond.to_string(),
+        }),
+        EditValidator { validator, new_commission_bps } => json!({
+            "op":                 "edit_validator",
+            "validator":          validator.to_hex(),
+            "new_commission_bps": new_commission_bps,
+        }),
+        Stake { validator, amount } => json!({
+            "op":        "stake",
+            "validator": validator.to_hex(),
+            "amount":    amount.to_string(),
+        }),
+        Unstake { validator, shares } => json!({
+            "op":        "unstake",
+            "validator": validator.to_hex(),
+            "shares":    shares.to_string(),
+        }),
+        Redelegate { from, to, shares } => json!({
+            "op":     "redelegate",
+            "from":   from.to_hex(),
+            "to":     to.to_hex(),
+            "shares": shares.to_string(),
+        }),
+        ClaimRewards { validator } => json!({
+            "op":        "claim_rewards",
+            "validator": validator.to_hex(),
+        }),
+    }
+}
+
+/// Phase H.1 — Decode a `MultisigOp`. The inner `MultisigAction::Transfer`
+/// carries a `u128 amount` that MUST be stringified.
+fn multisig_op_to_json(op: &crate::multisig::MultisigOp) -> Value {
+    use crate::multisig::{MultisigAction, MultisigOp::*};
+    let action_to_json = |a: &MultisigAction| -> Value {
+        match a {
+            MultisigAction::Transfer { to, amount } => json!({
+                "action": "transfer",
+                "to":     to.to_hex(),
+                "amount": amount.to_string(),
+            }),
+        }
+    };
+    match op {
+        Create { owners, threshold, salt } => json!({
+            "op":        "create",
+            "owners":    owners.iter().map(|a| a.to_hex()).collect::<Vec<_>>(),
+            "threshold": threshold,
+            "salt":      salt,
+        }),
+        Propose { multisig, action, expiry_blocks } => json!({
+            "op":             "propose",
+            "multisig":       multisig.to_hex(),
+            "action":         action_to_json(action),
+            "expiry_blocks":  expiry_blocks,
+        }),
+        Approve { multisig, proposal_id } => json!({
+            "op":          "approve",
+            "multisig":    multisig.to_hex(),
+            "proposal_id": proposal_id,
+        }),
+        Revoke { multisig, proposal_id } => json!({
+            "op":          "revoke",
+            "multisig":    multisig.to_hex(),
+            "proposal_id": proposal_id,
+        }),
+        Execute { multisig, proposal_id } => json!({
+            "op":          "execute",
+            "multisig":    multisig.to_hex(),
+            "proposal_id": proposal_id,
+        }),
+    }
+}
+
+/// Phase H.1 — Decode a `BridgeOp`. `BridgeIn::amount` is `u128` and MUST
+/// be stringified for precision safety. `RegisterNetwork::kind` and
+/// `RegisterAsset::native` are non-monetary enums (no u128 fields), safe
+/// to pass through `serde_json::to_value`.
+fn bridge_op_to_json(op: &crate::bridge::BridgeOp) -> Value {
+    use crate::bridge::BridgeOp::*;
+    match op {
+        RegisterNetwork { id, name, kind } => json!({
+            "op":   "register_network",
+            "id":   id,
+            "name": name,
+            "kind": serde_json::to_value(kind).unwrap_or(Value::Null),
+        }),
+        SetNetworkActive { id, active } => json!({
+            "op":     "set_network_active",
+            "id":     id,
+            "active": active,
+        }),
+        RegisterAsset { network_id, native, contract, decimals } => json!({
+            "op":         "register_asset",
+            "network_id": network_id,
+            "native":     serde_json::to_value(native).unwrap_or(Value::Null),
+            "contract":   contract,
+            "decimals":   decimals,
+        }),
+        SetAssetActive { asset_id, active } => json!({
+            "op":       "set_asset_active",
+            "asset_id": asset_id,
+            "active":   active,
+        }),
+        BridgeOut { asset_id, dest_address } => json!({
+            "op":           "bridge_out",
+            "asset_id":     asset_id,
+            "dest_address": dest_address,
+        }),
+        BridgeIn { source_tx_hash, asset_id, recipient, amount } => json!({
+            "op":             "bridge_in",
+            "source_tx_hash": format!("0x{}", hex::encode(source_tx_hash)),
+            "asset_id":       asset_id,
+            "recipient":      recipient.to_hex(),
+            "amount":         amount.to_string(),
+        }),
+    }
+}
+
+/// Phase H.1 — Decode a `ProposalOp`. The inner `ProposalKind::ParamChange`
+/// carries a `u128 new_value` that MUST be stringified — `proposal_kind_to_json`
+/// already handles that, so we delegate.
+fn proposal_op_to_json(op: &crate::proposal::ProposalOp) -> Value {
+    use crate::proposal::ProposalOp::*;
+    match op {
+        Submit { title, description, kind } => json!({
+            "op":          "submit",
+            "title":       title,
+            "description": description,
+            "kind":        proposal_kind_to_json(kind),
+        }),
+        Vote { proposal_id, yes } => json!({
+            "op":          "vote",
+            "proposal_id": proposal_id,
+            "yes":         yes,
+        }),
+    }
+}
+
+/// Phase H.1 — Decode a `TxKind` enum into a friendly JSON payload that
+/// surfaces the SEMANTIC fields the dashboard / explorer needs (e.g. the
+/// `zbx_amount` + `token_amount` seeds inside `TokenPoolCreate`, or the
+/// recipient + amount inside `TokenTransfer`). Without this decoding,
+/// `eth_getTransactionByHash` only ever returns `value: 0` for any
+/// non-Transfer kind because the eth-style `value` field is mapped from
+/// `tx.body.amount`, which non-Transfer variants leave unused.
+///
+/// `u128` fields are stringified to dodge the JSON 2^53 precision cliff.
+/// For token-related kinds we resolve the underlying token's symbol +
+/// decimals so the dashboard can format human-readable amounts in one
+/// round-trip (no second `zbx_tokenInfo` call needed).
+///
+/// Wrapped inner enums (`StakeOp`, `MultisigOp`, `BridgeOp`, `ProposalOp`)
+/// are decoded by their own helpers above (`stake_op_to_json`,
+/// `multisig_op_to_json`, `bridge_op_to_json`, `proposal_op_to_json`) which
+/// stringify every embedded `u128`. Adding a new variant to any of those
+/// inner enums REQUIRES extending the corresponding helper — do NOT fall
+/// back to raw `serde_json::to_value` for monetary fields.
+fn tx_kind_to_json(
+    kind: &crate::transaction::TxKind,
+    st: &Arc<crate::state::State>,
+) -> Value {
+    use crate::transaction::TxKind::*;
+    let token_decorate = |token_id: u64, mut base: serde_json::Map<String, Value>| -> Value {
+        if let Some(t) = st.get_token(token_id) {
+            base.insert("token_symbol".into(),   Value::String(t.symbol.clone()));
+            base.insert("token_name".into(),     Value::String(t.name.clone()));
+            base.insert("token_decimals".into(), json!(t.decimals));
+        } else {
+            base.insert("token_symbol".into(),   Value::Null);
+            base.insert("token_name".into(),     Value::Null);
+            base.insert("token_decimals".into(), Value::Null);
+        }
+        Value::Object(base)
+    };
+    match kind {
+        Transfer => json!({ "type": "transfer" }),
+        ValidatorAdd { pubkey, power } => json!({
+            "type": "validator_add",
+            "pubkey": format!("0x{}", hex::encode(pubkey)),
+            "power": power,
+        }),
+        ValidatorRemove { address } => json!({
+            "type": "validator_remove",
+            "address": address.to_hex(),
+        }),
+        ValidatorEdit { address, new_power } => json!({
+            "type": "validator_edit",
+            "address": address.to_hex(),
+            "new_power": new_power,
+        }),
+        GovernorChange { new_governor } => json!({
+            "type": "governor_change",
+            "new_governor": new_governor.to_hex(),
+        }),
+        Staking(op) => json!({
+            "type": "staking",
+            "op":   stake_op_to_json(op),
+        }),
+        RegisterPayId { pay_id, name } => json!({
+            "type":  "register_pay_id",
+            "pay_id": pay_id,
+            "name":   name,
+        }),
+        Multisig(op) => json!({
+            "type": "multisig",
+            "op":   multisig_op_to_json(op),
+        }),
+        Swap { direction, min_out } => json!({
+            "type":          "swap",
+            "direction":     direction.label(),
+            "input_symbol":  direction.input_symbol(),
+            "output_symbol": direction.output_symbol(),
+            "min_out":       min_out.to_string(),
+        }),
+        Bridge(op) => json!({
+            "type": "bridge",
+            "op":   bridge_op_to_json(op),
+        }),
+        Proposal(op) => json!({
+            "type": "proposal",
+            "op":   proposal_op_to_json(op),
+        }),
+        TokenCreate { name, symbol, decimals, initial_supply } => json!({
+            "type":           "token_create",
+            "name":           name,
+            "symbol":         symbol,
+            "decimals":       decimals,
+            "initial_supply": initial_supply.to_string(),
+        }),
+        TokenTransfer { token_id, to, amount } => {
+            let mut m = serde_json::Map::new();
+            m.insert("type".into(),     Value::String("token_transfer".into()));
+            m.insert("token_id".into(), json!(token_id));
+            m.insert("to".into(),       Value::String(to.to_hex()));
+            m.insert("amount".into(),   Value::String(amount.to_string()));
+            token_decorate(*token_id, m)
+        }
+        TokenMint { token_id, to, amount } => {
+            let mut m = serde_json::Map::new();
+            m.insert("type".into(),     Value::String("token_mint".into()));
+            m.insert("token_id".into(), json!(token_id));
+            m.insert("to".into(),       Value::String(to.to_hex()));
+            m.insert("amount".into(),   Value::String(amount.to_string()));
+            token_decorate(*token_id, m)
+        }
+        TokenBurn { token_id, amount } => {
+            let mut m = serde_json::Map::new();
+            m.insert("type".into(),     Value::String("token_burn".into()));
+            m.insert("token_id".into(), json!(token_id));
+            m.insert("amount".into(),   Value::String(amount.to_string()));
+            token_decorate(*token_id, m)
+        }
+        TokenPoolCreate { token_id, zbx_amount, token_amount } => {
+            let mut m = serde_json::Map::new();
+            m.insert("type".into(),         Value::String("token_pool_create".into()));
+            m.insert("token_id".into(),     json!(token_id));
+            m.insert("zbx_amount".into(),   Value::String(zbx_amount.to_string()));
+            m.insert("token_amount".into(), Value::String(token_amount.to_string()));
+            m.insert("pool_address".into(), Value::String(
+                crate::token_pool::pool_address(*token_id).to_hex()
+            ));
+            token_decorate(*token_id, m)
+        }
+        TokenPoolAddLiquidity { token_id, zbx_amount, max_token_amount, min_lp_out } => {
+            let mut m = serde_json::Map::new();
+            m.insert("type".into(),             Value::String("token_pool_add_liquidity".into()));
+            m.insert("token_id".into(),         json!(token_id));
+            m.insert("zbx_amount".into(),       Value::String(zbx_amount.to_string()));
+            m.insert("max_token_amount".into(), Value::String(max_token_amount.to_string()));
+            m.insert("min_lp_out".into(),       Value::String(min_lp_out.to_string()));
+            m.insert("pool_address".into(),     Value::String(
+                crate::token_pool::pool_address(*token_id).to_hex()
+            ));
+            token_decorate(*token_id, m)
+        }
+        TokenPoolRemoveLiquidity { token_id, lp_burn, min_zbx_out, min_token_out } => {
+            let mut m = serde_json::Map::new();
+            m.insert("type".into(),          Value::String("token_pool_remove_liquidity".into()));
+            m.insert("token_id".into(),      json!(token_id));
+            m.insert("lp_burn".into(),       Value::String(lp_burn.to_string()));
+            m.insert("min_zbx_out".into(),   Value::String(min_zbx_out.to_string()));
+            m.insert("min_token_out".into(), Value::String(min_token_out.to_string()));
+            m.insert("pool_address".into(),  Value::String(
+                crate::token_pool::pool_address(*token_id).to_hex()
+            ));
+            token_decorate(*token_id, m)
+        }
+        TokenPoolSwap { token_id, direction, amount_in, min_out } => {
+            let dir_label = match direction {
+                crate::token_pool::TokenSwapDirection::ZbxToToken => "zbx_to_token",
+                crate::token_pool::TokenSwapDirection::TokenToZbx => "token_to_zbx",
+            };
+            let mut m = serde_json::Map::new();
+            m.insert("type".into(),         Value::String("token_pool_swap".into()));
+            m.insert("token_id".into(),     json!(token_id));
+            m.insert("direction".into(),    Value::String(dir_label.into()));
+            m.insert("amount_in".into(),    Value::String(amount_in.to_string()));
+            m.insert("min_out".into(),      Value::String(min_out.to_string()));
+            m.insert("pool_address".into(), Value::String(
+                crate::token_pool::pool_address(*token_id).to_hex()
+            ));
+            token_decorate(*token_id, m)
+        }
+        TokenSetMetadata { token_id, logo_url, website, description, twitter, telegram, discord } => {
+            let mut m = serde_json::Map::new();
+            m.insert("type".into(),        Value::String("token_set_metadata".into()));
+            m.insert("token_id".into(),    json!(token_id));
+            m.insert("logo_url".into(),    Value::String(logo_url.clone()));
+            m.insert("website".into(),     Value::String(website.clone()));
+            m.insert("description".into(), Value::String(description.clone()));
+            m.insert("twitter".into(),     Value::String(twitter.clone()));
+            m.insert("telegram".into(),    Value::String(telegram.clone()));
+            m.insert("discord".into(),     Value::String(discord.clone()));
+            token_decorate(*token_id, m)
+        }
+    }
+}
+
 async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<RpcResp> {
     let _ = req.jsonrpc;
     let id = req.id.clone();
@@ -422,6 +752,69 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 "max_cap":       crate::state::RECENT_TX_CAP,
                 "txs":           txs,
             }))
+        }
+        "zbx_getTxByHash" => {
+            // Phase H.1 — Resolve a 32-byte tx hash to its FULL typed payload
+            // by:
+            //   1. Looking up the containing block height in the recent-tx
+            //      ring buffer (`State::find_tx_by_hash`).
+            //   2. Re-fetching the SignedTx from block storage and decoding
+            //      the `TxKind` enum into a friendly JSON object via
+            //      `tx_kind_to_json`.
+            //
+            // This is the structured, native counterpart to the eth-style
+            // `eth_getTransactionByHash` (which only ever sees `body.amount`
+            // and so reports `value: 0` for any non-Transfer kind, hiding
+            // the actual semantic amounts inside `TokenPoolCreate`,
+            // `TokenPoolSwap`, `TokenTransfer`, etc).
+            //
+            // Coverage horizon: limited to the recent-tx ring window
+            // (`RECENT_TX_CAP`, currently 1000 most recent committed txs).
+            // Returns `null` for hashes that have aged out — the dashboard
+            // should fall back to eth-style fields (or scan the block
+            // directly via `zbx_getBlockByNumber`) for older history.
+            let hash_str = match req.params.get(0).and_then(|v| v.as_str()) {
+                Some(s) => s,
+                None => return Json(err(id, -32602, "missing tx hash param (string)")),
+            };
+            let stripped = hash_str.strip_prefix("0x").unwrap_or(hash_str);
+            let bytes = match hex::decode(stripped) {
+                Ok(b) => b,
+                Err(e) => return Json(err(id, -32602, format!("invalid hex: {}", e))),
+            };
+            if bytes.len() != 32 {
+                return Json(err(id, -32602, format!(
+                    "tx hash must be 32 bytes, got {}", bytes.len()
+                )));
+            }
+            let mut h = [0u8; 32];
+            h.copy_from_slice(&bytes);
+            match ctx.state.find_signed_tx_by_hash(&h) {
+                None => ok(id, Value::Null),
+                Some((height, tx)) => {
+                    let payload = tx_kind_to_json(&tx.body.kind, &ctx.state);
+                    ok(id, json!({
+                        "hash":       format!("0x{}", hex::encode(h)),
+                        "height":     height,
+                        "from":       tx.body.from.to_hex(),
+                        "to":         tx.body.to.to_hex(),
+                        // `body.amount` — the LEGACY ZBX-transfer amount
+                        // field. Only meaningful for `Transfer` (and a few
+                        // specific kinds documented inline on `TxKind`).
+                        // Stringified to dodge the JSON 2^53 cliff.
+                        "amount":     tx.body.amount.to_string(),
+                        "fee":        tx.body.fee.to_string(),
+                        "nonce":      tx.body.nonce,
+                        "chain_id":   tx.body.chain_id,
+                        "kind":       tx.body.kind.variant_name(),
+                        "kind_index": tx.body.kind.tag_index(),
+                        // The structured, kind-specific payload — this is
+                        // where dashboards should look for the actual
+                        // semantic amounts / addresses / parameters.
+                        "payload":    payload,
+                    }))
+                }
+            }
         }
         "zbx_getBlockByNumber" => {
             let height = req.params.get(0).and_then(|v| v.as_u64()).unwrap_or(0);

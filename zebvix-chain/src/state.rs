@@ -2472,6 +2472,41 @@ impl State {
         None
     }
 
+    /// Phase H.1 — Resolve a 32-byte tx hash to its **full `SignedTx`** by
+    /// first locating the containing block via the recent-tx index, then
+    /// rescanning the block's `txs` for the matching hash.
+    ///
+    /// Why this exists: the recent-tx ring buffer (`RecentTxRecord`) stores
+    /// only flat metadata (from/to/amount/fee/nonce/kind_index) — it does
+    /// NOT preserve the typed `TxKind` payload (e.g. `TokenPoolCreate`'s
+    /// `zbx_amount` and `token_amount` seed values). The eth-style
+    /// `eth_getTransactionByHash` therefore reports `value: 0` for every
+    /// non-Transfer kind, which is misleading on the explorer. This helper
+    /// gives RPC callers (`zbx_getTxByHash`) the actual decoded payload so
+    /// the dashboard can show "TokenPoolCreate seeded 10 ZBX + 10000 HDT"
+    /// instead of just "Value: 0 ZBX".
+    ///
+    /// Returns `(height, signed_tx)` on success, or `None` if:
+    ///   * the hash is not in the recent-tx ring buffer (older than ~1000 txs)
+    ///   * the block at that height is missing (pruned / not yet indexed)
+    ///   * no tx in that block hashes to the requested value (corruption —
+    ///     should never happen; would indicate index/block divergence)
+    ///
+    /// Read-only, no consensus impact.
+    pub fn find_signed_tx_by_hash(
+        &self,
+        hash: &[u8; 32],
+    ) -> Option<(u64, SignedTx)> {
+        let rec = self.find_tx_by_hash(hash)?;
+        let block = self.block_at(rec.height)?;
+        for tx in block.txs.into_iter() {
+            if tx_hash(&tx).0 == *hash {
+                return Some((rec.height, tx));
+            }
+        }
+        None
+    }
+
     /// Phase C.2.1 — height → block hash, used by ZVM RPC handlers when they
     /// need to populate `blockHash` in `eth_getTransactionByHash` /
     /// `eth_getTransactionReceipt` JSON responses. Returns `None` if the

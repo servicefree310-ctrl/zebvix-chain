@@ -29,11 +29,13 @@ import {
   getEthBlock,
   getEthTx,
   getEthReceipt,
+  getZbxTypedTx,
   getRecentBlocks,
   type EthBlock,
   type EthTxLite,
   type EthReceipt,
   type ZbxTipInfo,
+  type ZbxTypedTx,
 } from "@/lib/zbx-rpc";
 
 function fmtAge(secs: number): string {
@@ -409,19 +411,234 @@ function BlockDetail({ blockNum, blockHash }: { blockNum?: number; blockHash?: s
 }
 
 // ───── Tx detail ─────────────────────────────────────────────────────────────
+//
+// Phase H.1 — In addition to the eth-style fields (`getEthTx` /
+// `getEthReceipt`), we now also pull the typed Zebvix payload via
+// `getZbxTypedTx`. This is what lets the explorer surface SEMANTIC amounts
+// for non-Transfer kinds (e.g. `TokenPoolCreate` seed amounts of
+// 10 ZBX + 10 000 HDT) instead of misleading users with `Value: 0 ZBX`
+// which is what the legacy eth-style mapping produces for any kind whose
+// real amounts live inside the `TxKind` enum rather than `body.amount`.
+//
+// `typedTx` is `undefined` while loading, `null` when the hash is outside
+// the recent-tx ring window (~1000 most recent committed txs) or the node
+// doesn't support `zbx_getTxByHash`. Either way the eth-style block above
+// still renders, so we degrade gracefully.
+
+/** Format a u128 wei string with the given decimals into a human-readable
+ *  decimal string. Trims trailing zeros; falls back to the raw string on
+ *  parse failure so we never silently hide data. */
+function fmtUnits(wei: string, decimals: number): string {
+  if (!/^\d+$/.test(wei)) return wei;
+  if (decimals <= 0) return wei;
+  const padded = wei.padStart(decimals + 1, "0");
+  const intPart = padded.slice(0, padded.length - decimals);
+  let fracPart = padded.slice(padded.length - decimals);
+  fracPart = fracPart.replace(/0+$/, "");
+  return fracPart.length > 0 ? `${intPart}.${fracPart}` : intPart;
+}
+
+/** Convert `variant_name()` style lowercase snake_case (e.g. "token_pool_create")
+ *  into Title-Cased label for badges + section headers (e.g. "Token Pool Create").
+ *  Display-only — never use for comparisons against the wire kind string. */
+function prettyKind(snake: string): string {
+  return snake.split("_").map((w) => (w.length === 0 ? w : w[0].toUpperCase() + w.slice(1))).join(" ");
+}
+
+/** Per-kind renderer for the typed payload returned by `zbx_getTxByHash`.
+ *  Falls back to a JSON dump for any unrecognized variant so we never hide
+ *  data on this critical "what actually happened?" surface. */
+function TypedPayloadView({ typedTx }: { typedTx: ZbxTypedTx }) {
+  const p = typedTx.payload as Record<string, unknown>;
+  const ptype = String(p.type ?? "");
+
+  // Token-related kinds carry resolved symbol/decimals from the server so
+  // we can format human-readable amounts without a second roundtrip.
+  const tokSym = (p.token_symbol as string | null | undefined) ?? null;
+  const tokDec = typeof p.token_decimals === "number" ? (p.token_decimals as number) : null;
+  const fmtTok = (raw: unknown): string => {
+    const s = String(raw ?? "0");
+    if (tokDec === null) return s;
+    return `${fmtUnits(s, tokDec)} ${tokSym ?? `tok#${p.token_id}`}`;
+  };
+  const fmtZbx = (raw: unknown): string => {
+    const s = String(raw ?? "0");
+    return `${fmtUnits(s, 18)} ZBX`;
+  };
+
+  switch (ptype) {
+    case "transfer":
+      return null; // Same as eth-style "Value" above; nothing extra to add.
+
+    case "token_transfer":
+      return (
+        <>
+          <DetailRow label="Token" value={`${tokSym ?? `#${p.token_id}`} (id ${p.token_id})`} />
+          <DetailRow label="Recipient" value={String(p.to)} mono linkAddr highlight />
+          <DetailRow label="Amount" value={fmtTok(p.amount)} highlight />
+        </>
+      );
+    case "token_mint":
+      return (
+        <>
+          <DetailRow label="Token" value={`${tokSym ?? `#${p.token_id}`} (id ${p.token_id})`} />
+          <DetailRow label="Mint to" value={String(p.to)} mono linkAddr />
+          <DetailRow label="Amount minted" value={fmtTok(p.amount)} highlight />
+        </>
+      );
+    case "token_burn":
+      return (
+        <>
+          <DetailRow label="Token" value={`${tokSym ?? `#${p.token_id}`} (id ${p.token_id})`} />
+          <DetailRow label="Amount burned" value={fmtTok(p.amount)} highlight />
+        </>
+      );
+    case "token_create":
+      return (
+        <>
+          <DetailRow label="Name" value={String(p.name)} />
+          <DetailRow label="Symbol" value={String(p.symbol)} highlight />
+          <DetailRow label="Decimals" value={String(p.decimals)} />
+          <DetailRow
+            label="Initial supply"
+            value={fmtUnits(String(p.initial_supply), Number(p.decimals) || 0) + " " + String(p.symbol)}
+            highlight
+          />
+        </>
+      );
+    case "token_pool_create":
+      return (
+        <>
+          <DetailRow label="Token" value={`${tokSym ?? `#${p.token_id}`} (id ${p.token_id})`} />
+          {p.pool_address && (
+            <DetailRow label="Pool address" value={String(p.pool_address)} mono linkAddr />
+          )}
+          <DetailRow label="ZBX seeded" value={fmtZbx(p.zbx_amount)} highlight />
+          <DetailRow label={`${tokSym ?? "Token"} seeded`} value={fmtTok(p.token_amount)} highlight />
+        </>
+      );
+    case "token_pool_add_liquidity":
+      return (
+        <>
+          <DetailRow label="Token" value={`${tokSym ?? `#${p.token_id}`} (id ${p.token_id})`} />
+          {p.pool_address && (
+            <DetailRow label="Pool address" value={String(p.pool_address)} mono linkAddr />
+          )}
+          <DetailRow label="ZBX added" value={fmtZbx(p.zbx_amount)} highlight />
+          <DetailRow label={`Max ${tokSym ?? "token"} added`} value={fmtTok(p.max_token_amount)} />
+          <DetailRow label="Min LP out" value={String(p.min_lp_out)} />
+        </>
+      );
+    case "token_pool_remove_liquidity":
+      return (
+        <>
+          <DetailRow label="Token" value={`${tokSym ?? `#${p.token_id}`} (id ${p.token_id})`} />
+          {p.pool_address && (
+            <DetailRow label="Pool address" value={String(p.pool_address)} mono linkAddr />
+          )}
+          <DetailRow label="LP burned" value={String(p.lp_burn)} highlight />
+          <DetailRow label="Min ZBX out" value={fmtZbx(p.min_zbx_out)} />
+          <DetailRow label={`Min ${tokSym ?? "token"} out`} value={fmtTok(p.min_token_out)} />
+        </>
+      );
+    case "token_pool_swap": {
+      const dir = String(p.direction);
+      const isZbxIn = dir === "zbx_to_token";
+      return (
+        <>
+          <DetailRow label="Token" value={`${tokSym ?? `#${p.token_id}`} (id ${p.token_id})`} />
+          {p.pool_address && (
+            <DetailRow label="Pool address" value={String(p.pool_address)} mono linkAddr />
+          )}
+          <DetailRow label="Direction" value={isZbxIn ? `ZBX → ${tokSym ?? "token"}` : `${tokSym ?? "token"} → ZBX`} highlight />
+          <DetailRow label="Amount in" value={isZbxIn ? fmtZbx(p.amount_in) : fmtTok(p.amount_in)} highlight />
+          <DetailRow label="Min out" value={isZbxIn ? fmtTok(p.min_out) : fmtZbx(p.min_out)} />
+        </>
+      );
+    }
+    case "swap": {
+      // Native ZBX↔HDT pool (legacy single pool). Direction labels come
+      // straight from the chain.
+      return (
+        <>
+          <DetailRow label="Direction" value={String(p.direction)} highlight />
+          <DetailRow label="Min out" value={fmtUnits(String(p.min_out), 18) + " " + (String(p.output_symbol) || "")} />
+        </>
+      );
+    }
+    case "token_set_metadata":
+      return (
+        <>
+          <DetailRow label="Token" value={`${tokSym ?? `#${p.token_id}`} (id ${p.token_id})`} />
+          {p.logo_url     && <DetailRow label="Logo URL"    value={String(p.logo_url)} />}
+          {p.website      && <DetailRow label="Website"     value={String(p.website)} />}
+          {p.description  && <DetailRow label="Description" value={String(p.description)} />}
+          {p.twitter      && <DetailRow label="Twitter"     value={String(p.twitter)} />}
+          {p.telegram     && <DetailRow label="Telegram"    value={String(p.telegram)} />}
+          {p.discord      && <DetailRow label="Discord"     value={String(p.discord)} />}
+        </>
+      );
+    case "validator_add":
+      return (
+        <>
+          <DetailRow label="Validator pubkey" value={String(p.pubkey)} mono />
+          <DetailRow label="Voting power" value={String(p.power)} highlight />
+        </>
+      );
+    case "validator_remove":
+      return <DetailRow label="Validator address" value={String(p.address)} mono linkAddr highlight />;
+    case "validator_edit":
+      return (
+        <>
+          <DetailRow label="Validator address" value={String(p.address)} mono linkAddr />
+          <DetailRow label="New voting power" value={String(p.new_power)} highlight />
+        </>
+      );
+    case "governor_change":
+      return <DetailRow label="New governor" value={String(p.new_governor)} mono linkAddr highlight />;
+    case "register_pay_id":
+      return (
+        <>
+          <DetailRow label="PayID" value={String(p.pay_id)} highlight />
+          <DetailRow label="Display name" value={String(p.name)} />
+        </>
+      );
+
+    default:
+      // Fallback for kinds we haven't bespoke-rendered yet (rare wrapper
+      // sub-variants whose inner shape varies a lot). Show the raw decoded
+      // payload so users still see real data — never hide it.
+      return (
+        <div className="space-y-1 pt-2 border-t border-border/50">
+          <div className="text-xs uppercase tracking-wider text-muted-foreground">
+            Decoded payload ({prettyKind(typedTx.kind)})
+          </div>
+          <pre className="text-[10px] font-mono p-2 rounded bg-muted/40 overflow-auto max-h-64">
+            {JSON.stringify(p, null, 2)}
+          </pre>
+        </div>
+      );
+  }
+}
+
 function TxDetail({ hash }: { hash: string }) {
   const { toast } = useToast();
   const [tx, setTx] = useState<EthTxLite | null | undefined>(undefined);
   const [receipt, setReceipt] = useState<EthReceipt | null | undefined>(undefined);
+  const [typedTx, setTypedTx] = useState<ZbxTypedTx | null | undefined>(undefined);
   const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      setTx(undefined); setReceipt(undefined);
-      const [t, r] = await Promise.all([getEthTx(hash), getEthReceipt(hash)]);
+      setTx(undefined); setReceipt(undefined); setTypedTx(undefined);
+      const [t, r, zt] = await Promise.all([
+        getEthTx(hash),
+        getEthReceipt(hash),
+        getZbxTypedTx(hash),
+      ]);
       if (cancelled) return;
-      setTx(t); setReceipt(r);
+      setTx(t); setReceipt(r); setTypedTx(zt);
     })();
     return () => { cancelled = true; };
   }, [hash, refreshTick]);
@@ -435,6 +652,19 @@ function TxDetail({ hash }: { hash: string }) {
   const reverted = status === "0x0";
   const pending = receipt === null && tx;
 
+  // Phase H.1 — when typedTx is available, the eth-style "Value" row is
+  // misleading for any non-Transfer kind (it always reads 0 ZBX because
+  // the real amounts live inside the TxKind enum). Hide that row in that
+  // case and let `TypedPayloadView` show the semantic amounts instead.
+  //
+  // NOTE: `variant_name()` on the chain side returns lowercase snake_case
+  // (e.g. "transfer", "token_pool_create") — NOT PascalCase. We compare
+  // against the lowercase form here. If `typedTx` is unavailable (older
+  // than the recent-tx ring window, or the node doesn't support
+  // `zbx_getTxByHash`) we fall back to the eth-style row so callers
+  // always see *something* in the value slot.
+  const isTransferKind = typedTx?.kind === "transfer" || !typedTx;
+
   return (
     <div className="space-y-4">
       <BackLink />
@@ -445,6 +675,11 @@ function TxDetail({ hash }: { hash: string }) {
             <div className="font-mono text-sm break-all">{tx.hash}</div>
           </div>
           <div className="flex items-center gap-2">
+            {typedTx && (
+              <Badge variant="outline" className="border-sky-500/40 text-sky-300">
+                {prettyKind(typedTx.kind)}
+              </Badge>
+            )}
             {ok && <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/40"><CheckCircle2 className="h-3 w-3 mr-1" /> Success</Badge>}
             {reverted && <Badge className="bg-red-500/20 text-red-300 border-red-500/40"><XCircle className="h-3 w-3 mr-1" /> Reverted</Badge>}
             {pending && <Badge variant="outline" className="text-amber-300 border-amber-500/40">Pending</Badge>}
@@ -456,12 +691,27 @@ function TxDetail({ hash }: { hash: string }) {
         <DetailRow label="Block" value={block !== null ? `#${block.toLocaleString()}` : "pending"} link={block !== null ? `/block-explorer?q=${block}` : undefined} />
         <DetailRow label="From" value={tx.from} mono linkAddr onCopy={(v) => { navigator.clipboard.writeText(v); toast({ title: "Copied" }); }} />
         <DetailRow label="To" value={tx.to ?? "(contract creation)"} mono linkAddr={!!tx.to} />
-        <DetailRow label="Value" value={`${weiHexToZbx(tx.value)} ZBX`} highlight />
+        {isTransferKind && (
+          <DetailRow label="Value" value={`${weiHexToZbx(tx.value)} ZBX`} highlight />
+        )}
         <DetailRow label="Nonce" value={String(hexToInt(tx.nonce))} />
         <DetailRow label="Gas (limit)" value={hexToInt(tx.gas).toLocaleString()} />
         {tx.gasPrice && <DetailRow label="Gas price" value={`${hexToInt(tx.gasPrice).toLocaleString()} wei`} />}
         {receipt && <DetailRow label="Gas used" value={hexToInt(receipt.gasUsed).toLocaleString()} />}
         {receipt?.contractAddress && <DetailRow label="Contract created" value={receipt.contractAddress} mono linkAddr />}
+
+        {/* Phase H.1 — typed payload renderer (when zbx_getTxByHash returns
+            a hit). For Transfer kind this is a no-op; for everything else
+            it's where the actual semantic amounts live. */}
+        {typedTx && !isTransferKind && (
+          <div className="space-y-2 pt-2 border-t border-border/50">
+            <div className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+              <Activity className="h-3 w-3" /> {prettyKind(typedTx.kind)} payload
+            </div>
+            <TypedPayloadView typedTx={typedTx} />
+          </div>
+        )}
+
         {tx.input && tx.input !== "0x" && (
           <div className="space-y-1 pt-2 border-t border-border/50">
             <div className="text-xs uppercase tracking-wider text-muted-foreground">Input data</div>

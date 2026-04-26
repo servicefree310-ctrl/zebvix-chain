@@ -77,6 +77,12 @@ const ALLOWED_METHODS = new Set<string>([
   // ── Phase H — Pool address derivation (read-only) ─────────────────
   "zbx_getTokenPoolByAddress",
   "zbx_isPoolAddress",
+  // ── Phase H.1 — Typed tx-by-hash w/ TxKind payload decoding ────────
+  // Surfaces the SEMANTIC fields (e.g. TokenPoolCreate seed amounts,
+  // TokenTransfer recipient, TokenPoolSwap direction+amount_in) that the
+  // legacy `eth_getTransactionByHash` mapping flattens to `value: 0`.
+  // Read-only, scoped to the recent-tx ring window (~1000 txs).
+  "zbx_getTxByHash",
   // ── Phase D — On-chain governance (read-only) ──────────────────────
   "zbx_proposalsList",
   "zbx_proposalGet",

@@ -319,6 +319,53 @@ export async function getEthReceipt(hash: string): Promise<EthReceipt | null> {
 }
 
 /**
+ * Phase H.1 — typed-tx payload returned by `zbx_getTxByHash`. Mirrors the
+ * shape produced by `tx_kind_to_json` in `zebvix-chain/src/rpc.rs`.
+ *
+ * The `payload` object is kind-specific. Every variant carries a `type`
+ * discriminant string (e.g. "transfer", "token_pool_create", "token_transfer")
+ * matching the canonical lower-snake-case variant name. Token-related kinds
+ * additionally carry `token_symbol`, `token_name` and `token_decimals`
+ * resolved server-side so the dashboard can format human-readable amounts
+ * without a second RPC roundtrip.
+ *
+ * `amount` / `fee` are stringified u128 wei values (precision-safe).
+ *
+ * Returns null when the hash is outside the recent-tx ring window
+ * (~1000 most recent committed txs) — fall back to `getEthTx` for older
+ * history.
+ */
+export interface ZbxTypedTx {
+  hash:       string;
+  height:     number;
+  from:       string;
+  to:         string;
+  amount:     string;     // u128 as decimal string (legacy `body.amount`, often 0 for non-Transfer)
+  fee:        string;     // u128 as decimal string
+  nonce:      number;
+  chain_id:   number;
+  // Canonical wire-format variant name from `TxKind::variant_name()` —
+  // ALWAYS lowercase snake_case (e.g. "transfer", "token_pool_create").
+  // NEVER PascalCase. Compare against the lowercase form only; for display
+  // labels run it through a Title-Case helper. A wrong-case comparison
+  // here would silently misclassify Transfer txs and is what triggered
+  // the H.1 round-1 review failure.
+  kind:       string;
+  kind_index: number;     // numeric tag (0..=19)
+  // Kind-specific decoded payload. Always carries a `type` string and any
+  // semantic fields (amounts as decimal strings, addresses as 0x-hex).
+  payload:    Record<string, unknown>;
+}
+
+export async function getZbxTypedTx(hash: string): Promise<ZbxTypedTx | null> {
+  try {
+    return (await rpc<ZbxTypedTx | null>("zbx_getTxByHash", [hash])) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Poll `eth_getTransactionReceipt(hash)` until a receipt arrives or until we
  * hit `timeoutMs`. Calls `onTick` on every poll with the latest snapshot so
  * UIs can render intermediate state ("waiting for inclusion…"). Resolves with
