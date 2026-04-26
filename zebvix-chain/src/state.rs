@@ -555,6 +555,10 @@ impl State {
     const BR_META_LOCKED_ZBX: &'static [u8]  = b"b/m/lz";
     const BR_META_LOCKED_ZUSD: &'static [u8] = b"b/m/lu";
     const BR_META_CLAIMS_USED: &'static [u8] = b"b/m/cu";
+    /// SECURITY (H6) — global bridge pause flag (1 byte: 0=open, 1=paused).
+    /// Absent key = open (default). Toggled only via `BridgeOp::SetBridgePaused`
+    /// which is admin-gated in apply_tx.
+    const BR_META_PAUSED: &'static [u8]   = b"b/m/paused";
 
     pub fn bridge_get_network(&self, id: u32) -> Option<crate::bridge::BridgeNetwork> {
         let cf = self.db.cf_handle(CF_META).unwrap();
@@ -660,6 +664,28 @@ impl State {
             crate::bridge::NativeAsset::Zusd => Self::BR_META_LOCKED_ZUSD,
         };
         self.db.put_cf(cf, key, val.to_be_bytes())?;
+        Ok(())
+    }
+
+    /// SECURITY (H6) — read the global bridge pause flag. Returns `false`
+    /// (open) when the key is absent, so existing chain state continues
+    /// to operate normally until an admin explicitly pauses.
+    pub fn bridge_paused(&self) -> bool {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db
+            .get_cf(cf, Self::BR_META_PAUSED)
+            .ok()
+            .flatten()
+            .map(|b| !b.is_empty() && b[0] != 0)
+            .unwrap_or(false)
+    }
+
+    /// Internal: set the pause flag. Caller MUST have already verified
+    /// that the requesting address is the chain admin (see apply_tx
+    /// `BridgeOp::SetBridgePaused` arm).
+    fn bridge_set_paused(&self, paused: bool) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.put_cf(cf, Self::BR_META_PAUSED, [u8::from(paused)])?;
         Ok(())
     }
 
@@ -1493,6 +1519,11 @@ impl State {
                         return Ok(());
                     }
                     BridgeOp::BridgeOut { asset_id, dest_address } => {
+                        // SECURITY (H6) — global pause kill-switch.
+                        if self.bridge_paused() {
+                            return refund(&mut from,
+                                "bridge-out: bridge is currently paused by admin (H6 kill-switch)".into());
+                        }
                         // User op — locks `tx.body.amount` of the asset's native token.
                         let asset = match self.bridge_get_asset(*asset_id) {
                             Some(a) if a.active => a,
@@ -1571,6 +1602,13 @@ impl State {
                             return refund(&mut from, format!(
                                 "bridge-in: only admin {} may submit", admin));
                         }
+                        // SECURITY (H6) — global pause kill-switch (still admin-only,
+                        // but pausing also blocks BridgeIn so a compromised oracle key
+                        // cannot continue minting once the operator flips the flag).
+                        if self.bridge_paused() {
+                            return refund(&mut from,
+                                "bridge-in: bridge is currently paused by admin (H6 kill-switch)".into());
+                        }
                         let asset = match self.bridge_get_asset(*asset_id) {
                             Some(a) if a.active => a,
                             Some(_) => return refund(&mut from, format!(
@@ -1629,6 +1667,27 @@ impl State {
                             "🌉 bridge-in: asset={} {} {} → {} (src 0x{}…)",
                             asset.asset_id, amount, asset.native.symbol(), recipient,
                             &hex::encode(source_tx_hash)[..16]
+                        );
+                        return Ok(());
+                    }
+                    BridgeOp::SetBridgePaused { paused } => {
+                        // SECURITY (H6) — admin-only kill-switch toggle.
+                        // Until the M-of-N bridge federation lands (C3 in
+                        // HARDENING_TODO.md), this single flag is how the
+                        // chain operator stops a compromised oracle key.
+                        if tx.body.from != admin {
+                            return refund(&mut from, format!(
+                                "bridge-set-paused: only admin {} may submit", admin
+                            ));
+                        }
+                        let was = self.bridge_paused();
+                        self.bridge_set_paused(*paused)?;
+                        // Refund body.amount — this is a meta op, no value moves.
+                        from.balance = from.balance.saturating_add(tx.body.amount);
+                        self.put_account(&tx.body.from, &from)?;
+                        tracing::warn!(
+                            "🌉🛑 bridge-set-paused: was={} now={} by admin={}",
+                            was, paused, tx.body.from
                         );
                         return Ok(());
                     }
@@ -2897,16 +2956,34 @@ impl State {
             tracing::warn!("proposal tick failed (non-fatal): {e}");
         }
 
+        // SECURITY (H4) — atomic finalize commit.
+        //
+        // Previously these 4 writes (block bytes, META_HEIGHT, META_LAST_HASH,
+        // clear-marker) were 4 independent `put_cf`/`delete_cf` calls. A crash
+        // between any two of them could leave the DB pointing at a height
+        // whose hash had not yet been written, or a stale marker that would
+        // refuse boot. We now wrap them in a single `WriteBatch` so the
+        // finalize step is all-or-nothing.
+        //
+        // NOTE: the per-tx `put_account` writes inside `apply_tx` are still
+        // unbatched — that is a multi-day refactor (HARDENING_TODO H4 follow-
+        // up). The crash-safety marker (set before apply, cleared in this
+        // batch) protects against half-applied blocks at startup. This change
+        // closes only the FINALIZE window, but that is the most dangerous
+        // window because it is the one that publishes "this height is done".
         let cf_b = self.db.cf_handle(CF_BLOCKS).unwrap();
         let cf_m = self.db.cf_handle(CF_META).unwrap();
         let key = block.header.height.to_be_bytes();
-        self.db.put_cf(cf_b, key, bincode::serialize(block)?)?;
         let bh = block_hash(&block.header);
-        self.db.put_cf(cf_m, META_HEIGHT, key)?;
-        self.db.put_cf(cf_m, META_LAST_HASH, bh.0)?;
+        let mut wb = rocksdb::WriteBatch::default();
+        wb.put_cf(cf_b, key, bincode::serialize(block)?);
+        wb.put_cf(cf_m, META_HEIGHT, key);
+        wb.put_cf(cf_m, META_LAST_HASH, bh.0);
+        // Clear crash-safety marker in the same batch — block fully committed.
+        wb.delete_cf(cf_m, META_BLOCK_APPLYING);
+        self.db.write(wb)?;
+        // Tip is in-memory only — safe to update after the durable batch.
         *self.tip.write() = (block.header.height, bh);
-        // SECURITY: clear crash-safety marker — block fully committed.
-        self.clear_block_applying_marker()?;
         Ok(())
     }
 
@@ -4658,7 +4735,7 @@ mod state_root_tests {
             timestamp_ms: 1_700_000_000_000,
             proposer,
         };
-        let sig = sign_bytes(signing_secret, &header_signing_bytes(&header));
+        let sig = sign_bytes(signing_secret, &header_signing_bytes(&header)).unwrap();
         Block { header, txs: Vec::new(), signature: sig }
     }
 
@@ -4725,7 +4802,7 @@ mod state_root_tests {
             chain_id: 7878,
             kind: TxKind::Transfer,
         };
-        let tx = crate::crypto::sign_tx(&sk, body);
+        let tx = crate::crypto::sign_tx(&sk, body).unwrap();
         let mp = Mempool::new(st, 64);
         let err = mp.add(tx).expect_err("zero-balance sender must be rejected");
         let msg = format!("{err}");
@@ -4754,7 +4831,7 @@ mod state_root_tests {
             chain_id: 7878,
             kind: TxKind::Transfer,
         };
-        let tx = crate::crypto::sign_tx(&sk, body);
+        let tx = crate::crypto::sign_tx(&sk, body).unwrap();
         let mp = Mempool::new(st, 64);
         let err = mp.add(tx).expect_err("nonce far in future must be rejected");
         let msg = format!("{err}");
@@ -4789,7 +4866,7 @@ mod state_root_tests {
                 initial_supply: 1_000_000,
             },
         };
-        let create_tx = crate::crypto::sign_tx(&sk_a, create_body);
+        let create_tx = crate::crypto::sign_tx(&sk_a, create_body).unwrap();
         st.apply_tx(&create_tx).expect("token create must succeed");
 
         // Token #1 should now exist and alice should hold full supply.
@@ -4815,7 +4892,7 @@ mod state_root_tests {
                 amount: 250_000,
             },
         };
-        let xfer_tx = crate::crypto::sign_tx(&sk_a, xfer_body);
+        let xfer_tx = crate::crypto::sign_tx(&sk_a, xfer_body).unwrap();
         st.apply_tx(&xfer_tx).expect("token transfer must succeed");
         assert_eq!(st.token_balance_of(tok.id, &alice), 750_000);
         assert_eq!(st.token_balance_of(tok.id, &bob), 250_000);
@@ -4849,7 +4926,7 @@ mod state_root_tests {
                 decimals: 6, initial_supply: 100,
             },
         };
-        st.apply_tx(&crate::crypto::sign_tx(&sk_a, create)).unwrap();
+        st.apply_tx(&crate::crypto::sign_tx(&sk_a, create).unwrap()).unwrap();
         let tok = st.get_token_by_symbol("FOO").unwrap();
 
         // Bob (non-creator) attempts to mint inside a block. Fund bob.
@@ -4863,7 +4940,7 @@ mod state_root_tests {
             from: bob, to: Address::ZERO, amount: 0, nonce: 0, fee, chain_id: 7878,
             kind: TxKind::TokenMint { token_id: tok.id, to: bob, amount: 999 },
         };
-        let bad_tx = crate::crypto::sign_tx(&sk_b, mint_body);
+        let bad_tx = crate::crypto::sign_tx(&sk_b, mint_body).unwrap();
 
         // Build a block with that tx, signed by the registered validator.
         let (h0, parent) = st.tip();
@@ -4875,7 +4952,7 @@ mod state_root_tests {
             timestamp_ms: 1_700_000_000_000,
             proposer: addr_v,
         };
-        let sig = sign_bytes(&sk_v, &header_signing_bytes(&header));
+        let sig = sign_bytes(&sk_v, &header_signing_bytes(&header)).unwrap();
         let blk = Block { header, txs: vec![bad_tx], signature: sig };
 
         let res = st.apply_block(&blk);
@@ -4904,7 +4981,7 @@ mod state_root_tests {
             timestamp_ms: 1_700_000_001_000,
             proposer: addr_v,
         };
-        let sig2 = sign_bytes(&sk_v, &header_signing_bytes(&header2));
+        let sig2 = sign_bytes(&sk_v, &header_signing_bytes(&header2)).unwrap();
         let blk2 = Block { header: header2, txs: vec![], signature: sig2 };
         let res2 = st.apply_block(&blk2);
         assert!(res2.is_err(), "apply_block must refuse while marker is stuck");
@@ -4937,7 +5014,7 @@ mod state_root_tests {
             state_root: Hash::ZERO, tx_root: Hash::ZERO,
             timestamp_ms: 1_700_000_000_000, proposer: addr_v,
         };
-        let sig = sign_bytes(&sk_v, &header_signing_bytes(&header));
+        let sig = sign_bytes(&sk_v, &header_signing_bytes(&header)).unwrap();
         let blk = Block { header, txs: vec![], signature: sig };
         st.apply_block(&blk).unwrap();
         let (tip_h, tip_hash) = st.tip();
@@ -4953,7 +5030,7 @@ mod state_root_tests {
             state_root: Hash::ZERO, tx_root: Hash::ZERO,
             timestamp_ms: 1_700_000_001_000, proposer: addr_v,
         };
-        let sig2 = sign_bytes(&sk_v, &header_signing_bytes(&header2));
+        let sig2 = sign_bytes(&sk_v, &header_signing_bytes(&header2)).unwrap();
         let blk2 = Block { header: header2, txs: vec![], signature: sig2 };
         st.apply_block(&blk2).expect("auto-clear path should allow valid block");
         let (tip_h2, _) = st.tip();
@@ -4987,7 +5064,7 @@ mod state_root_tests {
                 initial_supply: 100,
             },
         };
-        st.apply_tx(&crate::crypto::sign_tx(&sk_a, create_body)).unwrap();
+        st.apply_tx(&crate::crypto::sign_tx(&sk_a, create_body).unwrap()).unwrap();
         let tok = st.get_token_by_symbol("ALC").unwrap();
 
         // Bob (non-creator) tries to mint — must fail; balance must NOT change.
@@ -4995,7 +5072,7 @@ mod state_root_tests {
             from: bob, to: Address::ZERO, amount: 0, nonce: 0, fee, chain_id: 7878,
             kind: TxKind::TokenMint { token_id: tok.id, to: bob, amount: 999 },
         };
-        let res = st.apply_tx(&crate::crypto::sign_tx(&sk_b, bob_mint));
+        let res = st.apply_tx(&crate::crypto::sign_tx(&sk_b, bob_mint).unwrap());
         assert!(res.is_err(), "non-creator mint must fail");
         assert_eq!(st.token_balance_of(tok.id, &bob), 0, "bob must not have minted");
         assert_eq!(st.get_token(tok.id).unwrap().total_supply, 100);

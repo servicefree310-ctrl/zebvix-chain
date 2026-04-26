@@ -335,6 +335,10 @@ fn bridge_op_to_json(op: &crate::bridge::BridgeOp) -> Value {
             "recipient":      recipient.to_hex(),
             "amount":         amount.to_string(),
         }),
+        SetBridgePaused { paused } => json!({
+            "op":     "set_bridge_paused",
+            "paused": paused,
+        }),
     }
 }
 

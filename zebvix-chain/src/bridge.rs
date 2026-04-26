@@ -178,6 +178,12 @@ pub enum BridgeOp {
         recipient: Address,
         amount: u128,
     },
+    /// **Admin only.** Global kill-switch for the bridge. While `paused = true`,
+    /// every `BridgeOut` and `BridgeIn` op is rejected with a refund. This
+    /// is the H6 mitigation for an oracle-key compromise: until the M-of-N
+    /// federation upgrade (C3 in `HARDENING_TODO.md`) ships, the chain
+    /// operator can flip this to freeze all bridging in a single tx.
+    SetBridgePaused { paused: bool },
 }
 
 /// On-chain record of a user's BridgeOut. Off-chain oracles poll

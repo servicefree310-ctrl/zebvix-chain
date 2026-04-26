@@ -1,0 +1,13 @@
+# Pinned env for `cargo` invocations from this workspace.
+#
+# `librocksdb-sys` runs `bindgen` which requires `libclang.so` discoverable via
+# the `LIBCLANG_PATH` env var. The Replit Nix shell installs `libclang.so` at
+# the path below (set via the package-management skill — `llvmPackages.libclang`).
+# Without this, `cargo check` / `build` fail at the rocksdb build script with:
+#   Unable to find libclang: "couldn't find any valid shared libraries..."
+#
+# If you're building outside Replit, override by exporting LIBCLANG_PATH in
+# your shell — env entries here only apply when cargo is invoked, and shell
+# exports take precedence.
+[env]
+LIBCLANG_PATH = "/nix/store/9b8h4b98vj92v7ql5chmim0447x2w220-clang-19.1.7-lib/lib"

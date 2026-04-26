@@ -18,6 +18,22 @@
 //! Note: censorship resistance is preserved — there is NO admin/governor
 //! filter, no address blacklist, no kind-based gating. Any well-formed,
 //! well-funded tx from any signer is accepted.
+//!
+//! ## Phase H — fee-priority ordering + drop-lowest-fee eviction
+//!
+//! Two upgrades vs. the original FIFO+(sender,nonce) pool:
+//!
+//! - **Eviction**: when the pool is at `max_size` and a new tx arrives, we
+//!   compare its `fee` against the cheapest tx currently in the pool. If the
+//!   newcomer pays strictly more, the cheapest is evicted to make room
+//!   (replace-by-fee against the global minimum). Otherwise the new tx is
+//!   rejected. This prevents an attacker from squatting on all 50k slots
+//!   with min-fee txs and locking out higher-paying users.
+//! - **Block ordering**: `take()` returns txs grouped by sender (so per-sender
+//!   nonce ordering is preserved — required for sequential apply), but groups
+//!   are sorted by their **maximum fee** descending. Highest-paying senders
+//!   land in blocks first, which both maximises validator revenue and gives
+//!   honest users a price they can actually pay to clear backlog.
 
 use crate::crypto::{tx_hash, verify_tx};
 use crate::state::State;
@@ -82,24 +98,77 @@ impl Mempool {
             ));
         }
         let h = tx_hash(&tx).0;
+        let new_fee = tx.body.fee;
         let mut g = self.inner.write();
+        // SECURITY (H1): handle duplicate-hash submission BEFORE running
+        // eviction. Without this fast-path, a re-broadcast of an existing
+        // tx (very common: wallets retry, peers gossip) would unnecessarily
+        // evict an unrelated min-fee tx and then `insert()` would just
+        // overwrite the existing entry — net result a free DoS knife
+        // against low-fee users. Same hash already in pool ⇒ no-op.
+        if g.contains_key(&h) {
+            return Ok(h);
+        }
         if g.len() >= self.max_size {
-            return Err(anyhow!("mempool full"));
+            // Replace-by-fee against the cheapest tx in the pool.
+            // Without this, an attacker can squat on all 50k slots
+            // with min-fee garbage and lock out paying users.
+            let min_entry = g.iter()
+                .min_by_key(|(_, t)| t.body.fee)
+                .map(|(h, t)| (*h, t.body.fee));
+            match min_entry {
+                Some((min_h, min_fee)) if new_fee > min_fee => {
+                    g.remove(&min_h);
+                }
+                _ => {
+                    return Err(anyhow!(
+                        "mempool full ({}/{}); incoming fee {} not above min {} — \
+                         raise fee to be admitted",
+                        g.len(), self.max_size, new_fee,
+                        min_entry.map(|(_, f)| f).unwrap_or(0)
+                    ));
+                }
+            }
         }
         g.insert(h, tx);
         Ok(h)
     }
 
-    /// Drain up to `max` transactions, sorted by (sender, nonce).
+    /// Drain up to `max` transactions, ordered for inclusion in the next
+    /// block. Per-sender nonce ordering is preserved (required for
+    /// sequential apply); senders themselves are ranked by their group's
+    /// **highest-fee tx** descending so the most lucrative senders land
+    /// first. Within a sender group, txs are kept ascending by nonce.
     pub fn take(&self, max: usize) -> Vec<SignedTx> {
         let mut g = self.inner.write();
-        let mut txs: Vec<SignedTx> = g.values().cloned().collect();
-        txs.sort_by_key(|t| (t.body.from.0, t.body.nonce));
-        txs.truncate(max);
-        for t in &txs {
+        let all: Vec<SignedTx> = g.values().cloned().collect();
+        // Group by sender.
+        let mut groups: HashMap<[u8; 20], Vec<SignedTx>> = HashMap::new();
+        for t in all {
+            groups.entry(t.body.from.0).or_default().push(t);
+        }
+        // Within each group: sort by nonce ascending.
+        // Across groups: sort by max-fee in the group, descending.
+        let mut ranked: Vec<(u128, Vec<SignedTx>)> = groups
+            .into_iter()
+            .map(|(_addr, mut txs)| {
+                txs.sort_by_key(|t| t.body.nonce);
+                let max_fee = txs.iter().map(|t| t.body.fee).max().unwrap_or(0);
+                (max_fee, txs)
+            })
+            .collect();
+        ranked.sort_by(|a, b| b.0.cmp(&a.0));
+        // Flatten and truncate to `max`.
+        let mut out: Vec<SignedTx> = Vec::with_capacity(max);
+        for (_fee, mut group) in ranked {
+            if out.len() >= max { break; }
+            let take_n = (max - out.len()).min(group.len());
+            out.extend(group.drain(..take_n));
+        }
+        for t in &out {
             g.remove(&tx_hash(t).0);
         }
-        txs
+        out
     }
 
     pub fn len(&self) -> usize { self.inner.read().len() }

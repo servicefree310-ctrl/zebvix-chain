@@ -99,9 +99,15 @@ enum Cmd {
         /// Disable the P2P stack entirely (legacy single-node mode).
         #[arg(long)]
         no_p2p: bool,
-        /// Disable mDNS LAN discovery (recommended on production VPS).
+        /// Enable mDNS LAN discovery (default: OFF).
+        ///
+        /// SECURITY (T005): mDNS broadcasts the node's libp2p address on the
+        /// local network and listens for unauthenticated peer announcements,
+        /// which is a privacy/discovery leak on shared / multi-tenant VPS
+        /// hosts. Production deployments should rely on `--peer` bootstrap
+        /// addresses instead. Pass `--enable-mdns` only on dev LANs.
         #[arg(long)]
-        no_mdns: bool,
+        enable_mdns: bool,
         /// Follower mode: do NOT produce blocks, only receive from peers via P2P.
         /// Use this for secondary nodes during Phase A testing (single-validator chain).
         /// Multi-validator BFT (where every node may propose) arrives in Phase B.
@@ -836,7 +842,8 @@ fn read_keyfile(path: &PathBuf) -> Result<([u8; 32], [u8; 33])> {
     if sk.len() != 32 { return Err(anyhow!("bad secret length")); }
     let mut sec = [0u8; 32];
     sec.copy_from_slice(&sk);
-    let (sk_b, pk) = keypair_from_secret(&sec);
+    let (sk_b, pk) = keypair_from_secret(&sec)
+        .map_err(|e| anyhow!("keyfile {} contains invalid secret: {}", path.display(), e))?;
     Ok((sk_b, pk))
 }
 
@@ -975,9 +982,12 @@ async fn cmd_start(
     p2p_port: u16,
     peer_strs: Vec<String>,
     no_p2p: bool,
-    no_mdns: bool,
+    enable_mdns: bool,
     follower: bool,
 ) -> Result<()> {
+    // SECURITY (T005): mDNS is OFF by default. The p2p layer expects a
+    // `disable_mdns` boolean, so invert here at the CLI boundary.
+    let disable_mdns = !enable_mdns;
     let cfg_path = home.join("node.json");
     let cfg: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&cfg_path)?)?;
     let key_path = PathBuf::from(
@@ -1040,11 +1050,15 @@ async fn cmd_start(
         }
 
         let handle = zebvix_node::p2p::spawn_p2p(
-            CHAIN_ID, p2p_port, bootstrap, no_mdns, state.clone(),
+            CHAIN_ID, p2p_port, bootstrap, disable_mdns, state.clone(),
         )
         .map_err(|e| anyhow!("p2p init failed: {e}"))?;
         tracing::info!("   p2p       : tcp/{p2p_port}  peer_id={}", handle.local_peer_id);
-        if no_mdns { tracing::info!("   mdns      : DISABLED (--no-mdns)"); }
+        if enable_mdns {
+            tracing::info!("   mdns      : ENABLED (--enable-mdns) — LAN discovery on");
+        } else {
+            tracing::info!("   mdns      : DISABLED (default — pass --enable-mdns to opt in)");
+        }
 
         // Producer broadcasts every mined block.
         let out_tx = handle.out_tx.clone();
@@ -1096,7 +1110,17 @@ async fn cmd_start(
                         chain_id: CHAIN_ID, height: h, round: 0,
                         vote_type: vt, block_hash: Some(hash),
                     };
-                    let v = sign_vote(&vote_secret, vote_pubkey, data);
+                    // sign_vote returns Result since Phase H (no panics on bad
+                    // keys). vote_secret was validated at startup via read_keyfile,
+                    // so an error here is a programmer bug — log and skip rather
+                    // than crash the whole node.
+                    let v = match sign_vote(&vote_secret, vote_pubkey, data) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            tracing::error!("vote signing failed (validator key corrupted?): {e}");
+                            continue;
+                        }
+                    };
                     // Add to local pool first (so it shows up immediately on this node).
                     match pool_vote.add(v.clone(), &vset) {
                         AddVoteResult::Inserted { reached_quorum } => {
@@ -1310,7 +1334,7 @@ async fn cmd_send(from_key: PathBuf, to: String, amount: String, fee: String, rp
         from, to, amount: amount_wei, nonce: client, fee: fee_wei,
         chain_id: CHAIN_ID, kind: TxKind::Transfer,
     };
-    let tx = sign_tx(&sk, body);
+    let tx = sign_tx(&sk, body)?;
 
     // Submit
     let req = serde_json::json!({
@@ -1499,8 +1523,8 @@ async fn main() -> Result<()> {
         Cmd::Keygen { out } => cmd_keygen(out),
         Cmd::ZbxAddress { out } => cmd_generate_address(out),
         Cmd::Init { home, validator_key, alloc, no_default_premine } => cmd_init(home, validator_key, alloc, no_default_premine),
-        Cmd::Start { home, rpc, p2p_port, peers, no_p2p, no_mdns, follower } =>
-            cmd_start(home, rpc, p2p_port, peers, no_p2p, no_mdns, follower).await,
+        Cmd::Start { home, rpc, p2p_port, peers, no_p2p, enable_mdns, follower } =>
+            cmd_start(home, rpc, p2p_port, peers, no_p2p, enable_mdns, follower).await,
         Cmd::Send { from_key, to, amount, fee, rpc } => cmd_send(from_key, to, amount, fee, rpc).await,
         Cmd::AdminFaucet { home, to, amount } => cmd_admin_faucet(home, to, amount),
         Cmd::AdminPoolGenesis { home } => cmd_admin_pool_genesis(home),
@@ -1767,7 +1791,7 @@ async fn cmd_register_pay_id(
         chain_id: CHAIN_ID,
         kind: TxKind::RegisterPayId { pay_id: pay_id.clone(), name: name.clone() },
     };
-    let tx = sign_tx(&sk, body);
+    let tx = sign_tx(&sk, body)?;
     let req = serde_json::json!({
         "jsonrpc":"2.0","id":1,"method":"zbx_sendTransaction","params":[tx]
     });
@@ -1834,7 +1858,7 @@ async fn cmd_multisig_create(
             owners: owner_list.clone(), threshold, salt,
         }),
     };
-    let tx = sign_tx(&sk, body);
+    let tx = sign_tx(&sk, body)?;
     let req = serde_json::json!({
         "jsonrpc":"2.0","id":1,"method":"zbx_sendTransaction","params":[tx]
     });
@@ -1882,7 +1906,7 @@ async fn cmd_multisig_propose(
             multisig: ms_addr, action, expiry_blocks,
         }),
     };
-    let tx = sign_tx(&sk, body);
+    let tx = sign_tx(&sk, body)?;
     let req = serde_json::json!({
         "jsonrpc":"2.0","id":1,"method":"zbx_sendTransaction","params":[tx]
     });
@@ -1923,7 +1947,7 @@ async fn cmd_multisig_action(
         from, to: Address::ZERO, amount: 0, nonce, fee: fee_wei,
         chain_id: CHAIN_ID, kind: TxKind::Multisig(op),
     };
-    let tx = sign_tx(&sk, body);
+    let tx = sign_tx(&sk, body)?;
     let req = serde_json::json!({
         "jsonrpc":"2.0","id":1,"method":"zbx_sendTransaction","params":[tx]
     });
@@ -2362,7 +2386,7 @@ async fn cmd_validator_add(
         chain_id: CHAIN_ID,
         kind: TxKind::ValidatorAdd { pubkey: val_pk, power },
     };
-    let tx = sign_tx(&sk, body);
+    let tx = sign_tx(&sk, body)?;
     println!("📝 Submitting validator-add tx for {} (power={})", val_addr, power);
     println!("   signer (must be admin) : {}", from);
     println!("   nonce / fee            : {} / {} wei", nonce, fee_wei);
@@ -2442,7 +2466,7 @@ async fn cmd_propose(
             kind,
         }),
     };
-    let tx = sign_tx(&sk, body);
+    let tx = sign_tx(&sk, body)?;
     println!("🗳️  Submitting proposal");
     println!("   proposer : {}", from);
     println!("   kind     : {}", kind_str);
@@ -2475,7 +2499,7 @@ async fn cmd_vote(
         chain_id: CHAIN_ID,
         kind: TxKind::Proposal(ProposalOp::Vote { proposal_id, yes }),
     };
-    let tx = sign_tx(&sk, body);
+    let tx = sign_tx(&sk, body)?;
     println!("🗳️  Voting on proposal #{}: {}", proposal_id, if yes { "YES" } else { "NO" });
     println!("   voter    : {}", from);
     println!("   nonce/fee: {} / {} wei", nonce, fee_wei);
@@ -2559,7 +2583,7 @@ async fn cmd_validator_remove(
         chain_id: CHAIN_ID,
         kind: TxKind::ValidatorRemove { address: target },
     };
-    let tx = sign_tx(&sk, body);
+    let tx = sign_tx(&sk, body)?;
     println!("📝 Submitting validator-remove tx for {}", target);
     println!("   signer (must be admin) : {}", from);
     let tx_hash = submit_tx_strict(&rpc_url, &tx).await?;
@@ -2630,7 +2654,7 @@ async fn cmd_governor_change(signer_key: PathBuf, new_governor: String, rpc_url:
         chain_id: CHAIN_ID,
         kind: TxKind::GovernorChange { new_governor: new_gov },
     };
-    let tx = sign_tx(&sk, body);
+    let tx = sign_tx(&sk, body)?;
     println!("📝 Governor change → {} (signer: {})", new_gov, from);
     let h = submit_tx_strict(&rpc_url, &tx).await?;
     println!("   ✓ tx hash : {}", h);
@@ -2731,7 +2755,7 @@ async fn submit_staking(
         from, to: Address::ZERO, amount: 0, nonce, fee: fee_wei,
         chain_id: CHAIN_ID, kind: TxKind::Staking(op),
     };
-    let tx = sign_tx(&sk, body);
+    let tx = sign_tx(&sk, body)?;
     println!("📝 {} (signer: {}, nonce: {})", label, from, nonce);
     let h = submit_tx_strict(rpc_url, &tx).await?;
     println!("   ✓ tx hash : {}", h);
@@ -2932,7 +2956,7 @@ async fn cmd_bridge_register_network(
             id, name: name.clone(), kind: net_kind,
         }),
     };
-    let tx = sign_tx(&sk, body);
+    let tx = sign_tx(&sk, body)?;
     let req = serde_json::json!({
         "jsonrpc":"2.0","id":1,"method":"zbx_sendTransaction","params":[tx]
     });
@@ -2958,7 +2982,7 @@ async fn cmd_bridge_set_network_active(
         chain_id: CHAIN_ID,
         kind: TxKind::Bridge(zebvix_node::bridge::BridgeOp::SetNetworkActive { id, active }),
     };
-    let tx = sign_tx(&sk, body);
+    let tx = sign_tx(&sk, body)?;
     let req = serde_json::json!({
         "jsonrpc":"2.0","id":1,"method":"zbx_sendTransaction","params":[tx]
     });
@@ -2984,7 +3008,7 @@ async fn cmd_bridge_register_asset(
             network_id, native: nat, contract: contract.clone(), decimals,
         }),
     };
-    let tx = sign_tx(&sk, body);
+    let tx = sign_tx(&sk, body)?;
     let req = serde_json::json!({
         "jsonrpc":"2.0","id":1,"method":"zbx_sendTransaction","params":[tx]
     });
@@ -3026,7 +3050,7 @@ async fn cmd_bridge_out(
             asset_id, dest_address: dest.clone(),
         }),
     };
-    let tx = sign_tx(&sk, body);
+    let tx = sign_tx(&sk, body)?;
     let req = serde_json::json!({
         "jsonrpc":"2.0","id":1,"method":"zbx_sendTransaction","params":[tx]
     });
@@ -3072,7 +3096,7 @@ async fn cmd_bridge_in(
             amount: amount_units,
         }),
     };
-    let tx = sign_tx(&sk, body);
+    let tx = sign_tx(&sk, body)?;
     let req = serde_json::json!({
         "jsonrpc":"2.0","id":1,"method":"zbx_sendTransaction","params":[tx]
     });

@@ -424,7 +424,11 @@ impl TxBody {
 
     /// Sign this body with `secret` (32-byte secp256k1 secret) and return a
     /// fully-formed [`SignedTx`] ready to broadcast.
-    pub fn sign(self, secret: &[u8; 32]) -> SignedTx {
+    ///
+    /// Returns `Err` if the secret is not a valid secp256k1 scalar (Phase H —
+    /// converted from a panicking `.expect()` so a malformed key file in
+    /// production fails-loud at the call site instead of crashing the node).
+    pub fn sign(self, secret: &[u8; 32]) -> anyhow::Result<SignedTx> {
         crate::crypto::sign_tx(secret, self)
     }
 }

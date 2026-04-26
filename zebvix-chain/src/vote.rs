@@ -79,10 +79,17 @@ pub fn vote_signing_bytes(data: &VoteData) -> Vec<u8> {
     out
 }
 
-pub fn sign_vote(secret: &[u8; 32], pubkey: [u8; 33], data: VoteData) -> Vote {
+/// Sign a vote with `secret`. Returns `Err` if the secret is not a valid
+/// secp256k1 scalar (Phase H — no panics on bad keys; see `crypto.rs` doc
+/// header). Callers (consensus loop, tests) must propagate.
+pub fn sign_vote(
+    secret: &[u8; 32],
+    pubkey: [u8; 33],
+    data: VoteData,
+) -> anyhow::Result<Vote> {
     let validator_address = address_from_pubkey(&pubkey);
-    let signature = sign_bytes(secret, &vote_signing_bytes(&data));
-    Vote { data, validator_address, pubkey, signature }
+    let signature = sign_bytes(secret, &vote_signing_bytes(&data))?;
+    Ok(Vote { data, validator_address, pubkey, signature })
 }
 
 /// Verify a vote's signature and that pubkey hashes to validator_address.
@@ -266,7 +273,7 @@ mod tests {
             chain_id: 7878, height: 1, round: 0, vote_type: VoteType::Prevote,
             block_hash: Some(Hash::ZERO),
         };
-        let vote = sign_vote(&sk, pk, data);
+        let vote = sign_vote(&sk, pk, data).unwrap();
         assert!(verify_vote_sig(&vote));
     }
 
@@ -282,7 +289,7 @@ mod tests {
         let mk = |sk: &[u8;32], pk: [u8;33]| sign_vote(sk, pk, VoteData {
             chain_id: 7878, height: 1, round: 0,
             vote_type: VoteType::Prevote, block_hash: target,
-        });
+        }).unwrap();
         // 2/4 = no quorum
         let _ = pool.add(mk(&sk1, pk1), &set);
         assert!(!pool.has_quorum(1, 0, VoteType::Prevote, target, &set));
@@ -301,11 +308,11 @@ mod tests {
         let v1 = sign_vote(&sk, pk, VoteData {
             chain_id: 7878, height: 1, round: 0,
             vote_type: VoteType::Prevote, block_hash: Some(Hash([1u8; 32])),
-        });
+        }).unwrap();
         let v2 = sign_vote(&sk, pk, VoteData {
             chain_id: 7878, height: 1, round: 0,
             vote_type: VoteType::Prevote, block_hash: Some(Hash([2u8; 32])),
-        });
+        }).unwrap();
         assert!(matches!(pool.add(v1, &set), AddVoteResult::Inserted { .. }));
         assert!(matches!(pool.add(v2, &set), AddVoteResult::DoubleSign { .. }));
     }
@@ -318,7 +325,7 @@ mod tests {
         let vote = sign_vote(&sk, pk, VoteData {
             chain_id: 7878, height: 1, round: 0,
             vote_type: VoteType::Precommit, block_hash: Some(Hash([3u8; 32])),
-        });
+        }).unwrap();
         assert!(matches!(pool.add(vote.clone(), &set), AddVoteResult::Inserted { .. }));
         assert_eq!(pool.add(vote, &set), AddVoteResult::Duplicate);
     }

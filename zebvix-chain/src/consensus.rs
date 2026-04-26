@@ -70,7 +70,13 @@ impl Producer {
     }
 
     pub fn proposer_address(&self) -> crate::types::Address {
-        let (_, pk) = keypair_from_secret(&self.secret);
+        // The validator secret was loaded + validated at node startup
+        // (cmd_start in main.rs constructs Producer only after a successful
+        // keypair derivation). If we somehow got here with a corrupt secret
+        // the only safe action is to abort — block production cannot
+        // proceed without a stable proposer identity.
+        let (_, pk) = keypair_from_secret(&self.secret)
+            .expect("Producer constructed with pre-validated secret (see cmd_start)");
         address_from_pubkey(&pk)
     }
 
@@ -110,7 +116,7 @@ impl Producer {
             timestamp_ms: Self::now_ms(),
             proposer: self.proposer_address(),
         };
-        let sig = sign_bytes(&self.secret, &header_signing_bytes(&header));
+        let sig = sign_bytes(&self.secret, &header_signing_bytes(&header))?;
         let block = Block { header, txs, signature: sig };
         // Sanity: hash check
         let _ = block_hash(&block.header);

@@ -29,8 +29,19 @@
 //! SHA-256 (not Keccak256) because that's the k256 default and matches every
 //! standard ECDSA-secp256k1 verifier; the Keccak hashing remains for *address*
 //! derivation only (ETH compatibility).
+//!
+//! ## Error handling (Phase H — security pass)
+//!
+//! `keypair_from_secret` and `sign_bytes` previously panicked via `.expect()`
+//! when given a bad 32-byte secret (zero scalar, scalar ≥ curve order).
+//! In a consensus-critical process those panics would terminate the node
+//! (especially under `panic = "abort"` in release). They now return
+//! `anyhow::Result<_>` so callers fail-loud at the call site without
+//! killing the validator. `verify_*` paths already handle bad inputs via
+//! `Result::is_ok` and so are unchanged.
 
 use crate::types::{Address, Hash, SignedTx, TxBody, ADDRESS_LEN};
+use anyhow::{anyhow, Result};
 use k256::ecdsa::{
     signature::{Signer, Verifier},
     Signature, SigningKey, VerifyingKey,
@@ -81,10 +92,14 @@ pub fn generate_keypair() -> ([u8; 32], [u8; 33]) {
 /// Recover `(secret, compressed_pubkey)` from a known 32-byte secret.
 /// Returns the same `secret` bytes back so callers can store them
 /// uniformly (matches the previous Ed25519 API).
-pub fn keypair_from_secret(secret: &[u8; 32]) -> ([u8; 32], [u8; 33]) {
+///
+/// Returns `Err` if `secret` is not a valid secp256k1 scalar (zero,
+/// or ≥ the curve order). Previously this panicked — now it bubbles
+/// up so a malformed key file in production can't crash the node.
+pub fn keypair_from_secret(secret: &[u8; 32]) -> Result<([u8; 32], [u8; 33])> {
     let sk = SigningKey::from_bytes(secret.into())
-        .expect("secret must be a valid secp256k1 scalar (non-zero, < curve order)");
-    (*secret, compressed_from_signing(&sk))
+        .map_err(|e| anyhow!("invalid secp256k1 secret (must be non-zero, < curve order): {e}"))?;
+    Ok((*secret, compressed_from_signing(&sk)))
 }
 
 fn compressed_from_signing(sk: &SigningKey) -> [u8; 33] {
@@ -99,14 +114,18 @@ fn compressed_from_signing(sk: &SigningKey) -> [u8; 33] {
 
 /// Sign an arbitrary message with an ECDSA-secp256k1 secret. Returns the
 /// 64-byte compact (r || s) signature.
-pub fn sign_bytes(secret: &[u8; 32], msg: &[u8]) -> [u8; 64] {
+///
+/// Returns `Err` if `secret` is not a valid secp256k1 scalar. Previously
+/// this panicked; now it propagates so a bad key file or env var can't
+/// abort the process (`panic = "abort"` in release).
+pub fn sign_bytes(secret: &[u8; 32], msg: &[u8]) -> Result<[u8; 64]> {
     let sk = SigningKey::from_bytes(secret.into())
-        .expect("secret must be a valid secp256k1 scalar");
+        .map_err(|e| anyhow!("sign_bytes: invalid secp256k1 secret: {e}"))?;
     let sig: Signature = sk.sign(msg); // RFC6979 deterministic, hashes with SHA-256
     let bytes = sig.to_bytes();
     let mut out = [0u8; 64];
     out.copy_from_slice(&bytes);
-    out
+    Ok(out)
 }
 
 /// Verify a 64-byte ECDSA-secp256k1 signature against a 33-byte compressed pubkey.
@@ -121,11 +140,15 @@ pub fn tx_signing_bytes(body: &TxBody) -> Vec<u8> {
     bincode::serialize(body).expect("body serialization cannot fail")
 }
 
-pub fn sign_tx(secret: &[u8; 32], body: TxBody) -> SignedTx {
-    let (_, pubkey) = keypair_from_secret(secret);
+/// Convenience: derive pubkey + sign a `TxBody` with the same secret.
+///
+/// Returns `Err` if the secret is invalid; otherwise a fully-formed
+/// `SignedTx` ready for the wire / mempool.
+pub fn sign_tx(secret: &[u8; 32], body: TxBody) -> Result<SignedTx> {
+    let (_, pubkey) = keypair_from_secret(secret)?;
     let msg = tx_signing_bytes(&body);
-    let signature = sign_bytes(secret, &msg);
-    SignedTx { body, pubkey, signature }
+    let signature = sign_bytes(secret, &msg)?;
+    Ok(SignedTx { body, pubkey, signature })
 }
 
 pub fn verify_tx(tx: &SignedTx) -> bool {
@@ -184,8 +207,17 @@ mod tests {
             chain_id: 7878,
             kind: crate::types::TxKind::Transfer,
         };
-        let tx = sign_tx(&sk, body);
+        let tx = sign_tx(&sk, body).expect("test secret is valid");
         assert!(verify_tx(&tx));
+    }
+    /// SECURITY (H3): a malformed (all-zero) secret must NOT panic.
+    /// Previously this hit `.expect()` and aborted the process under
+    /// `panic = "abort"`. Now it returns Err.
+    #[test]
+    fn bad_secret_returns_err_not_panic() {
+        let zero = [0u8; 32];
+        assert!(keypair_from_secret(&zero).is_err());
+        assert!(sign_bytes(&zero, b"x").is_err());
     }
     /// EVM compat: a known secret derives the canonical EVM address.
     /// Test vector from go-ethereum docs:
@@ -197,7 +229,7 @@ mod tests {
         let sk_bytes = hex::decode(sk_hex).unwrap();
         let mut sk = [0u8; 32];
         sk.copy_from_slice(&sk_bytes);
-        let (_, pk) = keypair_from_secret(&sk);
+        let (_, pk) = keypair_from_secret(&sk).expect("EVM test vector is a valid secret");
         let addr = address_from_pubkey(&pk);
         assert_eq!(addr.to_hex(), "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f");
     }

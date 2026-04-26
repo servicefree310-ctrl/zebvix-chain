@@ -200,7 +200,8 @@ fn read_keyfile(path: &PathBuf) -> Result<([u8; 32], [u8; 33])> {
     if sk.len() != 32 { return Err(anyhow!("bad secret length")); }
     let mut sec = [0u8; 32];
     sec.copy_from_slice(&sk);
-    let (sk_b, pk) = keypair_from_secret(&sec);
+    let (sk_b, pk) = keypair_from_secret(&sec)
+        .map_err(|e| anyhow!("keyfile {} contains invalid secret: {}", path.display(), e))?;
     Ok((sk_b, pk))
 }
 
@@ -294,7 +295,8 @@ fn cmd_import(secret_hex: String, out: PathBuf, quiet: bool) -> Result<()> {
     if bytes.len() != 32 { return Err(anyhow!("secret must be 32 bytes (64 hex chars)")); }
     let mut sec = [0u8; 32];
     sec.copy_from_slice(&bytes);
-    let (sk, pk) = keypair_from_secret(&sec);
+    let (sk, pk) = keypair_from_secret(&sec)
+        .map_err(|e| anyhow!("imported secret is not a valid secp256k1 scalar: {e}"))?;
     let addr = write_keyfile(&out, &sk, &pk, false)?;
     if quiet {
         println!("{}", serde_json::json!({"address": addr.to_hex(), "keyfile": out.display().to_string()}));
@@ -397,7 +399,7 @@ async fn cmd_send(rpc: &str, from: PathBuf, to: String, amount: String, fee: Opt
         amount: amount_wei, nonce, fee: fee_wei, chain_id: CHAIN_ID,
         kind: zebvix_node::types::TxKind::Transfer,
     };
-    let tx = sign_tx(&sk, body);
+    let tx = sign_tx(&sk, body)?;
 
     let result = rpc_call(rpc, "zbx_sendTransaction", serde_json::json!([tx])).await?;
     let hash = result.as_str().unwrap_or("?");
