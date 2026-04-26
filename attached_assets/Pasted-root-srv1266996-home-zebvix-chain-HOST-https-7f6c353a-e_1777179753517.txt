@@ -1,0 +1,67 @@
+root@srv1266996:/home/zebvix-chain# HOST="https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev" && \
+cd /home/zebvix-chain && \
+echo "[1/5] downloading fresh source from $HOST ..." && \
+curl -fSL --retry 3 --retry-delay 2 "$HOST/api/download/newchain" -o newchain.tgz.tmp && \
+mv newchain.tgz.tmp newchain.tgz && \
+echo "[2/5] extracting ..." && \
+tar -xzf newchain.tgz && \
+echo "[3/5] cargo build --release --features zvm ..." && \
+cargo build --release --features zvm 2>&1 | tail -20 && \
+test -x ./target/release/zebvix-node && \
+echo "[4/5] installing fresh binary to /usr/local/bin (with backup) ..." && \
+sudo cp -f /usr/local/bin/zebvix-node /usr/local/bin/zebvix-node.prev 2>/dev/null || true && \
+sudo install -m 0755 ./target/release/zebvix-node /usr/local/bin/zebvix-node && \
+echo "[5/5] restarting zebvix systemd unit ..." && \
+sudo systemctl restart zebvix && sleep 5 && \
+sudo systemctl status zebvix --no-pager | head -12 && \
+echo "--- verifying new RPC method is registered ---" && \
+curl -s -X POST http://127.0.0.1:8545 \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"zbx_getBridgeOutBySeq","params":[0]}' \
+  | python3 -m json.tool
+[1/5] downloading fresh source from https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev ...
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100  247k    0  247k    0     0   204k      0 --:--:--  0:00:01 --:--:--  204k
+[2/5] extracting ...
+[3/5] cargo build --release --features zvm ...
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:393:4
+    |
+393 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 0.31s
+[4/5] installing fresh binary to /usr/local/bin (with backup) ...
+[5/5] restarting zebvix systemd unit ...
+● zebvix.service - Zebvix L1 Blockchain Node
+     Loaded: loaded (/etc/systemd/system/zebvix.service; enabled; preset: enabled)
+     Active: active (running) since Sun 2026-04-26 05:02:07 UTC; 5s ago
+   Main PID: 503812 (zebvix-node)
+      Tasks: 7 (limit: 9483)
+     Memory: 3.1M (peak: 3.4M)
+        CPU: 30ms
+     CGroup: /system.slice/zebvix.service
+             └─503812 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333 --no-mdns
+
+Apr 26 05:02:07 srv1266996.hstgr.cloud zebvix-node[503812]: 2026-04-26T05:02:07.777975Z  INFO zebvix_node:    chain_id  : 7878
+Apr 26 05:02:07 srv1266996.hstgr.cloud zebvix-node[503812]: 2026-04-26T05:02:07.777989Z  INFO zebvix_node:    proposer  : 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315
+--- verifying new RPC method is registered ---
+{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+        "amount": "10000000000000000000",
+        "asset_id": "240518168576",
+        "dest_address": "0xfcB3b5d4A1A70e64166Ae09a367fd1cfb6454B6E",
+        "from": "0x40907000ac0a1a73e4cd89889b4d7ee8980c0315",
+        "height": 26536,
+        "native_symbol": "ZBX",
+        "seq": 0,
+        "tx_hash": "0x6573d05c6afe54ae8130d0571e54109feaa41933dbd7c793ab2616a97357e52e"
+    }
+}
+root@srv1266996:/home/zebvix-chain# 
