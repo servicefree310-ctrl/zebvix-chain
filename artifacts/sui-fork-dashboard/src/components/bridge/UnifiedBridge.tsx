@@ -287,9 +287,14 @@ function ActivityRow({ item }: { item: ActivityItem }) {
 
 export default function UnifiedBridge() {
   const { toast } = useToast();
-  const { active: activeWallet } = useWallet();
+  const { active: activeWallet, isRemote } = useWallet();
   const browserAddr = activeWallet?.address.toLowerCase() ?? null;
-  const browserKey = activeWallet?.privateKey ?? null;
+  // Mobile-paired wallets expose an address but no signing key — bridge
+  // operations require either a local key or MetaMask.
+  const browserKey =
+    activeWallet && activeWallet.kind !== "remote"
+      ? activeWallet.privateKey || null
+      : null;
 
   const [direction, setDirection] = useState<Direction>("z2bsc");
   const [amountStr, setAmountStr] = useState("");
@@ -498,7 +503,15 @@ export default function UnifiedBridge() {
 
   // ── Action handlers ────────────────────────────────────────────────────
   async function onApprove() {
-    if (!cfg || !browserAddr || !browserKey) return;
+    if (!cfg || !browserAddr) return;
+    if (isRemote || !browserKey) {
+      const m = isRemote
+        ? "Bridge needs a local signing key. Disconnect the mobile wallet (or pair a MetaMask wallet on BSC) to approve."
+        : "no in-browser wallet active";
+      setErr(m);
+      toast({ title: "Cannot approve", description: m, variant: "destructive" });
+      return;
+    }
     const startedFor = browserAddr;
     setErr(null);
     setBusy("approve");
@@ -530,7 +543,15 @@ export default function UnifiedBridge() {
   }
 
   async function onSubmit() {
-    if (!cfg || !browserAddr || !browserKey) return;
+    if (!cfg || !browserAddr) return;
+    if (isRemote || !browserKey) {
+      const m = isRemote
+        ? "Bridge needs a local signing key. Disconnect the mobile wallet (or pair a MetaMask wallet on BSC) to submit."
+        : "no in-browser wallet active";
+      setErr(m);
+      toast({ title: "Cannot submit", description: m, variant: "destructive" });
+      return;
+    }
     const startedFor = browserAddr;
     setErr(null);
     setBusy("submit");
@@ -645,7 +666,8 @@ export default function UnifiedBridge() {
     amountWei === 0n ||
     !validRecipient ||
     insufficientBalance ||
-    lowBnb;
+    lowBnb ||
+    isRemote;
 
   const sourceLabel = direction === "z2bsc" ? "Zebvix L1" : "BSC Mainnet";
   const sourceAsset = direction === "z2bsc" ? "ZBX (native)" : "wZBX (BEP-20)";
@@ -877,6 +899,16 @@ export default function UnifiedBridge() {
               <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
               <span>
                 Low BNB on this address — burn tx needs ~0.0000025 BNB for gas. Top up before submitting.
+              </span>
+            </div>
+          )}
+
+          {isRemote && (
+            <div className="rounded-md border border-cyan-400/40 bg-cyan-400/5 p-2.5 text-xs text-cyan-300 flex items-start gap-2">
+              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <span>
+                Mobile wallet paired — bridge transactions need a local signing key.
+                Disconnect the mobile wallet from the topbar (or use MetaMask on BSC) to continue.
               </span>
             </div>
           )}

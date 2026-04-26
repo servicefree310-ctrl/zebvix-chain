@@ -5,11 +5,13 @@ import {
   loadWallets, getActiveAddress, getWallet, sendTransfer, parseNonce,
   type StoredWallet,
 } from "@/lib/web-wallet";
+import { useWallet } from "@/contexts/wallet-context";
 import {
   Activity, Box, Users, Zap, AlertCircle, TrendingUp, Coins,
   ArrowLeftRight, Gauge, Timer, Flame, Layers, Wifi, ShieldCheck,
   Hash, Clock, Cpu, Droplet, ArrowUpRight, ChevronDown, ChevronUp,
   Sparkles, BarChart3, Search, Inbox, Send, Check, RefreshCw, Hourglass,
+  Smartphone,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1631,8 +1633,13 @@ function QuickSendPanel({
   onSent: () => void;
 }) {
   const [, setLoc] = useLocation();
+  const { remote, isRemote } = useWallet();
   const [wallets, setWallets] = useState<StoredWallet[]>([]);
-  const [activeAddr, setActiveAddr] = useState<string | null>(null);
+  const [activeAddrLocal, setActiveAddrLocal] = useState<string | null>(null);
+  // Effective sending address: paired mobile wallet wins. The "From" pill
+  // and balance row both reflect this so quick-send mirrors the topbar.
+  const activeAddr: string | null = isRemote && remote ? remote.address : activeAddrLocal;
+  const setActiveAddr = (a: string | null) => setActiveAddrLocal(a);
   const [balance, setBalance] = useState<string>("—");
   const [nonce, setNonce] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -1665,7 +1672,7 @@ function QuickSendPanel({
     const ws = loadWallets();
     setWallets(ws);
     const a = getActiveAddress();
-    setActiveAddr(a && ws.some((w) => w.address === a) ? a : ws[0]?.address ?? null);
+    setActiveAddrLocal(a && ws.some((w) => w.address === a) ? a : ws[0]?.address ?? null);
   };
   useEffect(() => {
     reload();
@@ -1702,11 +1709,19 @@ function QuickSendPanel({
 
   const validAddr = /^0x[0-9a-fA-F]{40}$/.test(to.trim());
   const validAmt = /^\d+(\.\d+)?$/.test(amount.trim()) && parseFloat(amount) > 0;
-  const active = activeAddr ? getWallet(activeAddr) : null;
-  const canSend = !!active && validAddr && validAmt && !busy;
+  // When mobile-paired, the active "wallet" is virtual — we have the
+  // address from the pair handshake but no signing key on the dashboard.
+  const active = isRemote && remote
+    ? { address: remote.address, label: remote.label, privateKey: "" }
+    : activeAddr ? getWallet(activeAddr) : null;
+  const canSend = !!active && !isRemote && validAddr && validAmt && !busy;
 
   const submit = async () => {
     if (!active) return;
+    if (isRemote) {
+      setErrMsg("Mobile wallet connected — quick-send must be approved on your phone. Disconnect from the topbar to send from a stored key.");
+      return;
+    }
     setBusy(true);
     setOkHash(null);
     setErrMsg(null);
@@ -1732,8 +1747,8 @@ function QuickSendPanel({
     }
   };
 
-  // ── No wallets at all ──
-  if (wallets.length === 0) {
+  // ── No wallets at all (and no mobile pair either) ──
+  if (wallets.length === 0 && !isRemote) {
     return (
       <div className="rounded-xl border border-border bg-card p-5 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -1776,22 +1791,40 @@ function QuickSendPanel({
       </div>
 
       <div className="p-4 space-y-4">
+        {isRemote && remote && (
+          <div className="rounded-md border border-cyan-500/30 bg-cyan-500/5 p-2.5 text-xs text-cyan-100/80 flex items-start gap-2">
+            <Smartphone className="h-3.5 w-3.5 mt-0.5 shrink-0 text-cyan-300" />
+            <span>
+              Mobile wallet paired — quick-send approvals must happen on your phone.
+              Disconnect from the topbar to broadcast from a stored key.
+            </span>
+          </div>
+        )}
         {/* From + balance row */}
         <div className="grid md:grid-cols-[1fr_auto_auto] gap-3 items-end">
           <div>
             <label className="text-[11px] text-muted-foreground">From wallet</label>
-            <select
-              value={activeAddr ?? ""}
-              onChange={(e) => setActiveAddr(e.target.value)}
-              className="mt-1 w-full bg-card border border-border rounded-md px-2 py-1.5 text-xs font-mono"
-              data-testid="select-quick-send-from"
-            >
-              {wallets.map((w) => (
-                <option key={w.address} value={w.address}>
-                  {w.label} — {shortAddr(w.address, 8, 6)}
-                </option>
-              ))}
-            </select>
+            {isRemote && remote ? (
+              <div className="mt-1 w-full bg-card border border-cyan-500/40 rounded-md px-2 py-1.5 text-xs font-mono text-cyan-100 flex items-center gap-2">
+                <Smartphone className="h-3 w-3 text-cyan-300 shrink-0" />
+                <span className="truncate">
+                  {remote.label || "Mobile"} — {shortAddr(remote.address, 8, 6)}
+                </span>
+              </div>
+            ) : (
+              <select
+                value={activeAddrLocal ?? ""}
+                onChange={(e) => setActiveAddr(e.target.value)}
+                className="mt-1 w-full bg-card border border-border rounded-md px-2 py-1.5 text-xs font-mono"
+                data-testid="select-quick-send-from"
+              >
+                {wallets.map((w) => (
+                  <option key={w.address} value={w.address}>
+                    {w.label} — {shortAddr(w.address, 8, 6)}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
           <div className="text-right">
             <div className="text-[10px] text-muted-foreground">Balance</div>

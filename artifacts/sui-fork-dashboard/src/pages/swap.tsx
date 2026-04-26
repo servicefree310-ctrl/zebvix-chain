@@ -33,6 +33,8 @@ import {
 import { Link } from "wouter";
 import { MobileConnectButton } from "@/components/wallet-connect/MobileConnectButton";
 import { AddTokenDialog } from "@/components/tokens/AddTokenDialog";
+import { useWallet } from "@/contexts/wallet-context";
+import { Smartphone } from "lucide-react";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -233,8 +235,14 @@ interface QuoteResult {
 
 export default function SwapPage() {
   const { toast } = useToast();
+  const { remote, isRemote } = useWallet();
   const [wallets, setWallets] = useState<StoredWallet[]>([]);
-  const [active, setActive] = useState<string | null>(null);
+  const [localActive, setLocalActive] = useState<string | null>(null);
+  // Effective active address: paired mobile wallet wins over the locally-
+  // selected stored wallet so quotes, balances and the from-display all
+  // reflect the wallet the user actually expects to spend from.
+  const active: string | null = isRemote && remote ? remote.address : localActive;
+  const setActive = (a: string | null) => setLocalActive(a);
   const [zbxBalance, setZbxBalance] = useState<string>("0");
   const [zusdBalance, setZusdBalance] = useState<string>("0");
   const [direction, setDirection] = useState<SwapDirection>("zbx_to_zusd");
@@ -255,7 +263,7 @@ export default function SwapPage() {
     const ws = loadWallets();
     setWallets(ws);
     const a = getActiveAddress();
-    setActive(a && ws.some(w => w.address === a) ? a : ws[0]?.address ?? null);
+    setLocalActive(a && ws.some(w => w.address === a) ? a : ws[0]?.address ?? null);
   }, []);
 
   const refreshBalances = async (addr: string | null) => {
@@ -347,6 +355,14 @@ export default function SwapPage() {
   // ── Submit swap ─────────────────────────────────────────────────────
   const onSubmit = async () => {
     if (!active) { toast({ title: "no wallet", description: "create or import a wallet first" }); return; }
+    if (isRemote) {
+      toast({
+        title: "Mobile wallet connected",
+        description: "Local swap signing is paused. Disconnect from the topbar to swap with a stored key.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (!quote || !quote.would_succeed) { toast({ title: "quote unavailable", description: quote?.reason ?? "enter an amount first" }); return; }
     const w = getWallet(active);
     if (!w) { toast({ title: "wallet not found" }); return; }
@@ -486,12 +502,18 @@ export default function SwapPage() {
           </div>
         </Card>
       ) : (
-        <Card className="p-5">
+        <Card className={`p-5 ${isRemote ? "border-cyan-500/40" : ""}`}>
           <div className="flex items-center gap-3">
-            <WalletIcon className="h-5 w-5 text-cyan-400" />
-            <div className="flex-1">
-              <div className="text-xs text-muted-foreground">Active wallet</div>
-              <div className="font-mono text-sm">{shortAddr(active, 10, 8)}</div>
+            {isRemote ? (
+              <Smartphone className="h-5 w-5 text-cyan-300" />
+            ) : (
+              <WalletIcon className="h-5 w-5 text-cyan-400" />
+            )}
+            <div className="flex-1 min-w-0">
+              <div className="text-xs text-muted-foreground">
+                {isRemote ? `Active wallet · Mobile · ${remote?.label || "Mobile"}` : "Active wallet"}
+              </div>
+              <div className="font-mono text-sm truncate">{shortAddr(active, 10, 8)}</div>
             </div>
             <div className="text-right">
               <div className="text-xs text-muted-foreground">ZBX</div>
@@ -504,10 +526,10 @@ export default function SwapPage() {
             <Button variant="ghost" size="icon" onClick={() => refreshBalances(active)}>
               <RefreshCw className="h-4 w-4" />
             </Button>
-            {wallets.length > 1 && (
+            {!isRemote && wallets.length > 1 && (
               <select
                 className="bg-background border border-border rounded px-2 py-1 text-xs"
-                value={active}
+                value={localActive ?? ""}
                 onChange={e => setActive(e.target.value)}
                 data-testid="select-active-wallet"
               >
@@ -519,6 +541,15 @@ export default function SwapPage() {
               </select>
             )}
           </div>
+          {isRemote && (
+            <div className="mt-3 rounded-md border border-cyan-500/30 bg-cyan-500/5 p-2.5 text-xs text-cyan-100/80 flex items-start gap-2">
+              <Smartphone className="h-3.5 w-3.5 mt-0.5 shrink-0 text-cyan-300" />
+              <span>
+                Quotes use the paired mobile wallet's balance. Local swap signing is paused —
+                disconnect from the topbar to swap with a stored key.
+              </span>
+            </div>
+          )}
         </Card>
       )}
 

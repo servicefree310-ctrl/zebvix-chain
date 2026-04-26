@@ -42,6 +42,8 @@ import {
   getRecommendedFeeWei,
   type EthReceipt,
 } from "@/lib/zbx-rpc";
+import { useWallet } from "@/contexts/wallet-context";
+import { Smartphone } from "lucide-react";
 import {
   StoredWallet,
   TxRecord,
@@ -150,10 +152,31 @@ export default function WalletPage() {
 
   const onPick = (a: string) => { setActiveAddress(a); setActive(a); };
 
-  const activeWallet = useMemo(
+  // ── Mobile-paired wallet override ───────────────────────────────────────
+  // When a mobile wallet is paired via QR scan, it takes priority over any
+  // local wallet for display + as the "from" address. Local signing is
+  // disabled while paired — the user must disconnect the mobile wallet to
+  // sign locally (full WC sign-relay routing is a follow-up).
+  const { remote, isRemote } = useWallet();
+  const localActiveWallet = useMemo(
     () => wallets.find((w) => w.address === active) ?? null,
     [wallets, active],
   );
+  const activeWallet: StoredWallet | null = useMemo(() => {
+    if (isRemote && remote) {
+      return { address: remote.address, label: remote.label, privateKey: "" };
+    }
+    return localActiveWallet;
+  }, [isRemote, remote, localActiveWallet]);
+
+  // Refresh balance whenever the effective active address changes — this
+  // covers both local wallet picks and remote wallet pair/unpair events.
+  useEffect(() => {
+    if (isRemote && remote) {
+      refreshBalance(remote.address);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRemote, remote?.address]);
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -179,12 +202,31 @@ export default function WalletPage() {
         </WLink>
       </div>
 
+      {isRemote && remote && (
+        <div className="rounded-lg border border-cyan-500/40 bg-gradient-to-r from-cyan-500/10 via-cyan-500/5 to-transparent p-4 flex items-start gap-3">
+          <div className="rounded-md bg-cyan-500/20 p-2 mt-0.5">
+            <Smartphone className="h-4 w-4 text-cyan-300" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-cyan-200">
+              Mobile wallet connected · {remote.label || "Mobile"}
+            </div>
+            <div className="text-xs text-cyan-100/70 mt-0.5">
+              <code className="font-mono">{remote.address}</code> is the active wallet for
+              all transfers, swaps and on-chain actions in this session. Local-wallet signing
+              is paused — disconnect from the topbar to sign with a stored key instead.
+            </div>
+          </div>
+        </div>
+      )}
+
       <ActiveCard
         wallet={activeWallet}
         balance={balance}
         nonce={nonce}
         refreshing={refreshing}
-        onRefresh={() => refreshBalance(active)}
+        isRemote={isRemote}
+        onRefresh={() => refreshBalance(activeWallet?.address ?? null)}
         onCopy={(t, l) => copy(t, toast, l)}
       />
 
@@ -201,7 +243,8 @@ export default function WalletPage() {
             active={activeWallet}
             balance={balance}
             nonce={nonce}
-            onSent={() => { refreshBalance(active); setHistory(loadHistory()); }}
+            isRemote={isRemote}
+            onSent={() => { refreshBalance(activeWallet?.address ?? null); setHistory(loadHistory()); }}
           />
         </TabsContent>
 
@@ -237,10 +280,11 @@ function ActiveCard(props: {
   balance: string;
   nonce: number | null;
   refreshing: boolean;
+  isRemote?: boolean;
   onRefresh: () => void;
   onCopy: (t: string, l?: string) => void;
 }) {
-  const { wallet, balance, nonce, refreshing, onRefresh, onCopy } = props;
+  const { wallet, balance, nonce, refreshing, isRemote, onRefresh, onCopy } = props;
   if (!wallet) {
     return (
       <Card className="p-6 text-center text-sm text-muted-foreground">
@@ -249,11 +293,18 @@ function ActiveCard(props: {
     );
   }
   return (
-    <Card className="p-5 space-y-3 border-primary/20">
+    <Card className={`p-5 space-y-3 ${isRemote ? "border-cyan-500/40" : "border-primary/20"}`}>
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-xs uppercase tracking-wider text-muted-foreground">
-            Active wallet · {wallet.label}
+          <div className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+            {isRemote ? (
+              <>
+                <Smartphone className="h-3 w-3 text-cyan-300" />
+                <span className="text-cyan-200">Active wallet · Mobile · {wallet.label}</span>
+              </>
+            ) : (
+              <>Active wallet · {wallet.label}</>
+            )}
           </div>
           <button
             className="font-mono text-sm text-foreground hover:text-primary transition flex items-center gap-1.5"
@@ -483,9 +534,10 @@ function SendTab(props: {
   active: StoredWallet | null;
   balance: string;
   nonce: number | null;
+  isRemote: boolean;
   onSent: () => void;
 }) {
-  const { active, balance, nonce, onSent } = props;
+  const { active, balance, nonce, isRemote, onSent } = props;
   const { toast } = useToast();
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
@@ -591,6 +643,14 @@ function SendTab(props: {
 
   const submit = async () => {
     if (!resolvedTo) return;          // guarded by canReview but keep TS happy
+    if (isRemote || !active?.privateKey) {
+      toast({
+        title: "Mobile wallet connected",
+        description: "Local signing is paused. Disconnect the mobile wallet from the topbar to send from a stored key.",
+        variant: "destructive",
+      });
+      return;
+    }
     safeSet({ phase: "signing" });
     const ts = Date.now();
     let hash = "";
@@ -696,9 +756,23 @@ function SendTab(props: {
         </div>
       </div>
 
+      {isRemote && (
+        <div className="rounded-md border border-cyan-500/30 bg-cyan-500/5 p-3 text-xs text-cyan-100/80 flex items-start gap-2">
+          <Smartphone className="h-3.5 w-3.5 mt-0.5 shrink-0 text-cyan-300" />
+          <span>
+            A mobile wallet is currently paired. Local signing from this page is paused —
+            disconnect from the topbar to send using a stored key.
+          </span>
+        </div>
+      )}
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogTrigger asChild>
-          <Button disabled={!canReview} className="w-full" data-testid="button-review">
+          <Button
+            disabled={!canReview || isRemote}
+            className="w-full"
+            data-testid="button-review"
+            title={isRemote ? "Disconnect the paired mobile wallet to sign locally" : undefined}
+          >
             <Send className="h-4 w-4 mr-1.5" /> Review &amp; sign
           </Button>
         </DialogTrigger>

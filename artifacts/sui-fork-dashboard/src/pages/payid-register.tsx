@@ -120,6 +120,10 @@ export default function PayIdRegister() {
   async function onSubmit() {
     if (!active) return;
     if (!canonical) return;
+    if (active.kind === "remote") {
+      setErr("Mobile wallet connected — Pay-ID registration must be approved on your phone. Disconnect from the topbar to register from a stored key.");
+      return;
+    }
     setErr(null);
     setSubmitting(true);
     setTxHash(null);

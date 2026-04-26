@@ -689,6 +689,10 @@ function ActionDialog({
   };
 
   const submit = async () => {
+    if (active.kind === "remote") {
+      onError("Mobile wallet connected — staking actions must be approved on your phone. Disconnect from the topbar to stake with a stored key.");
+      return;
+    }
     setSubmitting(true);
     try {
       if (target.kind === "stake") {

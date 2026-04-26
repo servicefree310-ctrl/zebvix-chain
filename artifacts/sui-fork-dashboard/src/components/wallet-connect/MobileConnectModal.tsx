@@ -5,6 +5,8 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Smartphone, Loader2, Check, X } from "lucide-react";
+import { useWallet } from "@/contexts/wallet-context";
+import { shortAddr } from "@/lib/zbx-rpc";
 
 type Status = "idle" | "creating" | "waiting" | "connected" | "signing" | "done" | "error";
 
@@ -35,9 +37,11 @@ export function MobileConnectModal({
   onSigned,
 }: MobileConnectModalProps) {
   const { toast } = useToast();
+  const { connectRemote } = useWallet();
   const [status, setStatus] = useState<Status>("idle");
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [mobileAddr, setMobileAddr] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const requestIdRef = useRef<string | null>(null);
 
@@ -51,6 +55,7 @@ export function MobileConnectModal({
       setSession(null);
       setStatus("idle");
       setErrorMsg(null);
+      setMobileAddr(null);
       return;
     }
 
@@ -79,8 +84,37 @@ export function MobileConnectModal({
           try {
             const msg = JSON.parse(ev.data as string);
             if (msg.type === "ready") return;
-            // mobile announces with {type:'hello', role:'mobile'}
+            // mobile announces with {type:'hello', role:'mobile', address:'0x..', label?:'..'}
             if (msg.type === "hello" && msg.role === "mobile") {
+              // Strict validation: 0x-prefixed, exactly 40 hex chars after the prefix.
+              const raw = typeof msg.address === "string" ? msg.address.trim() : "";
+              const addr = /^0x[0-9a-fA-F]{40}$/.test(raw) ? raw : null;
+              if (!addr) {
+                setErrorMsg("Invalid mobile address");
+                setStatus("error");
+                toast({
+                  title: "Mobile pairing rejected",
+                  description: "The mobile sent an invalid wallet address.",
+                  variant: "destructive",
+                });
+                return;
+              }
+              if (addr) {
+                setMobileAddr(addr);
+                connectRemote({
+                  address: addr,
+                  label:
+                    typeof msg.label === "string" && msg.label.trim()
+                      ? msg.label
+                      : "Mobile Wallet",
+                  sessionId: info.id,
+                  relayUrl: info.relayUrl,
+                });
+                toast({
+                  title: "Mobile wallet connected",
+                  description: shortAddr(addr),
+                });
+              }
               setStatus("connected");
               if (signRequest) {
                 const id = crypto.randomUUID();
@@ -95,6 +129,12 @@ export function MobileConnectModal({
                   }),
                 );
                 setStatus("signing");
+              } else if (addr) {
+                // Pure pairing flow — auto-close after a short success view.
+                setTimeout(() => {
+                  setStatus("done");
+                  setTimeout(() => onClose(), 1200);
+                }, 600);
               }
               return;
             }
@@ -197,7 +237,7 @@ export function MobileConnectModal({
                 )}
               </div>
               <p className="text-xs text-zinc-400 text-center max-w-xs">
-                Apne Zebvix mobile wallet me Scan tab kholo aur is QR ko scan karo.
+                Open the Scan tab in your Zebvix mobile wallet and scan this QR.
               </p>
             </div>
           )}
@@ -205,7 +245,14 @@ export function MobileConnectModal({
         {status === "done" && (
           <div className="flex flex-col items-center gap-3 py-10 text-emerald-300">
             <Check className="w-10 h-10" />
-            <div className="font-medium">Signed on mobile</div>
+            <div className="font-medium">
+              {signRequest ? "Signed on mobile" : "Mobile wallet connected"}
+            </div>
+            {mobileAddr && !signRequest && (
+              <div className="font-mono text-xs text-zinc-300">
+                {shortAddr(mobileAddr)}
+              </div>
+            )}
             <Button onClick={onClose} className="mt-2">Close</Button>
           </div>
         )}

@@ -92,9 +92,14 @@ export default function BscSidePanel() {
 
   // ── In-browser wallet — driven by the global WalletContext so same-tab
   //     wallet swaps (top-bar picker, /wallet page) refresh us immediately.
-  const { wallets, active: activeWallet } = useWallet();
+  const { wallets, active: activeWallet, isRemote } = useWallet();
   const browserAddr = activeWallet?.address.toLowerCase() ?? null;
-  const browserKey = activeWallet?.privateKey ?? null;
+  // When a mobile wallet is paired we expose the address (so balances/UI
+  // reflect it) but never the signing key — the mobile must approve.
+  const browserKey =
+    activeWallet && activeWallet.kind !== "remote"
+      ? activeWallet.privateKey || null
+      : null;
 
   // ── MetaMask wallet state (fallback) ────────────────────────────────
   const [mmAccount, setMmAccount] = useState<string | null>(null);
@@ -241,7 +246,13 @@ export default function BscSidePanel() {
     try {
       let hash: string;
       if (mode === "browser") {
-        if (!browserKey) throw new Error("no in-browser wallet active");
+        if (!browserKey) {
+          throw new Error(
+            isRemote
+              ? "Mobile wallet paired — disconnect it (or switch to MetaMask) to approve from the browser."
+              : "no in-browser wallet active",
+          );
+        }
         hash = await approveWzbxInBrowser(cfgQ.data, browserKey, amountWei);
       } else {
         await ensureBscNetwork(cfgQ.data);
@@ -266,7 +277,13 @@ export default function BscSidePanel() {
     try {
       let hash: string;
       if (mode === "browser") {
-        if (!browserKey) throw new Error("no in-browser wallet active");
+        if (!browserKey) {
+          throw new Error(
+            isRemote
+              ? "Mobile wallet paired — disconnect it (or switch to MetaMask) to burn from the browser."
+              : "no in-browser wallet active",
+          );
+        }
         hash = await burnToZebvixInBrowser(cfgQ.data, browserKey, destAddr.trim(), amountWei);
       } else {
         await ensureBscNetwork(cfgQ.data);
@@ -536,14 +553,32 @@ export default function BscSidePanel() {
           </div>
         </div>
 
+        {mode === "browser" && isRemote && (
+          <div className="rounded-md border border-cyan-400/40 bg-cyan-400/5 p-2.5 text-xs text-cyan-300 flex items-start gap-2">
+            <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span>
+              Mobile wallet paired — in-browser bridging needs a local signing key.
+              Disconnect from the topbar or switch to MetaMask above to continue.
+            </span>
+          </div>
+        )}
+
         <div className="flex gap-2">
           {needsApprove ? (
-            <Button onClick={onApprove} disabled={busy || amountWei === 0n} className="flex-1">
+            <Button
+              onClick={onApprove}
+              disabled={busy || amountWei === 0n || (mode === "browser" && isRemote)}
+              className="flex-1"
+            >
               {busy ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               1) Approve {amountStr || "0"} wZBX
             </Button>
           ) : (
-            <Button onClick={onBurn} disabled={burnDisabled} className="flex-1">
+            <Button
+              onClick={onBurn}
+              disabled={burnDisabled || (mode === "browser" && isRemote)}
+              className="flex-1"
+            >
               {busy ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Flame className="h-4 w-4 mr-2" />}
               Burn & redeem on Zebvix
             </Button>

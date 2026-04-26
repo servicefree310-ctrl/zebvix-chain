@@ -13,6 +13,8 @@ import {
   EyeOff,
   AlertTriangle,
   Send,
+  Smartphone,
+  Unlink,
 } from "lucide-react";
 import { useWallet } from "@/contexts/wallet-context";
 import { useToast } from "@/hooks/use-toast";
@@ -24,7 +26,16 @@ import { LivePulse } from "./live-pulse";
  * Shows active address + balance + dropdown to switch / create / import.
  */
 export function WalletPicker() {
-  const { wallets, active, setActive, addGenerated } = useWallet();
+  const {
+    wallets,
+    active,
+    localActive,
+    remote,
+    isRemote,
+    setActive,
+    addGenerated,
+    disconnectRemote,
+  } = useWallet();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [bal, setBal] = useState<string>("—");
@@ -132,12 +143,24 @@ export function WalletPicker() {
     <div className="relative" data-wallet-picker>
       <button
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground shadow-sm transition hover:border-primary/40"
+        className={`inline-flex items-center gap-2 rounded-md border bg-card px-3 py-1.5 text-xs font-medium text-foreground shadow-sm transition hover:border-primary/40 ${
+          isRemote ? "border-cyan-500/50 ring-1 ring-cyan-500/20" : "border-border"
+        }`}
+        data-testid="topbar-wallet-picker"
       >
         <span className="flex items-center gap-1.5">
           <LivePulse />
-          <Wallet className="h-3.5 w-3.5 text-primary" />
+          {isRemote ? (
+            <Smartphone className="h-3.5 w-3.5 text-cyan-300" />
+          ) : (
+            <Wallet className="h-3.5 w-3.5 text-primary" />
+          )}
         </span>
+        {isRemote && (
+          <span className="hidden md:inline rounded bg-cyan-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-cyan-300">
+            Mobile
+          </span>
+        )}
         <span className="font-mono">{shortAddr(active.address)}</span>
         <span className="hidden text-primary sm:inline">{bal} ZBX</span>
         <ChevronDown className="h-3.5 w-3.5 opacity-60" />
@@ -145,9 +168,25 @@ export function WalletPicker() {
 
       {open && (
         <div className="absolute right-0 top-full z-50 mt-2 w-80 overflow-hidden rounded-lg border border-border bg-popover shadow-xl">
-          <div className="border-b border-border bg-gradient-to-br from-primary/10 to-transparent p-3">
-            <div className="text-[10px] font-semibold uppercase tracking-widest text-primary/80">
-              Active Wallet
+          <div
+            className={`border-b border-border p-3 ${
+              isRemote
+                ? "bg-gradient-to-br from-cyan-500/15 to-transparent"
+                : "bg-gradient-to-br from-primary/10 to-transparent"
+            }`}
+          >
+            <div
+              className={`flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest ${
+                isRemote ? "text-cyan-300" : "text-primary/80"
+              }`}
+            >
+              {isRemote ? (
+                <>
+                  <Smartphone className="h-3 w-3" /> Connected Mobile Wallet
+                </>
+              ) : (
+                "Active Wallet"
+              )}
             </div>
             <div className="mt-1 flex items-center gap-2">
               <code className="flex-1 truncate font-mono text-xs text-foreground">
@@ -162,112 +201,163 @@ export function WalletPicker() {
               </button>
             </div>
             <div className="mt-2 flex items-baseline gap-2">
-              <span className="font-mono text-2xl font-bold tabular-nums text-primary">
+              <span
+                className={`font-mono text-2xl font-bold tabular-nums ${
+                  isRemote ? "text-cyan-300" : "text-primary"
+                }`}
+              >
                 {bal}
               </span>
               <span className="text-xs text-muted-foreground">ZBX</span>
             </div>
             <div className="mt-0.5 text-[10px] text-muted-foreground">
               {active.label}
+              {isRemote && remote ? (
+                <>
+                  {" · "}
+                  signs on mobile · session{" "}
+                  <span className="font-mono">{remote.sessionId.slice(0, 8)}</span>
+                </>
+              ) : null}
             </div>
 
-            {/* ── Private key reveal — gated behind a confirm step + 30s auto-hide. */}
-            <div className="mt-3 border-t border-border/60 pt-2">
-              {!confirmReveal && !revealKey && (
+            {isRemote ? (
+              /* Remote (mobile-paired) — show disconnect, hide private key. */
+              <div className="mt-3 border-t border-border/60 pt-2 space-y-2">
+                <div className="flex items-start gap-1.5 rounded bg-cyan-500/10 p-2 text-[11px] text-cyan-100">
+                  <Smartphone className="mt-0.5 h-3 w-3 shrink-0" />
+                  <span>
+                    Every transaction, swap and transfer on this dashboard
+                    will use this mobile wallet. Approvals happen on your
+                    phone — keys never leave the device.
+                  </span>
+                </div>
                 <button
-                  onClick={() => setConfirmReveal(true)}
-                  className="inline-flex w-full items-center justify-center gap-1.5 rounded border border-border bg-card/50 px-2 py-1.5 text-[11px] font-medium text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+                  onClick={() => {
+                    disconnectRemote();
+                    setOpen(false);
+                    toast({ title: "Mobile wallet disconnected" });
+                  }}
+                  className="inline-flex w-full items-center justify-center gap-1.5 rounded border border-border bg-card/50 px-2 py-1.5 text-[11px] font-medium text-muted-foreground transition hover:border-red-500/40 hover:text-red-300"
+                  data-testid="button-disconnect-mobile"
                 >
-                  <Eye className="h-3 w-3" />
-                  Show / copy private key
+                  <Unlink className="h-3 w-3" />
+                  Disconnect mobile wallet
                 </button>
-              )}
-              {confirmReveal && !revealKey && (
-                <div className="space-y-2">
-                  <div className="flex items-start gap-1.5 rounded bg-amber-500/10 p-2 text-[11px] text-amber-200">
-                    <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
-                    <span>
-                      Bhai, private key dikhane se anyone with screen access
-                      apka wallet drain kar sakta hai. Auto-hide after 30s.
-                    </span>
+              </div>
+            ) : (
+              /* Local hot wallet — private key reveal flow (existing). */
+              <div className="mt-3 border-t border-border/60 pt-2">
+                {!confirmReveal && !revealKey && (
+                  <button
+                    onClick={() => setConfirmReveal(true)}
+                    className="inline-flex w-full items-center justify-center gap-1.5 rounded border border-border bg-card/50 px-2 py-1.5 text-[11px] font-medium text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+                  >
+                    <Eye className="h-3 w-3" />
+                    Show / copy private key
+                  </button>
+                )}
+                {confirmReveal && !revealKey && (
+                  <div className="space-y-2">
+                    <div className="flex items-start gap-1.5 rounded bg-amber-500/10 p-2 text-[11px] text-amber-200">
+                      <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                      <span>
+                        Anyone with screen access to your private key can drain
+                        this wallet. Auto-hides after 30 seconds.
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1">
+                      <button
+                        onClick={() => setConfirmReveal(false)}
+                        className="rounded border border-border bg-card px-2 py-1 text-[11px] font-medium text-muted-foreground transition hover:text-foreground"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => {
+                          setRevealKey(true);
+                          setConfirmReveal(false);
+                        }}
+                        className="rounded bg-primary px-2 py-1 text-[11px] font-semibold text-primary-foreground transition hover:bg-primary/90"
+                      >
+                        Reveal
+                      </button>
+                    </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-1">
-                    <button
-                      onClick={() => setConfirmReveal(false)}
-                      className="rounded border border-border bg-card px-2 py-1 text-[11px] font-medium text-muted-foreground transition hover:text-foreground"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={() => {
-                        setRevealKey(true);
-                        setConfirmReveal(false);
-                      }}
-                      className="rounded bg-primary px-2 py-1 text-[11px] font-semibold text-primary-foreground transition hover:bg-primary/90"
-                    >
-                      Reveal
-                    </button>
+                )}
+                {revealKey && active.kind === "local" && (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-widest text-amber-300">
+                      <span>Private Key (32 bytes hex)</span>
+                      <button
+                        onClick={() => setRevealKey(false)}
+                        className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                        title="Hide"
+                      >
+                        <EyeOff className="h-3 w-3" />
+                        Hide
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2 rounded border border-amber-500/40 bg-amber-500/5 p-2">
+                      <code className="flex-1 break-all font-mono text-[10px] leading-tight text-amber-100">
+                        {active.privateKey}
+                      </code>
+                      <button
+                        onClick={copyPrivateKey}
+                        className="shrink-0 rounded bg-primary px-2 py-1 text-[10px] font-semibold text-primary-foreground transition hover:bg-primary/90"
+                      >
+                        <Copy className="h-3 w-3" />
+                      </button>
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">
+                      EVM-compatible — works in MetaMask, Phantom (EVM), Rabby.
+                    </div>
                   </div>
-                </div>
-              )}
-              {revealKey && (
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-widest text-amber-300">
-                    <span>Private Key (32 bytes hex)</span>
-                    <button
-                      onClick={() => setRevealKey(false)}
-                      className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                      title="Hide"
-                    >
-                      <EyeOff className="h-3 w-3" />
-                      Hide
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-2 rounded border border-amber-500/40 bg-amber-500/5 p-2">
-                    <code className="flex-1 break-all font-mono text-[10px] leading-tight text-amber-100">
-                      {active.privateKey}
-                    </code>
-                    <button
-                      onClick={copyPrivateKey}
-                      className="shrink-0 rounded bg-primary px-2 py-1 text-[10px] font-semibold text-primary-foreground transition hover:bg-primary/90"
-                    >
-                      <Copy className="h-3 w-3" />
-                    </button>
-                  </div>
-                  <div className="text-[10px] text-muted-foreground">
-                    EVM-compatible · works in MetaMask, Phantom (EVM), Rabby.
-                  </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="max-h-56 overflow-y-auto">
-            {wallets.length > 1 && (
+            {wallets.length > 0 && (
               <>
-                <div className="px-3 pt-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                  Switch
+                <div className="flex items-center justify-between px-3 pt-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    Local hot wallets
+                  </div>
+                  {isRemote && (
+                    <div className="text-[9px] text-muted-foreground italic">
+                      paused while mobile is connected
+                    </div>
+                  )}
                 </div>
-                {wallets.map((w) => (
-                  <button
-                    key={w.address}
-                    onClick={() => {
-                      setActive(w.address);
-                      setOpen(false);
-                    }}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition hover:bg-muted"
-                  >
-                    {w.address.toLowerCase() === active.address.toLowerCase() ? (
-                      <Check className="h-3.5 w-3.5 text-primary" />
-                    ) : (
-                      <span className="h-3.5 w-3.5" />
-                    )}
-                    <span className="flex-1 truncate font-mono">
-                      {shortAddr(w.address)}
-                    </span>
-                    <span className="text-muted-foreground">{w.label}</span>
-                  </button>
-                ))}
+                {wallets.map((w) => {
+                  const isLocalActive =
+                    !isRemote &&
+                    localActive?.address.toLowerCase() === w.address.toLowerCase();
+                  return (
+                    <button
+                      key={w.address}
+                      onClick={() => {
+                        setActive(w.address);
+                        setOpen(false);
+                      }}
+                      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition hover:bg-muted ${
+                        isRemote ? "opacity-60" : ""
+                      }`}
+                    >
+                      {isLocalActive ? (
+                        <Check className="h-3.5 w-3.5 text-primary" />
+                      ) : (
+                        <span className="h-3.5 w-3.5" />
+                      )}
+                      <span className="flex-1 truncate font-mono">
+                        {shortAddr(w.address)}
+                      </span>
+                      <span className="text-muted-foreground">{w.label}</span>
+                    </button>
+                  );
+                })}
               </>
             )}
           </div>

@@ -211,6 +211,14 @@ export default function TokenCreatePage() {
 
   const submit = async () => {
     if (!active) return;
+    if (active.kind === "remote") {
+      toast({
+        title: "Mobile wallet connected",
+        description: "Token creation must be approved on your phone. Disconnect from the topbar to mint with a stored key.",
+        variant: "destructive",
+      });
+      return;
+    }
     setStatus({ kind: "submitting" });
     try {
       const sym = symbol.trim().toUpperCase();
