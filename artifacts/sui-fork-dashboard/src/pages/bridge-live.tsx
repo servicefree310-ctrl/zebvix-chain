@@ -134,8 +134,8 @@ function LockVaultPanel() {
           <div className="mt-1 flex items-center gap-2 font-mono text-xs break-all">
             {data?.lock_address ? (
               <>
-                <WLink href={`/block-explorer?q=${data.lock_address}`}>
-                  <a className="hover:text-primary">{data.lock_address}</a>
+                <WLink href={`/block-explorer?q=${data.lock_address}`} className="hover:text-primary">
+                  {data.lock_address}
                 </WLink>
                 <CopyBtn value={data.lock_address} />
               </>
@@ -477,11 +477,12 @@ function BridgeOutForm() {
           <div className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-1 font-mono text-xs">
             <div className="text-muted-foreground">Tx hash</div>
             <div className="break-all flex items-center gap-2">
-              <WLink href={`/block-explorer?q=${result.hash}`}>
-                <a className="hover:text-primary inline-flex items-center gap-1">
-                  {result.hash}
-                  <ExternalLink className="h-3 w-3" />
-                </a>
+              <WLink
+                href={`/block-explorer?q=${result.hash}`}
+                className="hover:text-primary inline-flex items-center gap-1"
+              >
+                {result.hash}
+                <ExternalLink className="h-3 w-3" />
               </WLink>
               <CopyBtn value={result.hash} />
             </div>
@@ -532,17 +533,19 @@ function ActiveWalletPanel({
             : "Bridge-out signs locally with your wallet's private key. Create or import a wallet first — it's stored only in this browser's localStorage."}
         </div>
         <div className="flex gap-2">
-          <WLink href="/wallet">
-            <a className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90">
-              <WalletIcon className="h-3.5 w-3.5" />
-              {walletCount > 0 ? "Open wallet" : "Create wallet"}
-            </a>
+          <WLink
+            href="/wallet"
+            className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+          >
+            <WalletIcon className="h-3.5 w-3.5" />
+            {walletCount > 0 ? "Open wallet" : "Create wallet"}
           </WLink>
-          <WLink href="/import-wallet">
-            <a className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground hover:border-primary/60">
-              <UserPlus className="h-3.5 w-3.5" />
-              Import key
-            </a>
+          <WLink
+            href="/import-wallet"
+            className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground hover:border-primary/60"
+          >
+            <UserPlus className="h-3.5 w-3.5" />
+            Import key
           </WLink>
         </div>
       </div>
@@ -572,8 +575,8 @@ function ActiveWalletPanel({
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 items-center">
         <div className="font-mono text-xs break-all flex items-center gap-2">
-          <WLink href={`/block-explorer?q=${wallet.address}`}>
-            <a className="hover:text-primary">{wallet.address}</a>
+          <WLink href={`/block-explorer?q=${wallet.address}`} className="hover:text-primary">
+            {wallet.address}
           </WLink>
           <CopyBtn value={wallet.address} />
         </div>
@@ -592,10 +595,11 @@ function ActiveWalletPanel({
           The private key for this address never leaves your browser. Signing
           happens in-page; only the signed envelope is broadcast.
         </span>
-        <WLink href="/wallet">
-          <a className="shrink-0 inline-flex items-center gap-1 hover:text-primary">
-            Change wallet <ArrowRightCircle className="h-3 w-3" />
-          </a>
+        <WLink
+          href="/wallet"
+          className="shrink-0 inline-flex items-center gap-1 hover:text-primary"
+        >
+          Change wallet <ArrowRightCircle className="h-3 w-3" />
         </WLink>
       </div>
     </div>
@@ -670,8 +674,8 @@ function RecentEventsFeed() {
               <div className="grid grid-cols-[80px_1fr] gap-x-2 gap-y-0.5 font-mono">
                 <div className="text-muted-foreground">From</div>
                 <div className="break-all">
-                  <WLink href={`/block-explorer?q=${e.from}`}>
-                    <a className="hover:text-primary">{e.from}</a>
+                  <WLink href={`/block-explorer?q=${e.from}`} className="hover:text-primary">
+                    {e.from}
                   </WLink>
                 </div>
                 <div className="text-muted-foreground">To (foreign)</div>
@@ -682,8 +686,8 @@ function RecentEventsFeed() {
                 </div>
                 <div className="text-muted-foreground">Tx</div>
                 <div className="break-all">
-                  <WLink href={`/block-explorer?q=${e.tx_hash}`}>
-                    <a className="hover:text-primary">{shortAddr(e.tx_hash, 14, 10)}</a>
+                  <WLink href={`/block-explorer?q=${e.tx_hash}`} className="hover:text-primary">
+                    {shortAddr(e.tx_hash, 14, 10)}
                   </WLink>
                 </div>
               </div>
@@ -779,7 +783,7 @@ export default function BridgeLive() {
           asset on the destination network. Outbound is fully decentralized —
           inbound (BridgeIn) is admin-gated until the multisig-oracle upgrade
           ships. See{" "}
-          <WLink href="/bridge"><a className="text-primary hover:underline">/bridge</a></WLink>{" "}
+          <WLink href="/bridge" className="text-primary hover:underline">/bridge</WLink>{" "}
           for full architecture docs.
         </p>
       </div>
