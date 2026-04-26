@@ -451,7 +451,9 @@ impl<'db, D: ZvmDb> Interp<'db, D> {
             0x02 => self.arith(G_LOW, |a, b| a.overflowing_mul(b).0),
             0x03 => self.arith(G_VERY_LOW, |a, b| a.overflowing_sub(b).0),
             0x04 => self.arith(G_LOW, |a, b| if b.is_zero() { U256::zero() } else { a / b }),
+            0x05 => self.arith(G_LOW, signed_div),
             0x06 => self.arith(G_LOW, |a, b| if b.is_zero() { U256::zero() } else { a % b }),
+            0x07 => self.arith(G_LOW, signed_mod),
             0x08 => self.arith3(G_MID, |a, b, n| if n.is_zero() { U256::zero() } else { (a + b) % n }),
             0x09 => self.arith3(G_MID, |a, b, n| if n.is_zero() { U256::zero() } else { (a.overflowing_mul(b).0) % n }),
             0x0a => self.op_exp(),
@@ -460,6 +462,8 @@ impl<'db, D: ZvmDb> Interp<'db, D> {
             // Comparison & bitwise
             0x10 => self.cmp(|a, b| a < b),
             0x11 => self.cmp(|a, b| a > b),
+            0x12 => self.cmp(signed_lt),
+            0x13 => self.cmp(signed_gt),
             0x14 => self.cmp(|a, b| a == b),
             0x15 => {
                 if let Err(e) = self.use_gas(G_VERY_LOW) { return StepResult::Error(e); }
@@ -479,6 +483,7 @@ impl<'db, D: ZvmDb> Interp<'db, D> {
             0x1a => self.op_byte(),
             0x1b => self.op_shl(),
             0x1c => self.op_shr(),
+            0x1d => self.op_sar(),
 
             // KECCAK256
             0x20 => self.op_keccak(),
@@ -496,7 +501,9 @@ impl<'db, D: ZvmDb> Interp<'db, D> {
             0x39 => self.op_codecopy(code),
             0x3a => self.push_value(U256::from(0u64)), // gasprice constant 0 in this layer
             0x3b => self.op_extcodesize(),
+            0x3c => self.op_extcodecopy(),
             0x3d => self.push_value(U256::from(self.return_data.len())),
+            0x3e => self.op_returndatacopy(),
             0x3f => self.op_extcodehash(),
 
             // Block
@@ -652,6 +659,78 @@ impl<'db, D: ZvmDb> Interp<'db, D> {
         let v = match self.pop() { Ok(v) => v, Err(e) => return StepResult::Error(e) };
         let result = if shift >= U256::from(256) { U256::zero() } else { v >> shift.as_u32() };
         let _ = self.push(result);
+        StepResult::Continue
+    }
+
+    /// EIP-145 SAR — signed (arithmetic) shift right. Preserves the sign bit
+    /// by shifting in copies of the high bit. For shift >= 256, the result is
+    /// 0 if non-negative, all-ones (-1) if negative.
+    fn op_sar(&mut self) -> StepResult {
+        if let Err(e) = self.use_gas(G_VERY_LOW) { return StepResult::Error(e); }
+        let shift = match self.pop() { Ok(v) => v, Err(e) => return StepResult::Error(e) };
+        let v = match self.pop() { Ok(v) => v, Err(e) => return StepResult::Error(e) };
+        let is_neg = v.bit(255);
+        let result = if shift >= U256::from(256) {
+            if is_neg { !U256::zero() } else { U256::zero() }
+        } else {
+            let s = shift.as_u32();
+            let logical = v >> s;
+            if is_neg && s > 0 {
+                // Set the top `s` bits to 1.
+                let mask = (!U256::zero()) << (256 - s);
+                logical | mask
+            } else {
+                logical
+            }
+        };
+        let _ = self.push(result);
+        StepResult::Continue
+    }
+
+    /// EXTCODECOPY — copy `len` bytes of `addr`'s deployed code starting at
+    /// `code_off` into caller's memory at `dst_off`. Out-of-bounds source
+    /// reads are zero-padded per yellow paper §9.4.
+    fn op_extcodecopy(&mut self) -> StepResult {
+        if let Err(e) = self.use_gas(G_EXTCODE) { return StepResult::Error(e); }
+        let a = match self.pop() { Ok(v) => v, Err(e) => return StepResult::Error(e) };
+        let dst = match self.pop() { Ok(v) => v.as_usize(), Err(e) => return StepResult::Error(e) };
+        let src = match self.pop() { Ok(v) => v.as_usize(), Err(e) => return StepResult::Error(e) };
+        let len = match self.pop() { Ok(v) => v.as_usize(), Err(e) => return StepResult::Error(e) };
+        let words = (len as u64 + 31) / 32;
+        if let Err(e) = self.use_gas(G_COPY * words) { return StepResult::Error(e); }
+        let addr = u256_to_address(a);
+        let code = self.db.account(&addr)
+            .and_then(|acct| if acct.code_hash != KECCAK_EMPTY {
+                self.db.code(&acct.code_hash)
+            } else { None })
+            .unwrap_or_default();
+        let mut buf = vec![0u8; len];
+        for i in 0..len {
+            let s = src + i;
+            if s < code.len() { buf[i] = code[s]; }
+        }
+        if let Err(e) = self.mem_write(dst, &buf) { return StepResult::Error(e); }
+        StepResult::Continue
+    }
+
+    /// RETURNDATACOPY (EIP-211) — copy from the most-recent sub-call's
+    /// `return_data` buffer. Unlike CALLDATA/CODECOPY, this MUST revert
+    /// when source range exceeds the buffer (no zero-padding).
+    fn op_returndatacopy(&mut self) -> StepResult {
+        if let Err(e) = self.use_gas(G_VERY_LOW) { return StepResult::Error(e); }
+        let dst = match self.pop() { Ok(v) => v.as_usize(), Err(e) => return StepResult::Error(e) };
+        let src = match self.pop() { Ok(v) => v.as_usize(), Err(e) => return StepResult::Error(e) };
+        let len = match self.pop() { Ok(v) => v.as_usize(), Err(e) => return StepResult::Error(e) };
+        let words = (len as u64 + 31) / 32;
+        if let Err(e) = self.use_gas(G_COPY * words) { return StepResult::Error(e); }
+        // EIP-211: out-of-bounds read aborts the whole frame.
+        let end = src.checked_add(len).ok_or("return data offset overflow");
+        let end = match end { Ok(e) => e, Err(e) => return StepResult::Error(e) };
+        if end > self.return_data.len() {
+            return StepResult::Error("RETURNDATACOPY out of bounds");
+        }
+        let buf = self.return_data[src..end].to_vec();
+        if let Err(e) = self.mem_write(dst, &buf) { return StepResult::Error(e); }
         StepResult::Continue
     }
 
@@ -1369,6 +1448,71 @@ fn u256_to_address(v: U256) -> Address {
     Address::from_bytes(out)
 }
 
+// ---------------------------------------------------------------------------
+// Signed-arithmetic helpers for SDIV / SMOD / SLT / SGT
+//
+// EVM 256-bit signed integers use two's complement: bit 255 is the sign bit.
+// We provide cheap helpers that interpret a `U256` as `I256` without needing
+// a third-party crate. All inputs/outputs remain `U256`/`bool` to slot into
+// the interpreter's `arith`/`cmp` callbacks unchanged.
+// ---------------------------------------------------------------------------
+
+/// True if the U256 value, interpreted as I256, is negative (top bit set).
+#[inline]
+fn is_neg_i256(v: U256) -> bool { v.bit(255) }
+
+/// Two's-complement negation: `!v + 1` (wrapping). For `0` returns `0`.
+#[inline]
+fn neg_i256(v: U256) -> U256 { (!v).overflowing_add(U256::one()).0 }
+
+/// Absolute value as U256. The minimum signed value (`I256::MIN = 0x8000…`)
+/// negates to itself; callers (SDIV / SMOD) handle that overflow case.
+#[inline]
+fn abs_i256(v: U256) -> U256 {
+    if is_neg_i256(v) { neg_i256(v) } else { v }
+}
+
+/// Signed division per EVM spec:
+///   * `b == 0`           → 0
+///   * `a == I256::MIN && b == -1` → I256::MIN  (overflow wraps to MIN)
+///   * otherwise           → `(|a| / |b|)` with sign = `sign(a) XOR sign(b)`
+fn signed_div(a: U256, b: U256) -> U256 {
+    if b.is_zero() { return U256::zero(); }
+    let i256_min = U256::one() << 255;
+    let neg_one = !U256::zero();
+    if a == i256_min && b == neg_one {
+        return i256_min;
+    }
+    let neg_result = is_neg_i256(a) ^ is_neg_i256(b);
+    let q = abs_i256(a) / abs_i256(b);
+    if neg_result { neg_i256(q) } else { q }
+}
+
+/// Signed modulo per EVM spec:
+///   * `b == 0` → 0
+///   * Sign of result = sign of dividend `a`.
+fn signed_mod(a: U256, b: U256) -> U256 {
+    if b.is_zero() { return U256::zero(); }
+    let r = abs_i256(a) % abs_i256(b);
+    if is_neg_i256(a) { neg_i256(r) } else { r }
+}
+
+/// Signed less-than per EVM spec.
+fn signed_lt(a: U256, b: U256) -> bool {
+    let na = is_neg_i256(a);
+    let nb = is_neg_i256(b);
+    match (na, nb) {
+        (true, false) => true,
+        (false, true) => false,
+        // Same sign: unsigned comparison gives the right answer because
+        // two's-complement preserves ordering within a sign bucket.
+        _ => a < b,
+    }
+}
+
+/// Signed greater-than per EVM spec.
+fn signed_gt(a: U256, b: U256) -> bool { signed_lt(b, a) }
+
 /// Pre-scan code for valid JUMPDEST positions, skipping over PUSHN immediate
 /// data so embedded 0x5b bytes are not treated as jumpdests.
 pub fn scan_jumpdests(code: &[u8]) -> Vec<bool> {
@@ -1456,6 +1600,76 @@ mod tests {
         data.extend_from_slice(b"hello");
         data.extend_from_slice(&[0u8; 27]);
         assert_eq!(decode_revert_reason(&data), Some("hello".to_string()));
+    }
+
+    #[test]
+    fn signed_div_handles_negatives_and_overflow() {
+        let neg_one = !U256::zero();
+        let neg_two = !U256::one() + U256::one(); // -2
+        let i256_min = U256::one() << 255;
+        // -2 / -1 = 2
+        assert_eq!(signed_div(neg_two, neg_one), U256::from(2u64));
+        // 10 / -2 = -5
+        assert_eq!(signed_div(U256::from(10u64), neg_two), neg_i256(U256::from(5u64)));
+        // I256::MIN / -1 = I256::MIN (overflow wraps)
+        assert_eq!(signed_div(i256_min, neg_one), i256_min);
+        // x / 0 = 0
+        assert_eq!(signed_div(U256::from(7u64), U256::zero()), U256::zero());
+    }
+
+    #[test]
+    fn signed_mod_sign_follows_dividend() {
+        let neg_seven = neg_i256(U256::from(7u64));
+        let neg_three = neg_i256(U256::from(3u64));
+        // -7 % 3 = -1   (sign follows dividend)
+        assert_eq!(signed_mod(neg_seven, U256::from(3u64)), neg_i256(U256::one()));
+        // 7 % -3 = 1    (positive dividend → positive result)
+        assert_eq!(signed_mod(U256::from(7u64), neg_three), U256::one());
+        // x % 0 = 0
+        assert_eq!(signed_mod(U256::from(7u64), U256::zero()), U256::zero());
+    }
+
+    #[test]
+    fn signed_lt_gt_cross_sign() {
+        let neg_one = !U256::zero();
+        let one = U256::one();
+        // -1 < 1
+        assert!(signed_lt(neg_one, one));
+        assert!(!signed_gt(neg_one, one));
+        // 1 > -1
+        assert!(signed_gt(one, neg_one));
+        // -2 < -1
+        let neg_two = neg_i256(U256::from(2u64));
+        assert!(signed_lt(neg_two, neg_one));
+    }
+
+    #[test]
+    fn sar_preserves_sign() {
+        // SAR: PUSH1 0x01 PUSH32 -1 SAR PUSH1 0x00 MSTORE PUSH1 0x20 PUSH1 0x00 RETURN
+        // -1 >>(arith) 1 = -1 (sign extends)
+        let mut code = vec![0x60, 0x01]; // PUSH1 1
+        code.push(0x7f); // PUSH32
+        code.extend_from_slice(&[0xffu8; 32]); // -1
+        code.push(0x1d); // SAR
+        code.extend_from_slice(&[0x60, 0x00, 0x52]); // PUSH1 0 MSTORE
+        code.extend_from_slice(&[0x60, 0x20, 0x60, 0x00, 0xf3]); // PUSH1 32 PUSH1 0 RETURN
+        let db = StubDb;
+        let mut interp = Interp::new(&db, &ctx(), 1_000_000);
+        let res = interp.run(&code);
+        assert!(res.success);
+        // Result should be all-ones (-1 in two's complement).
+        assert_eq!(res.return_data, vec![0xffu8; 32]);
+    }
+
+    #[test]
+    fn returndatacopy_out_of_bounds_aborts() {
+        // RETURNDATACOPY when no return data exists, len=1 → must error.
+        // PUSH1 0x01 PUSH1 0x00 PUSH1 0x00 RETURNDATACOPY (dst=0, src=0, len=1)
+        let code = vec![0x60, 0x01, 0x60, 0x00, 0x60, 0x00, 0x3e];
+        let db = StubDb;
+        let mut interp = Interp::new(&db, &ctx(), 1_000_000);
+        let res = interp.run(&code);
+        assert!(!res.success, "out-of-bounds RETURNDATACOPY must revert");
     }
 
     #[test]

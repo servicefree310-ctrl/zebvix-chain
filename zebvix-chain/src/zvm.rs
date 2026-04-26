@@ -219,6 +219,12 @@ impl ZvmAccount {
 ///
 /// Indexed in `CF_LOGS` by `(block_height, log_index)` and additionally by
 /// `(address, topic0..topic3)` so `eth_getLogs` filters are O(log n).
+///
+/// Note: `tx_hash`, `block_height`, and `log_index` are stamped at emission
+/// with the placeholder `0` values inside the interpreter (which has no
+/// access to the canonical RLP tx hash). They are backfilled by the RPC
+/// dispatcher (`zvm_rpc::eth_sendRawTransaction`) immediately before
+/// `store_logs` so persisted entries always carry the correct identity.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ZvmLog {
     pub address: Address,
@@ -227,6 +233,29 @@ pub struct ZvmLog {
     pub block_height: u64,
     pub tx_hash: H256,
     pub log_index: u32,
+}
+
+/// Tier-2 — Persistent receipt for an executed ZVM transaction. Stored in
+/// `CF_LOGS` under a tx-hash-prefixed key so `eth_getTransactionReceipt`
+/// resolves in one point lookup. Mirrors the Ethereum receipt shape so
+/// wallets / explorers / bridge relayers can deserialize byte-for-byte
+/// against Geth/Erigon clients.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ZvmReceipt {
+    pub tx_hash: H256,
+    pub from: Address,
+    /// `None` when the tx is a CREATE (the deployed address is in `contract_address`).
+    pub to: Option<Address>,
+    /// Set on successful CREATE.
+    pub contract_address: Option<Address>,
+    pub block_height: u64,
+    pub block_hash: H256,
+    pub tx_index: u32,
+    pub gas_used: u64,
+    pub effective_gas_price: u128,
+    pub success: bool,
+    pub logs: Vec<ZvmLog>,
+    pub revert_reason: Option<String>,
 }
 
 /// Result of executing a ZVM call/create.
@@ -488,6 +517,18 @@ pub fn execute<D: ZvmDb>(
         caller_acct.balance = caller_acct.balance.saturating_add(tx.value());
     }
     journal.touched_accounts.push((*from, caller_acct));
+
+    // Tier-3 / EIP-3529 — cap gas refunds at gas_used / 5. The `gas_refunded`
+    // counter accumulates SSTORE-clearing refunds (4_800 per cleared slot)
+    // during execution but the protocol caps the actual refund applied to
+    // the caller. Apply the cap once here so callers (RPC, fee accounting)
+    // receive a spec-conforming value.
+    let mut exec_result = exec_result;
+    let total_used = exec_result.gas_used.saturating_add(intrinsic);
+    let max_refund = total_used / 5;
+    if exec_result.gas_refunded > max_refund {
+        exec_result.gas_refunded = max_refund;
+    }
 
     (exec_result, journal)
 }

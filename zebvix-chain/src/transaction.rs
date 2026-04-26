@@ -513,7 +513,7 @@ mod tests {
         let (sk, pk) = generate_keypair();
         let from = address_from_pubkey(&pk);
         let body = TxBody::transfer(from, Address::ZERO, 42, 0, 1, 7878);
-        let tx = body.sign(&sk);
+        let tx = body.sign(&sk).expect("sign");
         assert!(tx.verify());
         assert_eq!(tx.sender_address(), from);
     }
@@ -523,7 +523,7 @@ mod tests {
         let (sk, pk) = generate_keypair();
         let from = address_from_pubkey(&pk);
         let body = TxBody::transfer(from, Address::ZERO, 1, 7, 1, 7878);
-        let tx = body.sign(&sk);
+        let tx = body.sign(&sk).expect("sign");
         assert_eq!(tx.hash(), tx.hash());
     }
 
@@ -532,7 +532,7 @@ mod tests {
         let (sk, pk) = generate_keypair();
         let from = address_from_pubkey(&pk);
         let body = TxBody::transfer(from, Address::ZERO, 1, 0, 1, 7878);
-        let tx = body.sign(&sk);
+        let tx = body.sign(&sk).expect("sign");
         let bytes = tx.to_bytes();
         let decoded = SignedTx::from_bytes(&bytes).expect("decode");
         assert_eq!(decoded, tx);
@@ -550,7 +550,7 @@ mod tests {
         let (sk, pk) = generate_keypair();
         let from = address_from_pubkey(&pk);
         let body = TxBody::transfer(from, Address::ZERO, 1, 0, 1, 7878);
-        let mut tx = body.sign(&sk);
+        let mut tx = body.sign(&sk).expect("sign");
         tx.signature[0] ^= 0xff;
         assert!(!tx.verify());
     }

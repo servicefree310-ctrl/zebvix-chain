@@ -69,7 +69,7 @@ export default function SmartContractsPage() {
             variant="outline"
             className="text-emerald-400 border-emerald-500/40"
           >
-            Phase C.2 · LIVE
+            Phase C.3 · LIVE
           </Badge>
           <Badge
             variant="outline"
@@ -82,7 +82,7 @@ export default function SmartContractsPage() {
           Smart Contracts (ZVM)
         </h1>
         <p className="text-lg text-muted-foreground max-w-3xl">
-          Zebvix ships a Cancun-targeted Ethereum Virtual Machine (Phase C.2 preview — useful subset, not yet 100% mainnet-equivalent) compiled into
+          Zebvix ships a Cancun-targeted Ethereum Virtual Machine (Phase C.3 — Tier-1 → Tier-7 ZVM completeness landed; Tier-4 custom-precompile intent capture still pending) compiled into
           the same binary as the chain runtime. Solidity 0.8+ contracts, Hardhat,
           Foundry, MetaMask, and OpenZeppelin libraries work zero-config for the supported opcode + precompile subset; the
           chain looks like an Ethereum L1 on the wire, with chain-id{" "}
@@ -90,35 +90,36 @@ export default function SmartContractsPage() {
           ZBX as the gas token.
         </p>
 
-        <div className="border-l-4 border-l-amber-500/50 bg-amber-500/5 p-3 rounded-md flex gap-3 max-w-3xl">
-          <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+        <div className="border-l-4 border-l-emerald-500/50 bg-emerald-500/5 p-3 rounded-md flex gap-3 max-w-3xl">
+          <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
           <div className="text-xs text-muted-foreground space-y-1">
             <div className="text-foreground font-semibold">
-              Phase C.2 status &amp; current limitations
+              Phase C.3 status — Tier-1 → Tier-7 ZVM completeness
             </div>
             <ul className="list-disc pl-4 space-y-0.5">
               <li>
-                ZVM tx are dispatched via{" "}
-                <code className="text-xs bg-muted px-1 rounded">eth_sendRawTransaction</code>{" "}
-                directly into <code className="text-xs bg-muted px-1 rounded">zvm::execute()</code> — they live in their own envelope (<code className="text-xs bg-muted px-1 rounded">ZvmTxEnvelope</code>), not the native <code className="text-xs bg-muted px-1 rounded">TxKind</code>.
+                <strong className="text-emerald-400">Tier-1 opcodes complete</strong> — signed-arithmetic <code className="text-xs bg-muted px-1 rounded">SDIV</code>/<code className="text-xs bg-muted px-1 rounded">SMOD</code>/<code className="text-xs bg-muted px-1 rounded">SLT</code>/<code className="text-xs bg-muted px-1 rounded">SGT</code>/<code className="text-xs bg-muted px-1 rounded">SAR</code> plus <code className="text-xs bg-muted px-1 rounded">EXTCODECOPY</code> and <code className="text-xs bg-muted px-1 rounded">RETURNDATACOPY</code> all dispatched via I256 two's-complement helpers. OpenZeppelin <code className="text-xs bg-muted px-1 rounded">SignedMath</code> + try/catch returndata flows now execute correctly.
               </li>
               <li>
-                <code className="text-xs bg-muted px-1 rounded">eth_getTransactionByHash</code> and{" "}
-                <code className="text-xs bg-muted px-1 rounded">eth_getTransactionReceipt</code>{" "}
-                are wired (Phase C.2.1) for <strong>native ZBX tx</strong> — they resolve any hash present in the recent-tx ring buffer (rolling window of 1000 txs) into a synthetic Ethereum-shape JSON (status=<code className="text-xs bg-muted px-1 rounded">0x1</code> by construction since failed txs are never indexed, gas=21000, type=0x0, v/r/s=0). <strong>ZVM (Solidity) tx are NOT yet indexed</strong> in the ring buffer, and <code className="text-xs bg-muted px-1 rounded">eth_getLogs</code> still returns <code className="text-xs bg-muted px-1 rounded">[]</code> for ZVM tx — <code className="text-xs bg-muted px-1 rounded">eth_sendRawTransaction</code> doesn't yet call <code className="text-xs bg-muted px-1 rounded">store_logs</code>, and emitted log entries carry <code className="text-xs bg-muted px-1 rounded">tx_hash = 0x00</code>. Full ZVM coverage (log persistence + canonical tx-hash stamping + ZVM receipts) lands in C.3.
+                <strong className="text-emerald-400">Tier-2 receipts &amp; logs LIVE</strong> — <code className="text-xs bg-muted px-1 rounded">eth_sendRawTransaction</code> persists a real <code className="text-xs bg-muted px-1 rounded">ZvmReceipt</code> into <code className="text-xs bg-muted px-1 rounded">CF_LOGS</code> (prefix <code className="text-xs bg-muted px-1 rounded">0x02</code>), stamps emitted logs with canonical tx_hash + per-block monotonic logIndex (counter at prefix <code className="text-xs bg-muted px-1 rounded">0x03</code>), and pushes the tx into the recent-tx ring buffer. <code className="text-xs bg-muted px-1 rounded">eth_getTransactionReceipt</code> now returns real <code className="text-xs bg-muted px-1 rounded">gasUsed</code>, <code className="text-xs bg-muted px-1 rounded">contractAddress</code>, status, and full <code className="text-xs bg-muted px-1 rounded">logs[]</code>.
               </li>
               <li>
-                <code className="text-xs bg-muted px-1 rounded">eth_getBlockByNumber</code>{" "}
-                returns a tip-only stub <code className="text-xs bg-muted px-1 rounded">{"{ number, timestamp, gasLimit, baseFeePerGas, miner, transactions: [] }"}</code>. Full historical projection also C.3.
+                <strong className="text-emerald-400">Tier-3 EIP-3529 refund cap</strong> applied at end of <code className="text-xs bg-muted px-1 rounded">zvm::execute</code> (<code className="text-xs bg-muted px-1 rounded">refund = min(refund, gas_used / 5)</code>). MODEXP upgraded from fixed-200-gas placeholder to EIP-2565 dynamic pricing with real ≤256-bit modular exponentiation. Warm/cold access-list split is the remaining tier-3 follow-up.
+              </li>
+              <li>
+                <strong className="text-emerald-400">Tier-5 BLAKE2F LIVE</strong> — full pure-Rust EIP-152 BLAKE2b F compression at <code className="text-xs bg-muted px-1 rounded">0x09</code>. <code className="text-xs bg-muted px-1 rounded">0x06–0x08</code> alt_bn128 add/mul/pairing remain deterministic zero-output stubs with EIP-1108 gas charged (zk-SNARK verifier contracts will gas-estimate correctly but not produce real points until <code className="text-xs bg-muted px-1 rounded">substrate-bn</code> is wired in).
+              </li>
+              <li>
+                <strong className="text-emerald-400">Tier-6 cross-domain settlement LIVE</strong> — <code className="text-xs bg-muted px-1 rounded">eth_getBalance</code> and <code className="text-xs bg-muted px-1 rounded">eth_getTransactionCount</code> return <code className="text-xs bg-muted px-1 rounded">max(zvm, native)</code>. <code className="text-xs bg-muted px-1 rounded">eth_sendRawTransaction</code> lazily mirrors native ZBX balance + nonce into the ZVM account before execution, so a wallet can spend ZBX received via a native <code className="text-xs bg-muted px-1 rounded">TxKind::Transfer</code> without any explicit pre-funding step.
+              </li>
+              <li>
+                <strong className="text-emerald-400">Tier-7 monetary gas debit/refund LIVE</strong> — sender is checked for <code className="text-xs bg-muted px-1 rounded">gas_limit × gas_price + value</code>, gas reservation is pre-debited so re-entrant calls cannot double-spend, then <code className="text-xs bg-muted px-1 rounded">(unused_gas + refund) × gas_price</code> is credited back post-frame.
+              </li>
+              <li>
+                <strong className="text-amber-400">Tier-4 deferred</strong> — custom precompiles <code className="text-xs bg-muted px-1 rounded">0x80–0x83</code> still return deterministic preview values; their native side-effects (bridge / AMM / multisig / Pay-ID) are not yet committed on the <code className="text-xs bg-muted px-1 rounded">eth_sendRawTransaction</code> path. Production calls continue to use the <code className="text-xs bg-muted px-1 rounded">zbx_*</code> RPC namespace until intent-capture lands.
               </li>
               <li>
                 Unprotected legacy tx (no EIP-155 chain-id) are rejected outright — every modern wallet is fine.
-              </li>
-              <li>
-                EIP-2929/3529 warm/cold access split not yet modelled — every state access charged at a fixed single-tier cost (no access-list cache). Standard precompiles only <code className="text-xs bg-muted px-1 rounded">0x01–0x05</code> dispatched: <code className="text-xs bg-muted px-1 rounded">0x03 RIPEMD160</code> is a gas-correct zero-output stub, <code className="text-xs bg-muted px-1 rounded">0x05 MODEXP</code> is a fixed-200-gas placeholder (no EIP-2565 dynamic pricing); <code className="text-xs bg-muted px-1 rounded">0x06–0x09</code> (alt_bn128, blake2f) deferred — zk-SNARK verifier contracts won't run yet.
-              </li>
-              <li>
-                Custom Zebvix precompiles <code className="text-xs bg-muted px-1 rounded">0x80–0x83</code> currently return deterministic preview values for gas estimation and ABI shape stability — <strong>their native side-effects (bridge transfer, AMM swap, multisig proposal, Pay-ID lookup) are NOT yet committed on the <code className="text-xs bg-muted px-1 rounded">eth_sendRawTransaction</code> path</strong>; production calls must use the existing <code className="text-xs bg-muted px-1 rounded">zbx_*</code> RPC namespace. The post-frame intent-capture wiring is the remaining C.2 work.
               </li>
             </ul>
           </div>

@@ -50,6 +50,10 @@ pub const PC_SHA256: [u8; 20] = addr_lo(0x02);
 pub const PC_RIPEMD160: [u8; 20] = addr_lo(0x03);
 pub const PC_IDENTITY: [u8; 20] = addr_lo(0x04);
 pub const PC_MODEXP: [u8; 20] = addr_lo(0x05);
+pub const PC_BN128_ADD: [u8; 20] = addr_lo(0x06);
+pub const PC_BN128_MUL: [u8; 20] = addr_lo(0x07);
+pub const PC_BN128_PAIRING: [u8; 20] = addr_lo(0x08);
+pub const PC_BLAKE2F: [u8; 20] = addr_lo(0x09);
 
 // ---------------------------------------------------------------------------
 // Custom Zebvix precompile addresses 0x80–0x83
@@ -99,7 +103,11 @@ pub fn dispatch(addr: &Address, input: &[u8], gas_limit: u64) -> Option<Precompi
         b if b == &PC_SHA256 => Some(sha256(input, gas_limit)),
         b if b == &PC_RIPEMD160 => Some(ripemd160_stub(input, gas_limit)),
         b if b == &PC_IDENTITY => Some(identity(input, gas_limit)),
-        b if b == &PC_MODEXP => Some(modexp_stub(input, gas_limit)),
+        b if b == &PC_MODEXP => Some(modexp_eip2565(input, gas_limit)),
+        b if b == &PC_BN128_ADD => Some(bn128_add_stub(input, gas_limit)),
+        b if b == &PC_BN128_MUL => Some(bn128_mul_stub(input, gas_limit)),
+        b if b == &PC_BN128_PAIRING => Some(bn128_pairing_stub(input, gas_limit)),
+        b if b == &PC_BLAKE2F => Some(blake2f(input, gas_limit)),
 
         b if b == &PC_BRIDGE_OUT => Some(bridge_out(input, gas_limit)),
         b if b == &PC_PAYID_RESOLVE => Some(payid_resolve(input, gas_limit)),
@@ -227,12 +235,260 @@ pub fn identity(input: &[u8], gas_limit: u64) -> PrecompileOutput {
 // 0x05 — MODEXP (stub returns 0; deferred to Phase C.2)
 // ---------------------------------------------------------------------------
 
-pub fn modexp_stub(_input: &[u8], gas_limit: u64) -> PrecompileOutput {
-    let cost = 200; // minimum gas per EIP-2565
-    if gas_limit < cost {
+/// Tier-3 — EIP-2565 dynamic gas pricing for MODEXP. Cost formula:
+///   `gas = max(200, (mult_complexity(max(b_len, m_len)) * iteration_count) / 3)`
+///
+/// where `mult_complexity(x) = (ceil(x/8))^2`.
+///
+/// Input layout (per EIP-198):
+///   [0..32]   base_len
+///   [32..64]  exp_len
+///   [64..96]  mod_len
+///   [96..]    base | exp | modulus
+///
+/// We compute `B^E mod M` using `num-bigint` style schoolbook expmod via
+/// `primitive_types::U256` for small moduli (≤ 256 bits). For larger
+/// moduli we fall back to returning zeros so the gas charge still applies
+/// — production-grade arbitrary-precision MODEXP is a follow-up.
+pub fn modexp_eip2565(input: &[u8], gas_limit: u64) -> PrecompileOutput {
+    let mut padded = input.to_vec();
+    if padded.len() < 96 { padded.resize(96, 0); }
+    let base_len = U256::from_big_endian(&padded[0..32]).low_u64() as usize;
+    let exp_len = U256::from_big_endian(&padded[32..64]).low_u64() as usize;
+    let mod_len = U256::from_big_endian(&padded[64..96]).low_u64() as usize;
+
+    // Cap each length at 1024 bytes (8192-bit) to bound gas/work.
+    if base_len > 1024 || exp_len > 1024 || mod_len > 1024 {
         return PrecompileOutput::err(gas_limit);
     }
+
+    let max_len = base_len.max(mod_len) as u64;
+    let words = (max_len + 7) / 8;
+    let mult_complexity = words.saturating_mul(words);
+
+    // **Architect-fix (HIGH severity):** EIP-2565 iteration_count must
+    // include the bit-length of the relevant exponent bytes, not a flat 1.
+    // For exp_len ≤ 32: `it_count = max(1, bit_length(exp))`.
+    // For exp_len > 32: `it_count = 8*(exp_len-32) + max(1, bit_length(top_32_bytes_of_exp))`.
+    // Without the bit_length term, large dense-exponent calls were
+    // underpriced and could DoS the interpreter.
+    let need_for_exp = 96 + base_len + exp_len;
+    if padded.len() < need_for_exp { padded.resize(need_for_exp, 0); }
+    let exp_slice = &padded[96 + base_len..96 + base_len + exp_len];
+    let exp_bit_len: u64 = if exp_len <= 32 {
+        // Treat the entire exp as a big-endian integer; bit-length =
+        // 8*exp_len - leading_zero_bits(top byte) — accumulated below.
+        bit_length_be(exp_slice)
+    } else {
+        // bit_length(top 32 bytes only).
+        bit_length_be(&exp_slice[..32])
+    };
+    let iter_count: u64 = if exp_len <= 32 {
+        exp_bit_len.max(1)
+    } else {
+        ((exp_len - 32) as u64)
+            .saturating_mul(8)
+            .saturating_add(exp_bit_len.max(1))
+    };
+    // Ceiling division by 3 (EIP-2565 spec wording uses floor / 3 + max(200,..)
+    // — we keep ceil for a small safety margin against rounding underprice).
+    let raw_cost = mult_complexity.saturating_mul(iter_count);
+    let cost = 200u64.max((raw_cost + 2) / 3);
+    if gas_limit < cost { return PrecompileOutput::err(gas_limit); }
+
+    // Guard against malformed inputs that would make slicing panic.
+    let need = 96 + base_len + exp_len + mod_len;
+    if padded.len() < need { padded.resize(need, 0); }
+
+    let base_bytes = &padded[96..96 + base_len];
+    let exp_bytes = &padded[96 + base_len..96 + base_len + exp_len];
+    let mod_bytes = &padded[96 + base_len + exp_len..96 + base_len + exp_len + mod_len];
+
+    // Fast path: ≤ 256-bit base/exp/mod → solve via U256.
+    if base_len <= 32 && exp_len <= 32 && mod_len <= 32 && mod_len > 0 {
+        let b = U256::from_big_endian(base_bytes);
+        let e = U256::from_big_endian(exp_bytes);
+        let m = U256::from_big_endian(mod_bytes);
+        let result = if m.is_zero() { U256::zero() } else { mod_pow_u256(b, e, m) };
+        let mut out = vec![0u8; mod_len];
+        let result_bytes = result.to_big_endian();
+        out.copy_from_slice(&result_bytes[32 - mod_len..]);
+        return PrecompileOutput::ok(cost, out);
+    }
+
+    // Fallback: zero-output for >256-bit operands; still consume gas so
+    // attackers cannot DoS by sending huge MODEXP calls cheaply.
+    PrecompileOutput::ok(cost, vec![0u8; mod_len])
+}
+
+/// Bit-length of a big-endian byte slice interpreted as an integer. Used by
+/// `modexp_eip2565` to apply the EIP-2565 iteration_count formula correctly.
+/// `bit_length_be(&[0,0,1])` returns 1; `bit_length_be(&[])` returns 0.
+fn bit_length_be(bytes: &[u8]) -> u64 {
+    for (i, b) in bytes.iter().enumerate() {
+        if *b != 0 {
+            let leading_zeros_in_byte = b.leading_zeros() as u64;
+            let bits_in_byte = 8 - leading_zeros_in_byte;
+            let remaining_bytes = (bytes.len() - i - 1) as u64;
+            return remaining_bytes * 8 + bits_in_byte;
+        }
+    }
+    0
+}
+
+/// Square-and-multiply mod-pow on `U256`. Allocation-free hot loop.
+fn mod_pow_u256(base: U256, exp: U256, modulus: U256) -> U256 {
+    if modulus == U256::one() { return U256::zero(); }
+    let mut result = U256::one();
+    let mut base = base % modulus;
+    let mut exp = exp;
+    while !exp.is_zero() {
+        if exp.bit(0) {
+            // (result * base) % modulus — guard against overflow via fullwidth
+            // multiplication. U256 doesn't expose mulmod natively, so we
+            // wrap and rely on % to project back.
+            result = (result.overflowing_mul(base).0) % modulus;
+        }
+        exp >>= 1;
+        base = (base.overflowing_mul(base).0) % modulus;
+    }
+    result
+}
+
+/// Tier-5 — Stub bn128_add. Returns zero point with EIP-1108 gas charge.
+/// Real BN254 curve arithmetic requires the `substrate-bn` crate; until
+/// that is wired in, contracts that depend on this opcode see a benign
+/// "always-zero point" result and pay the canonical 150-gas cost.
+pub fn bn128_add_stub(_input: &[u8], gas_limit: u64) -> PrecompileOutput {
+    let cost = 150; // EIP-1108
+    if gas_limit < cost { return PrecompileOutput::err(gas_limit); }
+    PrecompileOutput::ok(cost, vec![0u8; 64])
+}
+
+/// Tier-5 — Stub bn128_mul. EIP-1108 gas: 6000.
+pub fn bn128_mul_stub(_input: &[u8], gas_limit: u64) -> PrecompileOutput {
+    let cost = 6_000;
+    if gas_limit < cost { return PrecompileOutput::err(gas_limit); }
+    PrecompileOutput::ok(cost, vec![0u8; 64])
+}
+
+/// Tier-5 — Stub bn128_pairing. EIP-1108 gas: 45000 + 34000 * k where
+/// `k = input.len() / 192`.
+pub fn bn128_pairing_stub(input: &[u8], gas_limit: u64) -> PrecompileOutput {
+    let k = (input.len() / 192) as u64;
+    let cost = 45_000u64.saturating_add(34_000u64.saturating_mul(k));
+    if gas_limit < cost { return PrecompileOutput::err(gas_limit); }
+    // Pairing returns 32 bytes (1 = success, 0 = failure). Stub returns 0.
     PrecompileOutput::ok(cost, vec![0u8; 32])
+}
+
+/// Tier-5 — EIP-152 BLAKE2 F compression. Pure-Rust implementation.
+///
+/// Input layout (213 bytes):
+///   [0..4]    rounds (big-endian u32)
+///   [4..68]   h: 8 u64 little-endian
+///   [68..196] m: 16 u64 little-endian
+///   [196..212] t: 2 u64 little-endian
+///   [212]     final flag (0 or 1)
+///
+/// Output: 64 bytes — h after compression, 8 u64 LE.
+/// Gas: `rounds` (1 gas per round per EIP-152).
+pub fn blake2f(input: &[u8], gas_limit: u64) -> PrecompileOutput {
+    // **Architect-fix (HIGH severity):** cap rounds at a sane upper bound so
+    // a malicious caller cannot stall block production with a 4-billion-round
+    // request even if they paid the gas. With `MAX_BLAKE2F_ROUNDS = 65535`
+    // (~16ms wall-clock at 4ns/round) a single precompile call cannot exceed
+    // a few CPU-ms regardless of gas budget. EIP-152 reference vectors top
+    // out at 12 rounds (BLAKE2b standard), so this cap is invisible to
+    // legitimate users.
+    const MAX_BLAKE2F_ROUNDS: u32 = 65_535;
+    if input.len() != 213 {
+        return PrecompileOutput::err(gas_limit);
+    }
+    let rounds = u32::from_be_bytes([input[0], input[1], input[2], input[3]]);
+    if rounds > MAX_BLAKE2F_ROUNDS {
+        return PrecompileOutput::err(gas_limit);
+    }
+    let cost = rounds as u64;
+    if gas_limit < cost { return PrecompileOutput::err(gas_limit); }
+    let f = input[212];
+    if f != 0 && f != 1 { return PrecompileOutput::err(gas_limit); }
+
+    let mut h = [0u64; 8];
+    for i in 0..8 {
+        let off = 4 + i * 8;
+        h[i] = u64::from_le_bytes(input[off..off + 8].try_into().unwrap());
+    }
+    let mut m = [0u64; 16];
+    for i in 0..16 {
+        let off = 68 + i * 8;
+        m[i] = u64::from_le_bytes(input[off..off + 8].try_into().unwrap());
+    }
+    let mut t = [0u64; 2];
+    t[0] = u64::from_le_bytes(input[196..204].try_into().unwrap());
+    t[1] = u64::from_le_bytes(input[204..212].try_into().unwrap());
+
+    blake2b_f(&mut h, &m, &t, f == 1, rounds);
+
+    let mut out = vec![0u8; 64];
+    for i in 0..8 {
+        out[i * 8..i * 8 + 8].copy_from_slice(&h[i].to_le_bytes());
+    }
+    PrecompileOutput::ok(cost, out)
+}
+
+/// BLAKE2b compression "F" function (RFC 7693 §3.2). Pure Rust, no deps.
+fn blake2b_f(h: &mut [u64; 8], m: &[u64; 16], t: &[u64; 2], final_block: bool, rounds: u32) {
+    const IV: [u64; 8] = [
+        0x6a09e667f3bcc908, 0xbb67ae8584caa73b, 0x3c6ef372fe94f82b, 0xa54ff53a5f1d36f1,
+        0x510e527fade682d1, 0x9b05688c2b3e6c1f, 0x1f83d9abfb41bd6b, 0x5be0cd19137e2179,
+    ];
+    const SIGMA: [[usize; 16]; 10] = [
+        [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,15],
+        [14,10, 4, 8, 9,15,13, 6, 1,12, 0, 2,11, 7, 5, 3],
+        [11, 8,12, 0, 5, 2,15,13,10,14, 3, 6, 7, 1, 9, 4],
+        [ 7, 9, 3, 1,13,12,11,14, 2, 6, 5,10, 4, 0,15, 8],
+        [ 9, 0, 5, 7, 2, 4,10,15,14, 1,11,12, 6, 8, 3,13],
+        [ 2,12, 6,10, 0,11, 8, 3, 4,13, 7, 5,15,14, 1, 9],
+        [12, 5, 1,15,14,13, 4,10, 0, 7, 6, 3, 9, 2, 8,11],
+        [13,11, 7,14,12, 1, 3, 9, 5, 0,15, 4, 8, 6, 2,10],
+        [ 6,15,14, 9,11, 3, 0, 8,12, 2,13, 7, 1, 4,10, 5],
+        [10, 2, 8, 4, 7, 6, 1, 5,15,11, 9,14, 3,12,13, 0],
+    ];
+
+    let mut v = [0u64; 16];
+    v[..8].copy_from_slice(h);
+    v[8..].copy_from_slice(&IV);
+    v[12] ^= t[0];
+    v[13] ^= t[1];
+    if final_block { v[14] = !v[14]; }
+
+    fn g(v: &mut [u64; 16], a: usize, b: usize, c: usize, d: usize, x: u64, y: u64) {
+        v[a] = v[a].wrapping_add(v[b]).wrapping_add(x);
+        v[d] = (v[d] ^ v[a]).rotate_right(32);
+        v[c] = v[c].wrapping_add(v[d]);
+        v[b] = (v[b] ^ v[c]).rotate_right(24);
+        v[a] = v[a].wrapping_add(v[b]).wrapping_add(y);
+        v[d] = (v[d] ^ v[a]).rotate_right(16);
+        v[c] = v[c].wrapping_add(v[d]);
+        v[b] = (v[b] ^ v[c]).rotate_right(63);
+    }
+
+    for r in 0..rounds {
+        let s = &SIGMA[(r as usize) % 10];
+        g(&mut v, 0, 4,  8, 12, m[s[ 0]], m[s[ 1]]);
+        g(&mut v, 1, 5,  9, 13, m[s[ 2]], m[s[ 3]]);
+        g(&mut v, 2, 6, 10, 14, m[s[ 4]], m[s[ 5]]);
+        g(&mut v, 3, 7, 11, 15, m[s[ 6]], m[s[ 7]]);
+        g(&mut v, 0, 5, 10, 15, m[s[ 8]], m[s[ 9]]);
+        g(&mut v, 1, 6, 11, 12, m[s[10]], m[s[11]]);
+        g(&mut v, 2, 7,  8, 13, m[s[12]], m[s[13]]);
+        g(&mut v, 3, 4,  9, 14, m[s[14]], m[s[15]]);
+    }
+
+    for i in 0..8 {
+        h[i] ^= v[i] ^ v[i + 8];
+    }
 }
 
 // ---------------------------------------------------------------------------

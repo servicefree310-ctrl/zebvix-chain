@@ -2516,6 +2516,39 @@ impl State {
         Ok(())
     }
 
+    /// Tier-2 — public ZVM-side wrapper around the private `push_recent_tx`.
+    /// Lets `zvm_rpc::eth_sendRawTransaction` index a freshly-applied EVM
+    /// transaction in the same ring buffer that backs `eth_getTransactionByHash`
+    /// and `eth_getTransactionReceipt`. We use sentinel `kind_index = 0xFE` for
+    /// `ZvmCall` and `0xFF` for `ZvmCreate` to keep this disjoint from the
+    /// native `TxKind::tag_index()` discriminator space (which currently only
+    /// uses 0..=7).
+    pub fn push_zvm_recent_tx(
+        &self,
+        hash: [u8; 32],
+        from: Address,
+        to: Address,
+        amount: u128,
+        fee: u128,
+        nonce: u64,
+        is_create: bool,
+    ) -> Result<()> {
+        let (height, _) = self.tip();
+        let timestamp_ms = self.current_block_ts_ms.load(std::sync::atomic::Ordering::Relaxed);
+        self.push_recent_tx(RecentTxRecord {
+            seq: 0, // overwritten by push_recent_tx
+            height,
+            timestamp_ms,
+            hash,
+            from,
+            to,
+            amount,
+            fee,
+            nonce,
+            kind_index: if is_create { 0xFF } else { 0xFE },
+        })
+    }
+
     /// Phase C.2.1 — Resolve a 32-byte tx hash to its `RecentTxRecord` via the
     /// secondary hash index. Falls back to a linear scan over the ring buffer
     /// for legacy entries written before the secondary index existed.

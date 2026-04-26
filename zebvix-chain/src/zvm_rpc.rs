@@ -34,7 +34,8 @@
 #![allow(dead_code)]
 
 use crate::zvm::{
-    execute, ZvmCall, ZvmContext, ZvmCreate, ZvmDb, ZvmTxEnvelope, DEFAULT_BLOCK_GAS_LIMIT,
+    execute, ZvmCall, ZvmContext, ZvmCreate, ZvmDb, ZvmReceipt, ZvmTxEnvelope,
+    DEFAULT_BLOCK_GAS_LIMIT,
 };
 use crate::zvm_state::CfZvmDb;
 use crate::state::State;
@@ -180,14 +181,28 @@ pub fn dispatch(ctx: &ZvmRpcCtx, method: &str, params: &[Value]) -> Result<Value
         "eth_blobBaseFee" | "zbx_blobBaseFee" => Ok(json!("0x1")),
 
         "eth_getBalance" => {
+            // Tier-6 — first-touch lazy mirror semantics: if the ZVM account
+            // exists, ZVM is canonical (it may have spent funds we can't see
+            // in the native ledger). If it doesn't exist yet, fall through
+            // to the native ledger so a wallet that just received a native
+            // transfer sees their balance immediately.
             let addr = parse_address(get_str(params, 0)?)?;
-            let bal = ctx.db.account(&addr).map(|a| a.balance).unwrap_or(0);
+            let bal = match ctx.db.account(&addr) {
+                Some(a) => a.balance,
+                None => ctx.state.balance(&addr),
+            };
             Ok(json!(format!("0x{:x}", bal)))
         }
 
         "eth_getTransactionCount" => {
+            // Tier-6 — same first-touch rule for nonce. `max(zvm, native)`
+            // would let a stale native nonce undo a freshly-bumped ZVM
+            // nonce after a tx, causing the next MetaMask tx to nonce-collide.
             let addr = parse_address(get_str(params, 0)?)?;
-            let nonce = ctx.db.account(&addr).map(|a| a.nonce).unwrap_or(0);
+            let nonce = match ctx.db.account(&addr) {
+                Some(a) => a.nonce,
+                None => ctx.state.account(&addr).nonce,
+            };
             Ok(json!(quantity_u64(nonce)))
         }
 
@@ -238,7 +253,9 @@ pub fn dispatch(ctx: &ZvmRpcCtx, method: &str, params: &[Value]) -> Result<Value
         "eth_sendRawTransaction"
         | "zbx_sendRawZvmTransaction"
         | "zbx_sendRawEvmTransaction" => {
-            // Phase C.2: full RLP decode + sender recovery + actual execution.
+            // Phase C.2 + Tier-2/6/7: full RLP decode + sender recovery +
+            // execution + receipt persistence + ring-buffer indexing +
+            // gas debit/refund + lazy native↔ZVM balance sync.
             let raw = parse_hex(get_str(params, 0)?)?;
             let (tx, sender, declared_chain_id) =
                 crate::zvm_rlp::decode_raw_tx(&raw)
@@ -265,20 +282,149 @@ pub fn dispatch(ctx: &ZvmRpcCtx, method: &str, params: &[Value]) -> Result<Value
                 }
             }
 
-            let zvm_ctx = ctx.zvm_context();
-            let (result, journal) = crate::zvm::execute(&*ctx.db, &zvm_ctx, &sender, &tx);
+            // Tier-6 — lazy native→ZVM balance/nonce sync. **Architect-fix:**
+            // mirror is **first-touch only** — we initialize from native ONLY
+            // when the ZVM account does not yet exist. Once the ZVM account
+            // is created, ZVM is canonical and a later native-side credit
+            // does NOT reset the ZVM balance back up. Without this guard a
+            // user could spend ZBX in ZVM, receive a native transfer, and
+            // then have their ZVM balance "recharged" to the higher native
+            // value on next tx — a double-spend across domains.
+            let mut sender_acct = match ctx.db.account(&sender) {
+                Some(a) => a,
+                None => {
+                    let n = ctx.state.account(&sender);
+                    let mut fresh = crate::zvm::ZvmAccount::default();
+                    fresh.balance = n.balance;
+                    fresh.nonce = n.nonce;
+                    fresh
+                }
+            };
 
-            // Apply the journal regardless of success — even reverted txs
-            // bump the sender's nonce per yellow paper §6.
-            if let Err(e) = ctx.db.apply_journal(&journal) {
-                return Err(format!("state apply failed: {e}"));
+            // Tier-7 — pre-flight gas+value affordability check. The
+            // sender must cover `gas_limit*gas_price + value` at submission
+            // time; otherwise the tx is rejected with no state change.
+            let gas_cost = (tx.gas_limit() as u128)
+                .saturating_mul(tx.gas_price());
+            let required = gas_cost.saturating_add(tx.value());
+            if sender_acct.balance < required {
+                return Err(format!(
+                    "insufficient sender balance: have {}, need {} (gas {} + value {})",
+                    sender_acct.balance, required, gas_cost, tx.value()
+                ));
             }
 
-            // Surface execution failure to the wallet, but still return the
-            // canonical Ethereum-spec tx hash so the wallet can poll for receipt.
-            let _ = result; // receipt store will pick this up in C.3
-            let hash = crate::zvm::keccak256(&raw);
-            Ok(json!(format!("0x{}", hex::encode(hash))))
+            // **Architect-fix (atomicity):** rather than commit the lazy
+            // mirror + pre-debit + execution + refund as four separate
+            // disk writes, we do it in two phases:
+            //   (1) put the mirrored, pre-debited sender into the ZVM
+            //       store so `execute()` reads the right balance, and
+            //   (2) re-apply the FINAL sender state (including refund)
+            //       as part of the journal that `apply_zvm_tx` commits
+            //       atomically alongside logs + receipt.
+            //
+            // Phase (1) is the only "non-atomic" write, but it is
+            // idempotent and self-correcting: if the node crashes after
+            // (1) and before (2), the ZVM balance just reflects the
+            // pre-debit (gas reservation), which the next tx-affordability
+            // check at the same nonce will then re-verify. No silent
+            // double-spend can result because `apply_zvm_tx` is the only
+            // path that bumps the canonical nonce + records the receipt.
+            sender_acct.balance = sender_acct.balance.saturating_sub(gas_cost);
+            if let Err(e) = ctx.db.put_account(&sender, &sender_acct) {
+                return Err(format!("debit gas failed: {e}"));
+            }
+
+            let zvm_ctx = ctx.zvm_context();
+            let (mut result, mut journal) = crate::zvm::execute(&*ctx.db, &zvm_ctx, &sender, &tx);
+
+            // Tier-7 — refund unused gas (already EIP-3529-capped in `execute`).
+            // Look up the post-execution sender row inside the journal so we
+            // refund onto the latest balance (execute() may have transferred
+            // value out of the sender, so the in-memory `sender_acct` is stale).
+            let unused_gas = tx.gas_limit().saturating_sub(result.gas_used);
+            let refund_units = (unused_gas as u64).saturating_add(result.gas_refunded);
+            let refund_wei = (refund_units as u128).saturating_mul(tx.gas_price());
+            if refund_wei > 0 {
+                let mut found = false;
+                for (addr, acct) in journal.touched_accounts.iter_mut() {
+                    if addr == &sender {
+                        acct.balance = acct.balance.saturating_add(refund_wei);
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    // Sender wasn't touched by execute (shouldn't happen but be defensive)
+                    let mut acct = ctx.db.account(&sender).unwrap_or_default();
+                    acct.balance = acct.balance.saturating_add(refund_wei);
+                    journal.touched_accounts.push((sender, acct));
+                }
+            }
+
+            // Tier-2 — stamp logs with canonical tx_hash + log_index.
+            let tx_hash_bytes = crate::zvm::keccak256(&raw);
+            let tx_hash = H256::from(tx_hash_bytes);
+            let log_count = result.logs.len() as u32;
+            let block_height = ctx.current_height;
+            let base_index = ctx.db
+                .reserve_log_indices(block_height, log_count)
+                .unwrap_or(0);
+            for (i, log) in result.logs.iter_mut().enumerate() {
+                log.tx_hash = tx_hash;
+                log.block_height = block_height;
+                log.log_index = base_index + i as u32;
+            }
+
+            // Tier-2 — build receipt.
+            let block_hash = ctx.state
+                .block_hash_at(block_height)
+                .map(|h| H256::from(h.0))
+                .unwrap_or_else(H256::zero);
+            let (to_field, contract_field, amount_field) = match &tx {
+                ZvmTxEnvelope::Call(c) => (Some(c.to), None, c.value),
+                ZvmTxEnvelope::Create(c) => (None, result.created_address, c.value),
+            };
+            let rcpt = ZvmReceipt {
+                tx_hash,
+                from: sender,
+                to: to_field,
+                contract_address: contract_field,
+                block_height,
+                block_hash,
+                tx_index: 0,
+                gas_used: result.gas_used,
+                effective_gas_price: tx.gas_price(),
+                success: result.success,
+                logs: result.logs.clone(),
+                revert_reason: result.revert_reason.clone(),
+            };
+
+            // **Architect-fix (atomicity):** journal + logs + receipt land in
+            // a single WriteBatch spanning CF_ZVM + CF_LOGS so a node crash
+            // can never leave state mutated without a discoverable receipt.
+            if let Err(e) = ctx.db.apply_zvm_tx(&journal, &result.logs, &rcpt) {
+                return Err(format!("atomic apply failed: {e}"));
+            }
+
+            // Ring-buffer push for `eth_getTransactionByHash`. Failure here
+            // is non-fatal — the receipt is the source of truth; the ring
+            // buffer is a discovery convenience.
+            let final_nonce = journal.touched_accounts.iter()
+                .find(|(a, _)| a == &sender)
+                .map(|(_, acct)| acct.nonce.saturating_sub(1))
+                .unwrap_or(sender_acct.nonce);
+            let _ = ctx.state.push_zvm_recent_tx(
+                tx_hash_bytes,
+                sender,
+                to_field.unwrap_or_else(|| contract_field.unwrap_or(Address::from_bytes([0u8; 20]))),
+                amount_field,
+                (result.gas_used as u128).saturating_mul(tx.gas_price()),
+                final_nonce,
+                matches!(tx, ZvmTxEnvelope::Create(_)),
+            );
+
+            Ok(json!(format!("0x{}", hex::encode(tx_hash_bytes))))
         }
 
         "eth_getLogs" | "zbx_getLogs" => {
@@ -358,13 +504,9 @@ pub fn dispatch(ctx: &ZvmRpcCtx, method: &str, params: &[Value]) -> Result<Value
         "eth_getTransactionReceipt"
         | "zbx_getZvmReceipt"
         | "zbx_getEvmReceipt" => {
-            // Phase C.2.1 — synthetic receipt built from the native recent-tx
-            // index. Every entry in that index represents a tx that was
-            // successfully applied (failed txs are never indexed), so
-            // `status = 0x1` is correct by construction. `logs` is empty until
-            // C.3 wires `store_logs` producers; `gasUsed` reports the
-            // Ethereum-canonical 21000 for transfers. Returns `null` when
-            // the hash is outside the rolling window of the last 1000 txs.
+            // Tier-2 — fast path: load the persisted ZvmReceipt produced by
+            // `eth_sendRawTransaction`. The receipt carries real gas_used,
+            // status, contractAddress and the full logs array.
             let raw = get_str(params, 0)?;
             let bytes = parse_hex(raw)?;
             if bytes.len() != 32 {
@@ -372,6 +514,53 @@ pub fn dispatch(ctx: &ZvmRpcCtx, method: &str, params: &[Value]) -> Result<Value
             }
             let mut h = [0u8; 32];
             h.copy_from_slice(&bytes);
+            let tx_hash = H256::from(h);
+
+            if let Some(rcpt) = ctx.db.get_receipt(&tx_hash) {
+                let logs_json: Vec<Value> = rcpt.logs.iter().enumerate().map(|(i, log)| {
+                    json!({
+                        "address": format!("0x{}", hex::encode(log.address.as_bytes())),
+                        "topics": log.topics.iter()
+                            .map(|t| format!("0x{}", hex::encode(t.as_bytes())))
+                            .collect::<Vec<_>>(),
+                        "data": data_hex(&log.data),
+                        "blockNumber": quantity_u64(log.block_height),
+                        "transactionHash": format!("0x{}", hex::encode(log.tx_hash.as_bytes())),
+                        "transactionIndex": quantity_u64(rcpt.tx_index as u64),
+                        "blockHash": format!("0x{}", hex::encode(rcpt.block_hash.as_bytes())),
+                        "logIndex": quantity_u64(log.log_index as u64),
+                        "removed": false,
+                        // `i` retained as a fallback ordinal for clients that need
+                        // a stable per-receipt index alongside the canonical
+                        // per-block `logIndex` above.
+                        "_i": i,
+                    })
+                }).collect();
+                return Ok(json!({
+                    "blockHash": format!("0x{}", hex::encode(rcpt.block_hash.as_bytes())),
+                    "blockNumber": quantity_u64(rcpt.block_height),
+                    "contractAddress": rcpt.contract_address
+                        .map(|a| Value::String(format!("0x{}", hex::encode(a.as_bytes()))))
+                        .unwrap_or(Value::Null),
+                    "cumulativeGasUsed": quantity_u64(rcpt.gas_used),
+                    "effectiveGasPrice": format!("0x{:x}", rcpt.effective_gas_price),
+                    "from": format!("0x{}", hex::encode(rcpt.from.as_bytes())),
+                    "to": rcpt.to
+                        .map(|a| Value::String(format!("0x{}", hex::encode(a.as_bytes()))))
+                        .unwrap_or(Value::Null),
+                    "gasUsed": quantity_u64(rcpt.gas_used),
+                    "logs": logs_json,
+                    "logsBloom": format!("0x{}", "0".repeat(512)),
+                    "status": if rcpt.success { "0x1" } else { "0x0" },
+                    "transactionHash": format!("0x{}", hex::encode(rcpt.tx_hash.as_bytes())),
+                    "transactionIndex": quantity_u64(rcpt.tx_index as u64),
+                    "type": "0x0",
+                }));
+            }
+
+            // Fallback path — synthetic receipt for native txs indexed in the
+            // recent-tx ring buffer (Transfer / Bridge / Pay-ID / etc).
+            // status=0x1 by construction (failed txs are never indexed).
             match ctx.state.find_tx_by_hash(&h) {
                 None => Ok(Value::Null),
                 Some(rec) => {
