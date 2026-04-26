@@ -30,6 +30,7 @@ import {
   Server,
   KeyRound,
 } from "lucide-react";
+import BscSidePanel from "@/components/bridge/BscSidePanel";
 
 export default function Bridge() {
   return (
@@ -131,6 +132,29 @@ export default function Bridge() {
             provider, no slippage. Liquidity is 1:1 backed by the lock vault.
           </li>
         </ul>
+      </div>
+
+      {/* ── Live wZBX → ZBX conversion (BSC side) ──────────────── */}
+      <div>
+        <div className="flex items-center gap-2 mb-3">
+          <Badge variant="outline" className="text-emerald-400 border-emerald-400/40">
+            Live · Mainnet
+          </Badge>
+          <Badge variant="outline" className="text-primary border-primary/40">
+            wZBX → ZBX (BSC → Zebvix)
+          </Badge>
+        </div>
+        <h2 className="text-2xl font-bold tracking-tight text-foreground mb-2">
+          Convert wZBX back to ZBX
+        </h2>
+        <p className="text-sm text-muted-foreground mb-4 max-w-3xl">
+          Burn your wrapped ZBX (BEP-20) on BNB Smart Chain via MetaMask. The
+          relayer detects the burn after 15 BSC confirmations (~45 sec) and
+          unlocks native ZBX on Zebvix L1 to whatever recipient address you
+          specify below. Recipient can be any Zebvix address — it does not have
+          to be your burner wallet.
+        </p>
+        <BscSidePanel />
       </div>
 
       {/* ── Architecture diagram ───────────────────────────────── */}
