@@ -127,19 +127,27 @@ export function Sidebar() {
       </div>
     );
     if (external) {
-      // Same-tab navigation — Replit preview iframes often block target="_blank".
-      // The user can use the browser back button to return.
+      // Open in a new tab. Inside Replit's preview iframe, programmatic
+      // top-frame navigation to a different path is blocked by the sandbox,
+      // so we rely on a real anchor + target="_blank" (with user gesture)
+      // and fall back to window.open if the click handler runs.
       return (
         <a
           href={href}
+          target="_blank"
+          rel="noopener noreferrer"
           data-testid={`link-${href.replace(/[^a-z0-9]/gi, "-")}`}
           onClick={(e) => {
-            e.preventDefault();
-            // Use top-level navigation so the proxy serves the path
-            // (works inside Replit preview iframes).
-            window.top
-              ? (window.top.location.href = href)
-              : (window.location.href = href);
+            // Let the browser handle target="_blank" by default. If for some
+            // reason that's blocked, manually open a new window.
+            try {
+              const w = window.open(href, "_blank", "noopener,noreferrer");
+              if (w) {
+                e.preventDefault();
+              }
+            } catch {
+              // ignore — anchor default will kick in
+            }
           }}
         >
           {inner}

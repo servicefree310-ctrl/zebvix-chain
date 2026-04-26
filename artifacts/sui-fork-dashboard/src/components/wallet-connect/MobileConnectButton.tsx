@@ -56,16 +56,29 @@ export function MobileConnectButton({
       });
       if (!res.ok) throw new Error(`session create failed (${res.status})`);
       const info = (await res.json()) as SessionInfo;
-      // Replace zbx:// scheme with zebvix:// for the deep-link, and fall back
-      // to zbx:// in case the user installed the older wallet build.
       const params = new URLSearchParams({
         id: info.id,
         relay: info.relayUrl.replace(/\/[^/]+$/, ""),
         origin: window.location.origin,
       });
       const deepLink = `zebvix://wc?${params.toString()}`;
-      // Trigger the OS scheme handler.
-      window.location.href = deepLink;
+      // Use a temporary anchor click — works inside iframe sandboxes that
+      // block programmatic location.href to custom schemes.
+      try {
+        const a = document.createElement("a");
+        a.href = deepLink;
+        a.rel = "noopener";
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } catch {
+        try {
+          window.location.assign(deepLink);
+        } catch {
+          // last-resort no-op
+        }
+      }
       // After a short timeout, if no scheme handler caught it, fall back to QR.
       setTimeout(() => setShowModal(true), 1500);
     } catch (err) {
