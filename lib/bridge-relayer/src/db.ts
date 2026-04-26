@@ -90,15 +90,25 @@ export class RelayerDB {
 
   // ── Zebvix-side ─────────────────────────────────────────────────────────
 
-  recordZebvixEvent(e: Omit<ProcessedZebvixEvent, "status" | "attempts" | "last_error" | "bsc_mint_tx" | "created_at" | "updated_at">) {
+  /**
+   * Insert a freshly-discovered Zebvix BridgeOut event. Returns `true` if a new
+   * row was actually written, `false` if it was already known (idempotent retry).
+   * Callers use the boolean to drive accurate "newly discovered" log counters
+   * and avoid log spam when the chain re-serves the same recent ring-buffer
+   * entries on every poll.
+   */
+  recordZebvixEvent(
+    e: Omit<ProcessedZebvixEvent, "status" | "attempts" | "last_error" | "bsc_mint_tx" | "created_at" | "updated_at">,
+  ): boolean {
     const now = Date.now();
-    this.db
+    const res = this.db
       .prepare(
         `INSERT OR IGNORE INTO processed_zebvix_events
          (source_tx_hash, zebvix_seq, recipient, amount, zebvix_block, status, attempts, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?)`,
       )
       .run(e.source_tx_hash, e.zebvix_seq, e.recipient, e.amount, e.zebvix_block, now, now);
+    return res.changes > 0;
   }
 
   pendingZebvixEvents(limit = 50): ProcessedZebvixEvent[] {

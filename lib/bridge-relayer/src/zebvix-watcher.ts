@@ -96,19 +96,22 @@ export class ZebvixWatcher {
 
   /**
    * Insert a single event into the DB, applying our asset-id filter.
-   * Returns `true` if it matched and was queued; `false` otherwise.
+   * Returns `true` only when the event was BOTH for our asset AND newly
+   * inserted (i.e., not already in our DB from a previous poll). This drives
+   * the "discovered N new events" log so the operator sees a quiet log under
+   * steady state instead of a misleading "added: 1" every poll for events
+   * already long-since minted on BSC.
    */
   private ingestEvent(e: ZebvixBridgeOutEvent): boolean {
     if (String(e.asset_id) !== this.cfg.ZEBVIX_ZBX_ASSET_ID) return false;
     try {
-      this.db.recordZebvixEvent({
+      return this.db.recordZebvixEvent({
         source_tx_hash: toBytes32Hex(e.tx_hash),
         zebvix_seq: e.seq,
         recipient: normalizeDestAddress(e.dest_address),
         amount: e.amount,
         zebvix_block: e.height,
       });
-      return true;
     } catch (err) {
       this.log.warn({ err, event: e }, "skipping malformed BridgeOut event");
       return false;
