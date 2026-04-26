@@ -1,0 +1,27 @@
+root@srv1266996:/home/zebvix-chainsudo sed -i 's/ --no-mdns//' /etc/systemd/system/zebvix.servicece
+sudo systemctl daemon-reload
+sudo systemctl restart zebvix
+sleep 5
+sudo systemctl status zebvix --no-pager | head -12
+sudo journalctl -u zebvix -n 20 --no-pager | grep -E "mdns|tip|⛏|Zebvix node starting"
+● zebvix.service - Zebvix L1 Blockchain Node
+     Loaded: loaded (/etc/systemd/system/zebvix.service; enabled; preset: enabled)
+     Active: active (running) since Sun 2026-04-26 10:10:18 UTC; 5s ago
+   Main PID: 578631 (zebvix-node)
+      Tasks: 7 (limit: 9483)
+     Memory: 3.2M (peak: 3.7M)
+        CPU: 63ms
+     CGroup: /system.slice/zebvix.service
+             └─578631 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333
+
+Apr 26 10:10:19 srv1266996.hstgr.cloud zebvix-node[578631]: 2026-04-26T10:10:19.024578Z  INFO zebvix_node:    chain_id  : 7878
+Apr 26 10:10:19 srv1266996.hstgr.cloud zebvix-node[578631]: 2026-04-26T10:10:19.024747Z  INFO zebvix_node:    proposer  : 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315
+Apr 26 10:10:15 srv1266996.hstgr.cloud zebvix-node[578548]: error: unexpected argument '--no-mdns' found
+Apr 26 10:10:15 srv1266996.hstgr.cloud zebvix-node[578548]:   tip: a similar argument exists: '--enable-mdns'
+Apr 26 10:10:15 srv1266996.hstgr.cloud zebvix-node[578548]: Usage: zebvix-node start --home <HOME> --rpc <RPC> --p2p-port <P2P_PORT> --enable-mdns
+Apr 26 10:10:19 srv1266996.hstgr.cloud zebvix-node[578631]: 2026-04-26T10:10:19.023714Z  INFO zebvix_node: 🚀 Zebvix node starting
+Apr 26 10:10:19 srv1266996.hstgr.cloud zebvix-node[578631]: 2026-04-26T10:10:19.024878Z  INFO zebvix_node:    tip       : height=30609 hash=0x6ce51fbf6ac12ff2fd810fe250a8cd6e1298c0d0a60f1c29246d45f385afb262
+Apr 26 10:10:19 srv1266996.hstgr.cloud zebvix-node[578631]: 2026-04-26T10:10:19.025615Z  INFO zebvix_node:    mdns      : DISABLED (default — pass --enable-mdns to opt in)
+Apr 26 10:10:19 srv1266996.hstgr.cloud zebvix-node[578631]: 2026-04-26T10:10:19.028715Z  INFO zebvix_node::consensus: ⛏  producer started: my_address=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315, mode=ROUND_ROBIN+TIMEOUTS (B.3.2.2) pacing=5s propose_timeout=8s tick=500ms
+Apr 26 10:10:24 srv1266996.hstgr.cloud zebvix-node[578631]: 2026-04-26T10:10:24.031047Z  INFO zebvix_node::consensus: ⛏  block #30610 produced  proposer=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315  round=0  txs=0  hash=0x140a334ef7b1780cca2c20c2dec4ab7f510cced937e8edda96740aff20a4d961
+root@srv1266996:/home/zebvix-chain# 
