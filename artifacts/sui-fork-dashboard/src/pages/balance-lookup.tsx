@@ -508,6 +508,12 @@ export default function BalanceLookup() {
     }
   }
 
+  // Maximum number of recent txs the chain will return per call. The chain
+  // ring-buffer (state.rs RECENT_TX_CAP) is currently 1000 — see
+  // `zbx_recentTxs` in zebvix-chain/src/rpc.rs. Higher values are capped
+  // server-side, but we cap here too so the UI labels match reality.
+  const RECENT_TXS_CAP = 1000;
+
   async function scanTxs(window: number, explicitAddr?: string) {
     // Like `lookup`, allow callers to pass the address directly so we
     // don't depend on `addr` state having been flushed yet.
@@ -515,51 +521,57 @@ export default function BalanceLookup() {
     if (scanning || !/^0x[0-9a-f]{40}$/.test(target.toLowerCase())) return;
     setScanning(true); setScanErr(null); setTxs([]); cancelRef.current = false;
     try {
-      const tip = await rpc<{ height: number }>("zbx_blockNumber");
-      const tipH = tip.height;
+      // Phase B.9 fast-path — instead of fetching N blocks one-by-one with
+      // `zbx_getBlockByNumber`, we ask the chain for its on-disk recent-tx
+      // ring buffer with a single `zbx_recentTxs` call. The chain backs
+      // this with O(N) point lookups and no block decode (see rpc.rs:701).
+      // We then filter client-side for txs touching this address. Result:
+      // ~1 RTT instead of (window / 16) batched RTTs and a dramatic
+      // bandwidth reduction (no full block bodies, just tx records).
+      const limit = Math.max(1, Math.min(window, RECENT_TXS_CAP));
+      const r = await rpc<{
+        returned: number;
+        stored: number;
+        total_indexed: number;
+        max_cap: number;
+        txs: Array<{
+          seq: number; height: number; timestamp_ms: number;
+          hash: string; from: string; to: string;
+          amount: string; fee: string; nonce: number;
+          kind: string; kind_index: number;
+        }>;
+      }>("zbx_recentTxs", [limit]);
+
+      // Cancellation: the legacy block-scan loop checked `cancelRef` between
+      // batches; with a single RPC the only meaningful checkpoint is right
+      // after we receive the response.
+      if (cancelRef.current) { setScanning(false); return; }
+
       const lower = lc(target);
-      const heights: number[] = [];
-      for (let i = 0; i < window; i++) {
-        const h = tipH - i;
-        if (h >= 0) heights.push(h);
-      }
-      const CONC = 16;
+      const recs = Array.isArray(r?.txs) ? r.txs : [];
       const found: OnchainTx[] = [];
-      for (let i = 0; i < heights.length; i += CONC) {
-        if (cancelRef.current) break;
-        const slice = heights.slice(i, i + CONC);
-        const results = await Promise.all(slice.map(async (h) => {
-          try {
-            const r = await rpc<any>("zbx_getBlockByNumber", [h]);
-            if (!r) return null;
-            const hdr = r.header ?? r;
-            const tx = Array.isArray(r.txs) ? r.txs : [];
-            return { h, ts: hdr.timestamp_ms ?? 0, txs: tx };
-          } catch { return null; }
-        }));
-        for (const x of results) {
-          if (!x || !x.txs.length) continue;
-          for (const t of x.txs) {
-            const body = t.body ?? t;
-            const from = lc(body.from ?? "");
-            const to = lc(body.to ?? "");
-            const kindStr = JSON.stringify(body.kind ?? "").toLowerCase();
-            if (from === lower || to === lower || kindStr.includes(lower)) {
-              found.push({
-                height: x.h, ts: x.ts,
-                from: body.from ?? "", to: body.to ?? "",
-                amount_wei: typeof body.amount === "number" ? body.amount.toString() : String(body.amount ?? "0"),
-                fee_wei: typeof body.fee === "number" ? body.fee.toString() : String(body.fee ?? "0"),
-                kind: kindLabel(body.kind),
-              });
-            }
-          }
+      for (const t of recs) {
+        const from = lc(t.from ?? "");
+        const to = lc(t.to ?? "");
+        if (from === lower || to === lower) {
+          found.push({
+            height: t.height,
+            ts: t.timestamp_ms ?? 0,
+            from: t.from ?? "",
+            to: t.to ?? "",
+            amount_wei: t.amount ?? "0",
+            fee_wei: t.fee ?? "0",
+            kind: t.kind ?? "Unknown",
+            hash: t.hash,
+          });
         }
         if (found.length >= 100) break;
       }
-      found.sort((a, b) => b.height - a.height);
-      setTxs(found.slice(0, 100));
-      setScannedRange(window);
+      // The ring buffer is already newest-first; no extra sort needed.
+      setTxs(found);
+      // We re-purpose `scannedRange` to mean "max recent txs inspected"
+      // rather than "blocks scanned" — the JSX label was updated to match.
+      setScannedRange(limit);
     } catch (e) {
       setScanErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -718,7 +730,7 @@ export default function BalanceLookup() {
                   multisig_info: data.multisigInfo, has_contract_code: !!data.contractCode },
       delegations: data.delegations?.delegations ?? [],
       locked_full: data.locked, mempool_pending: mempoolForAddr,
-      recent_txs_scanned: { range_blocks: scannedRange, count: txs.length, txs },
+      recent_txs_scanned: { recent_window_size: scannedRange, count: txs.length, txs },
     };
     const blob = new Blob([JSON.stringify(snap, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -1505,23 +1517,25 @@ function ActivityPanel({
           <Activity className="h-4 w-4 text-primary" />
           Recent On-Chain Activity
           {scannedRange > 0 && (
-            <span className="text-[10px] font-normal text-muted-foreground">
-              ({txs.length}{txFilter !== "all" ? ` / ${totalCount}` : ""} hits in last {scannedRange.toLocaleString()} blocks)
+            <span className="text-[10px] font-normal text-muted-foreground" data-testid="text-activity-window">
+              ({txs.length}{txFilter !== "all" ? ` / ${totalCount}` : ""} hits in last {scannedRange.toLocaleString()} txs)
             </span>
           )}
         </h3>
         <div className="flex items-center gap-2">
-          <button onClick={() => onScan(500)} disabled={scanning}
+          {/* The chain ring buffer caps recent-tx history at 1000, so the
+              old "scan 5000" button no longer reflects reality. Two
+              buttons cover the realistic range and the "load 1000" call
+              is one RPC, not 1000 block fetches. */}
+          <button onClick={() => onScan(200)} disabled={scanning}
+            data-testid="button-scan-200"
             className="text-[11px] px-2 py-1 rounded bg-muted hover:bg-muted/70 disabled:opacity-40">
-            {scanning ? "scanning…" : "scan 500"}
+            {scanning ? "loading…" : "load 200"}
           </button>
-          <button onClick={() => onScan(2000)} disabled={scanning}
+          <button onClick={() => onScan(1000)} disabled={scanning}
+            data-testid="button-scan-1000"
             className="text-[11px] px-2 py-1 rounded bg-primary/20 text-primary hover:bg-primary/30 disabled:opacity-40">
-            {scanning ? "…" : "scan 2000"}
-          </button>
-          <button onClick={() => onScan(5000)} disabled={scanning}
-            className="text-[11px] px-2 py-1 rounded bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 disabled:opacity-40">
-            {scanning ? "…" : "scan 5000"}
+            {scanning ? "…" : "load 1000"}
           </button>
         </div>
       </div>
@@ -1545,12 +1559,18 @@ function ActivityPanel({
         <div className="p-8 text-center">
           <Inbox className="h-10 w-10 text-muted-foreground/30 mx-auto mb-2" />
           <div className="text-xs text-muted-foreground">
-            {scanning ? "scanning blocks…" :
+            {scanning ? "loading recent txs…" :
               scannedRange > 0
                 ? txFilter !== "all"
-                  ? `no ${txFilter} txs found in scanned window (try "All" or wider scan).`
-                  : `no transactions found in last ${scannedRange.toLocaleString()} blocks. Try a wider scan.`
-                : "ready to scan…"}
+                  ? `no ${txFilter} txs in last ${scannedRange.toLocaleString()} on-chain txs (try "All" or load more).`
+                  : `no transactions touching this address in last ${scannedRange.toLocaleString()} on-chain txs.`
+                : "ready to load…"}
+          </div>
+          {/* Honest disclosure: the chain's recent-tx index is bounded
+              (RECENT_TX_CAP = 1000), so older activity is unreachable from
+              this fast path. */}
+          <div className="text-[10px] text-muted-foreground/60 mt-2">
+            Recent activity is read from the node's on-disk index (last 1,000 txs). Older history is not searchable here.
           </div>
         </div>
       ) : (
