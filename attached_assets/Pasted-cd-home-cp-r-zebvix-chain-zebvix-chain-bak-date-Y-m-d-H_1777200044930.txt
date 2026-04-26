@@ -1,0 +1,49 @@
+cd /home && cp -r zebvix-chain zebvix-chain.bak.$(date +%Y%m%d_%H%M%S) && cd zebvix-chain
+
+# Fresh tarball download (api-server abhi running hai Replit pe)
+curl -fsSL "https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/api/download/newchain" -o newchain.tgz
+ls -la newchain.tgz
+
+# Extract over current source (target/ ko preserve karta hai → cache reuse, ~2 min build)
+tar -xzf newchain.tgz --strip-components=1 -C .
+rm newchain.tgz
+
+# Verify naya RPC code aaya:
+grep -n 'zbx_bridgePaused' src/rpc.rs
+# Expected: line ~1201 wala block dikhega
+
+# Build (release, ~2 min on warm cache)
+cargo build --release 2>&1 | tail -10
+
+# CRITICAL: binary ko /usr/local/bin pe copy karo (sirf cargo build kafi nahi)
+cp target/release/zebvix-node /usr/local/bin/zebvix-node
+ls -la /usr/local/bin/zebvix-node
+
+# Service restart
+systemctl restart zebvix.service
+sleep 5
+systemctl status zebvix.service --no-pager | head -10
+-rw-r--r-- 1 root root 266167 Apr 26 10:38 newchain.tgz
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:393:4
+    |
+393 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 1m 40s
+cp: cannot create regular file '/usr/local/bin/zebvix-node': Text file busy
+-rwxr-xr-x 1 root root 16571816 Apr 26 10:09 /usr/local/bin/zebvix-node
+● zebvix.service - Zebvix L1 Blockchain Node
+     Loaded: loaded (/etc/systemd/system/zebvix.service; enabled; preset: enabled)
+     Active: active (running) since Sun 2026-04-26 10:40:15 UTC; 5s ago
+   Main PID: 586200 (zebvix-node)
+      Tasks: 7 (limit: 9483)
+     Memory: 4.2M (peak: 4.7M)
+        CPU: 40ms
+     CGroup: /system.slice/zebvix.service
+             └─586200 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333
+
+root@srv1266996:/home/zebvix-chain# 
