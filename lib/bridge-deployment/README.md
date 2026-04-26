@@ -115,8 +115,17 @@ Replace every `___FILL___` placeholder with the right value:
 |---|---|
 | `___FILL_ZEBVIX_ADMIN_PRIVATE_KEY___` (relayer.env) | The genesis admin key for `0x40907000…0315`, only on this VPS |
 | `___FILL_RELAYER_BSC_PRIVATE_KEY___` (relayer.env) | Funded BSC EOA you generated for the relayer |
-| `___FILL_AFTER_DEPLOY___` (3 places) | From `lib/bsc-contracts/deployments/bsc/addresses.json` |
 | `___FILL_VALIDATOR_PRIVATE_KEY_INDEX_N___` (signer-N.env) | Entry `index: N` from your `validators.json` |
+
+> **Note on BSC contract addresses:** The `BSC_BRIDGE_ADDRESS`, `BSC_WZBX_ADDRESS`,
+> and `BSC_START_BLOCK` fields are **pre-populated with the canonical BSC mainnet
+> deployment** (chainId 56, deployed 2026-04-26). For mainnet operators these
+> require no edit. **If you are deploying against a fresh chain, BSC testnet,
+> or a re-deployed contract, you must override these three values plus
+> `BSC_RPC` and `BSC_CHAIN_ID` in `relayer.env` AND `BSC_BRIDGE_ADDRESS` +
+> `BSC_CHAIN_ID` in every `signer-N.env` BEFORE starting** — the signer bakes
+> these into its EIP-712 domain, so a wrong value produces signatures rejected
+> by the on-chain bridge.
 
 ### 6. Start the services
 

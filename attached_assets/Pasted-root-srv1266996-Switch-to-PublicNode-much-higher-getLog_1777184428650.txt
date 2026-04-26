@@ -1,0 +1,24 @@
+root@srv1266996:~# # Switch to PublicNode (much higher getLogs rate limit)
+sudo sed -i 's|^BSC_RPC=.*|BSC_RPC=https://bsc-rpc.publicnode.com|' /etc/zbx-bridge/relayer.env
+sudo systemctl restart zbx-relayer
+sleep 5
+sudo journalctl -u zbx-relayer --since "10 sec ago" --output=cat | head -20
+Stopping zbx-relayer.service - Zebvix Bridge Relayer...
+{"level":30,"time":1777184411201,"pid":521304,"hostname":"srv1266996.hstgr.cloud","sig":"SIGTERM","msg":"shutting down"}
+ ELIFECYCLE  Command failed.
+zbx-relayer.service: Deactivated successfully.
+Stopped zbx-relayer.service - Zebvix Bridge Relayer.
+zbx-relayer.service: Consumed 4.930s CPU time, 171.9M memory peak, 0B memory swap peak.
+Started zbx-relayer.service - Zebvix Bridge Relayer.
+ WARN  Issue while reading "/home/zbx-bridge/.npmrc". EACCES: permission denied, open '/home/zbx-bridge/.npmrc'
+ WARN  Issue while reading "/home/zbx-bridge/.config/pnpm/rc". EACCES: permission denied, open '/home/zbx-bridge/.config/pnpm/rc'
+> @workspace/bridge-relayer@0.0.0 start /opt/zebvix/lib/bridge-relayer
+> tsx src/index.ts
+{"level":30,"time":1777184412544,"pid":522943,"hostname":"srv1266996.hstgr.cloud","zebvix_rpc":"http://127.0.0.1:8545","bsc_rpc":"https://bsc-rpc.publicnode.com","bridge":"0xa6dF16fdFF669FD62aF9f947B089516671094F85","wzbx":"0xf7AA4bF2e80742411AD3AD3B8f70885E12C8dc09","signers":5,"msg":"starting zebvix↔bsc relayer"}
+{"level":30,"time":1777184412833,"pid":522943,"hostname":"srv1266996.hstgr.cloud","relayer_addr":"0xA31C4E6Dc5b175F15A770ee7e540ad28326a5706","bnb":"4993932400000000","threshold":1,"validators_required":1,"msg":"bsc client ready"}
+{"level":30,"time":1777184412833,"pid":522943,"hostname":"srv1266996.hstgr.cloud","module":"zebvix","interval_ms":8000,"asset_id":"240518168576","msg":"zebvix watcher starting"}
+{"level":30,"time":1777184412894,"pid":522943,"hostname":"srv1266996.hstgr.cloud","module":"bsc","admin":"0x40907000ac0a1a73e4cd89889b4d7ee8980c0315","msg":"loaded zebvix admin signing key"}
+{"level":30,"time":1777184412897,"pid":522943,"hostname":"srv1266996.hstgr.cloud","module":"bsc","start_block":94732579,"confirmations":15,"msg":"bsc watcher starting"}
+{"level":30,"time":1777184412901,"pid":522943,"hostname":"srv1266996.hstgr.cloud","port":8765,"msg":"/health listening"}
+{"level":30,"time":1777184412914,"pid":522943,"hostname":"srv1266996.hstgr.cloud","module":"zebvix","added":1,"total_known":1,"msg":"discovered zebvix events"}
+root@srv1266996:~# 
