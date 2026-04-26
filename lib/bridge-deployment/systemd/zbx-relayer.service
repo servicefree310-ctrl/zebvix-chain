@@ -1,0 +1,36 @@
+[Unit]
+Description=Zebvix Bridge Relayer
+Documentation=https://github.com/zebvix
+After=network-online.target zebvix-node.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=zbx-bridge
+Group=zbx-bridge
+WorkingDirectory=__REPO__/lib/bridge-relayer
+EnvironmentFile=/etc/zbx-bridge/relayer.env
+ExecStart=/usr/bin/pnpm run start
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ReadWritePaths=/var/lib/zbx-bridge
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+RestrictRealtime=true
+
+[Install]
+WantedBy=multi-user.target

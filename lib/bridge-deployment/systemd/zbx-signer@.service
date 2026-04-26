@@ -1,0 +1,36 @@
+[Unit]
+Description=Zebvix Bridge Validator Signer #%i
+Documentation=https://github.com/zebvix
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=zbx-bridge
+Group=zbx-bridge
+WorkingDirectory=__REPO__/lib/bridge-signer
+EnvironmentFile=/etc/zbx-bridge/signer-%i.env
+ExecStart=/usr/bin/pnpm run start
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Hardening — signer holds a validator private key, harden aggressively
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+RestrictRealtime=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

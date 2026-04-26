@@ -222,6 +222,115 @@ balance, and the burn-back form.
    First click approves the bridge, second click burns. The BSC tx hash
    is shown immediately.
 
+## 6.5. Mainnet deploy — chosen path: 3-of-5 validators + Gnosis Safe + single-VPS relayer/signers
+
+This section is the canonical sequence for the production deploy decided
+in this project: **mainnet, 3-of-5 multisig, Safe-owned bridge, all
+relayer/signers on the existing zebvix-node VPS**.
+
+### Step A — generate 5 validator keypairs (LAPTOP, offline)
+
+On your local machine (NOT the VPS, NOT Replit):
+
+```bash
+N=5 bash lib/bridge-deployment/genkeys.sh > validators.json
+chmod 600 validators.json
+```
+
+Encrypt + back up `validators.json`. Extract the 5 public addresses (you'll
+need them in step C):
+
+```bash
+node -e 'JSON.parse(require("fs").readFileSync("validators.json")).forEach(v => console.log(v.address))'
+```
+
+### Step B — deploy a Gnosis Safe on BSC mainnet
+
+Open https://app.safe.global, switch to BNB Smart Chain, create a new
+Safe (recommended: 3-of-5 owners with hardware wallets, separate from
+the validator keys). Note the Safe address (`0xSAFE…`).
+
+### Step C — provide the deploy inputs
+
+The agent will request these from you:
+
+- **`BSC_DEPLOYER_PRIVATE_KEY`** — funded BSC EOA (≥ 0.02 BNB), one-time
+  use, can be rotated immediately after deploy (Replit secret).
+- **`BRIDGE_OWNER`** — the Safe address from step B (env var, not secret).
+- **`BRIDGE_VALIDATORS`** — the 5 validator addresses from step A,
+  comma-separated (env var, not secret).
+
+### Step D — agent runs the mainnet deploy
+
+```bash
+export BRIDGE_THRESHOLD=3
+export ZEBVIX_CHAIN_ID=7878
+export WZBX_ADMIN=$BRIDGE_OWNER          # Safe also owns wZBX
+pnpm --filter @workspace/bsc-contracts exec hardhat run --network bsc scripts/deploy.ts
+```
+
+⚠️ Because `WZBX_ADMIN` = Safe ≠ deployer, the script will print a manual
+`grantRole(MINTER_ROLE, bridgeAddress)` call. **You must execute this
+from the Safe** before any mints can land. Do this via the Safe UI as
+the first transaction.
+
+Output lands at `lib/bsc-contracts/deployments/bsc/addresses.json`.
+Record:
+
+- `WrappedZBX` address → goes into `BSC_WZBX_ADDRESS`
+- `ZebvixBridge` address → goes into `BSC_BRIDGE_ADDRESS`
+- Deploy block → goes into `BSC_START_BLOCK` on the VPS relayer
+
+### Step E — agent wires the dashboard
+
+Sets in api-server (Replit shared env):
+
+```
+BSC_WZBX_ADDRESS=0x…
+BSC_BRIDGE_ADDRESS=0x…
+```
+
+Restarts api-server. The /bridge-live page now shows real wZBX +
+ZebvixBridge addresses with BscScan links.
+
+### Step F — VPS install (on your zebvix-node host)
+
+Follow `lib/bridge-deployment/README.md` from step 4 onward. Summary:
+
+```bash
+ssh root@93.127.213.192
+cd /opt/zebvix          # or wherever you cloned the repo
+git pull
+sudo bash lib/bridge-deployment/install-vps.sh
+# Edit /etc/zbx-bridge/relayer.env + signer-1..5.env (fill placeholders)
+sudo systemctl enable --now zbx-relayer zbx-signer@{1,2,3,4,5}
+```
+
+### Step G — Safe-execute the post-deploy txs
+
+From the Safe UI, send these in order:
+
+1. `wZBX.grantRole(MINTER_ROLE, bridgeAddress)` — enables minting
+2. (Optional, recommended) `wZBX.revokeRole(DEFAULT_ADMIN_ROLE, deployer)`
+   — drops deployer from any wZBX authority. Safe keeps admin role.
+
+### Step H — end-to-end mainnet smoke test
+
+1. Lock 1 ZBX on Zebvix via `/bridge-live` form (small amount).
+2. Watch relayer log on VPS — should detect within ~10s, collect 3 sigs,
+   submit `mintFromZebvix`.
+3. Check BscScan tx hash printed by the relayer; confirm `Transfer`
+   event minting wZBX to the recipient.
+4. Connect MetaMask in the dashboard's BSC side panel, "Add wZBX",
+   confirm balance.
+5. Burn 0.5 wZBX back to your Zebvix address. Watch relayer log —
+   `BurnToZebvix` event detected after 15 confirmations, then
+   `zbx_submitBridgeIn` released native ZBX.
+
+If any step hangs > 5 min, check the relayer log for the failing
+endpoint / RPC, fix, restart. The relayer is idempotent and resumes
+where it left off.
+
 ## 7. Mainnet promotion checklist
 
 Do NOT skip any of these for mainnet:
