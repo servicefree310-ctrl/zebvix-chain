@@ -5,6 +5,7 @@ import '../theme.dart';
 import 'bridge_screen.dart';
 import 'scan_screen.dart';
 import 'settings_screen.dart';
+import 'swap_screen.dart';
 import 'wallet_screen.dart';
 
 class HomeShell extends StatefulWidget {
@@ -21,9 +22,10 @@ class _HomeShellState extends State<HomeShell> {
     setState(() {
       _idx = switch (tab) {
         'wallet' => 0,
-        'bridge' => 1,
-        'scan' => 2,
-        'settings' => 3,
+        'swap' => 1,
+        'bridge' => 2,
+        'scan' => 3,
+        'settings' => 4,
         _ => _idx,
       };
     });
@@ -34,13 +36,14 @@ class _HomeShellState extends State<HomeShell> {
     final relay = context.watch<SessionRelay>();
     final pages = [
       WalletScreen(onAction: (chainId, {bool send = false}) => _navTo(chainId)),
+      const SwapScreen(),
       const BridgeScreen(),
       const ScanScreen(),
       const SettingsScreen(),
     ];
-    final titles = ['Wallet', 'Bridge', 'Scan', 'Settings'];
+    final titles = ['Wallet', 'Swap', 'Bridge', 'Scan', 'Settings'];
     return Scaffold(
-      appBar: _idx == 2
+      appBar: _idx == 3
           ? null
           : AppBar(
               title: Text(titles[_idx]),
@@ -80,12 +83,15 @@ class _HomeShellState extends State<HomeShell> {
             ),
       body: IndexedStack(index: _idx, children: pages),
       bottomNavigationBar: BottomNavigationBar(
+        type: BottomNavigationBarType.fixed,
         currentIndex: _idx,
         onTap: (i) => setState(() => _idx = i),
         items: const [
           BottomNavigationBarItem(
               icon: Icon(Icons.account_balance_wallet_rounded),
               label: 'Wallet'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.swap_vert_rounded), label: 'Swap'),
           BottomNavigationBarItem(
               icon: Icon(Icons.swap_horiz_rounded), label: 'Bridge'),
           BottomNavigationBarItem(

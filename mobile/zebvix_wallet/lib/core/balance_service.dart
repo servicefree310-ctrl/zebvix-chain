@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'chains.dart';
 import 'rpc_client.dart';
+import 'token_store.dart';
 import 'wallet_store.dart';
 
 class TokenBalance {
@@ -41,12 +42,19 @@ class TokenBalance {
 class BalanceService extends ChangeNotifier {
   final RpcRegistry _rpc;
   final WalletStore _wallet;
+  final TokenStore _tokens;
   final Map<String, List<TokenBalance>> _byChain = {};
   bool _loading = false;
   DateTime? _lastFetch;
 
-  BalanceService(this._rpc, this._wallet) {
+  BalanceService(this._rpc, this._wallet, this._tokens) {
     _wallet.addListener(_onWalletChange);
+    _tokens.addListener(_onTokensChange);
+  }
+
+  void _onTokensChange() {
+    // Refresh on token list mutation if we already have a wallet loaded.
+    if (_wallet.active != null) refreshAll();
   }
 
   bool get loading => _loading;
@@ -110,6 +118,21 @@ class BalanceService extends ChangeNotifier {
           ));
         } catch (_) {}
       }
+      // User-added custom tokens for this chain.
+      for (final ct in _tokens.forChain(chain.id)) {
+        try {
+          final bal = await client.erc20Balance(ct.contract, addr);
+          list.add(TokenBalance(
+            chain: chain,
+            symbol: ct.symbol,
+            amountWei: bal,
+            decimals: ct.decimals,
+            isNative: false,
+            tokenAddress: ct.contract,
+            fetchedAt: DateTime.now(),
+          ));
+        } catch (_) {}
+      }
     } catch (_) {
       // RPC unreachable; show zero placeholders
       list.add(TokenBalance(
@@ -127,6 +150,7 @@ class BalanceService extends ChangeNotifier {
   @override
   void dispose() {
     _wallet.removeListener(_onWalletChange);
+    _tokens.removeListener(_onTokensChange);
     super.dispose();
   }
 }

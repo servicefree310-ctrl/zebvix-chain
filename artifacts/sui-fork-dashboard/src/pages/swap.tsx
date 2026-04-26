@@ -31,6 +31,8 @@ import {
   type StoredWallet,
 } from "@/lib/web-wallet";
 import { Link } from "wouter";
+import { MobileConnectButton } from "@/components/wallet-connect/MobileConnectButton";
+import { AddTokenDialog } from "@/components/tokens/AddTokenDialog";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -243,6 +245,7 @@ export default function SwapPage() {
   const [poolStats, setPoolStats] = useState<PoolStats | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [lastResult, setLastResult] = useState<{ ok: boolean; msg: string; hash?: string } | null>(null);
+  const [addTokenOpen, setAddTokenOpen] = useState(false);
 
   const inputSym = direction === "zbx_to_zusd" ? "ZBX" : "zUSD";
   const outputSym = direction === "zbx_to_zusd" ? "zUSD" : "ZBX";
@@ -434,12 +437,24 @@ export default function SwapPage() {
     <div className="container mx-auto py-6 max-w-5xl space-y-6">
       {/* Header */}
       <div>
-        <div className="flex items-center gap-3 mb-2">
+        <div className="flex items-center gap-3 mb-2 flex-wrap">
           <ArrowUpDown className="h-7 w-7 text-emerald-400" />
           <h1 className="text-3xl font-bold">Swap (Buy / Sell)</h1>
           <Badge className="bg-emerald-500/15 text-emerald-300 border-emerald-500/30">
             Phase B.10 · on-chain
           </Badge>
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setAddTokenOpen(true)}
+              data-testid="button-add-token-swap"
+            >
+              + Add Token
+            </Button>
+            <MobileConnectButton variant="outline" />
+          </div>
         </div>
         <p className="text-muted-foreground text-sm max-w-3xl">
           Permissionless ZBX / zUSD AMM swap with on-chain slippage protection.
@@ -448,6 +463,11 @@ export default function SwapPage() {
           principal (only the gas fee is consumed).
         </p>
       </div>
+      <AddTokenDialog
+        open={addTokenOpen}
+        onClose={() => setAddTokenOpen(false)}
+        defaultChain="zebvix"
+      />
 
       {/* Active wallet card */}
       {!active ? (

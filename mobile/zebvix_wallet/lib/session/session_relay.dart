@@ -59,8 +59,10 @@ class SessionRelay extends ChangeNotifier {
 
   Future<void> connect(String uri) async {
     // uri format: zbx://wc?id=<sessionId>&relay=<wss-url>&origin=<dashboard-url>
+    // also accepts zebvix:// scheme for the same payload (deep-link from dApp).
     final parsed = Uri.tryParse(uri);
-    if (parsed == null || parsed.scheme != 'zbx') {
+    if (parsed == null ||
+        (parsed.scheme != 'zbx' && parsed.scheme != 'zebvix')) {
       _err = 'Invalid session URI';
       _status = SessionStatus.error;
       notifyListeners();

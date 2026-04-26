@@ -1,16 +1,39 @@
-import React from "react";
+import React, { useState } from "react";
 import { CodeBlock } from "@/components/ui/code-block";
 import { ArrowUpDown, Layers, BarChart2, Coins } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { MobileConnectButton } from "@/components/wallet-connect/MobileConnectButton";
+import { AddTokenDialog } from "@/components/tokens/AddTokenDialog";
 
 export default function Dex() {
+  const [addTokenOpen, setAddTokenOpen] = useState(false);
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight text-foreground mb-3">DEX / Token Swap</h1>
+        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">DEX / Token Swap</h1>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setAddTokenOpen(true)}
+              data-testid="button-add-token-dex"
+            >
+              + Add Token
+            </Button>
+            <MobileConnectButton variant="outline" />
+          </div>
+        </div>
         <p className="text-lg text-muted-foreground">
           Deploy a decentralized exchange on Zebvix — lets users swap ZBX and other tokens using an AMM (Automated Market Maker) model.
         </p>
       </div>
+      <AddTokenDialog
+        open={addTokenOpen}
+        onClose={() => setAddTokenOpen(false)}
+        defaultChain="zebvix"
+      />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[

@@ -6,6 +6,7 @@ import rpcRouter from "./rpc";
 import pairRouter from "./pair";
 import bridgeRouter from "./bridge";
 import wcRouter from "./wc";
+import tokensRouter from "./tokens";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use(rpcRouter);
 router.use(pairRouter);
 router.use(bridgeRouter);
 router.use(wcRouter);
+router.use(tokensRouter);
 
 export default router;

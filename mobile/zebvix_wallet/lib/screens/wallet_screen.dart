@@ -6,6 +6,7 @@ import '../core/chains.dart';
 import '../core/wallet_store.dart';
 import '../theme.dart';
 import '../widgets/glass_card.dart';
+import 'add_token_screen.dart';
 
 class WalletScreen extends StatefulWidget {
   final void Function(String chainId, {bool send})? onAction;
@@ -211,6 +212,17 @@ class _WalletScreenState extends State<WalletScreen> {
                               color: AppColors.textMuted, fontSize: 11)),
                     ],
                   ),
+                ),
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  tooltip: 'Add token',
+                  icon: const Icon(Icons.add_circle_outline_rounded,
+                      color: AppColors.accent, size: 20),
+                  onPressed: () {
+                    Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => AddTokenScreen(initialChainId: chain.id),
+                    ));
+                  },
                 ),
               ],
             ),
