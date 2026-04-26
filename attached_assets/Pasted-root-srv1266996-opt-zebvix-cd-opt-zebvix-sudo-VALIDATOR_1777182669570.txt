@@ -1,0 +1,82 @@
+root@srv1266996:/opt/zebvix# cd /opt/zebvix && sudo VALIDATOR_COUNT=1 bash lib/bridge-deployment/install-vps.sh
+→ Step 1/6: Node.js 20 + pnpm
+
+added 1 package in 2s
+
+1 package is looking for funding
+  run `npm fund` for details
+npm notice
+npm notice New major version of npm available! 10.8.2 -> 11.13.0
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.13.0
+npm notice To update run: npm install -g npm@11.13.0
+npm notice
+v20.19.6
+9.15.9
+→ Step 2/6: Install dependencies (filtered)
+Scope: 2 of 4 workspace projects
+
+   ╭───────────────────────────────────────────────────────────────────╮
+   │                                                                   │
+   │                Update available! 9.15.9 → 10.33.2.                │
+   │   Changelog: https://github.com/pnpm/pnpm/releases/tag/v10.33.2   │
+   │                 Run "pnpm add -g pnpm" to update.                 │
+   │                                                                   │
+   ╰───────────────────────────────────────────────────────────────────╯
+
+ WARN  9 deprecated subdependencies found: @types/minimatch@6.0.0, glob@10.5.0, glob@5.0.15, glob@7.1.7, glob@7.2.3, glob@8.1.0, inflight@1.0.6, lodash.isequal@4.5.0, prebuild-install@7.1.3
+Progress: resolved 657, reused 0, downloaded 0, added 0, done
+ WARN  Issues with peer dependencies found
+lib/bsc-contracts
+└─┬ @nomicfoundation/hardhat-toolbox 5.0.0
+  └── ✕ unmet peer hardhat-gas-reporter@^1.0.8: found 2.3.0
+
+.                                        | +156 ++++++++++++++++
+node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3: Running install script, done in 782ms
+node_modules/.pnpm/esbuild@0.27.3/node_modules/esbuild: Running postinstall script, done in 94ms
+. preinstall$ sh -c 'rm -f package-lock.json yarn.lock; case "$npm_config_user_agent" in pnpm/*) ;; *) echo "Use pnpm instead" >&2; exit 1 ;; esac'
+└─ Done in 22ms
+Done in 16.3s using pnpm v9.15.9
+→ Step 3/6: Typecheck both packages
+
+> @workspace/bridge-relayer@0.0.0 typecheck /opt/zebvix/lib/bridge-relayer
+> tsc -p tsconfig.json --noEmit
+
+
+> @workspace/bridge-signer@0.0.0 typecheck /opt/zebvix/lib/bridge-signer
+> tsc -p tsconfig.json --noEmit
+
+→ Step 4/6: System users + dirs
+→ Step 5/6: Env file templates (VALIDATOR_COUNT=1)
+  ✓ created /etc/zbx-bridge/relayer.env
+  ✓ created /etc/zbx-bridge/signer-1.env
+→ Step 6/6: Systemd units
+  ✓ installed zbx-relayer.service + zbx-signer@.service
+  ✓ shared SIGNER_AUTH_TOKEN auto-generated and injected
+
+─────────────────────────────────────────────────────────────────────────────
+Install complete. NEXT STEPS:
+
+  1. Fill env files (use 'nano' or your editor of choice):
+       nano /etc/zbx-bridge/relayer.env
+       nano /etc/zbx-bridge/signer-1.env
+       ... signer-2.env, signer-3.env, signer-4.env, signer-5.env
+
+  2. Start the services:
+       systemctl enable --now zbx-relayer
+       systemctl enable --now zbx-signer@1 zbx-signer@2 zbx-signer@3 zbx-signer@4 zbx-signer@5
+
+  3. Watch logs:
+       journalctl -u zbx-relayer -f
+       journalctl -u zbx-signer@1 -f
+
+  4. Health checks (from VPS shell):
+       curl -s http://127.0.0.1:8765/health | jq
+       curl -s http://127.0.0.1:9001/health | jq   # validator 1
+       curl -s http://127.0.0.1:9002/health | jq   # validator 2
+       ...
+
+  5. SECURITY: configure firewall so only the relayer's host can hit
+     ports 9001-9005. If everything is on this single VPS, BIND_HOST=127.0.0.1
+     in each signer.env keeps them off the public internet.
+─────────────────────────────────────────────────────────────────────────────
+root@srv1266996:/opt/zebvix# 

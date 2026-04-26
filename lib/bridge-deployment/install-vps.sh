@@ -120,19 +120,28 @@ systemctl daemon-reload
 echo "  ✓ installed zbx-relayer.service + zbx-signer@.service"
 echo "  ✓ shared SIGNER_AUTH_TOKEN auto-generated and injected"
 
-cat <<'EOF'
+# Build dynamic instructions based on VALIDATOR_COUNT
+SIGNER_LIST=""
+SIGNER_HEALTH=""
+SIGNER_NANO=""
+SIGNER_ENABLE=""
+for i in $(seq 1 "$VALIDATOR_COUNT"); do
+  SIGNER_LIST+=" zbx-signer@$i"
+  SIGNER_HEALTH+="       curl -s http://127.0.0.1:$((9000 + i))/health | jq   # validator $i"$'\n'
+  SIGNER_NANO+="       nano /etc/zbx-bridge/signer-$i.env"$'\n'
+  SIGNER_ENABLE+=" zbx-signer@$i"
+done
+
+cat <<EOF
 
 ─────────────────────────────────────────────────────────────────────────────
-Install complete. NEXT STEPS:
+Install complete. NEXT STEPS ($VALIDATOR_COUNT validator(s) provisioned):
 
   1. Fill env files (use 'nano' or your editor of choice):
        nano /etc/zbx-bridge/relayer.env
-       nano /etc/zbx-bridge/signer-1.env
-       ... signer-2.env, signer-3.env, signer-4.env, signer-5.env
-
+$SIGNER_NANO
   2. Start the services:
-       systemctl enable --now zbx-relayer
-       systemctl enable --now zbx-signer@1 zbx-signer@2 zbx-signer@3 zbx-signer@4 zbx-signer@5
+       systemctl enable --now zbx-relayer$SIGNER_ENABLE
 
   3. Watch logs:
        journalctl -u zbx-relayer -f
@@ -140,12 +149,9 @@ Install complete. NEXT STEPS:
 
   4. Health checks (from VPS shell):
        curl -s http://127.0.0.1:8765/health | jq
-       curl -s http://127.0.0.1:9001/health | jq   # validator 1
-       curl -s http://127.0.0.1:9002/health | jq   # validator 2
-       ...
-
-  5. SECURITY: configure firewall so only the relayer's host can hit
-     ports 9001-9005. If everything is on this single VPS, BIND_HOST=127.0.0.1
-     in each signer.env keeps them off the public internet.
+$SIGNER_HEALTH
+  5. SECURITY: BIND_HOST=127.0.0.1 in each signer.env keeps them off the
+     public internet. The auto-generated SIGNER_AUTH_TOKEN gives a second
+     defense-in-depth layer even on a misconfigured firewall.
 ─────────────────────────────────────────────────────────────────────────────
 EOF
