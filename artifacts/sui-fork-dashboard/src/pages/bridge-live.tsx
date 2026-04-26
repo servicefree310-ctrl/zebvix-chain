@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link as WLink } from "wouter";
 import {
@@ -13,8 +13,8 @@ import {
   Copy,
   CheckCircle2,
   AlertTriangle,
-  Eye,
-  EyeOff,
+  Wallet as WalletIcon,
+  UserPlus,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,13 @@ import {
   type BridgeAsset,
   type BridgeNetwork,
 } from "@/lib/bridge";
+import {
+  getActiveAddress,
+  getWallet,
+  loadWallets,
+  type StoredWallet,
+} from "@/lib/web-wallet";
+import { rpc, weiHexToZbx } from "@/lib/zbx-rpc";
 
 /** Format a base-units bigint into a human decimal string for `decimals` places. */
 function fmtUnits(
@@ -208,14 +215,53 @@ function BridgeOutForm() {
   const [assetId, setAssetId] = useState<string>("");
   const [amount, setAmount] = useState("");
   const [destAddress, setDestAddress] = useState("");
-  const [pkInput, setPkInput] = useState("");
-  const [showPk, setShowPk] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{
     hash: string; from: string; amount: string; symbol: string;
     dest: string; assetId: string;
   } | null>(null);
   const [errMsg, setErrMsg] = useState<string | null>(null);
+
+  // Active wallet (from localStorage). Re-reads on mount, on `storage` events
+  // (so e.g. importing a wallet in another tab reflects here) and on focus.
+  const [activeWallet, setActiveWallet] = useState<StoredWallet | null>(null);
+  const [walletCount, setWalletCount] = useState(0);
+
+  const reloadWallet = useCallback(() => {
+    const addr = getActiveAddress();
+    setActiveWallet(addr ? getWallet(addr) : null);
+    setWalletCount(loadWallets().length);
+  }, []);
+
+  useEffect(() => {
+    reloadWallet();
+    const onStorage = (e: StorageEvent) => {
+      if (!e.key || e.key.includes("zbx") || e.key.includes("wallet")) {
+        reloadWallet();
+      }
+    };
+    const onFocus = () => reloadWallet();
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [reloadWallet]);
+
+  // Live ZBX balance for the active wallet — refreshed every 8s.
+  // (BridgeOut fee is paid in ZBX regardless of the locked asset, so we
+  // always show the ZBX balance; per-asset zUSD balance shown when relevant.)
+  const balanceQ = useQuery({
+    queryKey: ["zbxBalance", activeWallet?.address ?? ""],
+    queryFn: async () => {
+      if (!activeWallet) return null;
+      const hex = await rpc<string>("zbx_getBalance", [activeWallet.address]);
+      return weiHexToZbx(hex);
+    },
+    enabled: !!activeWallet,
+    refetchInterval: 8_000,
+  });
 
   // Default to first active asset once they load.
   useEffect(() => {
@@ -240,10 +286,27 @@ function BridgeOutForm() {
       setErrMsg("Pick an asset first.");
       return;
     }
+    if (!activeWallet) {
+      setErrMsg(
+        "No active wallet. Create or import one on /wallet, or set an active wallet from the address book.",
+      );
+      return;
+    }
+    // Cheap consistency check: ensure the active wallet in storage hasn't
+    // changed under us between render and click (e.g. user switched active
+    // wallet in another tab). If so, force a reload so the user re-confirms.
+    const liveActive = getActiveAddress();
+    if (!liveActive || liveActive.toLowerCase() !== activeWallet.address.toLowerCase()) {
+      reloadWallet();
+      setErrMsg(
+        "Active wallet changed in another tab. Sender refreshed — please review the address above and submit again.",
+      );
+      return;
+    }
     setBusy(true);
     try {
       const r = await sendBridgeOut({
-        privateKeyHex: pkInput.trim(),
+        privateKeyHex: activeWallet.privateKey,
         assetId: selectedAsset.asset_id,
         amount: amount.trim(),
         // Each bridge asset has its own native_decimals on chain (ZBX=18, zUSD=6).
@@ -287,14 +350,20 @@ function BridgeOutForm() {
 
       <p className="text-sm text-muted-foreground">
         Your wallet's private key never leaves the browser — the tx is signed
-        in-page (secp256k1) and the raw bincode envelope is broadcast via{" "}
+        in-page (secp256k1) using the active wallet stored in this browser
+        and the raw bincode envelope is broadcast via{" "}
         <code className="text-xs bg-muted px-1 rounded">zbx_sendRawTransaction</code>.
         The chain debits your balance in the asset's native units (ZBX has 18
         decimals; zUSD has 6) and credits the public escrow vault atomically.
-        Outbound (lock) is fully user-signed — no admin can move locked funds
-        out of the vault except through a separate admin-signed BridgeIn tx
-        (today an attestation; multisig oracle planned).
       </p>
+
+      <ActiveWalletPanel
+        wallet={activeWallet}
+        walletCount={walletCount}
+        balanceZbx={balanceQ.data ?? null}
+        balanceLoading={balanceQ.isLoading || balanceQ.isFetching}
+        onRefresh={() => { reloadWallet(); balanceQ.refetch(); }}
+      />
 
       <form onSubmit={onSubmit} className="space-y-3">
         <Field label="Asset (foreign network)">
@@ -374,32 +443,17 @@ function BridgeOutForm() {
           </div>
         </Field>
 
-        <Field label="Sender private key (signed locally, never sent)">
-          <div className="relative">
-            <Input
-              type={showPk ? "text" : "password"}
-              placeholder="0x + 64 hex chars"
-              value={pkInput}
-              onChange={(e) => setPkInput(e.target.value)}
-              className="font-mono pr-10"
-              required
-            />
-            <button
-              type="button"
-              onClick={() => setShowPk((s) => !s)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              title={showPk ? "Hide" : "Show"}
-            >
-              {showPk ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            </button>
-          </div>
-        </Field>
-
-        <Button type="submit" disabled={busy || !assetId} className="w-full">
+        <Button
+          type="submit"
+          disabled={busy || !assetId || !activeWallet}
+          className="w-full"
+        >
           {busy ? (
-            <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Signing & broadcasting…</>
+            <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Signing &amp; broadcasting…</>
+          ) : !activeWallet ? (
+            <><Lock className="h-4 w-4 mr-2" />Set an active wallet to lock</>
           ) : (
-            <><Lock className="h-4 w-4 mr-2" />Sign locally & lock</>
+            <><Lock className="h-4 w-4 mr-2" />Sign with active wallet &amp; lock</>
           )}
         </Button>
       </form>
@@ -448,6 +502,102 @@ function BridgeOutForm() {
         </div>
       )}
     </Card>
+  );
+}
+
+function ActiveWalletPanel({
+  wallet,
+  walletCount,
+  balanceZbx,
+  balanceLoading,
+  onRefresh,
+}: {
+  wallet: StoredWallet | null;
+  walletCount: number;
+  balanceZbx: string | null;
+  balanceLoading: boolean;
+  onRefresh: () => void;
+}) {
+  if (!wallet) {
+    return (
+      <div className="rounded-md border border-yellow-500/40 bg-yellow-500/5 p-3 text-sm space-y-2">
+        <div className="flex items-center gap-2 font-semibold">
+          <AlertTriangle className="h-4 w-4 text-yellow-500" />
+          No active wallet in this browser
+        </div>
+        <div className="text-muted-foreground text-xs">
+          {walletCount > 0
+            ? "You have stored wallets but none is set as active. Open the wallet page and tap Set Active on the one you want to use as the bridge sender."
+            : "Bridge-out signs locally with your wallet's private key. Create or import a wallet first — it's stored only in this browser's localStorage."}
+        </div>
+        <div className="flex gap-2">
+          <WLink href="/wallet">
+            <a className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90">
+              <WalletIcon className="h-3.5 w-3.5" />
+              {walletCount > 0 ? "Open wallet" : "Create wallet"}
+            </a>
+          </WLink>
+          <WLink href="/import-wallet">
+            <a className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground hover:border-primary/60">
+              <UserPlus className="h-3.5 w-3.5" />
+              Import key
+            </a>
+          </WLink>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-md border border-primary/30 bg-primary/5 p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-sm font-semibold">
+          <WalletIcon className="h-4 w-4 text-primary" />
+          Sender — active wallet
+          <Badge variant="outline" className="ml-1 text-[10px]">
+            {wallet.label || "wallet"}
+          </Badge>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onRefresh}
+          disabled={balanceLoading}
+          title="Refresh balance"
+          className="h-7 px-2"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${balanceLoading ? "animate-spin" : ""}`} />
+        </Button>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 items-center">
+        <div className="font-mono text-xs break-all flex items-center gap-2">
+          <WLink href={`/block-explorer?q=${wallet.address}`}>
+            <a className="hover:text-primary">{wallet.address}</a>
+          </WLink>
+          <CopyBtn value={wallet.address} />
+        </div>
+        <div className="text-right">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            ZBX balance
+          </div>
+          <div className="font-bold tabular-nums text-primary">
+            {balanceZbx ?? (balanceLoading ? "…" : "—")}
+            <span className="ml-1 text-xs text-muted-foreground">ZBX</span>
+          </div>
+        </div>
+      </div>
+      <div className="text-[11px] text-muted-foreground flex items-center justify-between gap-2 pt-1">
+        <span>
+          The private key for this address never leaves your browser. Signing
+          happens in-page; only the signed envelope is broadcast.
+        </span>
+        <WLink href="/wallet">
+          <a className="shrink-0 inline-flex items-center gap-1 hover:text-primary">
+            Change wallet <ArrowRightCircle className="h-3 w-3" />
+          </a>
+        </WLink>
+      </div>
+    </div>
   );
 }
 
