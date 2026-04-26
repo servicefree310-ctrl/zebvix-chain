@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { z } from "zod";
 import {
   findBySymbol,
   listTokens,
@@ -8,6 +9,14 @@ import {
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
+
+const RegisterBody = z.object({
+  chain: z.string().min(2).max(20),
+  symbol: z.string().min(1).max(16).regex(/^[A-Za-z0-9._-]+$/),
+  contract: z.string().min(2).max(80),
+  decimals: z.number().int().min(0).max(36),
+  name: z.string().min(1).max(64).optional(),
+});
 
 const SUPPORTED = new Set([
   "zebvix",
@@ -71,15 +80,22 @@ router.get("/tokens/lookup/:chain/:contract", async (req, res) => {
 });
 
 router.post("/tokens/register", (req, res) => {
-  const body = (req.body ?? {}) as Partial<{
-    chain: string;
-    symbol: string;
-    contract: string;
-    decimals: number;
-    name: string;
-  }>;
-  if (!body.chain || !body.symbol || !body.contract || body.decimals == null) {
-    res.status(400).json({ error: "chain, symbol, contract, decimals required" });
+  const parsed = RegisterBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({
+      error: "invalid_body",
+      details: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`),
+    });
+    return;
+  }
+  const body = parsed.data;
+  if (!isChain(body.chain)) {
+    res.status(400).json({ error: "unsupported chain" });
+    return;
+  }
+  // EVM-style chains require a 0x-address; zebvix accepts symbol-style ids.
+  if (body.chain.toLowerCase() !== "zebvix" && !/^0x[0-9a-fA-F]{40}$/.test(body.contract)) {
+    res.status(400).json({ error: "contract must be a 0x address on EVM chains" });
     return;
   }
   const r = registerToken({

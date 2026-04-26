@@ -48,6 +48,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 
 const CORE_NAV = [
   { href: "/", label: "Overview", icon: BookOpen },
+  { href: "/docs", label: "Documentation", icon: BookOpen },
   { href: "/quick-start", label: "Quick Start Script", icon: PlayCircle },
   { href: "/setup", label: "Environment Setup", icon: TerminalSquare },
   { href: "/genesis", label: "Genesis Config", icon: FileJson },

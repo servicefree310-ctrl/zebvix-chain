@@ -52,6 +52,7 @@ import SmartContracts from "@/pages/smart-contracts";
 import RpcPlayground from "@/pages/rpc-playground";
 import PayIdRegister from "@/pages/payid-register";
 import ImportWallet from "@/pages/import-wallet";
+import DocsPage from "@/pages/docs";
 
 const queryClient = new QueryClient();
 
@@ -105,6 +106,7 @@ function Router() {
         <Route path="/governance" component={GovernancePage} />
         <Route path="/smart-contracts" component={SmartContracts} />
         <Route path="/rpc-playground" component={RpcPlayground} />
+        <Route path="/docs" component={DocsPage} />
         <Route component={NotFound} />
       </Switch>
     </Shell>
