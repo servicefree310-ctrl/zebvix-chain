@@ -37,6 +37,9 @@ const Schema = z.object({
   SIGNER_ENDPOINTS: z.string().min(1),
   /** Per-request signer timeout (ms). */
   SIGNER_TIMEOUT_MS: z.coerce.number().int().default(15_000),
+  /** Shared bearer token for relayer ↔ signer requests. Must match each
+   *  signer's AUTH_TOKEN env. Auto-injected by install-vps.sh. */
+  SIGNER_AUTH_TOKEN: z.string().min(16).optional(),
 
   // ── State ──────────────────────────────────────────────────────────────
   DB_PATH: z.string().default("./data/relayer.sqlite"),

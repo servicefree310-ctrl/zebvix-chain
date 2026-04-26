@@ -60,3 +60,14 @@ externalPort = 3003
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+BSC_WZBX_ADDRESS = "0xf7AA4bF2e80742411AD3AD3B8f70885E12C8dc09"
+BSC_BRIDGE_ADDRESS = "0xa6dF16fdFF669FD62aF9f947B089516671094F85"
+BSC_CHAIN_ID = "56"
+BSC_CHAIN_NAME = "BNB Smart Chain"
+BSC_PUBLIC_RPC = "https://bsc-dataseed.binance.org"
+BSC_EXPLORER = "https://bscscan.com"
+ZEBVIX_ZBX_ASSET_ID = "240518168576"

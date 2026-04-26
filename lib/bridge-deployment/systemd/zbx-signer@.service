@@ -32,5 +32,11 @@ MemoryDenyWriteExecute=false
 RestrictRealtime=true
 SystemCallArchitectures=native
 
+# Resource limits — signer is small, cap aggressively
+MemoryHigh=256M
+MemoryMax=384M
+TasksMax=64
+LimitNOFILE=8192
+
 [Install]
 WantedBy=multi-user.target

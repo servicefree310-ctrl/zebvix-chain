@@ -16,6 +16,7 @@ export async function requestSignature(
   req: MintRequest,
   timeoutMs: number,
   log: Logger,
+  authToken?: string,
 ): Promise<SignerResponse> {
   const url = endpoint.replace(/\/$/, "") + "/sign-mint";
   const ctrl = new AbortController();
@@ -28,9 +29,11 @@ export async function requestSignature(
       sourceChainId: req.sourceChainId.toString(),
       sourceBlockHeight: req.sourceBlockHeight.toString(),
     };
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (authToken) headers.authorization = `Bearer ${authToken}`;
     const res = await fetch(url, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify(body),
       signal: ctrl.signal,
     });
@@ -64,9 +67,10 @@ export async function collectSignatures(
   threshold: number,
   timeoutMs: number,
   log: Logger,
+  authToken?: string,
 ): Promise<{ signatures: string[]; signers: string[]; failures: { endpoint: string; error: string }[] }> {
   const promises = endpoints.map((ep) =>
-    requestSignature(ep, req, timeoutMs, log)
+    requestSignature(ep, req, timeoutMs, log, authToken)
       .then((r) => ({ ok: true as const, endpoint: ep, response: r }))
       .catch((e: unknown) => ({
         ok: false as const,

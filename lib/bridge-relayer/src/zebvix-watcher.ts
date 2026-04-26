@@ -257,6 +257,7 @@ export class ZebvixWatcher {
           threshold,
           this.cfg.SIGNER_TIMEOUT_MS,
           this.log.child({ source: ev.source_tx_hash }),
+          this.cfg.SIGNER_AUTH_TOKEN,
         );
         this.log.info(
           { source: ev.source_tx_hash, signers, threshold, recipient: ev.recipient, amount: ev.amount },

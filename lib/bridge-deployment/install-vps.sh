@@ -26,6 +26,9 @@ set -euo pipefail
 
 REPO="${REPO:-/opt/zebvix}"
 NODE_VERSION="20"
+# How many signer instances to provision env files for. Default 5 (matches a
+# 3-of-5 validator setup). Set VALIDATOR_COUNT=1 for a 1-of-1 bootstrap.
+VALIDATOR_COUNT="${VALIDATOR_COUNT:-5}"
 
 if [ "$EUID" -ne 0 ]; then
   echo "Run as root (sudo bash $0)" >&2
@@ -66,17 +69,35 @@ mkdir -p /etc/zbx-bridge /var/lib/zbx-bridge
 chown -R zbx-bridge:zbx-bridge /var/lib/zbx-bridge
 chmod 750 /etc/zbx-bridge
 
-echo "→ Step 5/6: Env file templates"
+echo "→ Step 5/6: Env file templates (VALIDATOR_COUNT=$VALIDATOR_COUNT)"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-for f in relayer.env signer-1.env signer-2.env signer-3.env signer-4.env signer-5.env; do
+
+# Generate ONE shared bearer token for relayer ↔ signer auth (mandatory hardening).
+# Reuse if any env file already exists with one (idempotent re-runs).
+AUTH_TOKEN=""
+if [ -f /etc/zbx-bridge/relayer.env ] && grep -q "^SIGNER_AUTH_TOKEN=" /etc/zbx-bridge/relayer.env; then
+  AUTH_TOKEN="$(grep "^SIGNER_AUTH_TOKEN=" /etc/zbx-bridge/relayer.env | cut -d= -f2-)"
+fi
+if [ -z "$AUTH_TOKEN" ] || [ "$AUTH_TOKEN" = "__AUTH_TOKEN__" ]; then
+  AUTH_TOKEN="$(openssl rand -hex 32)"
+fi
+
+# Build the list of env files to create: relayer + signer-1..N
+ENV_FILES=("relayer.env")
+for i in $(seq 1 "$VALIDATOR_COUNT"); do
+  ENV_FILES+=("signer-$i.env")
+done
+
+for f in "${ENV_FILES[@]}"; do
   if [ ! -f "/etc/zbx-bridge/$f" ]; then
     base="${f%.env}"
     if [ "$base" = "relayer" ]; then
       cp "$SCRIPT_DIR/env-templates/relayer.env.template" "/etc/zbx-bridge/$f"
+      sed -i "s|__AUTH_TOKEN__|$AUTH_TOKEN|g" "/etc/zbx-bridge/$f"
     else
       cp "$SCRIPT_DIR/env-templates/signer.env.template" "/etc/zbx-bridge/$f"
       idx="${base#signer-}"
-      sed -i "s|__SIGNER_INDEX__|$idx|g; s|__PORT__|$((9000 + idx))|g" "/etc/zbx-bridge/$f"
+      sed -i "s|__SIGNER_INDEX__|$idx|g; s|__PORT__|$((9000 + idx))|g; s|__AUTH_TOKEN__|$AUTH_TOKEN|g" "/etc/zbx-bridge/$f"
     fi
     chown zbx-bridge:zbx-bridge "/etc/zbx-bridge/$f"
     chmod 600 "/etc/zbx-bridge/$f"
@@ -87,12 +108,17 @@ for f in relayer.env signer-1.env signer-2.env signer-3.env signer-4.env signer-
 done
 
 echo "→ Step 6/6: Systemd units"
+# These ALWAYS overwrite — units are repo-tracked source of truth.
+# To customise on a specific host without losing changes on next install,
+# use systemd drop-ins instead:
+#   sudo systemctl edit zbx-relayer        # creates /etc/systemd/system/zbx-relayer.service.d/override.conf
 sed "s|__REPO__|$REPO|g" "$SCRIPT_DIR/systemd/zbx-relayer.service" \
   > /etc/systemd/system/zbx-relayer.service
 sed "s|__REPO__|$REPO|g" "$SCRIPT_DIR/systemd/zbx-signer@.service" \
   > /etc/systemd/system/zbx-signer@.service
 systemctl daemon-reload
 echo "  ✓ installed zbx-relayer.service + zbx-signer@.service"
+echo "  ✓ shared SIGNER_AUTH_TOKEN auto-generated and injected"
 
 cat <<'EOF'
 

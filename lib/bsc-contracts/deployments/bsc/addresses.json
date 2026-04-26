@@ -1,0 +1,19 @@
+{
+  "network": "bsc",
+  "chainId": 56,
+  "deployer": "0xd0b053C876Fb1Ab469A0D0acfa4757E0a845A328",
+  "timestamp": "2026-04-26T05:38:43.259Z",
+  "contracts": {
+    "WrappedZBX": "0xf7AA4bF2e80742411AD3AD3B8f70885E12C8dc09",
+    "ZebvixBridge": "0xa6dF16fdFF669FD62aF9f947B089516671094F85"
+  },
+  "config": {
+    "owner": "0xd0b053C876Fb1Ab469A0D0acfa4757E0a845A328",
+    "wzbxAdmin": "0xd0b053C876Fb1Ab469A0D0acfa4757E0a845A328",
+    "validators": [
+      "0xED54E00204C79c0e6D9Ee4Db4abEDb789104DD6D"
+    ],
+    "threshold": 1,
+    "zebvixChainId": "7878"
+  }
+}

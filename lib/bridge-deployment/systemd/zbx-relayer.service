@@ -32,5 +32,11 @@ LockPersonality=true
 MemoryDenyWriteExecute=false
 RestrictRealtime=true
 
+# Resource limits — protect zebvix-node on the same VPS from a runaway relayer
+MemoryHigh=768M
+MemoryMax=1G
+TasksMax=128
+LimitNOFILE=65536
+
 [Install]
 WantedBy=multi-user.target
