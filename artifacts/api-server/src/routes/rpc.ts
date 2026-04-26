@@ -90,6 +90,7 @@ const ALLOWED_METHODS = new Set<string>([
   "zbx_listBridgeAssets",
   "zbx_getBridgeAsset",
   "zbx_recentBridgeOutEvents",
+  "zbx_getBridgeOutBySeq",
   "zbx_isBridgeClaimUsed",
   // ── Phase D — On-chain governance (read-only) ──────────────────────
   "zbx_proposalsList",
