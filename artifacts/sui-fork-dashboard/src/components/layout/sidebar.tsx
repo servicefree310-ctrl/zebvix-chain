@@ -48,6 +48,7 @@ import {
   Radio,
   Star,
   X,
+  Package,
 } from "lucide-react";
 import { useChecklist } from "@/hooks/useChecklist";
 import { Progress } from "@/components/ui/progress";
@@ -80,6 +81,7 @@ const CORE_NAV: NavLink[] = [
   { href: "/customization", label: "Customization", icon: Settings },
   { href: "/checklist", label: "Launch Checklist", icon: CheckSquare },
   { href: "/production", label: "Production Chain", icon: Rocket },
+  { href: "/sdk", label: "Developer SDK (zebvix.js)", icon: Package, badge: "NEW" },
 ];
 
 const LIVE_NAV: NavLink[] = [

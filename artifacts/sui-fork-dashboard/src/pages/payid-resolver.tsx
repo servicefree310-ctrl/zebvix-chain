@@ -12,7 +12,7 @@ import {
   Hash,
 } from "lucide-react";
 import { rpc, weiHexToZbx, shortAddr } from "@/lib/zbx-rpc";
-import { PageHeader } from "@/components/ui/page-header";
+import { Badge } from "@/components/ui/badge";
 import { SectionCard, Stat } from "@/components/ui/section-card";
 import { useToast } from "@/hooks/use-toast";
 import { lookupPayIdForward, lookupPayIdReverse } from "@/lib/payid";
@@ -86,13 +86,21 @@ export default function PayIdResolver() {
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <PageHeader
-        icon={AtSign}
-        title="Pay-ID Resolver"
-        subtitle="Resolve handle@zbx to an address (forward) or look up which Pay-ID belongs to an address (reverse). Powered by zbx_lookupPayId / zbx_getPayIdOf."
-        badge="Live RPC"
-        live
-        right={
+      {/* Hero */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Badge variant="outline" className="text-primary border-primary/40">
+            Live RPC
+          </Badge>
+          <Badge variant="outline" className="text-emerald-400 border-emerald-500/40">
+            Read-only
+          </Badge>
+        </div>
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <h1 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-3">
+            <AtSign className="w-7 h-7 text-primary" />
+            Pay-ID Resolver
+          </h1>
           <Link href="/payid-register">
             <button className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90">
               <UserPlus className="h-3.5 w-3.5" />
@@ -100,8 +108,21 @@ export default function PayIdResolver() {
               <ArrowRight className="h-3 w-3 opacity-70" />
             </button>
           </Link>
-        }
-      />
+        </div>
+        <p className="text-lg text-muted-foreground max-w-3xl">
+          Resolve <code className="text-sm bg-muted px-1.5 py-0.5 rounded font-mono">handle@zbx</code> to an address (forward) or look up which Pay-ID belongs to an address (reverse). Powered by <code className="text-sm bg-muted px-1.5 py-0.5 rounded font-mono">zbx_lookupPayId</code> and <code className="text-sm bg-muted px-1.5 py-0.5 rounded font-mono">zbx_getPayIdOf</code>.
+        </p>
+
+        <div className="border-l-4 border-l-emerald-500/50 bg-emerald-500/5 p-3 rounded-md flex gap-3 max-w-3xl">
+          <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
+          <div className="text-xs text-muted-foreground space-y-1">
+            <div className="text-foreground font-semibold">What this does</div>
+            <p>
+              Instantly resolves Pay-IDs to their 42-character <code className="text-xs font-mono">0x</code> addresses so you don't have to copy-paste hex strings. Try it out!
+            </p>
+          </div>
+        </div>
+      </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
         <Stat label="Total Registered" value={count ?? "—"} accent="primary" icon={AtSign} />

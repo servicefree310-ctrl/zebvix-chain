@@ -1,13 +1,14 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "wouter";
 import { rpc, weiHexToZbx, weiToUsd, fmtUsd, shortAddr, ZbxRpcError } from "@/lib/zbx-rpc";
 import {
   Search, Wallet, Lock, TrendingUp, AlertCircle, ArrowLeftRight, Inbox,
   Droplets, Info, Gift, Shield, Crown, Flame, Anchor, Server, FileCode2,
   RefreshCw, Download, Copy, Check, ExternalLink, Clock, Zap, Hash,
   ChevronRight, Activity, Banknote, ArrowDownToLine, ArrowUpFromLine,
-  Star, History, Landmark, BookmarkPlus, X,
+  Star, History, Landmark, BookmarkPlus, X, CheckCircle2,
 } from "lucide-react";
-import { useLocation } from "wouter";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Badge } from "@/components/ui/badge";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Magic addresses — mirrored byte-for-byte from zebvix-chain/src/tokenomics.rs
@@ -601,37 +602,55 @@ export default function BalanceLookup() {
   // ──────────────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      {/* HEADER */}
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground mb-2 flex items-center gap-2">
+      {/* Hero */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Badge variant="outline" className="text-primary border-primary/40">
+            Explorer
+          </Badge>
+          <Badge variant="outline" className="text-emerald-400 border-emerald-500/40">
+            Read-only
+          </Badge>
+        </div>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <h1 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-3">
             <Wallet className="h-7 w-7 text-primary" />
             Balance Lookup
           </h1>
-          <p className="text-sm text-muted-foreground">
-            Aggregate live state for any Zebvix address — balances, identity, roles, mempool, history. Fans out 17 RPC calls in parallel.
-          </p>
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-2 text-xs px-3 py-2 rounded-md border border-border bg-card hover:bg-muted/30 cursor-pointer transition">
+              <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} className="accent-primary" />
+              <RefreshCw className={`h-3.5 w-3.5 ${autoRefresh ? "text-emerald-400 animate-spin" : "text-muted-foreground"}`} />
+              <span>auto 15s</span>
+            </label>
+            <button
+              onClick={() => { lookup(); loadMempool(); scanTxs(scannedRange || 500); }}
+              disabled={loading}
+              className="px-3 py-2 rounded-md bg-primary/10 hover:bg-primary/20 text-primary text-xs font-semibold flex items-center gap-1.5 disabled:opacity-40 transition"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> refresh
+            </button>
+            <button
+              onClick={exportSnapshot} disabled={!data}
+              className="px-3 py-2 rounded-md bg-muted hover:bg-muted/70 text-xs font-semibold flex items-center gap-1.5 disabled:opacity-40 transition"
+              title="Download full state snapshot as JSON"
+            >
+              <Download className="h-3.5 w-3.5" /> export JSON
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <label className="flex items-center gap-2 text-xs px-3 py-2 rounded-md border border-border bg-card hover:bg-muted/30 cursor-pointer">
-            <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} className="accent-primary" />
-            <RefreshCw className={`h-3.5 w-3.5 ${autoRefresh ? "text-emerald-400 animate-spin" : "text-muted-foreground"}`} />
-            <span>auto 15s</span>
-          </label>
-          <button
-            onClick={() => { lookup(); loadMempool(); scanTxs(scannedRange || 500); }}
-            disabled={loading}
-            className="px-3 py-2 rounded-md bg-primary/10 hover:bg-primary/20 text-primary text-xs font-semibold flex items-center gap-1.5 disabled:opacity-40"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> refresh
-          </button>
-          <button
-            onClick={exportSnapshot} disabled={!data}
-            className="px-3 py-2 rounded-md bg-muted hover:bg-muted/70 text-xs font-semibold flex items-center gap-1.5 disabled:opacity-40"
-            title="Download full state snapshot as JSON"
-          >
-            <Download className="h-3.5 w-3.5" /> export JSON
-          </button>
+        <p className="text-lg text-muted-foreground max-w-3xl">
+          Aggregate live state for any Zebvix address — balances, identity, roles, mempool, history. Fans out 17 RPC calls in parallel.
+        </p>
+
+        <div className="border-l-4 border-l-emerald-500/50 bg-emerald-500/5 p-3 rounded-md flex gap-3 max-w-3xl">
+          <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
+          <div className="text-xs text-muted-foreground space-y-1">
+            <div className="text-foreground font-semibold">What this does</div>
+            <p>
+              Instantly aggregates all on-chain data related to an address. Validates roles, token balances, AMM state, governance, multisig ownership, and pending transactions.
+            </p>
+          </div>
         </div>
       </div>
 

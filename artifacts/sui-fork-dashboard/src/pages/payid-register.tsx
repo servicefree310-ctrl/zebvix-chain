@@ -13,7 +13,7 @@ import {
   Copy,
   Info,
 } from "lucide-react";
-import { PageHeader } from "@/components/ui/page-header";
+import { Badge } from "@/components/ui/badge";
 import { SectionCard, Stat } from "@/components/ui/section-card";
 import { useWallet } from "@/contexts/wallet-context";
 import { useToast } from "@/hooks/use-toast";
@@ -174,13 +174,21 @@ export default function PayIdRegister() {
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <PageHeader
-        icon={UserPlusIcon}
-        title="Register Pay-ID"
-        subtitle="Claim a permanent human-readable handle (handle@zbx) for your address. One Pay-ID per address — once set, it cannot be changed or transferred."
-        badge="On-chain"
-        live
-        right={
+      {/* Hero */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Badge variant="outline" className="text-primary border-primary/40">
+            On-chain
+          </Badge>
+          <Badge variant="outline" className="text-emerald-400 border-emerald-500/40">
+            Live
+          </Badge>
+        </div>
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <h1 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-3">
+            <UserPlusIcon className="w-7 h-7 text-primary" />
+            Register Pay-ID
+          </h1>
           <Link href="/payid-resolver">
             <button className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-primary/40">
               <AtSign className="h-3.5 w-3.5 text-primary" />
@@ -188,8 +196,21 @@ export default function PayIdRegister() {
               <ArrowRight className="h-3 w-3 opacity-60" />
             </button>
           </Link>
-        }
-      />
+        </div>
+        <p className="text-lg text-muted-foreground max-w-3xl">
+          Claim a permanent human-readable handle (<code className="text-sm bg-muted px-1.5 py-0.5 rounded font-mono">handle@zbx</code>) for your address. One Pay-ID per address — once set, it cannot be changed or transferred.
+        </p>
+
+        <div className="border-l-4 border-l-emerald-500/50 bg-emerald-500/5 p-3 rounded-md flex gap-3 max-w-3xl">
+          <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
+          <div className="text-xs text-muted-foreground space-y-1">
+            <div className="text-foreground font-semibold">What this does</div>
+            <p>
+              Registers a Pay-ID via <code className="text-xs bg-muted px-1 rounded font-mono">TxKind::RegisterPayId</code>. Costs <code className="text-xs font-mono text-emerald-400">0.002 ZBX</code> network fee. The handle is globally unique and case-insensitive.
+            </p>
+          </div>
+        </div>
+      </div>
 
       {/* Counters */}
       <div className="grid gap-3 sm:grid-cols-3">

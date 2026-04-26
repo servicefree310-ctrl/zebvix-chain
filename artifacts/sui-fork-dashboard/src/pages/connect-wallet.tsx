@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Smartphone, RefreshCw, CheckCircle2, AlertCircle, Copy, ArrowUpRight,
   Wifi, WifiOff, ShieldCheck, Loader2, Trash2, Send, ArrowDownUp, Lock,
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 const API_BASE = (import.meta as any).env?.BASE_URL?.replace(/\/+$/, "") || "";
 const PAIR_API = "/api/pair";
@@ -97,15 +98,34 @@ export default function ConnectWalletPage() {
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight text-foreground mb-2 flex items-center gap-3">
+      {/* Hero */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Badge variant="outline" className="text-primary border-primary/40">
+            WalletConnect
+          </Badge>
+          <Badge variant="outline" className="text-emerald-400 border-emerald-500/40">
+            QR Pair
+          </Badge>
+        </div>
+        <h1 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-3">
           <Smartphone className="h-7 w-7 text-primary" />
           Connect Wallet
         </h1>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-lg text-muted-foreground max-w-3xl">
           Scan the QR with the <strong className="text-foreground">Zebvix Wallet</strong> mobile app to pair this browser session.
           Once paired, the dashboard can request signatures (transfer, swap, multisig approve) — your private keys never leave your phone.
         </p>
+
+        <div className="border-l-4 border-l-emerald-500/50 bg-emerald-500/5 p-3 rounded-md flex gap-3 max-w-3xl">
+          <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
+          <div className="text-xs text-muted-foreground space-y-1">
+            <div className="text-foreground font-semibold">What this does</div>
+            <p>
+              Establishes a secure pairing with your mobile device. All signing requests will be pushed to your phone for approval. Keys never touch the browser.
+            </p>
+          </div>
+        </div>
       </div>
 
       {err && (

@@ -14,7 +14,7 @@ import {
   Wallet as WalletIcon,
   Trash2,
 } from "lucide-react";
-import { PageHeader } from "@/components/ui/page-header";
+import { Badge } from "@/components/ui/badge";
 import { SectionCard } from "@/components/ui/section-card";
 import { useWallet } from "@/contexts/wallet-context";
 import { useToast } from "@/hooks/use-toast";
@@ -121,12 +121,24 @@ export default function ImportWallet() {
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <PageHeader
-        icon={KeyRound}
-        title="Import Address"
-        subtitle="Bring an existing address into the Zebvix dashboard. Same private key (or BIP39 mnemonic) you use in MetaMask works here — derivation path m/44'/60'/0'/0/0."
-        badge="Hot Wallet"
-        right={
+      {/* Hero */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Badge variant="outline" className="text-primary border-primary/40">
+            Hot Wallet
+          </Badge>
+          <Badge variant="outline" className="text-blue-400 border-blue-500/40">
+            secp256k1
+          </Badge>
+          <Badge variant="outline" className="text-emerald-400 border-emerald-500/40">
+            BIP39
+          </Badge>
+        </div>
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <h1 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-3">
+            <KeyRound className="w-7 h-7 text-primary" />
+            Import Address
+          </h1>
           <Link href="/wallet">
             <button className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-primary/40">
               <WalletIcon className="h-3.5 w-3.5 text-primary" />
@@ -134,16 +146,16 @@ export default function ImportWallet() {
               <ArrowRight className="h-3 w-3 opacity-60" />
             </button>
           </Link>
-        }
-      />
+        </div>
+        <p className="text-lg text-muted-foreground max-w-3xl">
+          Bring an existing address into the Zebvix dashboard. The same private key (or BIP39 mnemonic) you use in MetaMask works here — derivation path <code className="text-sm bg-muted px-1.5 py-0.5 rounded font-mono">m/44'/60'/0'/0/0</code>.
+        </p>
 
-      {/* Security warning */}
-      <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
-        <div className="flex gap-3">
-          <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" />
-          <div className="text-sm text-amber-200">
-            <p className="mb-1 font-semibold">Hot wallet security</p>
-            <p className="text-amber-200/80">
+        <div className="border-l-4 border-l-emerald-500/50 bg-emerald-500/5 p-3 rounded-md flex gap-3 max-w-3xl">
+          <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
+          <div className="text-xs text-muted-foreground space-y-1">
+            <div className="text-foreground font-semibold">Local Storage Only</div>
+            <p>
               Keys are stored unencrypted in your browser's localStorage. Anyone with access to this browser can spend the funds. Use this for testing or low-value addresses only — use a hardware wallet for serious holdings.
             </p>
           </div>
