@@ -116,7 +116,7 @@ const SECTIONS: DocCard[] = [
     accent: "from-rose-500/20 to-rose-500/5 border-rose-500/30",
     items: [
       { href: "/multisig-explorer", label: "Multisig Explorer" },
-      { href: "/governance", label: "Governance (Phase D)" },
+      { href: "/governance", label: "Governance" },
       { href: "/chain-status", label: "Chain Features & Hardening" },
     ],
   },

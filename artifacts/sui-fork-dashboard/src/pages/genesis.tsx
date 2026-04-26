@@ -174,12 +174,11 @@ export default function Genesis() {
 ℹ️  Local validator key 0xab12... is NOT the founder — it must be added
     post-genesis via \`validator-add\` tx (admin-signed).`}
           />
-          <p className="text-xs text-amber-200/80 italic">
-            Note: the line says "admin-signed" for historical reasons. The actual on-chain rule
-            (enforced in <code className="bg-muted px-1 rounded not-italic">state.rs::apply_tx</code>) requires the{" "}
-            <strong>current governor</strong> to sign the{" "}
-            <code className="bg-muted px-1 rounded not-italic">ValidatorAdd</code> tx — see Phase D
-            forkless governance. The init log message will be reworded in the next chain release.
+          <p className="text-xs text-muted-foreground italic">
+            On-chain rule (enforced in <code className="bg-muted px-1 rounded not-italic">state.rs::apply_tx</code>):
+            adding a new validator requires the <strong>current governor</strong> to sign the{" "}
+            <code className="bg-muted px-1 rounded not-italic">ValidatorAdd</code> tx — same forkless
+            governance flow used for parameter changes.
           </p>
           <p>
             New validators are activated only through the two-tier governance flow on the{" "}
@@ -288,7 +287,7 @@ zebvix-node init --home /root/.zebvix \\
             <div className="rounded-md border border-border/60 bg-muted/30 p-3">
               <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Genesis AMM seed</div>
               <div className="text-lg font-bold font-mono text-foreground">20,000,000 ZBX</div>
-              <div className="text-xs text-muted-foreground mt-1">13.33% · minted via <code className="text-[10px] bg-muted px-1 rounded">admin-pool-genesis</code> (post-init)</div>
+              <div className="text-xs text-muted-foreground mt-1">13.33% · seeded into the AMM at network bootstrap</div>
             </div>
             <div className="rounded-md border border-border/60 bg-muted/30 p-3">
               <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Mineable supply</div>

@@ -1,244 +1,156 @@
-import React, { useState } from "react";
-import { CodeBlock } from "@/components/ui/code-block";
-import { ArrowUpDown, Layers, BarChart2, Coins } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { MobileConnectButton } from "@/components/wallet-connect/MobileConnectButton";
-import { AddTokenDialog } from "@/components/tokens/AddTokenDialog";
+import React from "react";
+import { Link } from "wouter";
+import {
+  ArrowUpDown, Layers, Droplets, Sparkles, BarChart3, ShieldCheck,
+  ChevronRight, Coins, Activity, Wallet,
+} from "lucide-react";
+
+const FEATURES = [
+  { icon: ArrowUpDown, label: "Instant Swap",       desc: "Native ZBX ↔ zUSD with millisecond confirmation."     },
+  { icon: Layers,      label: "Liquidity Pools",    desc: "Constant-product AMM — anyone can provide liquidity." },
+  { icon: BarChart3,   label: "Live Pricing",       desc: "On-chain spot price feeds the wallet + dApps."        },
+  { icon: ShieldCheck, label: "Audited Contracts",  desc: "Reserves locked at genesis; no privileged withdraw."  },
+];
+
+const ROUTES: { href: string; icon: React.ElementType; title: string; desc: string; }[] = [
+  { href: "/swap",            icon: ArrowUpDown, title: "Swap (Buy / Sell)",   desc: "Trade ZBX ↔ zUSD with real-time slippage." },
+  { href: "/pool-explorer",   icon: Droplets,    title: "Pool / AMM",          desc: "View live reserves, price, and fees." },
+  { href: "/token-create",    icon: Sparkles,    title: "Create Your Token",   desc: "Mint a new token on Zebvix in one click." },
+  { href: "/token-trade",     icon: ArrowUpDown, title: "Token Trade",         desc: "Trade any pair via the AMM router." },
+  { href: "/token-liquidity", icon: Layers,      title: "Add Liquidity",       desc: "Earn fees by depositing token pairs." },
+  { href: "/token-metadata",  icon: Coins,       title: "Token Metadata",      desc: "Set logo, decimals, supply for your token." },
+];
 
 export default function Dex() {
-  const [addTokenOpen, setAddTokenOpen] = useState(false);
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div>
-        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">DEX / Token Swap</h1>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setAddTokenOpen(true)}
-              data-testid="button-add-token-dex"
-            >
-              + Add Token
-            </Button>
-            <MobileConnectButton variant="outline" />
-          </div>
+      {/* Hero */}
+      <header>
+        <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-[10px] font-bold uppercase tracking-widest mb-3">
+          <Activity className="h-3 w-3" />
+          DEX Live
         </div>
-        <p className="text-lg text-muted-foreground">
-          Deploy a decentralized exchange on Zebvix — lets users swap ZBX and other tokens using an AMM (Automated Market Maker) model.
+        <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-foreground mb-2">
+          Zebvix Decentralized Exchange
+        </h1>
+        <p className="text-base md:text-lg text-muted-foreground max-w-3xl">
+          Swap, pool, and trade tokens directly on the Zebvix L1 — no custodian, no intermediary.
+          Every order settles on-chain with a constant-product AMM, and reserves are publicly auditable.
         </p>
-      </div>
-      <AddTokenDialog
-        open={addTokenOpen}
-        onClose={() => setAddTokenOpen(false)}
-        defaultChain="zebvix"
-      />
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <Link href="/swap">
+            <span className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 cursor-pointer transition-colors">
+              <ArrowUpDown className="h-4 w-4" />
+              Open Swap
+            </span>
+          </Link>
+          <Link href="/pool-explorer">
+            <span className="inline-flex items-center gap-2 rounded-md border border-border/60 bg-card/60 px-4 py-2 text-sm font-medium text-foreground hover:bg-card cursor-pointer transition-colors">
+              <Droplets className="h-4 w-4" />
+              Explore Pools
+            </span>
+          </Link>
+          <Link href="/wallet">
+            <span className="inline-flex items-center gap-2 rounded-md border border-border/60 bg-card/60 px-4 py-2 text-sm font-medium text-foreground hover:bg-card cursor-pointer transition-colors">
+              <Wallet className="h-4 w-4" />
+              Connect Wallet
+            </span>
+          </Link>
+        </div>
+      </header>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {[
-          { icon: ArrowUpDown, label: "Token Swap", desc: "ZBX ↔ any token" },
-          { icon: Layers, label: "Liquidity Pools", desc: "AMM model" },
-          { icon: BarChart2, label: "Price Oracle", desc: "On-chain pricing" },
-          { icon: Coins, label: "LP Tokens", desc: "Earn trading fees" },
-        ].map(({ icon: Icon, label, desc }) => (
-          <div key={label} className="p-4 rounded-lg bg-card border border-border text-center">
-            <Icon className="h-6 w-6 text-primary mx-auto mb-2" />
-            <div className="text-sm font-semibold">{label}</div>
-            <div className="text-xs text-muted-foreground mt-0.5">{desc}</div>
+      {/* Feature pills */}
+      <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {FEATURES.map(({ icon: Icon, label, desc }) => (
+          <div
+            key={label}
+            className="rounded-xl border border-border/60 bg-gradient-to-br from-card/60 to-card/20 backdrop-blur p-4"
+          >
+            <div className="h-9 w-9 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center mb-3">
+              <Icon className="h-4 w-4 text-primary" />
+            </div>
+            <div className="text-sm font-semibold text-foreground">{label}</div>
+            <div className="text-xs text-muted-foreground mt-1 leading-relaxed">{desc}</div>
           </div>
         ))}
-      </div>
+      </section>
 
-      <div className="p-4 rounded-lg border border-primary/20 bg-primary/5 text-sm">
-        <span className="font-semibold text-primary">Recommended: </span>
-        <span className="text-muted-foreground">
-          Fork <strong className="text-foreground">Cetus Protocol</strong> or <strong className="text-foreground">Turbos Finance</strong> — both are open-source Sui-based AMM DEXs written in Move. Already compatible with Zebvix.
-        </span>
-      </div>
+      {/* AMM mechanics card */}
+      <section className="rounded-xl border border-border/60 bg-card/40 backdrop-blur p-5">
+        <header className="flex items-center gap-2 mb-3">
+          <BarChart3 className="h-4 w-4 text-primary" />
+          <h2 className="text-sm font-bold uppercase tracking-widest text-muted-foreground">
+            How the AMM works
+          </h2>
+        </header>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+          {[
+            { t: "Constant-Product Curve", d: "Reserves obey x · y = k. Any swap shifts the price along the curve." },
+            { t: "0.3% Trading Fee",       d: "Collected from each swap; auto-compounded into LP value." },
+            { t: "Permissionless LPs",     d: "Anyone can add or remove liquidity at any time." },
+          ].map((x) => (
+            <div key={x.t} className="rounded-lg border border-border/40 bg-background/40 p-3">
+              <div className="text-sm font-semibold text-foreground">{x.t}</div>
+              <div className="text-xs text-muted-foreground mt-1 leading-relaxed">{x.d}</div>
+            </div>
+          ))}
+        </div>
+      </section>
 
-      <div className="space-y-6">
-        <div className="space-y-3">
-          <h2 className="text-xl font-semibold border-b border-border pb-2">AMM Architecture</h2>
-          <div className="grid grid-cols-3 gap-2 text-sm text-center">
-            {[
-              { label: "Pool Contract (Move)", items: ["Token pair storage", "Constant product AMM", "Fee collection"] },
-              { label: "Router Contract", items: ["Multi-hop swaps", "Slippage protection", "Price calculation"] },
-              { label: "Frontend (React)", items: ["Swap UI", "Liquidity UI", "Price charts"] },
-            ].map(({ label, items }) => (
-              <div key={label} className="rounded-lg bg-card border border-border p-3">
-                <div className="font-semibold text-primary mb-2">{label}</div>
-                {items.map(item => (
-                  <div key={item} className="text-xs text-muted-foreground py-0.5">{item}</div>
-                ))}
-              </div>
-            ))}
+      {/* Action grid */}
+      <section className="space-y-3">
+        <header className="flex items-center justify-between">
+          <h2 className="text-sm font-bold uppercase tracking-widest text-muted-foreground">
+            DEX shortcuts
+          </h2>
+          <span className="text-[10px] font-mono text-muted-foreground/60">
+            All flows live on chain 7878
+          </span>
+        </header>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {ROUTES.map((r) => {
+            const Icon = r.icon;
+            return (
+              <Link key={r.href} href={r.href}>
+                <span className="group block rounded-xl border border-border/60 bg-card/40 hover:border-primary/40 hover:bg-card/60 p-4 cursor-pointer transition-colors">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div className="h-9 w-9 shrink-0 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center">
+                        <Icon className="h-4 w-4 text-primary" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
+                          {r.title}
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-0.5">{r.desc}</div>
+                      </div>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0 mt-1 group-hover:text-primary transition-colors" />
+                  </div>
+                </span>
+              </Link>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Footer note */}
+      <section className="rounded-xl border border-emerald-500/30 bg-gradient-to-br from-emerald-500/10 to-emerald-500/5 p-5 text-sm">
+        <div className="flex items-start gap-3">
+          <ShieldCheck className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <div className="font-semibold text-emerald-300">Reserves are public.</div>
+            <div className="text-foreground/80">
+              The pool address has no admin key — its balances and trade history are queryable through any
+              Zebvix RPC endpoint or directly via{" "}
+              <Link href="/pool-explorer">
+                <span className="text-emerald-300 hover:underline cursor-pointer">Pool Explorer</span>
+              </Link>
+              . Liquidity providers receive LP receipts pro-rata to their share of the pool.
+            </div>
           </div>
         </div>
-
-        <div className="space-y-3">
-          <h2 className="text-xl font-semibold border-b border-border pb-2">Step 1 — Fork Cetus AMM (Recommended)</h2>
-          <CodeBlock language="bash" code={`# Clone Cetus (open-source Sui AMM)
-git clone https://github.com/CetusProtocol/cetus-clmm-interface.git zebvix-dex
-cd zebvix-dex
-
-# Or use the simpler constant-product AMM:
-git clone https://github.com/pentagonxyz/movemate.git
-# Contains reusable Move AMM primitives`} />
-        </div>
-
-        <div className="space-y-3">
-          <h2 className="text-xl font-semibold border-b border-border pb-2">Step 2 — AMM Pool Move Module</h2>
-          <CodeBlock language="move" code={`// sources/pool.move — Zebvix AMM Pool
-module zebvix_dex::pool {
-    use sui::object::{Self, UID};
-    use sui::coin::{Self, Coin};
-    use sui::tx_context::TxContext;
-    use sui::transfer;
-    use sui::math;
-
-    // Liquidity pool for two token types
-    struct Pool<phantom CoinA, phantom CoinB> has key {
-        id: UID,
-        reserve_a: Coin<CoinA>,
-        reserve_b: Coin<CoinB>,
-        lp_supply: u64,
-        fee_bps: u64,  // fee in basis points (e.g. 30 = 0.3%)
-    }
-
-    // Create a new pool
-    public entry fun create_pool<CoinA, CoinB>(
-        coin_a: Coin<CoinA>,
-        coin_b: Coin<CoinB>,
-        ctx: &mut TxContext
-    ) {
-        let pool = Pool<CoinA, CoinB> {
-            id: object::new(ctx),
-            reserve_a: coin_a,
-            reserve_b: coin_b,
-            lp_supply: 0,
-            fee_bps: 30, // 0.3% trading fee
-        };
-        transfer::share_object(pool);
-    }
-
-    // Swap CoinA for CoinB using constant-product formula: x * y = k
-    public entry fun swap_a_for_b<CoinA, CoinB>(
-        pool: &mut Pool<CoinA, CoinB>,
-        coin_in: Coin<CoinA>,
-        min_out: u64,
-        ctx: &mut TxContext
-    ) {
-        let amount_in = coin::value(&coin_in);
-        let reserve_a = coin::value(&pool.reserve_a);
-        let reserve_b = coin::value(&pool.reserve_b);
-        
-        // Constant product: dy = (y * dx) / (x + dx)
-        let fee = (amount_in * pool.fee_bps) / 10000;
-        let amount_in_after_fee = amount_in - fee;
-        let amount_out = (reserve_b * amount_in_after_fee) / (reserve_a + amount_in_after_fee);
-        
-        assert!(amount_out >= min_out, 0); // slippage check
-        
-        coin::put(&mut pool.reserve_a, coin_in);
-        let coin_out = coin::take(&mut pool.reserve_b, amount_out, ctx);
-        transfer::public_transfer(coin_out, sui::tx_context::sender(ctx));
-    }
-}`} />
-        </div>
-
-        <div className="space-y-3">
-          <h2 className="text-xl font-semibold border-b border-border pb-2">Step 3 — Deploy Move Package</h2>
-          <CodeBlock language="bash" code={`# Install Sui CLI (Zebvix uses same CLI)
-cd zebvix-dex
-
-# Create Move.toml
-cat > Move.toml << 'EOF'
-[package]
-name = "zebvix_dex"
-version = "0.0.1"
-
-[addresses]
-zebvix_dex = "0x0"
-
-[dependencies]
-Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "mainnet-v1.20.0" }
-EOF
-
-# Publish to Zebvix chain
-zebvix-node client publish \\
-  --gas-budget 100000000 \\
-  --json`} />
-        </div>
-
-        <div className="space-y-3">
-          <h2 className="text-xl font-semibold border-b border-border pb-2">Step 4 — DEX Frontend (React)</h2>
-          <CodeBlock language="bash" code={`npx create-react-app zebvix-swap-ui --template typescript
-cd zebvix-swap-ui
-npm install @mysten/sui.js @mysten/wallet-kit tailwindcss`} />
-          <CodeBlock language="typescript" code={`// SwapPanel.tsx — simplified ZBX swap UI component
-import { TransactionBlock } from '@mysten/sui.js/transactions';
-import { useWallet } from '@mysten/wallet-kit';
-
-const DEX_PACKAGE = '0x...'; // your published package ID
-const POOL_OBJECT = '0x...'; // pool object ID after create_pool
-
-export function SwapPanel() {
-  const { signAndExecuteTransactionBlock } = useWallet();
-
-  const handleSwap = async (amountIn: number, minOut: number) => {
-    const tx = new TransactionBlock();
-    const [coinIn] = tx.splitCoins(tx.gas, [tx.pure(amountIn * 1e9)]);
-    
-    tx.moveCall({
-      target: \`\${DEX_PACKAGE}::pool::swap_a_for_b\`,
-      typeArguments: ['0x2::sui::SUI', '0x2::zbx::ZBX'],
-      arguments: [
-        tx.object(POOL_OBJECT),
-        coinIn,
-        tx.pure(minOut * 1e9), // min output (slippage)
-      ],
-    });
-    
-    await signAndExecuteTransactionBlock({ transactionBlock: tx });
-  };
-
-  return (
-    <div>
-      <h2>Swap ZBX</h2>
-      <button onClick={() => handleSwap(1, 0.99)}>Swap 1 ZBX</button>
-    </div>
-  );
-}`} />
-        </div>
-
-        <div className="space-y-3">
-          <h2 className="text-xl font-semibold border-b border-border pb-2">Add Liquidity</h2>
-          <CodeBlock language="typescript" code={`// Add liquidity to ZBX/USDT pool
-const tx = new TransactionBlock();
-const [coinA] = tx.splitCoins(tx.gas, [tx.pure(100 * 1e9)]); // 100 ZBX
-// coinB = your USDT coin object
-
-tx.moveCall({
-  target: \`\${DEX_PACKAGE}::pool::add_liquidity\`,
-  typeArguments: ['ZBX_TYPE', 'USDT_TYPE'],
-  arguments: [tx.object(POOL_OBJECT), coinA, coinB],
-});
-
-// You receive LP tokens representing your pool share
-// LP tokens earn 0.3% of every swap through the pool`} />
-        </div>
-
-        <div className="p-4 rounded-lg border border-green-500/30 bg-green-500/5 text-sm space-y-1">
-          <div className="font-semibold text-green-400">DEX Configuration</div>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs font-mono text-muted-foreground mt-1">
-            <div>Trading fee: <span className="text-foreground">0.3% per swap</span></div>
-            <div>LP fee share: <span className="text-foreground">0.25%</span></div>
-            <div>Protocol fee: <span className="text-foreground">0.05%</span></div>
-            <div>Model: <span className="text-foreground">x * y = k (AMM)</span></div>
-          </div>
-        </div>
-      </div>
+      </section>
     </div>
   );
 }

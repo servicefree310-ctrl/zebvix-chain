@@ -271,7 +271,7 @@ function Hero({ tip, flash, err, loading, price, validatorCount, evmChainHex, po
             </Badge>
             <Badge tone="violet"><Hash className="h-3 w-3" />chain_id 7878</Badge>
             <Badge tone="cyan"><ShieldCheck className="h-3 w-3" />{validatorCount} validators</Badge>
-            <Badge tone="amber"><Cpu className="h-3 w-3" />Phase C.2 ZVM</Badge>
+            <Badge tone="emerald"><Cpu className="h-3 w-3" />ZVM Live</Badge>
           </div>
           <h1 className="text-3xl md:text-5xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-foreground via-foreground to-foreground/60 flex items-center gap-3">
             <Activity className="h-9 w-9 md:h-10 md:w-10 text-primary" />
@@ -361,23 +361,23 @@ function PhaseBanner() {
 // ─────────────────────────────────────────────────────────────────────────────
 function PoolBootstrapBanner() {
   return (
-    <div className="rounded-xl border-2 border-amber-500/50 bg-gradient-to-br from-amber-500/10 to-orange-500/10 p-4 flex items-start gap-3">
-      <Droplets className="h-5 w-5 text-amber-400 mt-0.5 shrink-0 animate-pulse" />
+    <div className="rounded-xl border border-sky-500/40 bg-gradient-to-br from-sky-500/10 to-cyan-500/5 p-4 flex items-start gap-3">
+      <Droplets className="h-5 w-5 text-sky-300 mt-0.5 shrink-0" />
       <div className="flex-1 space-y-1">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-bold text-amber-100">Pool Bootstrap Pending</span>
-          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
-            ADMIN ACTION REQUIRED
+          <span className="text-sm font-bold text-sky-100">AMM Pool Coming Online</span>
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-500/20 text-sky-200 border border-sky-500/40">
+            STARTING UP
           </span>
         </div>
-        <p className="text-xs text-amber-200/80 leading-relaxed">
-          AMM pool VPS pe initialize nahi hua — isiliye on-chain price <code className="px-1 py-0.5 bg-amber-950/40 rounded text-amber-300">$0.000000</code> aa
-          raha hai aur swap calls reject ho rahe hain. Chain code update ho gaya hai (target seed: <strong>20M ZBX + 10M zUSD = $0.50/ZBX</strong>); admin ko VPS pe rebuild + <code className="px-1 py-0.5 bg-amber-950/40 rounded text-amber-300">zbx admin pool-genesis</code> run karna hoga.
+        <p className="text-xs text-sky-200/80 leading-relaxed">
+          The Zebvix AMM is finalising its first liquidity provision. Live on-chain pricing and swaps
+          unlock automatically once the pool is funded — no further user action required.
         </p>
       </div>
       <Link href="/pool-explorer">
-        <span className="px-3 py-1.5 rounded-md border border-amber-500/40 hover:bg-amber-500/10 text-xs flex items-center gap-1.5 text-amber-200 cursor-pointer shrink-0">
-          Open run-book <ExternalLink className="h-3 w-3" />
+        <span className="px-3 py-1.5 rounded-md border border-sky-500/40 hover:bg-sky-500/10 text-xs flex items-center gap-1.5 text-sky-200 cursor-pointer shrink-0">
+          View pool status <ExternalLink className="h-3 w-3" />
         </span>
       </Link>
     </div>
@@ -568,7 +568,7 @@ function RecentBlocksRibbon({ recent }: { recent: BlockInfo[] }) {
 function QuickAccessGrid() {
   const items = [
     { href: "/live-chain", icon: Activity, title: "Live Chain", desc: "Real-time telemetry, blocks, validators, economy", tone: "emerald" },
-    { href: "/zvm-explorer", icon: Cpu, title: "ZVM Explorer", desc: "Phase C.2 native zbx_*/eth_* RPC playground (Zebvix Virtual Machine)", tone: "violet" },
+    { href: "/zvm-explorer", icon: Cpu, title: "ZVM Explorer", desc: "Live zbx_* / eth_* JSON-RPC playground for the Zebvix Virtual Machine.", tone: "violet" },
     { href: "/pool-explorer", icon: Droplets, title: "Pool / AMM", desc: "ZBX/zUSD reserves, spot, loan, swaps", tone: "cyan" },
     { href: "/block-explorer", icon: Search, title: "Block Explorer", desc: "Browse blocks, txs, addresses", tone: "cyan" },
     { href: "/wallet", icon: Wallet, title: "ZBX Wallet", desc: "Web wallet — send, receive, sign", tone: "amber" },
@@ -632,7 +632,7 @@ function ChainIdentityCard() {
         <Row label="Chain ID" value="7878 (0x1ec6)" mono />
         <Row label="RPC HTTP" value="http://93.127.213.192:8545" mono copy />
         <Row label="Consensus" value="Tendermint BFT (Phase B.2)" />
-        <Row label="ZVM" value="Native (Cancun-ZVM) — Phase C.2 LIVE" />
+        <Row label="ZVM" value="Native Cancun-compatible · LIVE" />
         <Row label="VPS" value="srv1266996" mono />
         <Row label="Service" value="zebvix.service" mono />
       </div>
@@ -698,7 +698,7 @@ function MetaMaskConnectCard() {
         <h3 className="text-sm font-semibold">Connect MetaMask</h3>
       </div>
       <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
-        Phase C.2 LIVE means MetaMask, Foundry, ethers.js — sab kaam karte hain. Native ZVM JSON-RPC bind hai 8545 pe.
+        MetaMask, Foundry, ethers.js — sab native chalti hain. ZVM ka JSON-RPC port 8545 pe live hai.
       </p>
       <button onClick={addToMetaMask} disabled={adding}
         className="w-full px-4 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-amber-950 font-semibold text-sm flex items-center justify-center gap-2 transition disabled:opacity-50">
@@ -762,7 +762,7 @@ curl -s http://93.127.213.192:8545 \\
     <div className="rounded-xl border border-border bg-card overflow-hidden">
       <div className="p-3 border-b border-border bg-muted/30 flex items-center justify-between">
         <h3 className="text-sm font-semibold flex items-center gap-2">
-          <Code2 className="h-4 w-4 text-primary" /> Developer Integration — Phase C.2 ZVM
+          <Code2 className="h-4 w-4 text-primary" /> Developer Integration — ZVM JSON-RPC
         </h3>
         <button onClick={() => { navigator.clipboard.writeText(cur.code); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
           className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1">

@@ -58,7 +58,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 // Nav data — `badge` is optional and renders as a small pill next to the label.
 // Keep this list flat (no nesting) so the search filter stays trivial.
 // ─────────────────────────────────────────────────────────────────────────────
-type NavBadge = "LIVE" | "NEW" | "BETA" | "PRO" | "C.3";
+type NavBadge = "LIVE" | "NEW" | "PRO";
 type NavLink = {
   href: string;
   label: string;
@@ -76,7 +76,7 @@ const CORE_NAV: NavLink[] = [
   { href: "/validators", label: "Validator Setup", icon: Users },
   { href: "/network", label: "Network Config", icon: Network },
   { href: "/tokenomics", label: "Tokenomics", icon: Coins },
-  { href: "/smart-contracts", label: "Smart Contracts (ZVM)", icon: FileCode2, badge: "C.3" },
+  { href: "/smart-contracts", label: "Smart Contracts", icon: FileCode2, badge: "LIVE" },
   { href: "/customization", label: "Customization", icon: Settings },
   { href: "/checklist", label: "Launch Checklist", icon: CheckSquare },
   { href: "/production", label: "Production Chain", icon: Rocket },
@@ -91,13 +91,13 @@ const LIVE_NAV: NavLink[] = [
   { href: "/balance-lookup", label: "Balance Lookup", icon: Wallet },
   { href: "/block-explorer", label: "Block Explorer", icon: Search },
   { href: "/rpc-playground", label: "RPC Playground", icon: Terminal },
-  { href: "/zvm-explorer", label: "ZVM Explorer", icon: Cpu, badge: "C.3" },
+  { href: "/zvm-explorer", label: "ZVM Explorer", icon: Cpu, badge: "LIVE" },
   { href: "/pool-explorer", label: "Pool / AMM", icon: Droplets },
-  { href: "/multisig-explorer", label: "Multisig Explorer", icon: Shield, badge: "BETA" },
+  { href: "/multisig-explorer", label: "Multisig Explorer", icon: Shield },
   { href: "/connect-wallet", label: "Connect Mobile Wallet", icon: Smartphone },
   { href: "/api/mobile/", label: "Mobile Wallet (Flutter)", icon: Smartphone, external: true, badge: "NEW" },
   { href: "/swap", label: "Swap (Buy / Sell)", icon: ArrowUpDown },
-  { href: "/governance", label: "Governance (Phase D)", icon: Vote, badge: "BETA" },
+  { href: "/governance", label: "Governance", icon: Vote },
 ];
 
 const ADDON_NAV: NavLink[] = [
@@ -173,8 +173,6 @@ function badgeClass(b: NavBadge): string {
   switch (b) {
     case "LIVE": return "border-emerald-500/40 text-emerald-300 bg-emerald-500/10";
     case "NEW":  return "border-sky-500/40 text-sky-300 bg-sky-500/10";
-    case "BETA": return "border-amber-500/40 text-amber-300 bg-amber-500/10";
-    case "C.3":  return "border-primary/40 text-primary bg-primary/10";
     case "PRO":  return "border-violet-500/40 text-violet-300 bg-violet-500/10";
   }
 }
@@ -336,8 +334,6 @@ export function Sidebar() {
             className={`absolute top-1 right-1 h-1.5 w-1.5 rounded-full ${
               badge === "LIVE" ? "bg-emerald-400" :
               badge === "NEW"  ? "bg-sky-400" :
-              badge === "BETA" ? "bg-amber-400" :
-              badge === "C.3"  ? "bg-primary" :
               "bg-violet-400"
             }`}
             aria-hidden="true"

@@ -138,10 +138,10 @@ export default function GovernancePage() {
             On-chain Governance
           </h1>
           <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
-            Forkless governance — Phase D. Wallets holding ≥ 1 000 ZBX can submit
+            Forkless on-chain governance. Wallets holding ≥ 1 000 ZBX can submit
             a proposal. Each goes through a 14-day shadow-execution test, then a
             76-day vote (90 days total). 1 wallet = 1 vote, voters only pay gas.
-            ≥ 90% positive + ≥ 5 quorum auto-activates the change with no hard
+            ≥ 90 % positive + ≥ 5 quorum auto-activates the change with no hard
             fork.
           </p>
         </div>

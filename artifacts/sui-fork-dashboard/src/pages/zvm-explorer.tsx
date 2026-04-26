@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ZVM Explorer — Phase C.2 native zbx_* + eth_* RPC playground (ZVM = Zebvix Virtual Machine)
+// ZVM Explorer — native zbx_* + eth_* RPC playground (ZVM = Zebvix Virtual Machine)
 // Native zbx_* methods are always available; eth_*/net_*/web3_* only when the
 // node binary is built with --features zvm. UI prefers zbx_* labels for the
 // always-on path and falls back to eth_* labels for ZVM-only methods.
@@ -52,7 +52,7 @@ function Header() {
               <Wifi className="h-3 w-3" /> ZVM ENDPOINT LIVE
             </span>
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border border-violet-500/40 bg-violet-500/10 text-violet-300">
-              <Cpu className="h-3 w-3" /> Phase C.2 — Cancun
+              <Cpu className="h-3 w-3" /> Cancun-compatible
             </span>
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border border-cyan-500/40 bg-cyan-500/10 text-cyan-300">
               <Hash className="h-3 w-3" /> chain_id 0x1ec6
@@ -451,8 +451,7 @@ function TxTool() {
           setErr(
             `Hash not found. eth_getTransactionByHash + the native ring buffer ` +
             `(${indexed} indexed, cap ${cap}) both came up empty. ` +
-            `Older tx? It may have rolled out of the buffer — try fetching the block directly. ` +
-            `ZVM (Solidity) tx hashes are not yet indexed in the ring buffer (Phase C.3).`,
+            `Older tx? It may have rolled out of the buffer — try fetching the block directly.`,
           );
         }
       }
@@ -526,7 +525,7 @@ function TxTool() {
                   <Kv label="block" value={`#${nativeTx.height}`} />
                   <Kv label="fee paid" value={`${fmtZbx(nativeTx.fee, 6, "0")} ZBX`} mono />
                 </div>
-              ) : <div className="text-muted-foreground">no receipt yet (pending or not found)</div>}
+              ) : <div className="text-muted-foreground">Receipt unavailable — transaction is pending or not yet indexed.</div>}
             </div>
           </div>
         )}
@@ -809,13 +808,12 @@ function SmartSearch({ seed, onSeed }: { seed: string; onSeed: (v: string) => vo
         <h2 className="text-base font-bold tracking-tight">Smart Search</h2>
         <span className="text-[10px] text-muted-foreground font-mono">address · hash · block · contract · Pay-ID</span>
       </div>
-      <div className="text-[10px] text-amber-300/90 bg-amber-500/5 border border-amber-500/30 rounded-md px-2.5 py-1.5 leading-relaxed flex items-start gap-1.5">
-        <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
+      <div className="text-[10px] text-muted-foreground bg-card/40 border border-border rounded-md px-2.5 py-1.5 leading-relaxed flex items-start gap-1.5">
+        <AlertCircle className="h-3 w-3 mt-0.5 shrink-0 text-primary" />
         <span>
-          <span className="font-semibold">Heads-up:</span> numeric block lookups use the native <code className="font-mono">zbx_getBlockByNumber</code> path
-          (the ZVM passthrough returns tip for any height). Hash lookups try <code className="font-mono">eth_getBlockByHash</code> /
-          <code className="font-mono"> eth_getTransactionByHash</code> first and fall back to the native indexed-tx ring buffer
-          while the on-chain Phase C.3 wiring is pending.
+          <span className="font-semibold text-foreground">How lookups work:</span> numeric block lookups use the native <code className="font-mono">zbx_getBlockByNumber</code> path.
+          Hash lookups try <code className="font-mono">eth_getBlockByHash</code> /
+          <code className="font-mono"> eth_getTransactionByHash</code> first and fall back to the native indexed-tx ring buffer.
         </span>
       </div>
 
@@ -1162,7 +1160,7 @@ function HashResult({ hash, onCrossLink }: { hash: string; onCrossLink: (v: stri
           if (found) setData({ tx: { ...found, source: "zbx_recentTxs" }, blockTag: null, err: null, loading: false, scanned: list.length });
           else setData({
             tx: null, blockTag: null, scanned: list.length, loading: false,
-            err: `Hash not found in native tx index (${list.length} indexed). On-chain eth_getBlockByHash / eth_getTransactionByHash are not yet wired in evm_rpc — try a block number, an address, or a recent tx hash.`,
+            err: `Hash not found in the recent tx window (${list.length} scanned). Try a block number, an address, or a more recent transaction hash.`,
           });
         }
       } catch (e: any) {

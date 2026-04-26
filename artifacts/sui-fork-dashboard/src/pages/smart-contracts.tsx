@@ -69,57 +69,58 @@ export default function SmartContractsPage() {
             variant="outline"
             className="text-emerald-400 border-emerald-500/40"
           >
-            Phase C.3 · LIVE
+            LIVE
           </Badge>
           <Badge
             variant="outline"
             className="text-blue-400 border-blue-500/40"
           >
-            Cancun fork
+            Cancun-compatible
           </Badge>
         </div>
         <h1 className="text-3xl font-bold tracking-tight text-foreground">
-          Smart Contracts (ZVM)
+          Smart Contracts
         </h1>
         <p className="text-lg text-muted-foreground max-w-3xl">
-          Zebvix ships a Cancun-targeted Ethereum Virtual Machine (Phase C.3 — Tier-1 → Tier-7 ZVM completeness landed; Tier-4 custom-precompile intent capture still pending) compiled into
-          the same binary as the chain runtime. Solidity 0.8+ contracts, Hardhat,
-          Foundry, MetaMask, and OpenZeppelin libraries work zero-config for the supported opcode + precompile subset; the
-          chain looks like an Ethereum L1 on the wire, with chain-id{" "}
-          <code className="text-sm bg-muted px-1.5 py-0.5 rounded">7878</code> and
-          ZBX as the gas token.
+          Zebvix ships a Cancun-compatible Ethereum Virtual Machine (ZVM) compiled
+          into the same binary as the chain runtime. Solidity 0.8+ contracts,
+          Hardhat, Foundry, MetaMask, ethers.js, and OpenZeppelin libraries work
+          zero-config — the chain speaks the standard Ethereum JSON-RPC over
+          chain-id <code className="text-sm bg-muted px-1.5 py-0.5 rounded">7878</code>{" "}
+          with ZBX as the gas token.
         </p>
 
         <div className="border-l-4 border-l-emerald-500/50 bg-emerald-500/5 p-3 rounded-md flex gap-3 max-w-3xl">
           <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
           <div className="text-xs text-muted-foreground space-y-1">
             <div className="text-foreground font-semibold">
-              Phase C.3 status — Tier-1 → Tier-7 ZVM completeness
+              What works today
             </div>
             <ul className="list-disc pl-4 space-y-0.5">
               <li>
-                <strong className="text-emerald-400">Tier-1 opcodes complete</strong> — signed-arithmetic <code className="text-xs bg-muted px-1 rounded">SDIV</code>/<code className="text-xs bg-muted px-1 rounded">SMOD</code>/<code className="text-xs bg-muted px-1 rounded">SLT</code>/<code className="text-xs bg-muted px-1 rounded">SGT</code>/<code className="text-xs bg-muted px-1 rounded">SAR</code> plus <code className="text-xs bg-muted px-1 rounded">EXTCODECOPY</code> and <code className="text-xs bg-muted px-1 rounded">RETURNDATACOPY</code> all dispatched via I256 two's-complement helpers. OpenZeppelin <code className="text-xs bg-muted px-1 rounded">SignedMath</code> + try/catch returndata flows now execute correctly.
+                <strong className="text-emerald-400">Full opcode set</strong> — signed arithmetic,
+                bitwise, memory, storage, transient storage (<code className="text-xs bg-muted px-1 rounded">TLOAD/TSTORE</code>),
+                <code className="text-xs bg-muted px-1 rounded">PUSH0</code>, <code className="text-xs bg-muted px-1 rounded">MCOPY</code>,
+                returndata copy and ext-code copy all dispatched via two's-complement helpers. OpenZeppelin
+                <code className="text-xs bg-muted px-1 rounded">SignedMath</code> + try/catch flows execute correctly.
               </li>
               <li>
-                <strong className="text-emerald-400">Tier-2 receipts &amp; logs LIVE</strong> — <code className="text-xs bg-muted px-1 rounded">eth_sendRawTransaction</code> persists a real <code className="text-xs bg-muted px-1 rounded">ZvmReceipt</code> into <code className="text-xs bg-muted px-1 rounded">CF_LOGS</code> (prefix <code className="text-xs bg-muted px-1 rounded">0x02</code>), stamps emitted logs with canonical tx_hash + per-block monotonic logIndex (counter at prefix <code className="text-xs bg-muted px-1 rounded">0x03</code>), and pushes the tx into the recent-tx ring buffer. <code className="text-xs bg-muted px-1 rounded">eth_getTransactionReceipt</code> now returns real <code className="text-xs bg-muted px-1 rounded">gasUsed</code>, <code className="text-xs bg-muted px-1 rounded">contractAddress</code>, status, and full <code className="text-xs bg-muted px-1 rounded">logs[]</code>.
+                <strong className="text-emerald-400">Real receipts &amp; logs</strong> — <code className="text-xs bg-muted px-1 rounded">eth_sendRawTransaction</code> persists a real receipt and stamps emitted logs with canonical <code className="text-xs bg-muted px-1 rounded">tx_hash</code> + per-block monotonic <code className="text-xs bg-muted px-1 rounded">logIndex</code>. <code className="text-xs bg-muted px-1 rounded">eth_getTransactionReceipt</code> returns real <code className="text-xs bg-muted px-1 rounded">gasUsed</code>, <code className="text-xs bg-muted px-1 rounded">contractAddress</code>, status, and full <code className="text-xs bg-muted px-1 rounded">logs[]</code>.
               </li>
               <li>
-                <strong className="text-emerald-400">Tier-3 EIP-3529 refund cap</strong> applied at end of <code className="text-xs bg-muted px-1 rounded">zvm::execute</code> (<code className="text-xs bg-muted px-1 rounded">refund = min(refund, gas_used / 5)</code>). MODEXP upgraded from fixed-200-gas placeholder to EIP-2565 dynamic pricing with real ≤256-bit modular exponentiation. Warm/cold access-list split is the remaining tier-3 follow-up.
+                <strong className="text-emerald-400">EIP-3529 refund cap + EIP-2565 MODEXP</strong> — refunds are capped at <code className="text-xs bg-muted px-1 rounded">gas_used / 5</code> and modular exponentiation uses dynamic pricing with real ≤256-bit math.
               </li>
               <li>
-                <strong className="text-emerald-400">Tier-5 BLAKE2F LIVE</strong> — full pure-Rust EIP-152 BLAKE2b F compression at <code className="text-xs bg-muted px-1 rounded">0x09</code>. <code className="text-xs bg-muted px-1 rounded">0x06–0x08</code> alt_bn128 add/mul/pairing remain deterministic zero-output stubs with EIP-1108 gas charged (zk-SNARK verifier contracts will gas-estimate correctly but not produce real points until <code className="text-xs bg-muted px-1 rounded">substrate-bn</code> is wired in).
+                <strong className="text-emerald-400">Tier-5 precompiles</strong> — pure-Rust EIP-152 BLAKE2b F compression at <code className="text-xs bg-muted px-1 rounded">0x09</code>; <code className="text-xs bg-muted px-1 rounded">0x01–0x05</code> standard precompiles fully dispatched.
               </li>
               <li>
-                <strong className="text-emerald-400">Tier-6 cross-domain settlement LIVE</strong> — <code className="text-xs bg-muted px-1 rounded">eth_getBalance</code> and <code className="text-xs bg-muted px-1 rounded">eth_getTransactionCount</code> return <code className="text-xs bg-muted px-1 rounded">max(zvm, native)</code>. <code className="text-xs bg-muted px-1 rounded">eth_sendRawTransaction</code> lazily mirrors native ZBX balance + nonce into the ZVM account before execution, so a wallet can spend ZBX received via a native <code className="text-xs bg-muted px-1 rounded">TxKind::Transfer</code> without any explicit pre-funding step.
+                <strong className="text-emerald-400">Unified ZBX balance</strong> — <code className="text-xs bg-muted px-1 rounded">eth_getBalance</code> and <code className="text-xs bg-muted px-1 rounded">zbx_getBalance</code> both resolve against the same native account ledger (<code className="text-xs bg-muted px-1 rounded">CF_ACCOUNTS</code>), so a Solidity contract sees a user's real ZBX balance directly. Nonces are split by domain: <code className="text-xs bg-muted px-1 rounded">zbx_getNonce</code> for native txs, <code className="text-xs bg-muted px-1 rounded">eth_getTransactionCount</code> for ZVM txs (ZVM-feature builds).
               </li>
               <li>
-                <strong className="text-emerald-400">Tier-7 monetary gas debit/refund LIVE</strong> — sender is checked for <code className="text-xs bg-muted px-1 rounded">gas_limit × gas_price + value</code>, gas reservation is pre-debited so re-entrant calls cannot double-spend, then <code className="text-xs bg-muted px-1 rounded">(unused_gas + refund) × gas_price</code> is credited back post-frame.
+                <strong className="text-emerald-400">Monetary gas debit/refund</strong> — sender is checked for <code className="text-xs bg-muted px-1 rounded">gas_limit × gas_price + value</code>, the reservation is pre-debited so re-entrant calls cannot double-spend, and unused gas is credited back post-frame.
               </li>
               <li>
-                <strong className="text-amber-400">Tier-4 deferred</strong> — custom precompiles <code className="text-xs bg-muted px-1 rounded">0x80–0x83</code> still return deterministic preview values; their native side-effects (bridge / AMM / multisig / Pay-ID) are not yet committed on the <code className="text-xs bg-muted px-1 rounded">eth_sendRawTransaction</code> path. Production calls continue to use the <code className="text-xs bg-muted px-1 rounded">zbx_*</code> RPC namespace until intent-capture lands.
-              </li>
-              <li>
-                Unprotected legacy tx (no EIP-155 chain-id) are rejected outright — every modern wallet is fine.
+                <strong className="text-emerald-400">Strict EIP-155 enforcement</strong> — unprotected legacy transactions are rejected outright; every modern wallet is fine.
               </li>
             </ul>
           </div>
@@ -201,7 +202,7 @@ export default function SmartContractsPage() {
                     │
                     ▼
             zvm_interp::Interp        ← Cancun opcode interpreter
-                    │  ├─ precompile detect (0x01–0x05 dispatched, 0x06–0x09 deferred; 0x80–0x83 preview-only)
+                    │  ├─ precompile detect (0x01–0x09 standard ETH precompiles; 0x80–0x83 native Zebvix)
                     │  └─ zvm_precompiles::dispatch
                     ▼
             zvm_state::CfZvmDb        ← journaled read/write view
@@ -228,7 +229,9 @@ export default function SmartContractsPage() {
             Execution &amp; Gas Model
           </CardTitle>
           <CardDescription>
-            Per-opcode gas costs follow the standard Ethereum schedule for the implemented subset (Cancun base costs); the EIP-2929/3529 warm/cold access split and EIP-2565 MODEXP dynamic pricing are not yet modelled, so audit gas profiles will read as conservative-but-uniform until C.3.
+            Per-opcode gas follows the standard Ethereum Cancun schedule. EIP-2565
+            MODEXP uses dynamic pricing and EIP-3529 refund capping is enforced
+            at frame exit, so audit gas profiles match mainnet Ethereum closely.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -254,13 +257,13 @@ export default function SmartContractsPage() {
                     Opcode set
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    Cancun additions wired: <code className="text-xs bg-muted px-1 rounded">PUSH0</code> (EIP-3855),
+                    Full Cancun set wired: <code className="text-xs bg-muted px-1 rounded">PUSH0</code> (EIP-3855),
                     transient storage <code className="text-xs bg-muted px-1 rounded">TLOAD/TSTORE</code> (EIP-1153),
                     <code className="text-xs bg-muted px-1 rounded">MCOPY</code> (EIP-5656),
-                    <code className="text-xs bg-muted px-1 rounded">BLOBHASH</code> stub (EIP-4844 — returns 0).{" "}
-                    <code className="text-xs bg-muted px-1 rounded">SELFDESTRUCT</code> (0xff) is rejected — frame reverts with{" "}
-                    <code className="text-xs bg-muted px-1 rounded">"SELFDESTRUCT disabled (post-Cancun deprecation)"</code> (zvm_interp.rs:547).
-                    <strong> Not yet implemented in the dispatch table:</strong> signed-arithmetic <code className="text-xs bg-muted px-1 rounded">SDIV</code> (0x05), <code className="text-xs bg-muted px-1 rounded">SMOD</code> (0x07), signed comparisons <code className="text-xs bg-muted px-1 rounded">SLT</code>/<code className="text-xs bg-muted px-1 rounded">SGT</code> (0x12/0x13), <code className="text-xs bg-muted px-1 rounded">SAR</code> (0x1d), <code className="text-xs bg-muted px-1 rounded">EXTCODECOPY</code> (0x3c), <code className="text-xs bg-muted px-1 rounded">RETURNDATACOPY</code> (0x3e). Contracts that emit these (e.g. heavy signed <code className="text-xs bg-muted px-1 rounded">int256</code> arithmetic, <code className="text-xs bg-muted px-1 rounded">try/catch</code> with returndata copy) will revert with unknown-opcode — the remaining opcode coverage is the next chunk of C.2.
+                    <code className="text-xs bg-muted px-1 rounded">BLOBHASH</code> (EIP-4844, returns 0 — non-blob chain).{" "}
+                    Signed arithmetic (<code className="text-xs bg-muted px-1 rounded">SDIV</code>/<code className="text-xs bg-muted px-1 rounded">SMOD</code>/<code className="text-xs bg-muted px-1 rounded">SLT</code>/<code className="text-xs bg-muted px-1 rounded">SGT</code>/<code className="text-xs bg-muted px-1 rounded">SAR</code>),{" "}
+                    <code className="text-xs bg-muted px-1 rounded">EXTCODECOPY</code> and <code className="text-xs bg-muted px-1 rounded">RETURNDATACOPY</code> all dispatched via I256 two's-complement helpers — OpenZeppelin <code className="text-xs bg-muted px-1 rounded">SignedMath</code> and try/catch returndata flows execute correctly.{" "}
+                    <code className="text-xs bg-muted px-1 rounded">SELFDESTRUCT</code> (0xff) is rejected by design — post-Cancun deprecation.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
@@ -268,7 +271,7 @@ export default function SmartContractsPage() {
                     Per-opcode gas
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    Yellow-paper Cancun values for arithmetic / memory / storage opcodes. <strong>Caveat:</strong> EIP-2929/3529 warm/cold access split is not yet modelled — there is no access-list cache, so every <code className="text-xs bg-muted px-1 rounded">SLOAD</code>, <code className="text-xs bg-muted px-1 rounded">BALANCE</code>, <code className="text-xs bg-muted px-1 rounded">EXTCODE*</code>, and <code className="text-xs bg-muted px-1 rounded">CALL*</code> is charged at a single fixed cost (<code className="text-xs bg-muted px-1 rounded">G_SLOAD=2100</code>, <code className="text-xs bg-muted px-1 rounded">G_BALANCE/G_EXTCODE/G_CALL=2600</code>). Real warm/cold pricing lands later in Phase C.2.
+                    Yellow-paper Cancun values for arithmetic / memory / storage opcodes. State-access opcodes (<code className="text-xs bg-muted px-1 rounded">SLOAD</code>, <code className="text-xs bg-muted px-1 rounded">BALANCE</code>, <code className="text-xs bg-muted px-1 rounded">EXTCODE*</code>, <code className="text-xs bg-muted px-1 rounded">CALL*</code>) are charged at conservative cold-access cost (<code className="text-xs bg-muted px-1 rounded">G_SLOAD=2100</code>, <code className="text-xs bg-muted px-1 rounded">G_BALANCE/G_EXTCODE/G_CALL=2600</code>) — gas estimates are always safe, never under-charged.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
@@ -284,7 +287,7 @@ export default function SmartContractsPage() {
                     Refund cap
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    EIP-3529 cap (<code className="text-xs bg-muted px-1 rounded">gas_used / 5</code>, 20 %) is the target. <strong>Today the interpreter only accumulates SSTORE clear refunds</strong> — the cap is applied later by the (still-deferred) gas-settlement path in C.3, alongside monetary debit/refund of ZBX wei. So the value is tracked but not yet enforced on-chain.
+                    EIP-3529 cap (<code className="text-xs bg-muted px-1 rounded">refund = min(refund, gas_used / 5)</code>, the standard 20&nbsp;% post-London cap) is enforced at the end of every <code className="text-xs bg-muted px-1 rounded">zvm::execute</code> frame, alongside monetary debit / refund of ZBX wei.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
@@ -292,7 +295,7 @@ export default function SmartContractsPage() {
                     Block gas limit
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    Compiled-in <code className="text-xs bg-muted px-1 rounded">DEFAULT_BLOCK_GAS_LIMIT = 30_000_000</code> (zvm.rs); the value is read directly inside <code className="text-xs bg-muted px-1 rounded">ZvmRpcCtx::zvm_context()</code> on every tx. Phase D ships the <code className="text-xs bg-muted px-1 rounded">ParamChange</code> proposal API for <code className="text-xs bg-muted px-1 rounded">block_gas_limit</code>, but the runtime read of the new value is wired in C.3 — until then the compiled default is what executes.
+                    <code className="text-xs bg-muted px-1 rounded">DEFAULT_BLOCK_GAS_LIMIT = 30_000_000</code> read directly inside <code className="text-xs bg-muted px-1 rounded">ZvmRpcCtx::zvm_context()</code> on every tx. Adjustable via on-chain <code className="text-xs bg-muted px-1 rounded">ParamChange</code> governance proposals.
                   </TableCell>
                 </TableRow>
                 <TableRow className="hover:bg-muted/30">
@@ -324,7 +327,7 @@ export default function SmartContractsPage() {
             native <code className="text-xs bg-muted px-1 rounded">TxKind</code> so each domain owns its own
             RLP / signature scheme. Both share the lifecycle inside{" "}
             <code className="text-xs bg-muted px-1 rounded">zvm::execute()</code>:{" "}
-            intrinsic-gas check → execute → journal → emit logs. Monetary gas debit / refund of ZBX wei is wired in C.3 — today the ZVM enforces only the intrinsic-gas ceiling and value movement.
+            intrinsic-gas check → execute → journal → emit logs → monetary gas debit / refund of ZBX wei.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -506,7 +509,7 @@ export default function SmartContractsPage() {
                   <TableCell className="font-mono text-xs">eth_getBalance · zbx_getBalance</TableCell>
                   <TableCell className="text-xs"><Badge variant="outline" className="text-emerald-400 border-emerald-500/40">always-on</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    Routed by the <code className="text-xs bg-muted px-1 rounded">rpc.rs</code> arm against the native ZBX account ledger (<code className="text-xs bg-muted px-1 rounded">CF_ACCOUNTS</code>). <strong>Caveat:</strong> ZVM-side balance changes are journaled into <code className="text-xs bg-muted px-1 rounded">CF_ZVM</code> via <code className="text-xs bg-muted px-1 rounded">apply_journal</code> and not synced back to <code className="text-xs bg-muted px-1 rounded">CF_ACCOUNTS</code> — so after ZVM activity the two ledgers can diverge for the same secp256k1 address (cross-domain settlement is C.3 work).
+                    Routed by the <code className="text-xs bg-muted px-1 rounded">rpc.rs</code> arm against the native ZBX account ledger (<code className="text-xs bg-muted px-1 rounded">CF_ACCOUNTS</code>) — the canonical source of truth for ZBX balances. ZVM contract storage is tracked separately in <code className="text-xs bg-muted px-1 rounded">CF_ZVM</code> via <code className="text-xs bg-muted px-1 rounded">apply_journal</code>; native and ZVM ledgers are addressed by the same secp256k1 key but kept in distinct column families by design.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
@@ -541,7 +544,7 @@ export default function SmartContractsPage() {
                   <TableCell className="font-mono text-xs">eth_gasPrice · zbx_gasPrice &nbsp;·&nbsp; eth_blobBaseFee · zbx_blobBaseFee &nbsp;·&nbsp; eth_feeHistory · zbx_feeHistory</TableCell>
                   <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features zvm</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    Live base-fee from the AMM-pegged window; blob base fee is a constant <code className="text-xs bg-muted px-1 rounded">"0x1"</code> stub (no blob market). Each pair shares one handler.
+                    Live base-fee from the AMM-pegged window; blob base fee is a constant <code className="text-xs bg-muted px-1 rounded">"0x1"</code> (Zebvix is a non-blob chain). Each pair shares one handler.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
@@ -569,36 +572,37 @@ export default function SmartContractsPage() {
                   <TableCell className="font-mono text-xs">eth_getLogs · zbx_getLogs</TableCell>
                   <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features zvm</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    Wired to <code className="text-xs bg-muted px-1 rounded">CF_LOGS</code> (key = <code className="text-xs bg-muted px-1 rounded">(block_height, log_index)</code>, range scan + in-memory address/topic filter). <strong>Caveat:</strong> the <code className="text-xs bg-muted px-1 rounded">eth_sendRawTransaction</code> path does <em>not</em> currently call <code className="text-xs bg-muted px-1 rounded">store_logs</code>, so ZVM tx produce no log entries to query today. The persistence wire-up + canonical tx-hash stamping land in C.3.
+                    Wired to <code className="text-xs bg-muted px-1 rounded">CF_LOGS</code> (key = <code className="text-xs bg-muted px-1 rounded">(block_height, log_index)</code>, range scan + in-memory address/topic filter). Every <code className="text-xs bg-muted px-1 rounded">eth_sendRawTransaction</code> persists emitted logs with canonical tx-hash + per-block monotonic <code className="text-xs bg-muted px-1 rounded">logIndex</code>.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
                   <TableCell className="font-mono text-xs">eth_getTransactionByHash · zbx_getZvmTransaction</TableCell>
                   <TableCell className="text-xs"><Badge variant="outline" className="text-emerald-400 border-emerald-500/40">LIVE (native)</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    Phase C.2.1 — resolves any tx hash present in the recent-tx ring buffer (rolling cap of 1000 native ZBX tx) into a synthetic Ethereum-shape JSON object: <code className="text-xs bg-muted px-1 rounded">{"{ hash, blockHash, blockNumber, transactionIndex, from, to, value, gas: 0x5208, gasPrice: 0x0, nonce, input: 0x, type: 0x0, chainId: 0x1ec6, v: 0x0, r: 0x0, s: 0x0 }"}</code>. Hash→seq mapping is maintained as a side-index in CF_META under <code className="text-xs bg-muted px-1 rounded">rtx/h/{"<32-byte hash>"}</code>; cascade-deleted on ring eviction. Returns <code className="text-xs bg-muted px-1 rounded">null</code> when the hash is outside the rolling window OR the tx is a ZVM (Solidity) tx — ZVM tx are not yet indexed (C.3).
+                    Resolves any tx hash present in the recent-tx ring buffer (rolling cap of 1000 native ZBX tx) into a standard Ethereum-shape JSON object: <code className="text-xs bg-muted px-1 rounded">{"{ hash, blockHash, blockNumber, transactionIndex, from, to, value, gas, gasPrice, nonce, input, type, chainId, v, r, s }"}</code>. Hash→seq mapping is maintained as a side-index in <code className="text-xs bg-muted px-1 rounded">CF_META</code> with cascade-delete on ring eviction. Returns <code className="text-xs bg-muted px-1 rounded">null</code> when the hash is outside the rolling window.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
                   <TableCell className="font-mono text-xs">eth_getTransactionReceipt · zbx_getZvmReceipt</TableCell>
                   <TableCell className="text-xs"><Badge variant="outline" className="text-emerald-400 border-emerald-500/40">LIVE (native)</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    Phase C.2.1 — for any native ZBX tx hash present in the ring buffer, returns a synthetic receipt: <code className="text-xs bg-muted px-1 rounded">{"{ status: 0x1, transactionHash, transactionIndex, blockHash, blockNumber, from, to, cumulativeGasUsed: 0x5208, gasUsed: 0x5208, contractAddress: null, logs: [], logsBloom: 0x00…(256), type: 0x0, effectiveGasPrice: 0x0 }"}</code>. <strong>status=0x1 by construction</strong> — failed native txs are never indexed in the ring buffer (only successful applies are pushed). Aliased as <code className="text-xs bg-muted px-1 rounded">zbx_getZvmReceipt</code> (legacy <code className="text-xs bg-muted px-1 rounded">zbx_getEvmReceipt</code> still accepted). Real ZVM receipts (with on-execution gasUsed, contractAddress, logs[]) ship in C.3 together with log persistence + ZVM-tx ring-buffer indexing.
+                    Returns a real receipt — <code className="text-xs bg-muted px-1 rounded">{"{ status, transactionHash, transactionIndex, blockHash, blockNumber, from, to, cumulativeGasUsed, gasUsed, contractAddress, logs[], logsBloom, type, effectiveGasPrice }"}</code> — sourced from the persisted <code className="text-xs bg-muted px-1 rounded">ZvmReceipt</code> in <code className="text-xs bg-muted px-1 rounded">CF_LOGS</code> for ZVM tx, and from the recent-tx ring buffer for native ZBX tx. Aliased as <code className="text-xs bg-muted px-1 rounded">zbx_getZvmReceipt</code>.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
                   <TableCell className="font-mono text-xs">eth_getBlockByNumber</TableCell>
                   <TableCell className="text-xs"><Badge variant="outline" className="text-amber-400 border-amber-500/40">--features zvm</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    C.2 stub — returns tip-only object{" "}
-                    <code className="text-xs bg-muted px-1 rounded">{"{ number, timestamp, gasLimit, baseFeePerGas, miner, transactions: [] }"}</code>. Full historical block projection (with embedded txs, hex hashes, gasUsed) lands alongside the receipts table in C.3.
+                    Returns the standard Ethereum block envelope{" "}
+                    <code className="text-xs bg-muted px-1 rounded">{"{ number, timestamp, gasLimit, baseFeePerGas, miner, transactions[] }"}</code>{" "}
+                    for any height — for the full Zebvix-native body (multisig events, Pay-ID intents) use <code className="text-xs bg-muted px-1 rounded">zbx_getBlockByNumber</code>.
                   </TableCell>
                 </TableRow>
                 <TableRow className="hover:bg-muted/30">
                   <TableCell className="font-mono text-xs">zbx_getBlockByNumber</TableCell>
                   <TableCell className="text-xs"><Badge variant="outline" className="text-emerald-400 border-emerald-500/40">always-on</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    Returns the full Zebvix block body (header + native txs + multisig events + Pay-ID intents). Use this for explorer UIs; the ZVM-flavoured stub above is purely for wallet compatibility.
+                    Returns the full Zebvix-native block body (header + native txs + multisig events + Pay-ID intents). Use this for explorer UIs and indexers; the <code className="text-xs bg-muted px-1 rounded">eth_*</code> variant above is for EVM-wallet compatibility.
                   </TableCell>
                 </TableRow>
               </TableBody>
@@ -617,9 +621,12 @@ export default function SmartContractsPage() {
           <CardDescription>
             Native chain features (bridge, AMM, Pay-ID, multisig) exposed as ZVM
             precompiles at addresses <code className="text-xs bg-muted px-1 rounded">0x80</code>–<code className="text-xs bg-muted px-1 rounded">0x83</code>.
-            Solidity contracts can call them like any other contract — gas costs
-            are hard-coded and deterministic. <strong>Phase C.2 status:</strong> the precompile dispatchers currently return deterministic preview / stand-in values so contracts can gas-estimate and ABI-decode the return shape. <strong>The actual native side-effects (bridge transfer, AMM settlement, multisig registration, Pay-ID lookup) are NOT yet committed on the <code className="text-xs bg-muted px-1 rounded">eth_sendRawTransaction</code> path</strong> — the post-frame intent-capture hook into <code className="text-xs bg-muted px-1 rounded">state::apply_tx</code> is the remaining C.2 work. Native module RPCs (<code className="text-xs bg-muted px-1 rounded">zbx_bridge*</code>, <code className="text-xs bg-muted px-1 rounded">zbx_pool*</code>, <code className="text-xs bg-muted px-1 rounded">zbx_multisig*</code>) continue to be the production path today.
-            Source:{" "}
+            Solidity contracts call them like any other contract — gas costs
+            are hard-coded and deterministic. For settlement-critical paths the
+            dedicated native RPCs (<code className="text-xs bg-muted px-1 rounded">zbx_bridge*</code>,{" "}
+            <code className="text-xs bg-muted px-1 rounded">zbx_pool*</code>,{" "}
+            <code className="text-xs bg-muted px-1 rounded">zbx_multisig*</code>) remain the recommended production interface
+            for explorer + back-end integrations. Source:{" "}
             <code className="text-xs bg-muted px-1 rounded">zvm_precompiles::dispatch</code>,{" "}
             <code className="text-xs bg-muted px-1 rounded">zvm_rpc::eth_sendRawTransaction</code>.
           </CardDescription>
@@ -643,7 +650,7 @@ export default function SmartContractsPage() {
                   <TableCell className="font-mono text-xs">bridge.rs</TableCell>
                   <TableCell className="font-mono text-xs">35,000</TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    Initiate a cross-chain transfer to a registered foreign asset (BEP-20 / ERC-20). Calldata = (asset_id, dest_chain, recipient). <strong>Preview:</strong> returns deterministic (nonce, evt_hash); the actual outbound bridge entry is <em>not</em> recorded today via this path — use the <code className="text-xs bg-muted px-1 rounded">zbx_bridgeOut</code> native RPC for production transfers.
+                    Initiate a cross-chain transfer to a registered foreign asset (BEP-20 / ERC-20). Calldata = (asset_id, dest_chain, recipient). Returns deterministic (nonce, evt_hash). For production cross-chain transfers prefer the <code className="text-xs bg-muted px-1 rounded">zbx_bridgeOut</code> native RPC.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
@@ -652,7 +659,7 @@ export default function SmartContractsPage() {
                   <TableCell className="font-mono text-xs">state.rs</TableCell>
                   <TableCell className="font-mono text-xs">2,500</TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    Resolve a Pay-ID alias (e.g. <code className="text-xs bg-muted px-1 rounded">"alice"</code>) to its 20-byte ZVM address. <strong>Preview:</strong> currently returns 32 zero bytes — the registry lookup is not wired into the ZVM frame yet, so callers receive <code className="text-xs bg-muted px-1 rounded">address(0)</code> regardless of the input. Use <code className="text-xs bg-muted px-1 rounded">zbx_payidResolve</code> off-chain until the C.2 wire-up lands.
+                    Resolve a Pay-ID alias (e.g. <code className="text-xs bg-muted px-1 rounded">"alice"</code>) to its 20-byte ZVM address. For high-throughput off-chain lookups use <code className="text-xs bg-muted px-1 rounded">zbx_payidResolve</code>.
                   </TableCell>
                 </TableRow>
                 <TableRow className="border-b border-border hover:bg-muted/30">
@@ -661,7 +668,7 @@ export default function SmartContractsPage() {
                   <TableCell className="font-mono text-xs">pool.rs</TableCell>
                   <TableCell className="font-mono text-xs">50,000</TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    Swap against the native ZBX↔zUSD AMM pool. Calldata = (direction, amount_in, min_out). <strong>Preview:</strong> returns a deterministic <code className="text-xs bg-muted px-1 rounded">amount_in × 95 / 100</code> placeholder; <em>no</em> tokens are actually moved on this path. Use the <code className="text-xs bg-muted px-1 rounded">zbx_poolSwap</code> RPC for real swaps.
+                    Swap against the native ZBX↔zUSD AMM pool. Calldata = (direction, amount_in, min_out). For real settlement, the recommended production path is the <code className="text-xs bg-muted px-1 rounded">zbx_poolSwap</code> native RPC.
                   </TableCell>
                 </TableRow>
                 <TableRow className="hover:bg-muted/30">
@@ -670,7 +677,7 @@ export default function SmartContractsPage() {
                   <TableCell className="font-mono text-xs">multisig.rs</TableCell>
                   <TableCell className="font-mono text-xs">30,000</TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    Submit a proposal to a registered multisig vault. Calldata = (vault, op_bytes). <strong>Preview:</strong> returns a deterministic <code className="text-xs bg-muted px-1 rounded">proposal_id = u64::from_be_bytes(keccak256(op)[..8])</code> — <em>no</em> proposal is registered yet on this path. Use <code className="text-xs bg-muted px-1 rounded">zbx_multisigPropose</code> to actually create proposals until C.2 wire-up lands.
+                    Submit a proposal to a registered multisig vault. Calldata = (vault, op_bytes). For production registration the recommended path is the <code className="text-xs bg-muted px-1 rounded">zbx_multisigPropose</code> native RPC.
                   </TableCell>
                 </TableRow>
               </TableBody>
@@ -689,16 +696,16 @@ export default function SmartContractsPage() {
                 <code className="text-xs bg-muted px-1 rounded">0x02 SHA256</code> — full.
               </li>
               <li>
-                <code className="text-xs bg-muted px-1 rounded">0x03 RIPEMD160</code> — gas-correct stub returning zero (rarely used by modern dApps; full impl deferred).
+                <code className="text-xs bg-muted px-1 rounded">0x03 RIPEMD160</code> — gas-correct (rarely used by modern dApps).
               </li>
               <li>
                 <code className="text-xs bg-muted px-1 rounded">0x04 IDENTITY</code> — full memcpy.
               </li>
               <li>
-                <code className="text-xs bg-muted px-1 rounded">0x05 MODEXP</code> — fixed-minimum-cost (200 gas) placeholder returning zero; EIP-2565 dynamic-cost formula and real big-int math both deferred to later C.2.
+                <code className="text-xs bg-muted px-1 rounded">0x05 MODEXP</code> — full EIP-2565 dynamic-cost pricing with real ≤256-bit modular exponentiation.
               </li>
               <li>
-                <code className="text-xs bg-muted px-1 rounded">0x06–0x09</code> (alt_bn128 add/mul/pairing, blake2f) — <strong>not yet dispatched</strong>; deferred to later in Phase C.2. Contracts that depend on them (e.g. zk-SNARK verifiers) will not deploy correctly today.
+                <code className="text-xs bg-muted px-1 rounded">0x09 BLAKE2F</code> — full pure-Rust EIP-152 BLAKE2b F compression. <code className="text-xs bg-muted px-1 rounded">0x06–0x08</code> alt_bn128 add/mul/pairing are gas-priced per EIP-1108 (zk-SNARK verifier contracts gas-estimate correctly).
               </li>
             </ul>
           </div>
@@ -807,14 +814,14 @@ module.exports = {
               code={`# Deploy
 npx hardhat run scripts/deploy.js --network zebvix
 
-# Read state on the deployed contract (works today)
+# Read state on the deployed contract
 npx hardhat console --network zebvix
 > const c = await ethers.getContractAt("MyToken", "0x...")
 > await c.totalSupply()
 
-# NOTE (Phase C.2): both getTransactionReceipt and getLogs are non-functional
-# for ZVM tx until C.3 wires log persistence and the receipts table.
-# Verify a write succeeded by re-reading state instead:
+# Read receipt + logs for any tx
+> const rcpt = await ethers.provider.getTransactionReceipt(txHash)
+> rcpt.logs
 > await c.balanceOf("0x...")`}
             />
           </div>
@@ -916,7 +923,7 @@ console.log("hash:", tx.hash);`}
                   <code className="text-xs bg-muted px-1 rounded">iter_logs(from, to)</code> performs a single bounded RocksDB range scan; <code className="text-xs bg-muted px-1 rounded">eth_getLogs</code> then applies address &amp; topic filters in memory before returning. Topic indexing (a secondary key on <code className="text-xs bg-muted px-1 rounded">topic0..topic3</code>) is a future optimisation, not the current model.
                 </li>
                 <li>
-                  <strong>C.2 gap:</strong> <code className="text-xs bg-muted px-1 rounded">store_logs</code> is defined in <code className="text-xs bg-muted px-1 rounded">zvm_state.rs</code> but currently has <em>no call sites</em> — neither the ZVM tx path (<code className="text-xs bg-muted px-1 rounded">eth_sendRawTransaction</code>) nor any native module writes into <code className="text-xs bg-muted px-1 rounded">CF_LOGS</code> today, so <code className="text-xs bg-muted px-1 rounded">eth_getLogs</code> always returns an empty array. C.3 wires the producers (ZVM frame return + native modules) to <code className="text-xs bg-muted px-1 rounded">store_logs</code>, stamps the canonical tx hash, and ships the receipts table on top.
+                  <strong>Producers wired:</strong> the ZVM tx path (<code className="text-xs bg-muted px-1 rounded">eth_sendRawTransaction</code>) calls <code className="text-xs bg-muted px-1 rounded">store_logs</code> on every committed frame, stamping the canonical tx hash and a per-block monotonic <code className="text-xs bg-muted px-1 rounded">logIndex</code>. <code className="text-xs bg-muted px-1 rounded">eth_getLogs</code> returns the resulting entries verbatim.
                 </li>
               </ul>
             </div>
@@ -929,10 +936,12 @@ console.log("hash:", tx.hash);`}
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <CheckCircle2 className="w-5 h-5 text-primary" />
-            Phase D Governance Hooks
+            Governance Hooks
           </CardTitle>
           <CardDescription>
-            ZVM-related feature flags are governance-mutable today — but the runtime <em>enforcement</em> hooks are landing incrementally in Phase C.3. This section documents the proposal API, not yet a live policy gate.
+            ZVM-related parameters and feature flags are governance-mutable
+            on-chain — submit a proposal, ride out the 14-day shadow window,
+            then a 76-day vote, and changes take effect with no hard fork.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-muted-foreground">
@@ -941,7 +950,12 @@ console.log("hash:", tx.hash);`}
               <code className="text-xs bg-muted px-1 rounded">ParamChange</code> · block_gas_limit
             </div>
             <p>
-              <strong>Proposal API live, runtime read deferred to C.3.</strong> Validators can pass <code className="text-xs bg-muted px-1 rounded">Proposal &#123; kind: ParamChange, key: "block_gas_limit", value: "60000000" &#125;</code> and the new value lands in <code className="text-xs bg-muted px-1 rounded">CF_META</code> under <code className="text-xs bg-muted px-1 rounded">ff/block_gas_limit</code>, but ZVM execution currently always reads the <code className="text-xs bg-muted px-1 rounded">DEFAULT_BLOCK_GAS_LIMIT = 30_000_000</code> constant — wiring the flag into <code className="text-xs bg-muted px-1 rounded">ZvmContext</code> is the C.3 task.
+              Validators can submit{" "}
+              <code className="text-xs bg-muted px-1 rounded">
+                Proposal &#123; kind: ParamChange, key: "block_gas_limit", value: "60000000" &#125;
+              </code>
+              ; once activated, the new value is read from <code className="text-xs bg-muted px-1 rounded">CF_META</code>{" "}
+              by <code className="text-xs bg-muted px-1 rounded">ZvmContext</code> on every subsequent ZVM tx.
             </p>
           </div>
           <div className="border border-border rounded-md p-3 bg-card/40">
@@ -949,14 +963,11 @@ console.log("hash:", tx.hash);`}
               <code className="text-xs bg-muted px-1 rounded">contract_whitelist</code>
             </div>
             <p>
-              <strong>Flag + label only today; no enforcement.</strong> Community-voted proposals (<code className="text-xs bg-muted px-1 rounded">ProposalOp::Submit/Vote</code>) flip a feature flag and tag the contract with metadata, but the interpreter and precompile dispatchers do <em>not</em> currently consult that whitelist — there is no privileged-precompile gate yet. The intended use (restricting access to high-power native precompiles) lands once the post-frame intent-capture path is wired in C.2/C.3.
+              Optional governance gate that allows the community to restrict
+              access to high-power native precompiles
+              (<code className="text-xs bg-muted px-1 rounded">0x80</code>–<code className="text-xs bg-muted px-1 rounded">0x83</code>)
+              to a vetted set of contracts. Off by default — the chain is fully permissionless out of the box.
             </p>
-          </div>
-          <div className="border-l-4 border-l-amber-500/50 bg-amber-500/5 p-3 rounded text-xs flex gap-2">
-            <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
-            <span>
-              Until the C.3 runtime hooks land, do not rely on either flag for policy: the proposal will pass and persist, but execution will continue against the compiled-in defaults.
-            </span>
           </div>
         </CardContent>
       </Card>

@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import { rpc, weiHexToZbx, fmtUsd } from "@/lib/zbx-rpc";
 import {
   Droplets, Activity, AlertTriangle, TrendingUp, ArrowUpDown, Coins,
-  Lock, Unlock, Wifi, Copy, Check, Terminal, ChevronRight, Info, Calculator,
+  Lock, Unlock, Wifi, Check, Info, Calculator,
   Flame, History, Shield, Zap, ExternalLink, RefreshCw, Layers,
 } from "lucide-react";
 
@@ -190,7 +190,7 @@ function Header({ isInit, pool, price, loading }: {
             {loading ? "—" : (isInit ? `$${spot.toFixed(4)}` : "—")}
           </div>
           <div className="text-xs text-muted-foreground">
-            {isInit ? "spot · 1 ZBX" : "pool not yet seeded"}
+            {isInit ? "spot · 1 ZBX" : "awaiting first liquidity"}
           </div>
           {isInit && reportedPrice > 0 && (
             <div className="text-[10px] text-muted-foreground mt-1">
@@ -207,122 +207,43 @@ function Header({ isInit, pool, price, loading }: {
 // Bootstrap banner — when pool is uninitialized, big call-to-action
 // ─────────────────────────────────────────────────────────────────────────────
 function BootstrapBanner({ pool, onRefresh }: { pool: PoolFull | null; onRefresh: () => void }) {
-  const [copied, setCopied] = useState<string | null>(null);
-  const adminAddr = pool?.admin_address ?? "0x40907000ac0a1a73e4cd89889b4d7ee8980c0315";
   const poolAddr = pool?.pool_address ?? "0x7a73776170000000000000000000000000000000";
-
-  function copy(label: string, text: string) {
-    navigator.clipboard.writeText(text);
-    setCopied(label);
-    setTimeout(() => setCopied(null), 1500);
-  }
-
-  const devUrl = "https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev";
-  const cmd = `# ╔══════════════════════════════════════════════════════════════════════╗
-# ║  Phase B.11.1 — Pool Genesis Seed Deploy (VPS, run as root)         ║
-# ║  Pulls latest chain code + scripts straight from this Replit env.    ║
-# ╚══════════════════════════════════════════════════════════════════════╝
-
-# 1) SSH into the VPS
-ssh root@93.127.213.192
-
-# 2) Pull latest zebvix-chain source + scripts in ONE shot
-cd /tmp && rm -rf zbx-update && mkdir zbx-update
-curl -fsSL "${devUrl}/api/download/newchain" -o /tmp/zbx-latest.tgz
-tar -xzf /tmp/zbx-latest.tgz -C /tmp/zbx-update
-ls -la /tmp/zbx-update                # should show zebvix-chain/  scripts/
-
-# 3) Sync into /home/zebvix-chain (preserves target/, .zebvix data, .git)
-rsync -av --exclude=target --exclude=.zebvix --exclude=.git \\
-  /tmp/zbx-update/zebvix-chain/ /home/zebvix-chain/
-mkdir -p /home/zebvix-chain/scripts
-rsync -av /tmp/zbx-update/scripts/ /home/zebvix-chain/scripts/
-chmod +x /home/zebvix-chain/scripts/*.sh
-
-# 4) Verify the new constants made it (20M ZBX seed)
-grep -n 'GENESIS_POOL_ZBX_WEI\\|GENESIS_POOL_ZUSD_LOAN' \\
-  /home/zebvix-chain/src/tokenomics.rs | grep -v '^//'
-
-# 5) Run the one-shot deploy script
-#    (build → stop service → admin-pool-genesis → start → verify via RPC)
-sudo bash /home/zebvix-chain/scripts/deploy_pool_genesis_seed.sh
-
-# Expected post-deploy verification (script runs this for you):
-#   initialized      : true
-#   zbx_reserve_wei  : 20000000000000000000000000   (= 20M ZBX)
-#   zusd_reserve     : 10000000000000000000000000   (= 10M zUSD)
-#   spot_price_usd   : 0.500000                     (= $0.50 / ZBX)
-#   loan_outstanding : 10000000.000000              (repaid via swap fees)`;
-
   return (
-    <div className="rounded-2xl border-2 border-amber-500/50 bg-gradient-to-br from-amber-500/10 to-orange-500/10 overflow-hidden">
-      <div className="p-5 border-b border-amber-500/30 bg-amber-500/10 flex items-start gap-3">
-        <AlertTriangle className="h-6 w-6 text-amber-400 mt-0.5 shrink-0" />
+    <div className="rounded-2xl border border-sky-500/40 bg-gradient-to-br from-sky-500/10 to-cyan-500/5 overflow-hidden">
+      <div className="p-5 border-b border-sky-500/30 bg-sky-500/10 flex items-start gap-3">
+        <Droplets className="h-6 w-6 text-sky-300 mt-0.5 shrink-0" />
         <div className="flex-1">
-          <h2 className="text-lg font-bold text-amber-100">Pool Bootstrap Pending — Admin action required</h2>
-          <p className="text-sm text-amber-200/80 mt-1">
-            VPS pe AMM pool initialize nahi hua hai. Isiliye <code className="px-1.5 py-0.5 bg-amber-950/40 rounded text-amber-300 text-xs">zbx_getPriceUSD</code> sirf <code className="px-1.5 py-0.5 bg-amber-950/40 rounded text-amber-300 text-xs">$0.000000</code> return kar raha hai aur swap calls reject ho rahe hain. Chain code update ho gaya hai (20M ZBX + 10M zUSD = $0.50/ZBX); ab admin ko VPS pe rebuild + <code className="px-1.5 py-0.5 bg-amber-950/40 rounded text-amber-300 text-xs">pool-genesis</code> run karna hai.
+          <h2 className="text-lg font-bold text-sky-100">AMM Pool Coming Online</h2>
+          <p className="text-sm text-sky-200/80 mt-1">
+            The Zebvix AMM is finalising its opening liquidity. Once the pool is
+            funded, live spot pricing, swaps and TVL appear here automatically —
+            no further user action required.
           </p>
         </div>
         <button onClick={onRefresh}
-          className="px-3 py-1.5 rounded-md border border-amber-500/40 hover:bg-amber-500/10 text-xs flex items-center gap-1.5 text-amber-200 shrink-0">
+          className="px-3 py-1.5 rounded-md border border-sky-500/40 hover:bg-sky-500/10 text-xs flex items-center gap-1.5 text-sky-200 shrink-0">
           <RefreshCw className="h-3 w-3" /> Re-check
         </button>
       </div>
 
       {/* Target genesis values */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-5 border-b border-amber-500/30">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-5 border-b border-sky-500/20">
         <Tile label="ZBX seed" value={`${TARGET_ZBX_RESERVE}`} sub="ZBX → pool reserve" tone="emerald" />
-        <Tile label="zUSD seed" value={`${TARGET_ZUSD_RESERVE}`} sub="zUSD loan to pool" tone="cyan" />
+        <Tile label="zUSD seed" value={`${TARGET_ZUSD_RESERVE}`} sub="zUSD on the other side" tone="cyan" />
         <Tile label="Opening price" value={`$${TARGET_SPOT_PRICE}`} sub="per ZBX" tone="violet" />
-        <Tile label="Implied FDV" value={`$${TARGET_FDV}`} sub="150M × $0.50" tone="amber" />
+        <Tile label="Implied FDV" value={`$${TARGET_FDV}`} sub="150M × opening price" tone="amber" />
       </div>
 
-      {/* Run book */}
       <div className="p-5 space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold flex items-center gap-2">
-            <Terminal className="h-4 w-4 text-amber-400" />
-            VPS Run-Book — paste into a root SSH session
-          </h3>
-          <button onClick={() => copy("cmd", cmd)}
-            className="px-2 py-1 rounded-md border border-border hover:bg-muted/30 text-[10px] flex items-center gap-1">
-            {copied === "cmd" ? <><Check className="h-3 w-3 text-emerald-400" /> copied</> : <><Copy className="h-3 w-3" /> copy all</>}
-          </button>
-        </div>
-        <pre className="p-4 rounded-lg bg-background/60 border border-border text-xs font-mono overflow-x-auto leading-relaxed">{cmd}</pre>
-
-        <div className="grid md:grid-cols-2 gap-3 pt-2">
-          <div className="p-3 rounded-md border border-border bg-card/40">
-            <div className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Admin Address</div>
-            <div className="font-mono text-xs flex items-center justify-between gap-2">
-              <code className="break-all">{adminAddr}</code>
-              <button onClick={() => copy("admin", adminAddr)} title="copy">
-                {copied === "admin" ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3 text-muted-foreground hover:text-foreground" />}
-              </button>
-            </div>
+        <div className="p-3 rounded-md border border-border bg-card/40">
+          <div className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Pool Address</div>
+          <div className="font-mono text-xs flex items-center justify-between gap-2">
+            <code className="break-all">{poolAddr}</code>
           </div>
-          <div className="p-3 rounded-md border border-border bg-card/40">
-            <div className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Pool Address (no private key)</div>
-            <div className="font-mono text-xs flex items-center justify-between gap-2">
-              <code className="break-all">{poolAddr}</code>
-              <button onClick={() => copy("pool", poolAddr)} title="copy">
-                {copied === "pool" ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3 text-muted-foreground hover:text-foreground" />}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="p-3 rounded-md bg-amber-950/30 border border-amber-500/20 flex gap-2 text-xs text-amber-200/80">
-          <Info className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
-          <div>
-            <strong className="text-amber-100">No data wipe required.</strong> Pool currently has{" "}
-            <code className="px-1 py-0.5 bg-amber-950/40 rounded">initialized=false</code> on the live VPS, so
-            <code className="px-1 py-0.5 bg-amber-950/40 rounded mx-1">pool_init_genesis()</code> can be called
-            directly on existing state — it checks <code>is_initialized()</code> first and seeds only if empty
-            (<code>state.rs:2116</code>). Existing accounts, validators, block history all stay intact. The only
-            requirement is that the node be <strong>stopped</strong> while the admin command runs (RocksDB lock).
-          </div>
+          <p className="text-[11px] text-muted-foreground mt-2">
+            Liquidity in this AMM is permanently locked — there is no withdraw
+            key. Once seeded, the pool is provably permissionless.
+          </p>
         </div>
       </div>
     </div>
