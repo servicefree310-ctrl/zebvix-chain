@@ -1205,6 +1205,24 @@ function SendTab(props: {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [status, setStatus] = useState<LiveStatus>({ phase: "idle" });
   const [resolve, setResolve] = useState<ResolveStatus>({ phase: "idle" });
+  // Password verify gate for signing. The vault being unlocked is required
+  // but not sufficient for broadcasting funds — we make the user re-enter
+  // the password each transaction so an attacker with brief tab access
+  // cannot drain a wallet just by clicking Send.
+  const [pwInput, setPwInput] = useState("");
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwErr, setPwErr] = useState<string | null>(null);
+
+  // Reset password state whenever the confirm dialog closes so the next
+  // open starts clean. Critically: never persist the password value across
+  // dialog opens.
+  useEffect(() => {
+    if (!confirmOpen) {
+      setPwInput("");
+      setPwErr(null);
+      setPwBusy(false);
+    }
+  }, [confirmOpen]);
   const mountedRef = useRef(true);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
@@ -1420,6 +1438,9 @@ function SendTab(props: {
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 text-amber-400" /> Confirm transaction
             </DialogTitle>
+            <DialogDescription>
+              Review the details below and enter your wallet password to authorize the broadcast.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2 text-sm">
             <ReviewRow label="From" value={active.address} mono />
@@ -1448,17 +1469,84 @@ function SendTab(props: {
               You are about to broadcast a real transaction on Zebvix mainnet. This cannot
               be reversed.
             </div>
+            {/* Per-transaction password gate. Required even when the vault
+                is already unlocked in this tab — see comment on pwInput. */}
+            <div className="space-y-1 pt-1">
+              <Label htmlFor="input-send-password">Wallet password</Label>
+              <Input
+                id="input-send-password"
+                data-testid="input-send-password"
+                type="password"
+                placeholder="Enter your wallet password to authorize"
+                value={pwInput}
+                onChange={(e) => setPwInput(e.target.value)}
+                disabled={pwBusy || status.phase === "signing" || status.phase === "submitting"}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  if (pwBusy || !pwInput) return;
+                  e.preventDefault();
+                  // Trigger same path as button click — see onClick below.
+                  void (async () => {
+                    setPwBusy(true);
+                    setPwErr(null);
+                    try {
+                      await unlockVault(pwInput);
+                      setConfirmOpen(false);
+                      await submit();
+                    } catch (err) {
+                      const msg = err instanceof Error ? err.message : String(err);
+                      setPwErr(msg || "Wrong password");
+                      setPwBusy(false);
+                    }
+                  })();
+                }}
+              />
+              {pwErr && (
+                <p
+                  className="text-xs text-red-400"
+                  data-testid="text-send-password-error"
+                >
+                  {pwErr}
+                </p>
+              )}
+            </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmOpen(false)} disabled={status.phase === "signing" || status.phase === "submitting"}>
+            <Button variant="outline" onClick={() => setConfirmOpen(false)} disabled={pwBusy || status.phase === "signing" || status.phase === "submitting"}>
               Cancel
             </Button>
             <Button
-              onClick={async () => { setConfirmOpen(false); await submit(); }}
-              disabled={status.phase === "signing" || status.phase === "submitting"}
+              onClick={async () => {
+                if (!pwInput) {
+                  setPwErr("Enter your wallet password");
+                  return;
+                }
+                setPwBusy(true);
+                setPwErr(null);
+                try {
+                  // Verify password by re-decrypting the vault. unlockVault
+                  // throws "Wrong password" on a bad guess and is idempotent
+                  // when the vault is already unlocked in this tab.
+                  await unlockVault(pwInput);
+                  // Only after a successful verify do we close the dialog
+                  // and broadcast. submit() reads active.privateKey from
+                  // the in-memory vault cache.
+                  setConfirmOpen(false);
+                  await submit();
+                } catch (e) {
+                  const msg = e instanceof Error ? e.message : String(e);
+                  setPwErr(msg || "Wrong password");
+                  setPwBusy(false);
+                }
+              }}
+              disabled={pwBusy || !pwInput || status.phase === "signing" || status.phase === "submitting"}
               data-testid="button-confirm-sign"
             >
-              <Check className="h-4 w-4 mr-1.5" /> Confirm &amp; sign
+              {pwBusy ? (
+                <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Verifying…</>
+              ) : (
+                <><Check className="h-4 w-4 mr-1.5" /> Confirm &amp; sign</>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
