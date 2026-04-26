@@ -1,0 +1,112 @@
+root@srv1266996:~# sudo grep -rEi --include='*.{txt,json,env,key,toml,md,yaml,sh}' \
+  -l '40907000ac0a1a73e4cd89889b4d7ee8980c0315' \
+  /home/zebvix-chain /root /opt 2>/dev/null
+root@srv1266996:~# # 1. Koi bhi 64-hex pk pattern wali file dhundo
+sudo grep -rE -l "0x?[0-9a-fA-F]{64}" \
+  /home/zebvix-chain /root /etc/zebvix /var/lib/zebvix \
+  --include='*.txt' --include='*.json' --include='*.env' \
+  --include='*.key' --include='*.toml' --include='*.md' \
+  --include='*.yaml' --include='*.sh' --include='*.cfg' \
+  2>/dev/null | head -20
+
+# 2. Standard keystore/genesis filenames
+sudo find /home/zebvix-chain /root /etc /opt /var/lib \
+  \( -name "*genesis*" -o -name "*admin*" -o -name "*keystore*" \
+     -o -name "*.key" -o -name "*validator*" -o -name "wallet*" \) \
+  -not -path "*/node_modules/*" -not -path "*/target/*" 2>/dev/null | head -20
+
+# 3. Zebvix node service ki env file dhundo (key wahan inject hoti hai)
+sudo systemctl list-units --type=service --no-legend | awk '{print $1}' \
+  | xargs -I{} sudo systemctl cat {} 2>/dev/null \
+  | grep -B1 -E "Environment.*KEY|EnvironmentFile" | head -30
+
+# 4. Standard Rust keyring locations
+ls -la /root/.local/share/zebvix/ ~/.zebvix/ /home/zebvix-chain/.zebvix/ 2>/dev/null
+
+# 5. History me kabhi paste hua tha?
+grep -E "0x?[0-9a-fA-F]{64}" /root/.bash_history /home/*/.bash_history 2>/dev/null | head -5
+/home/zebvix-chain/scripts/deploy_typed_tx_by_hash_phase_h1.sh
+/root/zebvix-full-source/nre/sui_for_node_operators.md
+/root/zebvix-full-source/examples/prod-config/graphql.toml
+/root/zebvix-full-source/examples/tic-tac-toe/cli/testnet.env
+/root/zebvix-full-source/examples/rust/walrus-attributes-indexer/README.md
+/root/zebvix-full-source/examples/trading/api/README.md
+/root/zebvix-full-source/examples/trading/frontend/README.md
+/root/zebvix-full-source/crates/sui-types/src/unit_tests/zklogin_test_vectors.json
+/root/zebvix-full-source/crates/sui-framework-snapshot/manifest.json
+/root/zebvix-full-source/crates/sui-replay/tests/sandbox_snapshots/4fxF3X4N8D6JGByWdbJvCCv1iuoT8GSEhXgPHJnzNHWP.json
+/root/zebvix-full-source/crates/sui-replay/tests/sandbox_snapshots/ozN2rhczEUC39poaeVYxMN6b6TEAjiFX7jFSQFhbKmL.json
+/root/zebvix-full-source/crates/sui-open-rpc/tests/snapshots/generate_spec__openrpc.snap.json
+/root/zebvix-full-source/crates/sui-open-rpc/spec/openrpc.json
+/root/zebvix-full-source/crates/sui-bridge/abi/sui_bridge.json
+/root/zebvix-full-source/crates/sui-light-client/README.md
+/root/zebvix-full-source/crates/sui-framework/docs/deepbook/clob_v2.md
+/root/zebvix-full-source/crates/sui-framework/docs/sui/display_registry.md
+/root/zebvix-full-source/crates/sui-framework/docs/sui/address.md
+/root/zebvix-full-source/crates/sui/tests/shell_tests/ephemeral_dump/Pub.template.toml
+/root/zebvix-full-source/crates/sui/tests/shell_tests/ephemeral_dump/config.yaml
+/home/zebvix-chain/scripts/deploy_pool_genesis_seed.sh
+/root/zebvix-full-source/nre/validator_tool.md
+/root/zebvix-full-source/nre/config/validator.yaml
+/root/zebvix-full-source/nre/dashboards/sui_mainnet_validators.json
+/root/zebvix-full-source/crates/sui-indexer-alt-graphql/src/api/types/validator_set.rs
+/root/zebvix-full-source/crates/sui-indexer-alt-graphql/src/api/types/transaction_kind/genesis.rs
+/root/zebvix-full-source/crates/sui-indexer-alt-graphql/src/api/types/validator_aggregated_signature.rs
+/root/zebvix-full-source/crates/sui-indexer-alt-graphql/src/api/types/validator.rs
+/root/zebvix-full-source/crates/sui-e2e-tests/tests/framework_upgrades/mock_sui_systems/shallow_upgrade/sources/validator_wrapper.move
+/root/zebvix-full-source/crates/sui-e2e-tests/tests/framework_upgrades/mock_sui_systems/shallow_upgrade/sources/validator.move
+/root/zebvix-full-source/crates/sui-e2e-tests/tests/framework_upgrades/mock_sui_systems/shallow_upgrade/sources/genesis.move
+/root/zebvix-full-source/crates/sui-e2e-tests/tests/framework_upgrades/mock_sui_systems/safe_mode/sources/validator_wrapper.move
+/root/zebvix-full-source/crates/sui-e2e-tests/tests/framework_upgrades/mock_sui_systems/safe_mode/sources/validator.move
+/root/zebvix-full-source/crates/sui-e2e-tests/tests/framework_upgrades/mock_sui_systems/safe_mode/sources/genesis.move
+/root/zebvix-full-source/crates/sui-e2e-tests/tests/framework_upgrades/mock_sui_systems/deep_upgrade/sources/validator_wrapper.move
+/root/zebvix-full-source/crates/sui-e2e-tests/tests/framework_upgrades/mock_sui_systems/deep_upgrade/sources/validator.move
+/root/zebvix-full-source/crates/sui-e2e-tests/tests/framework_upgrades/mock_sui_systems/deep_upgrade/sources/genesis.move
+/root/zebvix-full-source/crates/sui-e2e-tests/tests/framework_upgrades/mock_sui_systems/base/sources/validator_wrapper.move
+/root/zebvix-full-source/crates/sui-e2e-tests/tests/framework_upgrades/mock_sui_systems/base/sources/validator.move
+/root/zebvix-full-source/crates/sui-e2e-tests/tests/framework_upgrades/mock_sui_systems/base/sources/genesis.move
+[Service]
+EnvironmentFile=-/etc/default/cron
+--
+Type=notify
+EnvironmentFile=-/etc/default/named
+--
+# Load /etc/default/networkd-dispatcher
+EnvironmentFile=-/etc/default/%p
+--
+Environment=POSTGREY_TEXT="Greylisted, see https://postgrey.schweikert.ch/help/%H.html"
+EnvironmentFile=-/etc/default/postgrey
+--
+Environment=OPTIONS= CONFIG_FILE=/etc/proftpd/proftpd.conf
+EnvironmentFile=-/etc/default/proftpd
+--
+PIDFile=/var/run/saslauthd/saslauthd.pid
+EnvironmentFile=/etc/default/saslauthd
+--
+ExecStart=/usr/lib/snapd/snapd-apparmor start
+EnvironmentFile=-/etc/environment
+EnvironmentFile=-/var/lib/snapd/environment/snapd.conf
+--
+[Service]
+EnvironmentFile=-/etc/default/ssh
+/home/zebvix-chain/.zebvix/:
+total 12
+drwxr-xr-x  3 root   root   4096 Apr 24 13:09 .
+drwxr-xr-x 12 ubuntu ubuntu 4096 Apr 25 19:10 ..
+drwxr-xr-x  2 root   root   4096 Apr 24 13:09 data
+
+/root/.zebvix/:
+total 104
+drwxr-xr-x  3 root root  4096 Apr 25 12:39 .
+drwx------ 28 root root  4096 Apr 24 16:19 ..
+drwxr-xr-x  2 root root 65536 Apr 26 05:02 data
+-rw-r--r--  1 root root   231 Apr 24 09:25 founder.key
+-rw-r--r--  1 root root   379 Apr 24 09:29 genesis.json
+-rw-r--r--  1 root root    55 Apr 24 09:29 node.json
+-rw-r--r--  1 root root    57 Apr 24 09:21 node.json.bak
+-rw-r--r--  1 root root   229 Apr 23 18:12 owner2.key
+-rw-r--r--  1 root root   229 Apr 23 18:12 owner3.key
+-rw-r--r--  1 root root   229 Apr 23 03:52 validator.key
+-rw-r--r--  1 root root   229 Apr 24 09:21 validator.key.bak
+/root/.bash_history:cd /home/zebvix-chain && set -e &&   curl -fsSL "https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/api/download/newchain" -o newchain.tgz &&   tar -xzf newchain.tgz &&   cargo build --release --features zvm 2>&1 | tail -10 &&   install -m 0755 target/release/zebvix-node /usr/local/bin/zebvix-node &&   sudo systemctl restart zebvix && sleep 5 &&   sudo systemctl is-active zebvix &&   echo "===> probing zbx_getTxByHash on the new binary:" &&   curl -s http://127.0.0.1:8545 -H 'content-type: application/json'     -d '{"jsonrpc":"2.0","id":1,"method":"zbx_getTxByHash","params":["0x43399c90d7964a9627a0792ee6e0ad0f0d04d3859029757f121859627cecdeb0"]}'   | python3 -m json.tool
+root@srv1266996:~# 
