@@ -73,6 +73,7 @@ const LIVE_NAV = [
   { href: "/pool-explorer", label: "Pool / AMM", icon: Droplets },
   { href: "/multisig-explorer", label: "Multisig Explorer", icon: Shield },
   { href: "/connect-wallet", label: "Connect Mobile Wallet", icon: Smartphone },
+  { href: "/api/mobile/", label: "Mobile Wallet (Flutter)", icon: Smartphone, external: true },
   { href: "/swap", label: "Swap (Buy / Sell)", icon: ArrowUpDown },
   { href: "/governance", label: "Governance (Phase D)", icon: Vote },
 ];
@@ -104,17 +105,35 @@ export function Sidebar() {
   const [location] = useLocation();
   const { progress } = useChecklist();
 
-  const NavItem = ({ href, label, icon: Icon }: { href: string; label: string; icon: React.ElementType }) => {
-    const isActive = location === href;
-    return (
-      <Link href={href}>
-        <div className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer
-          ${isActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"}`}>
-          <Icon className="h-4 w-4 shrink-0" />
-          <span className="truncate">{label}</span>
-        </div>
-      </Link>
+  const NavItem = ({
+    href,
+    label,
+    icon: Icon,
+    external,
+  }: {
+    href: string;
+    label: string;
+    icon: React.ElementType;
+    external?: boolean;
+  }) => {
+    const isActive = !external && location === href;
+    const inner = (
+      <div
+        className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer
+          ${isActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"}`}
+      >
+        <Icon className="h-4 w-4 shrink-0" />
+        <span className="truncate">{label}</span>
+      </div>
     );
+    if (external) {
+      return (
+        <a href={href} target="_blank" rel="noopener noreferrer" data-testid={`link-${href.replace(/[^a-z0-9]/gi, "-")}`}>
+          {inner}
+        </a>
+      );
+    }
+    return <Link href={href}>{inner}</Link>;
   };
 
   const NavLinks = () => (
