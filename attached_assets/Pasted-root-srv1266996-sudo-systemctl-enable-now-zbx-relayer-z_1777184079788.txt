@@ -1,0 +1,46 @@
+root@srv1266996:~# sudo systemctl enable --now zbx-relayer zbx-signer@1
+sleep 4
+sudo systemctl status zbx-signer@1 zbx-relayer --no-pager -l | head -40
+Created symlink /etc/systemd/system/multi-user.target.wants/zbx-relayer.service → /etc/systemd/system/zbx-relayer.service.
+Created symlink /etc/systemd/system/multi-user.target.wants/zbx-signer@1.service → /etc/systemd/system/zbx-signer@.service.
+● zbx-signer@1.service - Zebvix Bridge Validator Signer #1
+     Loaded: loaded (/etc/systemd/system/zbx-signer@.service; enabled; preset: enabled)
+     Active: active (running) since Sun 2026-04-26 06:14:00 UTC; 4s ago
+       Docs: https://github.com/zebvix
+   Main PID: 521251 (node)
+      Tasks: 41 (limit: 64)
+     Memory: 132.2M (high: 256.0M max: 384.0M available: 123.7M peak: 132.2M)
+        CPU: 2.903s
+     CGroup: /system.slice/system-zbx\x2dsigner.slice/zbx-signer@1.service
+             ├─521251 node /usr/bin/pnpm run start
+             ├─521291 sh -c "tsx src/index.ts"
+             ├─521292 node /opt/zebvix/lib/bridge-signer/node_modules/.bin/../tsx/dist/cli.mjs src/index.ts
+             ├─521321 /usr/bin/node --require /opt/zebvix/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/preflight.cjs --import file:///opt/zebvix/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/loader.mjs src/index.ts
+             └─521339 /opt/zebvix/node_modules/.pnpm/@esbuild+linux-x64@0.27.3/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.3 --ping
+
+Apr 26 06:14:00 srv1266996.hstgr.cloud systemd[1]: Started zbx-signer@1.service - Zebvix Bridge Validator Signer #1.
+Apr 26 06:14:01 srv1266996.hstgr.cloud pnpm[521251]:  WARN  Issue while reading "/home/zbx-bridge/.npmrc". EACCES: permission denied, open '/home/zbx-bridge/.npmrc'
+Apr 26 06:14:01 srv1266996.hstgr.cloud pnpm[521251]:  WARN  Issue while reading "/home/zbx-bridge/.config/pnpm/rc". EACCES: permission denied, open '/home/zbx-bridge/.config/pnpm/rc'
+Apr 26 06:14:01 srv1266996.hstgr.cloud pnpm[521251]: > @workspace/bridge-signer@0.0.0 start /opt/zebvix/lib/bridge-signer
+Apr 26 06:14:01 srv1266996.hstgr.cloud pnpm[521251]: > tsx src/index.ts
+Apr 26 06:14:03 srv1266996.hstgr.cloud pnpm[521321]: {"level":30,"time":1777184043617,"pid":521321,"hostname":"srv1266996.hstgr.cloud","validator_address":"0xED54E00204C79c0e6D9Ee4Db4abEDb789104DD6D","bsc_chain_id":56,"bridge":"0xa6dF16fdFF669FD62aF9f947B089516671094F85","zebvix_rpc":"http://127.0.0.1:8545","asset_id":"240518168576","auth":"token-required","msg":"validator signer starting"}
+Apr 26 06:14:03 srv1266996.hstgr.cloud pnpm[521321]: {"level":30,"time":1777184043625,"pid":521321,"hostname":"srv1266996.hstgr.cloud","port":9001,"validator":"0xED54E00204C79c0e6D9Ee4Db4abEDb789104DD6D","msg":"validator signer listening"}
+Apr 26 06:14:04 srv1266996.hstgr.cloud pnpm[521321]: {"level":30,"time":1777184044690,"pid":521321,"hostname":"srv1266996.hstgr.cloud","source":"0x6573d05c6afe54ae8130d0571e54109feaa41933dbd7c793ab2616a97357e52e","recipient":"0xfcb3b5d4a1a70e64166ae09a367fd1cfb6454b6e","msg":"signed mint request"}
+
+● zbx-relayer.service - Zebvix Bridge Relayer
+     Loaded: loaded (/etc/systemd/system/zbx-relayer.service; enabled; preset: enabled)
+     Active: active (running) since Sun 2026-04-26 06:14:00 UTC; 4s ago
+       Docs: https://github.com/zebvix
+   Main PID: 521250 (node)
+      Tasks: 41 (limit: 128)
+     Memory: 144.2M (high: 768.0M max: 1.0G available: 623.7M peak: 171.9M)
+        CPU: 3.456s
+     CGroup: /system.slice/zbx-relayer.service
+             ├─521250 node /usr/bin/pnpm run start
+             ├─521270 sh -c "tsx src/index.ts"
+             ├─521271 node /opt/zebvix/lib/bridge-relayer/node_modules/.bin/../tsx/dist/cli.mjs src/index.ts
+             ├─521304 /usr/bin/node --require /opt/zebvix/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/preflight.cjs --import file:///opt/zebvix/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/loader.mjs src/index.ts
+             └─521334 /opt/zebvix/node_modules/.pnpm/@esbuild+linux-x64@0.27.3/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.3 --ping
+
+Apr 26 06:14:01 srv1266996.hstgr.cloud pnpm[521250]: > tsx src/index.ts
+root@srv1266996:~# 
