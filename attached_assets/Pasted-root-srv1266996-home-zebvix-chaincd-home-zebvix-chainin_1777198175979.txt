@@ -1,0 +1,22 @@
+root@srv1266996:/home/zebvix-chaincd /home/zebvix-chainin
+# Verify new binary exists from the build that just ran
+ls -la target/release/zebvix-node
+# Stop service, install new binary, restart
+sudo systemctl stop zebvix
+sudo cp target/release/zebvix-node /usr/local/bin/zebvix-node
+sudo chmod +x /usr/local/bin/zebvix-node
+sudo systemctl start zebvix
+sleep 5
+# Confirm new code by checking the mdns log line — must now say
+#   "DISABLED (default — pass --enable-mdns to opt in)"
+sudo journalctl -u zebvix -n 25 --no-pager | grep -E "mdns|tip|⛏|Zebvix node starting"
+-rwxr-xr-x 2 root root 16571816 Apr 26 10:06 target/release/zebvix-node
+Apr 26 10:08:45 srv1266996.hstgr.cloud zebvix-node[577504]: 2026-04-26T10:08:45.100377Z  INFO zebvix_node::consensus: ⛏  block #30605 produced  proposer=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315  round=0  txs=0  hash=0xe057c5a4d6ecd5e970f190ca45b7782f9ca9ab6521128cfd09702c96fcecb91b
+Apr 26 10:08:50 srv1266996.hstgr.cloud zebvix-node[577504]: 2026-04-26T10:08:50.599963Z  INFO zebvix_node::consensus: ⛏  block #30606 produced  proposer=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315  round=0  txs=0  hash=0xb3616d1067a74ea098c26e228049f3f6747a10ddda05f045cdcbf93f8de1ae9b
+Apr 26 10:08:56 srv1266996.hstgr.cloud zebvix-node[577504]: 2026-04-26T10:08:56.599650Z  INFO zebvix_node::consensus: ⛏  block #30607 produced  proposer=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315  round=0  txs=0  hash=0xc37fb52f3a5d2863a5211e8cbdbc89fc4e3d8bdaadbad06db723c8210c7d8f05
+Apr 26 10:09:02 srv1266996.hstgr.cloud zebvix-node[577504]: 2026-04-26T10:09:02.100862Z  INFO zebvix_node::consensus: ⛏  block #30608 produced  proposer=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315  round=0  txs=0  hash=0x0e8b30c507654c42f4addc7e89232f7058b9b17dabd69f0e672079152f1dfc32
+Apr 26 10:09:07 srv1266996.hstgr.cloud zebvix-node[577504]: 2026-04-26T10:09:07.600905Z  INFO zebvix_node::consensus: ⛏  block #30609 produced  proposer=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315  round=0  txs=0  hash=0x6ce51fbf6ac12ff2fd810fe250a8cd6e1298c0d0a60f1c29246d45f385afb262
+Apr 26 10:09:13 srv1266996.hstgr.cloud zebvix-node[578134]: error: unexpected argument '--no-mdns' found
+Apr 26 10:09:13 srv1266996.hstgr.cloud zebvix-node[578134]:   tip: a similar argument exists: '--enable-mdns'
+Apr 26 10:09:13 srv1266996.hstgr.cloud zebvix-node[578134]: Usage: zebvix-node start --home <HOME> --rpc <RPC> --p2p-port <P2P_PORT> --enable-mdns
+root@srv1266996:/home/zebvix-chain# 
