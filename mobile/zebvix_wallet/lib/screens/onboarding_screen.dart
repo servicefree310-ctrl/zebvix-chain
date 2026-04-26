@@ -66,6 +66,34 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
   }
 
+  // Quick Test: creates a wallet from the well-known Hardhat/Foundry test
+  // mnemonic so the user can jump straight into the app without writing
+  // down a phrase. Address #0 = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266.
+  static const _testMnemonic =
+      'test test test test test test test test test test test junk';
+
+  Future<void> _quickTest() async {
+    setState(() {
+      _busy = true;
+      _err = null;
+    });
+    try {
+      await context.read<WalletStore>().createWallet(_testMnemonic);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Test wallet loaded — DO NOT send real funds'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() => _err = e.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -152,6 +180,30 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             style: TextStyle(color: AppColors.textDim, fontSize: 15),
           ),
         ).animate().fadeIn(delay: 1000.ms),
+        const SizedBox(height: 4),
+        // Dev-only quick test entry point
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: _busy ? null : _quickTest,
+            icon: const Icon(Icons.science_outlined, size: 18),
+            label: const Text('Quick Test (dev wallet)'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.accent,
+              side: BorderSide(color: AppColors.accent.withOpacity(0.4)),
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ).animate().fadeIn(delay: 1100.ms),
+        const SizedBox(height: 6),
+        const Text(
+          'Pre-loaded Hardhat test phrase. Do NOT send real funds.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: AppColors.textMuted, fontSize: 11),
+        ),
         const SizedBox(height: 12),
       ],
     );
