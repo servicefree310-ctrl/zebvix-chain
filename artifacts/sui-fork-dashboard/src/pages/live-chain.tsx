@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo } from "react";
-import { useLocation } from "wouter";
+import { useLocation, Link as WLink } from "wouter";
 import { rpc, weiHexToZbx, shortAddr, weiToUsd, fmtUsd, getRecommendedFeeWei } from "@/lib/zbx-rpc";
 import {
   loadWallets, getActiveAddress, getWallet, sendTransfer, parseNonce,
@@ -535,15 +535,40 @@ function BlocksTab({ recent, flashHeight }: { recent: BlockInfo[]; flashHeight: 
                   >
                     <td className="p-2.5 font-mono text-primary font-semibold">
                       {isNew && <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse mr-1.5 align-middle" />}
-                      #{b.height}
+                      <WLink
+                        href={explorerHref(b.height)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="hover:underline underline-offset-2"
+                        data-testid={`link-blocks-height-${b.height}`}
+                      >
+                        #{b.height}
+                      </WLink>
                     </td>
                     <td className="p-2.5 font-mono text-xs">
                       <span className="inline-flex items-center gap-1.5">
                         <ProposerAvatar addr={b.proposer} />
-                        <span className="text-muted-foreground">{shortAddr(b.proposer, 6, 4)}</span>
+                        <WLink
+                          href={explorerHref(b.proposer)}
+                          onClick={(e) => e.stopPropagation()}
+                          title={b.proposer}
+                          className="text-muted-foreground hover:text-foreground hover:underline underline-offset-2"
+                          data-testid={`link-blocks-proposer-${b.height}`}
+                        >
+                          {shortAddr(b.proposer, 6, 4)}
+                        </WLink>
                       </span>
                     </td>
-                    <td className="p-2.5 font-mono text-muted-foreground">{shortAddr(b.hash, 8, 6)}</td>
+                    <td className="p-2.5 font-mono">
+                      <WLink
+                        href={explorerHref(b.hash)}
+                        onClick={(e) => e.stopPropagation()}
+                        title={b.hash}
+                        className="text-cyan-400/80 hover:text-cyan-300 hover:underline underline-offset-2"
+                        data-testid={`link-blocks-hash-${b.height}`}
+                      >
+                        {shortAddr(b.hash, 8, 6)}
+                      </WLink>
+                    </td>
                     <td className="p-2.5 text-right font-mono">
                       <TxBadge n={b.tx_count} />
                     </td>
@@ -1228,6 +1253,19 @@ interface OnchainTx {
   amount_wei: string;
   fee_wei: string;
   kind: string;
+  // Tx hash (32-byte 0x-prefixed). Available on the fast `zbx_recentTxs`
+  // path; the legacy block-scan fallback synthesizes it from the SignedTx
+  // payload when present, or leaves it empty otherwise. Used to deep-link
+  // each row's hash → block-explorer Tx Detail page.
+  hash: string;
+}
+
+// Build a `/block-explorer?q=<value>` URL that the existing DetailRouter
+// auto-resolves (it accepts block heights, block hashes, tx hashes, and
+// addresses interchangeably via `detectQueryKind`).
+function explorerHref(q: string | number): string {
+  const v = typeof q === "number" ? String(q) : q;
+  return `/block-explorer?q=${encodeURIComponent(v)}`;
 }
 
 const TARGET_TX_COUNT = 15;
@@ -1271,6 +1309,7 @@ function RecentTxsPanel({
         amount_wei: String(t.amount ?? "0"),
         fee_wei: String(t.fee ?? "0"),
         kind: t.kind ?? "Unknown",
+        hash: String(t.hash ?? t.tx_hash ?? ""),
       }));
       return { txs: list, total: Number(r.total_indexed ?? r.stored ?? list.length) };
     } catch {
@@ -1328,6 +1367,10 @@ function RecentTxsPanel({
                 amount_wei: typeof body.amount === "number" ? body.amount.toString() : String(body.amount ?? "0"),
                 fee_wei: typeof body.fee === "number" ? body.fee.toString() : String(body.fee ?? "0"),
                 kind: kindLabel(body.kind),
+                // SignedTx exposes the precomputed hash on the outer envelope
+                // (`t.hash`); fall back to empty so the explorer link is
+                // suppressed when it isn't present.
+                hash: String(t.hash ?? t.tx_hash ?? ""),
               });
             }
           }
@@ -1479,7 +1522,8 @@ function RecentTxsPanel({
           <thead className="bg-muted/20 text-muted-foreground">
             <tr>
               <th className="text-left p-2 font-medium w-20">Block</th>
-              <th className="text-left p-2 font-medium w-20">Kind</th>
+              <th className="text-left p-2 font-medium w-32">Tx Hash</th>
+              <th className="text-left p-2 font-medium w-24">Kind</th>
               <th className="text-left p-2 font-medium">From</th>
               <th className="text-left p-2 font-medium">To</th>
               <th className="text-right p-2 font-medium">Amount</th>
@@ -1489,11 +1533,63 @@ function RecentTxsPanel({
           </thead>
           <tbody>
             {txs.map((t, i) => (
-              <tr key={`${t.height}-${i}`} className="border-t border-border hover:bg-muted/20">
-                <td className="p-2 font-mono text-primary">#{t.height}</td>
+              <tr
+                key={`${t.height}-${t.hash || i}`}
+                className="border-t border-border hover:bg-muted/20 transition-colors"
+                data-testid={`row-recent-tx-${i}`}
+              >
+                <td className="p-2 font-mono">
+                  <WLink
+                    href={explorerHref(t.height)}
+                    className="text-primary hover:text-primary hover:underline underline-offset-2"
+                    data-testid={`link-block-${t.height}`}
+                  >
+                    #{t.height}
+                  </WLink>
+                </td>
+                <td className="p-2 font-mono">
+                  {t.hash ? (
+                    <WLink
+                      href={explorerHref(t.hash)}
+                      title={t.hash}
+                      className="text-cyan-400 hover:text-cyan-300 hover:underline underline-offset-2"
+                      data-testid={`link-tx-${i}`}
+                    >
+                      {shortAddr(t.hash, 6, 4)}
+                    </WLink>
+                  ) : (
+                    <span className="text-muted-foreground/50">—</span>
+                  )}
+                </td>
                 <td className="p-2"><KindBadge kind={t.kind} /></td>
-                <td className="p-2 font-mono text-muted-foreground">{shortAddr(t.from, 6, 4)}</td>
-                <td className="p-2 font-mono text-muted-foreground">{shortAddr(t.to, 6, 4)}</td>
+                <td className="p-2 font-mono">
+                  {t.from ? (
+                    <WLink
+                      href={explorerHref(t.from)}
+                      title={t.from}
+                      className="text-muted-foreground hover:text-foreground hover:underline underline-offset-2"
+                      data-testid={`link-from-${i}`}
+                    >
+                      {shortAddr(t.from, 6, 4)}
+                    </WLink>
+                  ) : (
+                    <span className="text-muted-foreground/50">—</span>
+                  )}
+                </td>
+                <td className="p-2 font-mono">
+                  {t.to ? (
+                    <WLink
+                      href={explorerHref(t.to)}
+                      title={t.to}
+                      className="text-muted-foreground hover:text-foreground hover:underline underline-offset-2"
+                      data-testid={`link-to-${i}`}
+                    >
+                      {shortAddr(t.to, 6, 4)}
+                    </WLink>
+                  ) : (
+                    <span className="text-muted-foreground/50">—</span>
+                  )}
+                </td>
                 <td className="p-2 text-right font-mono">
                   {t.amount_wei !== "0" ? `${weiHexToZbx(t.amount_wei)} ZBX` : <span className="text-muted-foreground">—</span>}
                 </td>
