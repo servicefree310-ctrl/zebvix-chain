@@ -89,3 +89,13 @@ Zebvix prevents administrative interference with user transfers for core transac
 - **Mobile Development:** Flutter, `flutter_secure_storage`
 - **Smart Contracts:** Solidity 0.8.24
 - **Client Libraries (Dashboard):** ethers.js
+
+## Zebvix Mobile Wallet (`mobile/zebvix_wallet/`)
+Flutter app (web + iOS + Android targets) providing self-custody multichain wallet for Zebvix L1 and BSC. Premium dark UI with emerald→cyan gradient, glass cards, Inter font.
+- **Core:** BIP39 mnemonic, BIP44 derivation (`m/44'/60'/0'/0/i`), `flutter_secure_storage` for keystore, `web3dart` for JSON-RPC, multichain registry (Zebvix 7878, BSC 56, ETH, Polygon, Arbitrum).
+- **Built-in bridge:** Direct ZBX↔wZBX via on-chain mainnet contracts (`WrappedZBX 0xf7AA…`, `ZebvixBridge 0xa6dF…`). `bridge_service.dart` handles approve / burnToZebvix / bridgeOut.
+- **QR-scan-to-approve flow (WalletConnect-style):**
+  - api-server runs a non-custodial WS relay at `wss://…/api/wc/relay/:id` (sessions created via `POST /api/wc/sessions`). Relay validates JSON shape, drops malformed/oversized messages, rejects duplicate-role connections (close 4409) and invalid roles, applies per-IP session creation rate limit (30/min/IP), tears sessions down when both peers disconnect, and bounds messages to 64 KB.
+  - Dashboard: `MobileConnectModal` opens a session, displays QR with `zbx://wc?…` URI, listens for mobile peer + signed responses.
+  - Mobile: Scan tab parses URI (paste-fallback on web preview), opens WS as `role=mobile`, surfaces incoming signing requests in Approve screen with Approve/Reject. Supports `personal_sign`, `eth_signTypedData_v4`, `eth_accounts`. Signs locally with the active private key — keys never leave the device, server never sees plaintext sigs before the requesting dashboard.
+- **Web preview:** Flutter web build (`--base-href /api/mobile/`) is served by api-server at `/api/mobile/` so it appears in the same Replit preview.

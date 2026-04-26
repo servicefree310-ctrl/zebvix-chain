@@ -5,6 +5,7 @@ import chainRouter from "./chain";
 import rpcRouter from "./rpc";
 import pairRouter from "./pair";
 import bridgeRouter from "./bridge";
+import wcRouter from "./wc";
 
 const router: IRouter = Router();
 
@@ -14,5 +15,6 @@ router.use(chainRouter);
 router.use(rpcRouter);
 router.use(pairRouter);
 router.use(bridgeRouter);
+router.use(wcRouter);
 
 export default router;

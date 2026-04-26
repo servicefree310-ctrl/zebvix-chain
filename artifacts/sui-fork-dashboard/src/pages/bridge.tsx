@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { CodeBlock } from "@/components/ui/code-block";
+import { MobileConnectModal } from "@/components/wallet-connect/MobileConnectModal";
+import { Smartphone } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -30,10 +32,12 @@ import {
   ChevronRight,
   BookOpen,
 } from "lucide-react";
+// Smartphone imported above
 import UnifiedBridge from "@/components/bridge/UnifiedBridge";
 
 export default function Bridge() {
   const [showDocs, setShowDocs] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -50,9 +54,21 @@ export default function Bridge() {
             Bidirectional · ZBX ↔ wZBX
           </Badge>
         </div>
-        <h1 className="text-3xl font-bold tracking-tight text-foreground mb-2">
-          Cross-Chain Bridge
-        </h1>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <h1 className="text-3xl font-bold tracking-tight text-foreground mb-2">
+            Cross-Chain Bridge
+          </h1>
+          <Button
+            onClick={() => setMobileOpen(true)}
+            variant="outline"
+            className="border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10"
+            data-testid="button-connect-mobile"
+          >
+            <Smartphone className="w-4 h-4 mr-2" />
+            Connect Mobile Wallet
+          </Button>
+        </div>
+        <MobileConnectModal open={mobileOpen} onClose={() => setMobileOpen(false)} />
         <p className="text-base text-muted-foreground max-w-3xl">
           Move ZBX between Zebvix L1 and BNB Smart Chain in either direction —
           all signed in this browser using your active wallet (no MetaMask

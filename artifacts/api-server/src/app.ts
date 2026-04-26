@@ -22,6 +22,29 @@ app.use("/api/downloads", express.static(path.join(publicDir, "downloads"), {
   },
 }));
 
+// Serve the Flutter web build of the mobile wallet under /api/mobile/.
+// The Flutter app is built with `--base-href /api/mobile/` so absolute
+// asset URLs match the proxy path.
+// __dirname at runtime is artifacts/api-server/dist, so 3 levels up = workspace root
+const flutterWebDir = path.resolve(
+  __dirname,
+  "../../../mobile/zebvix_wallet/build/web",
+);
+app.use(
+  "/api/mobile",
+  express.static(flutterWebDir, {
+    setHeaders: (res) => {
+      res.setHeader("Cache-Control", "no-store");
+    },
+  }),
+);
+// SPA fallback for the Flutter web router (so refreshes on inner routes work).
+app.get(/^\/api\/mobile(?:\/.*)?$/, (_req, res, next) => {
+  res.sendFile(path.join(flutterWebDir, "index.html"), (err) => {
+    if (err) next(err);
+  });
+});
+
 app.use(
   pinoHttp({
     logger,

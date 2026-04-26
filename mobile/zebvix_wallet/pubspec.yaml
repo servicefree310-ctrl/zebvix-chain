@@ -1,0 +1,50 @@
+name: zebvix_wallet
+description: "Zebvix Wallet - Multichain crypto wallet with bridge support"
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.8.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # State + nav
+  provider: ^6.1.2
+  go_router: ^14.6.2
+
+  # Crypto / wallet
+  web3dart: ^2.7.3
+  bip39: ^1.0.6
+  bip32: ^2.0.0
+  pointycastle: ^3.9.1
+  hex: ^0.2.0
+  convert: ^3.1.1
+
+  # Storage
+  flutter_secure_storage: ^9.2.2
+  shared_preferences: ^2.3.3
+
+  # Network
+  http: ^1.2.2
+  web_socket_channel: ^3.0.1
+
+  # QR
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^5.2.3
+
+  # UI
+  google_fonts: ^6.2.1
+  flutter_animate: ^4.5.0
+  intl: ^0.20.1
+  uuid: ^4.5.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
