@@ -599,7 +599,7 @@ export default function Validators() {
       <div className="border border-border rounded-lg bg-card/80 p-5">
         <StepHeader num={1} title="Generate Validator Keypair (secp256k1)" icon={KeyRound} />
         <p className="text-sm text-muted-foreground mb-3">
-          Since Phase B.11 Zebvix uses{" "}
+          Zebvix uses{" "}
           <strong className="text-foreground">ECDSA-secp256k1</strong> — the
           same curve as Ethereum / MetaMask. A single 32-byte secret produces
           a 33-byte compressed pubkey, and the 20-byte address is derived
@@ -926,7 +926,7 @@ curl -s -X POST http://127.0.0.1:8545 \\
             <div className="text-[11px] text-muted-foreground">
               90% goes to bonded (0.50%/day drip + 25%/5M-block bulk release).
               Pool commission currently routes to the founder address during
-              Phase A bootstrap; per-operator routing ships later.
+              the bootstrap window; per-operator routing ships in a later release.
             </div>
           </div>
         </div>
@@ -1045,7 +1045,7 @@ curl -s -X POST http://127.0.0.1:8545 \\
         <p className="text-xs text-muted-foreground">
           All consensus-critical staking constants live in a single Rust file.
           Changing any value here is a hard-fork — coordinate via on-chain
-          governance (Phase D) before deploying.
+          governance before deploying.
         </p>
         <div className="bg-background border border-border rounded p-3 font-mono text-xs text-cyan-300">
           zebvix-chain/src/staking.rs

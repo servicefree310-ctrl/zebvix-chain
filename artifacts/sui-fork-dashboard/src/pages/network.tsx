@@ -64,7 +64,7 @@ export default function NetworkPage() {
             P2P Layer
           </Badge>
           <Badge variant="outline" className="text-emerald-400 border-emerald-500/40">
-            Phase A · LIVE
+            Live
           </Badge>
         </div>
         <h1 className="text-3xl font-bold tracking-tight text-foreground">
@@ -246,9 +246,9 @@ export default function NetworkPage() {
                   <TableCell className="font-mono text-xs">bincode(Vote)</TableCell>
                   <TableCell className="text-sm">2 / new block</TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    Phase B.2 <strong>LIVE</strong> — every registered validator auto-signs a{" "}
+                    <strong>Live</strong> — every registered validator auto-signs a{" "}
                     <code className="text-xs bg-muted px-1 rounded">Prevote</code> and a{" "}
-                    <code className="text-xs bg-muted px-1 rounded">Precommit</code> for each new tip and gossips both into the shared <code className="text-xs bg-muted px-1 rounded">VotePool</code>. Currently observational (drives <code className="text-xs bg-muted px-1 rounded">zbx_voteStats</code> for monitoring); Phase B.3+ will use these to drive actual finalization in multi-proposer consensus.
+                    <code className="text-xs bg-muted px-1 rounded">Precommit</code> for each new tip and gossips both into the shared <code className="text-xs bg-muted px-1 rounded">VotePool</code>. Currently observational (drives <code className="text-xs bg-muted px-1 rounded">zbx_voteStats</code> for monitoring); a future release will use these to drive actual finalization in multi-proposer consensus.
                   </TableCell>
                 </TableRow>
               </TableBody>
@@ -335,7 +335,7 @@ export default function NetworkPage() {
                 </Badge>
               </div>
               <p className="text-sm text-muted-foreground mb-3">
-                The single Phase A block-producer (deterministic key from{" "}
+                The single bootstrap block-producer (deterministic key from{" "}
                 <code className="text-xs bg-muted px-1 rounded">FOUNDER_PUBKEY_HEX</code>).
                 Mines every 5 sec, broadcasts on <code className="text-xs bg-muted px-1 rounded">blocks/v1</code>.
               </p>
@@ -359,7 +359,7 @@ export default function NetworkPage() {
               <ul className="text-xs text-muted-foreground space-y-1 list-disc pl-4">
                 <li>Same disk + RocksDB layout as validator</li>
                 <li>Local key irrelevant for consensus</li>
-                <li>Multi-proposer mode arrives in Phase B</li>
+                <li>Multi-proposer mode arrives in a future release</li>
               </ul>
             </div>
             <div className="border border-amber-500/30 rounded-lg p-4 bg-amber-500/5">
@@ -577,7 +577,7 @@ journalctl -u zebvix-node --no-pager | grep '🌐 p2p listening' | tail -1
               peer-id rotates. Operators who need a stable identity (e.g. for hard-coded
               bootstrap multiaddrs) must pin one via{" "}
               <code className="text-xs bg-muted px-1 rounded">with_existing_identity</code> backed by a key file on disk;
-              that's on the Phase B hardening list.
+              that's on the operator hardening roadmap.
             </span>
           </div>
         </CardContent>

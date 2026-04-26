@@ -42,7 +42,7 @@ export default function Setup() {
       <div>
         <div className="flex items-center gap-2 mb-3">
           <Badge variant="outline" className="border-primary/40 text-primary">Operator Guide</Badge>
-          <Badge variant="outline" className="text-muted-foreground">Phase B.11 LIVE</Badge>
+          <Badge variant="outline" className="text-muted-foreground">Live</Badge>
         </div>
         <h1 className="text-3xl font-bold tracking-tight text-foreground mb-3">
           Environment Setup

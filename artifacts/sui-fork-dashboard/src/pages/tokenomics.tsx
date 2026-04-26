@@ -615,21 +615,21 @@ export default function Tokenomics() {
         </div>
       </div>
 
-      {/* Phase A vs B */}
+      {/* Bootstrap vs Mature treasury cut */}
       <div className="border border-border rounded-lg bg-card/80 p-5 space-y-4">
         <div className="flex items-center gap-2">
           <Lock className="w-5 h-5 text-amber-400" />
-          <h2 className="text-base font-semibold">Bootstrap Phases (treasury cut)</h2>
+          <h2 className="text-base font-semibold">Treasury Cut — Bootstrap vs Mature</h2>
         </div>
         <p className="text-xs text-muted-foreground">
-          Until the network has ≥500 active validators AND ≥1000 unique
-          delegators, the chain runs in Phase A with a higher treasury share.
-          Both thresholds together flip the chain to Phase B automatically.
+          Until the network reaches ≥500 active validators AND ≥1000 unique
+          delegators, the chain runs in Bootstrap mode with a higher treasury
+          share. Both thresholds together flip the chain to Mature mode automatically.
         </p>
         <div className="grid md:grid-cols-2 gap-3">
           <div className="bg-zinc-900/50 border border-border rounded p-4">
             <div className="text-xs uppercase tracking-wider text-amber-300 mb-1">
-              Phase A — Bootstrap
+              Bootstrap
             </div>
             <div className="text-2xl font-bold font-mono text-foreground">50%</div>
             <div className="text-xs text-muted-foreground mt-1">
@@ -638,7 +638,7 @@ export default function Tokenomics() {
           </div>
           <div className="bg-zinc-900/50 border border-border rounded p-4">
             <div className="text-xs uppercase tracking-wider text-emerald-300 mb-1">
-              Phase B — Mature
+              Mature
             </div>
             <div className="text-2xl font-bold font-mono text-foreground">10%</div>
             <div className="text-xs text-muted-foreground mt-1">

@@ -42,7 +42,7 @@ export default function Genesis() {
       <div>
         <div className="flex items-center gap-2 mb-3">
           <Badge variant="outline" className="border-primary/40 text-primary">Chain Bootstrap</Badge>
-          <Badge variant="outline" className="text-muted-foreground">Phase A · LIVE</Badge>
+          <Badge variant="outline" className="text-muted-foreground">Live</Badge>
         </div>
         <h1 className="text-3xl font-bold tracking-tight text-foreground mb-3">
           Genesis Configuration
@@ -200,7 +200,7 @@ export default function Genesis() {
           <CardDescription>
             This is exactly what <code className="text-xs bg-muted px-1 rounded">zebvix-node init</code>{" "}
             wrote on <code className="text-xs bg-muted px-1 rounded">srv1266996</code> when the
-            Phase-A network was bootstrapped.
+            mainnet was first bootstrapped.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -384,7 +384,7 @@ curl -s -X POST http://127.0.0.1:8545 -H 'Content-Type: application/json' \\
           <code className="bg-muted px-1 rounded">TOTAL_SUPPLY_WEI</code> +{" "}
           <code className="bg-muted px-1 rounded">BLOCK_TIME_SECS</code> in{" "}
           <code className="bg-muted px-1 rounded">tokenomics.rs</code>. Any change to those
-          constants is a chain-breaking event — coordinate via Phase-D forkless governance.
+          constants is a chain-breaking event — coordinate via on-chain forkless governance.
         </span>
       </div>
     </div>

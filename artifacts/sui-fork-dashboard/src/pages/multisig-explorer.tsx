@@ -214,7 +214,7 @@ export default function MultisigExplorer() {
           <div>
             <div className="flex items-center gap-2 mb-2">
               <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                Phase B.8 · LIVE
+                Live
               </span>
               <span className="text-[10px] font-medium text-muted-foreground">v1 · Transfer-only actions</span>
             </div>

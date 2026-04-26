@@ -178,9 +178,10 @@ function Header({ isInit, pool, price, loading }: {
             Pool / AMM Explorer
           </h1>
           <p className="text-sm text-muted-foreground max-w-2xl">
-            On-chain ZBX/zUSD constant-product AMM (x · y = k). 0.30% swap fee feeds the loan
-            repayment, then 50/50 admin payout vs reinvestment. LP tokens permanently locked
-            to the pool address — provably permanent liquidity.
+            On-chain ZBX/zUSD constant-product AMM (x · y = k). 0.30% swap fee recycles the
+            bootstrap liquidity first, then splits 50/50 between protocol payout and pool
+            reinvestment. LP tokens are permanently locked to the pool address — provably
+            permanent liquidity.
           </p>
         </div>
         <div className="flex flex-col items-end gap-1 min-w-[200px]">
@@ -333,7 +334,7 @@ function InvariantPanel({ pool }: { pool: PoolFull }) {
         </div>
         <div className="text-[10px] text-muted-foreground leading-relaxed">
           AMM enforces <code className="font-mono text-foreground">x · y = k</code>. Each swap moves the curve;
-          larger trades hit slippage harder. 0.30% of input is captured as fee → loan repayment.
+          larger trades hit slippage harder. 0.30% of input is captured as fee → recycled into reserves.
         </div>
       </div>
     </div>
@@ -350,30 +351,30 @@ function Stat({ label, value, mono }: { label: string; value: string; mono?: boo
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Loan panel — shows progress toward fee → loan repayment
+// Bootstrap Liquidity panel — shows progress toward fee-driven recycling
 // ─────────────────────────────────────────────────────────────────────────────
 function LoanPanel({ pool }: { pool: PoolFull }) {
   const outstanding = parseFloat(weiHexToZbx(pool.loan_outstanding_zusd).replace(/,/g, ""));
   const lifetimeFees = parseFloat(weiHexToZbx(pool.lifetime_fees_zusd).replace(/,/g, ""));
-  const initialLoan = 10_000_000;
-  const repaid = Math.max(0, initialLoan - outstanding);
-  const pct = (repaid / initialLoan) * 100;
+  const seedAmount = 10_000_000;
+  const recycled = Math.max(0, seedAmount - outstanding);
+  const pct = (recycled / seedAmount) * 100;
   return (
     <div className="rounded-xl border border-border bg-card p-5">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold flex items-center gap-2">
-          <Shield className="h-4 w-4 text-primary" /> Liquidity Loan Repayment
+          <Shield className="h-4 w-4 text-primary" /> Bootstrap Liquidity Recycling
         </h3>
         {pool.loan_repaid ? (
-          <Pill tone="emerald"><Check className="h-3 w-3" />REPAID</Pill>
+          <Pill tone="emerald"><Check className="h-3 w-3" />FULLY RECYCLED</Pill>
         ) : (
-          <Pill tone="amber"><Coins className="h-3 w-3" />ACTIVE</Pill>
+          <Pill tone="amber"><Coins className="h-3 w-3" />IN PROGRESS</Pill>
         )}
       </div>
       <div className="space-y-2">
         <div className="flex justify-between text-xs">
-          <span className="text-muted-foreground">Repaid via fees</span>
-          <span className="font-mono font-semibold tabular-nums">{repaid.toLocaleString(undefined, { maximumFractionDigits: 2 })} / {initialLoan.toLocaleString()} zUSD</span>
+          <span className="text-muted-foreground">Recycled via fees</span>
+          <span className="font-mono font-semibold tabular-nums">{recycled.toLocaleString(undefined, { maximumFractionDigits: 2 })} / {seedAmount.toLocaleString()} zUSD</span>
         </div>
         <div className="h-2 rounded-full bg-muted/30 overflow-hidden">
           <div className="h-full bg-gradient-to-r from-emerald-500 to-cyan-500 transition-all" style={{ width: `${Math.min(100, pct)}%` }} />
@@ -383,9 +384,10 @@ function LoanPanel({ pool }: { pool: PoolFull }) {
           <span>lifetime fees: {lifetimeFees.toFixed(4)} zUSD</span>
         </div>
         <div className="text-[10px] text-muted-foreground leading-relaxed mt-2">
-          Once <code className="font-mono text-foreground">loan_outstanding_zusd</code> hits 0, future 0.30%
-          swap fees split <strong>50/50</strong> between admin payout and pool reinvestment (compounding LP
-          value). Until then, 100% of fees go to loan repayment.
+          The pool was seeded with bootstrap zUSD liquidity. While recycling, 100% of swap
+          fees flow back into reserves to retire the seed. Once fully recycled, future 0.30%
+          swap fees split <strong>50/50</strong> between protocol payout and pool reinvestment
+          (compounding LP value).
         </div>
       </div>
     </div>

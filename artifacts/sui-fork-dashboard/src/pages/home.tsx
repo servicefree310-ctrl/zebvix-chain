@@ -320,16 +320,16 @@ function Hero({ tip, flash, err, loading, price, validatorCount, evmChainHex, po
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase Banner
+// Roadmap Banner — milestone-based, no internal phase IDs
 // ─────────────────────────────────────────────────────────────────────────────
 function PhaseBanner() {
-  const phases = [
-    { id: "B.10", label: "Native Rust L1", status: "LIVE" },
-    { id: "B.11", label: "USD-pegged fees + AMM", status: "LIVE" },
-    { id: "B.12", label: "BSC Bridge", status: "LIVE" },
-    { id: "C.1", label: "ZVM Skeleton", status: "LIVE" },
-    { id: "C.2", label: "ZVM JSON-RPC", status: "LIVE" },
-    { id: "C.3", label: "Foundry Contracts", status: "NEXT" },
+  const milestones = [
+    { label: "Native Rust L1", status: "LIVE" },
+    { label: "USD-pegged Fees + AMM", status: "LIVE" },
+    { label: "BSC Bridge", status: "LIVE" },
+    { label: "ZVM Runtime", status: "LIVE" },
+    { label: "ZVM JSON-RPC", status: "LIVE" },
+    { label: "Foundry Contracts", status: "NEXT" },
   ];
   return (
     <div className="rounded-xl border border-border bg-card/40 backdrop-blur p-4">
@@ -338,17 +338,16 @@ function PhaseBanner() {
         <h3 className="text-sm font-semibold">Roadmap Status</h3>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
-        {phases.map((p) => (
-          <div key={p.id} className={`p-2.5 rounded-lg border text-center ${
-            p.status === "LIVE"
+        {milestones.map((m) => (
+          <div key={m.label} className={`p-2.5 rounded-lg border text-center ${
+            m.status === "LIVE"
               ? "border-emerald-500/30 bg-emerald-500/5"
               : "border-border bg-muted/20"
           }`}>
-            <div className="text-[10px] text-muted-foreground font-mono">{p.id}</div>
-            <div className="text-xs font-semibold mt-0.5">{p.label}</div>
+            <div className="text-xs font-semibold">{m.label}</div>
             <div className={`text-[10px] mt-1 font-bold ${
-              p.status === "LIVE" ? "text-emerald-400" : "text-amber-400"
-            }`}>{p.status}</div>
+              m.status === "LIVE" ? "text-emerald-400" : "text-amber-400"
+            }`}>{m.status}</div>
           </div>
         ))}
       </div>
@@ -569,12 +568,12 @@ function QuickAccessGrid() {
   const items = [
     { href: "/live-chain", icon: Activity, title: "Live Chain", desc: "Real-time telemetry, blocks, validators, economy", tone: "emerald" },
     { href: "/zvm-explorer", icon: Cpu, title: "ZVM Explorer", desc: "Live zbx_* / eth_* JSON-RPC playground for the Zebvix Virtual Machine.", tone: "violet" },
-    { href: "/pool-explorer", icon: Droplets, title: "Pool / AMM", desc: "ZBX/zUSD reserves, spot, loan, swaps", tone: "cyan" },
+    { href: "/pool-explorer", icon: Droplets, title: "Pool / AMM", desc: "ZBX/zUSD reserves, spot price, swaps", tone: "cyan" },
     { href: "/block-explorer", icon: Search, title: "Block Explorer", desc: "Browse blocks, txs, addresses", tone: "cyan" },
     { href: "/wallet", icon: Wallet, title: "ZBX Wallet", desc: "Web wallet — send, receive, sign", tone: "amber" },
     { href: "/swap", icon: ArrowUpDown, title: "Swap", desc: "AMM ZBX/zUSD trading", tone: "emerald" },
     { href: "/staking", icon: TrendingUp, title: "Staking", desc: "Delegate ZBX, earn rewards", tone: "violet" },
-    { href: "/bridge", icon: ArrowLeftRight, title: "BSC Bridge", desc: "Phase B.12 — bridge ZBX ↔ BSC", tone: "cyan" },
+    { href: "/bridge", icon: ArrowLeftRight, title: "BSC Bridge", desc: "Bridge ZBX between Zebvix L1 and BSC", tone: "cyan" },
     { href: "/multisig-explorer", icon: Shield, title: "Multisig", desc: "On-chain m-of-n vault management", tone: "amber" },
     { href: "/payid-resolver", icon: AtSign, title: "Pay-ID", desc: "Human-readable address resolver", tone: "emerald" },
     { href: "/faucet", icon: Droplets, title: "Faucet", desc: "Testnet ZBX dispenser", tone: "violet" },
@@ -631,7 +630,7 @@ function ChainIdentityCard() {
         <Row label="Native Token" value="ZBX (18 decimals)" />
         <Row label="Chain ID" value="7878 (0x1ec6)" mono />
         <Row label="RPC HTTP" value="http://93.127.213.192:8545" mono copy />
-        <Row label="Consensus" value="Tendermint BFT (Phase B.2)" />
+        <Row label="Consensus" value="Tendermint BFT" />
         <Row label="ZVM" value="Native Cancun-compatible · LIVE" />
         <Row label="VPS" value="srv1266996" mono />
         <Row label="Service" value="zebvix.service" mono />

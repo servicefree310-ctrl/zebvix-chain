@@ -111,7 +111,7 @@ export default function SmartContractsPage() {
                 <strong className="text-emerald-400">EIP-3529 refund cap + EIP-2565 MODEXP</strong> — refunds are capped at <code className="text-xs bg-muted px-1 rounded">gas_used / 5</code> and modular exponentiation uses dynamic pricing with real ≤256-bit math.
               </li>
               <li>
-                <strong className="text-emerald-400">Tier-5 precompiles</strong> — pure-Rust EIP-152 BLAKE2b F compression at <code className="text-xs bg-muted px-1 rounded">0x09</code>; <code className="text-xs bg-muted px-1 rounded">0x01–0x05</code> standard precompiles fully dispatched.
+                <strong className="text-emerald-400">Standard precompiles</strong> — pure-Rust EIP-152 BLAKE2b F compression at <code className="text-xs bg-muted px-1 rounded">0x09</code>; <code className="text-xs bg-muted px-1 rounded">0x01–0x05</code> standard precompiles fully dispatched.
               </li>
               <li>
                 <strong className="text-emerald-400">Unified ZBX balance</strong> — <code className="text-xs bg-muted px-1 rounded">eth_getBalance</code> and <code className="text-xs bg-muted px-1 rounded">zbx_getBalance</code> both resolve against the same native account ledger (<code className="text-xs bg-muted px-1 rounded">CF_ACCOUNTS</code>), so a Solidity contract sees a user's real ZBX balance directly. Nonces are split by domain: <code className="text-xs bg-muted px-1 rounded">zbx_getNonce</code> for native txs, <code className="text-xs bg-muted px-1 rounded">eth_getTransactionCount</code> for ZVM txs (ZVM-feature builds).

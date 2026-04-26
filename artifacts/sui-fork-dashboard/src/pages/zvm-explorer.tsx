@@ -421,14 +421,11 @@ function TxTool() {
     setLoading(true);
     const lower = hash.toLowerCase();
     try {
-      // 1. Try the ZVM path. Both calls are best-effort — the chain may
-      //    Both are wired in Phase C.2.1 — eth_getTransactionByHash and
-      //    eth_getTransactionReceipt now resolve native ZBX-tx hashes from
-      //    the recent-tx ring buffer (synthetic Ethereum-shape JSON, status=0x1
-      //    by construction since failed txs are never indexed). Returns
-      //    `null` only when the hash is outside the rolling window of 1000
-      //    txs OR when the tx is a ZVM (Solidity) tx — the ZVM execute path
-      //    is not yet wired into the ring buffer (C.3 work).
+      // 1. Try the ZVM path. Both calls are best-effort — the chain
+      //    resolves native ZBX-tx hashes from the recent-tx ring buffer
+      //    (synthetic Ethereum-shape JSON, status=0x1 by construction since
+      //    failed txs are never indexed). Returns `null` when the hash is
+      //    outside the rolling 1000-tx window.
       const [t, r] = await Promise.all([
         rpc<any>("eth_getTransactionByHash", [lower]).catch(() => null),
         rpc<any>("eth_getTransactionReceipt", [lower]).catch(() => null),

@@ -37,6 +37,7 @@ import FabricLayer from "@/pages/fabric-layer";
 import CodeReview from "@/pages/code-review";
 import Downloads from "@/pages/downloads";
 import SdkPage from "@/pages/sdk";
+import ChainBuilder from "@/pages/chain-builder";
 import ChainCode from "@/pages/chain-code";
 import ChainStatus from "@/pages/chain-status";
 import ConsensusRoadmap from "@/pages/consensus-roadmap";
@@ -109,6 +110,7 @@ function Router() {
         <Route path="/rpc-playground" component={RpcPlayground} />
         <Route path="/docs" component={DocsPage} />
         <Route path="/sdk" component={SdkPage} />
+        <Route path="/chain-builder" component={ChainBuilder} />
         <Route component={NotFound} />
       </Switch>
     </Shell>

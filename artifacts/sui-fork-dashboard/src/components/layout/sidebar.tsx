@@ -49,6 +49,7 @@ import {
   Star,
   X,
   Package,
+  Hammer,
 } from "lucide-react";
 import { useChecklist } from "@/hooks/useChecklist";
 import { Progress } from "@/components/ui/progress";
@@ -70,6 +71,7 @@ type NavLink = {
 
 const CORE_NAV: NavLink[] = [
   { href: "/", label: "Overview", icon: BookOpen },
+  { href: "/chain-builder", label: "Build Your Own Chain", icon: Hammer, badge: "NEW" },
   { href: "/docs", label: "Documentation", icon: BookOpen },
   { href: "/quick-start", label: "Quick Start Script", icon: PlayCircle },
   { href: "/setup", label: "Environment Setup", icon: TerminalSquare },

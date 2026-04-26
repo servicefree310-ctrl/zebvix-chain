@@ -119,12 +119,12 @@ function PoolPanel({ stats }: { stats: PoolStats | null }) {
           <div className="font-mono">${formatToken(stats.zusd_reserve, 2)}</div>
         </div>
         <div>
-          <div className="text-xs text-muted-foreground">Genesis loan</div>
+          <div className="text-xs text-muted-foreground">Bootstrap liquidity</div>
           <div className="font-mono">
             {stats.loan_repaid ? (
-              <span className="text-emerald-400">repaid ✓</span>
+              <span className="text-emerald-400">fully recycled</span>
             ) : (
-              <>${formatToken(stats.loan_outstanding_zusd, 2)} left</>
+              <>${formatToken(stats.loan_outstanding_zusd, 2)} remaining</>
             )}
           </div>
         </div>
@@ -457,7 +457,7 @@ export default function SwapPage() {
           <ArrowUpDown className="h-7 w-7 text-emerald-400" />
           <h1 className="text-3xl font-bold">Swap (Buy / Sell)</h1>
           <Badge className="bg-emerald-500/15 text-emerald-300 border-emerald-500/30">
-            Phase B.10 · on-chain
+            On-chain AMM
           </Badge>
           <div className="ml-auto flex items-center gap-2">
             <Button
@@ -799,9 +799,9 @@ export default function SwapPage() {
               principal is refunded — only the gas fee is consumed.
             </p>
             <p className="text-muted-foreground leading-relaxed">
-              Max per-swap size: 100,000 {inputSym}. Pool genesis loan is
-              repaid first from collected fees; once cleared, 50% of fees go to
-              the admin and 50% compound back into reserves.
+              Max per-swap size: 100,000 {inputSym}. While the pool's bootstrap
+              liquidity is recycling, 100% of collected fees flow back into reserves;
+              once recycled, 50% of fees go to the protocol and 50% compound into reserves.
             </p>
           </Card>
         </div>
