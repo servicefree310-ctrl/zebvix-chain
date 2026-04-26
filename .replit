@@ -1,4 +1,4 @@
-modules = ["nodejs-24", "rust"]
+modules = ["nodejs-24", "rust", "postgresql-16"]
 
 [deployment]
 router = "application"

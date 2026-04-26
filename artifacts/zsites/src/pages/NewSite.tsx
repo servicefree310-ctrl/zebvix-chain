@@ -33,10 +33,18 @@ const LOADING_STAGES = [
   "Polishing every block...",
 ];
 
+interface SitePageDraft {
+  slug: string;
+  name: string;
+  blocks: SiteBlock[];
+  seo?: { title?: string; description?: string; ogImageUrl?: string };
+}
+
 interface DraftPayload {
   title: string;
   description: string;
   blocks: SiteBlock[];
+  extraPages?: SitePageDraft[];
   theme: SiteTheme;
   seo: { title: string; description: string; ogImageUrl?: string };
   suggestedSubdomain: string;
@@ -82,6 +90,7 @@ export default function NewSite() {
           subdomain: draft.suggestedSubdomain,
           description: draft.description,
           blocks: draft.blocks as never,
+          extraPages: (draft.extraPages ?? []) as never,
           theme: draft.theme as never,
           seo: draft.seo as never,
         },

@@ -18,6 +18,7 @@ export const sitesTable = pgTable(
     title: text("title").notNull(),
     description: text("description").notNull().default(""),
     blocks: jsonb("blocks").notNull().default([]),
+    extraPages: jsonb("extra_pages").notNull().default([]),
     theme: jsonb("theme").notNull().default({}),
     seo: jsonb("seo").notNull().default({}),
     cryptoWallet: text("crypto_wallet"),

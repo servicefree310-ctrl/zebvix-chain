@@ -28,6 +28,7 @@ function serializePublicSite(row: typeof sitesTable.$inferSelect) {
     title: row.title,
     description: row.description ?? "",
     blocks: (row.blocks ?? []) as unknown[],
+    extraPages: (row.extraPages ?? []) as unknown[],
     theme: (row.theme ?? {}) as Record<string, unknown>,
     seo: (row.seo ?? {}) as Record<string, unknown>,
     cryptoWallet: row.cryptoWallet ?? "",

@@ -374,6 +374,28 @@ components:
       required:
         - error
 
+    SitePage:
+      type: object
+      description: A single page within a site (home is the default page)
+      properties:
+        slug:
+          type: string
+          description: URL-safe page slug (e.g. "about", "pricing"). Empty string or "home" = home page.
+        name:
+          type: string
+          description: Display name shown in the editor and nav (e.g. "About")
+        blocks:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiteBlock"
+        seo:
+          $ref: "#/components/schemas/SiteSeo"
+      required:
+        - slug
+        - name
+        - blocks
+        - seo
+
     SiteBlock:
       type: object
       description: A single content block on a site page
@@ -449,6 +471,11 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SiteBlock"
+        extraPages:
+          type: array
+          description: Additional pages beyond the home page (about, pricing, contact, etc.)
+          items:
+            $ref: "#/components/schemas/SitePage"
         theme:
           $ref: "#/components/schemas/SiteTheme"
         seo:
@@ -475,6 +502,7 @@ components:
         - title
         - description
         - blocks
+        - extraPages
         - theme
         - seo
         - published
@@ -497,6 +525,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SiteBlock"
+        extraPages:
+          type: array
+          items:
+            $ref: "#/components/schemas/SitePage"
         theme:
           $ref: "#/components/schemas/SiteTheme"
         seo:
@@ -509,6 +541,7 @@ components:
         - title
         - description
         - blocks
+        - extraPages
         - theme
         - seo
 
@@ -524,6 +557,11 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SiteBlock"
+        extraPages:
+          type: array
+          description: Additional generated pages (about, pricing, contact, etc.)
+          items:
+            $ref: "#/components/schemas/SitePage"
         theme:
           $ref: "#/components/schemas/SiteTheme"
         seo:
@@ -534,6 +572,7 @@ components:
         - title
         - description
         - blocks
+        - extraPages
         - theme
         - seo
         - suggestedSubdomain
@@ -585,6 +624,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SiteBlock"
+        extraPages:
+          type: array
+          items:
+            $ref: "#/components/schemas/SitePage"
         theme:
           $ref: "#/components/schemas/SiteTheme"
         seo:
@@ -612,6 +655,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SiteBlock"
+        extraPages:
+          type: array
+          items:
+            $ref: "#/components/schemas/SitePage"
         theme:
           $ref: "#/components/schemas/SiteTheme"
         seo:

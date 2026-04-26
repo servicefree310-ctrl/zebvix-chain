@@ -40,6 +40,7 @@ import {
   BarChart3,
   Inbox,
   Banknote,
+  X,
 } from "lucide-react";
 import {
   BLOCK_TYPES,
@@ -49,6 +50,24 @@ import {
   type SiteTheme,
 } from "@/lib/types";
 import { toast } from "sonner";
+
+interface SitePage {
+  slug: string;
+  name: string;
+  blocks: SiteBlock[];
+  seo: { title?: string; description?: string; ogImageUrl?: string };
+}
+
+const HOME_SLUG = "";
+
+function slugify(input: string): string {
+  return input
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 30);
+}
 
 const FONT_OPTIONS = [
   "Inter",
@@ -84,6 +103,8 @@ export default function Editor() {
   const [description, setDescription] = useState("");
   const [cryptoWallet, setCryptoWallet] = useState("");
   const [blocks, setBlocks] = useState<SiteBlock[]>([]);
+  const [extraPages, setExtraPages] = useState<SitePage[]>([]);
+  const [currentSlug, setCurrentSlug] = useState<string>(HOME_SLUG);
   const [theme, setTheme] = useState<SiteTheme>(DEFAULT_THEME);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const initRef = useRef(false);
@@ -95,18 +116,48 @@ export default function Editor() {
       setDescription(site.description ?? "");
       setCryptoWallet((site as unknown as { cryptoWallet?: string }).cryptoWallet ?? "");
       setBlocks(((site.blocks ?? []) as unknown[]) as SiteBlock[]);
+      const ep = ((site as unknown as { extraPages?: SitePage[] }).extraPages ?? []).map(
+        (p) => ({
+          slug: p.slug,
+          name: p.name,
+          blocks: (p.blocks ?? []) as SiteBlock[],
+          seo: p.seo ?? {},
+        }),
+      );
+      setExtraPages(ep);
       setTheme(((site.theme ?? DEFAULT_THEME) as unknown) as SiteTheme);
       initRef.current = true;
     }
   }, [site]);
 
+  const currentBlocks: SiteBlock[] = useMemo(() => {
+    if (currentSlug === HOME_SLUG) return blocks;
+    const page = extraPages.find((p) => p.slug === currentSlug);
+    return page ? page.blocks : [];
+  }, [currentSlug, blocks, extraPages]);
+
+  function setCurrentBlocks(updater: (bs: SiteBlock[]) => SiteBlock[]) {
+    if (currentSlug === HOME_SLUG) {
+      setBlocks((bs) => updater(bs));
+    } else {
+      setExtraPages((eps) =>
+        eps.map((p) => (p.slug === currentSlug ? { ...p, blocks: updater(p.blocks) } : p)),
+      );
+    }
+  }
+
   const selected = useMemo(
-    () => blocks.find((b) => b.id === selectedId) ?? null,
-    [blocks, selectedId],
+    () => currentBlocks.find((b) => b.id === selectedId) ?? null,
+    [currentBlocks, selectedId],
   );
 
+  // When switching pages, clear selected block.
+  useEffect(() => {
+    setSelectedId(null);
+  }, [currentSlug]);
+
   function moveBlock(blockId: string, dir: -1 | 1) {
-    setBlocks((bs) => {
+    setCurrentBlocks((bs) => {
       const idx = bs.findIndex((b) => b.id === blockId);
       if (idx < 0) return bs;
       const target = idx + dir;
@@ -119,7 +170,7 @@ export default function Editor() {
   }
 
   function deleteBlock(blockId: string) {
-    setBlocks((bs) => bs.filter((b) => b.id !== blockId));
+    setCurrentBlocks((bs) => bs.filter((b) => b.id !== blockId));
     if (selectedId === blockId) setSelectedId(null);
   }
 
@@ -129,17 +180,45 @@ export default function Editor() {
       type,
       props: defaultPropsFor(type),
     };
-    setBlocks((bs) => [...bs, block]);
+    setCurrentBlocks((bs) => [...bs, block]);
     setSelectedId(block.id);
   }
 
   function updateSelectedProps(patch: Record<string, unknown>) {
     if (!selected) return;
-    setBlocks((bs) =>
+    setCurrentBlocks((bs) =>
       bs.map((b) =>
         b.id === selected.id ? { ...b, props: { ...b.props, ...patch } } : b,
       ),
     );
+  }
+
+  function addPage() {
+    const raw = window.prompt("New page name (e.g. About, Pricing, Contact):");
+    if (!raw) return;
+    const name = raw.trim();
+    if (!name) return;
+    const baseSlug = slugify(name) || "page";
+    let slug = baseSlug;
+    let n = 2;
+    const used = new Set(extraPages.map((p) => p.slug));
+    while (used.has(slug) || slug === "home") {
+      slug = `${baseSlug}-${n++}`;
+    }
+    const newPage: SitePage = {
+      slug,
+      name,
+      blocks: [],
+      seo: { title: `${name} — ${title}`, description },
+    };
+    setExtraPages((eps) => [...eps, newPage]);
+    setCurrentSlug(slug);
+  }
+
+  function removePage(slug: string) {
+    if (!confirm(`Delete page "${slug}"? This is permanent.`)) return;
+    setExtraPages((eps) => eps.filter((p) => p.slug !== slug));
+    if (currentSlug === slug) setCurrentSlug(HOME_SLUG);
   }
 
   async function save() {
@@ -153,6 +232,7 @@ export default function Editor() {
           description,
           cryptoWallet,
           blocks: blocks as never,
+          extraPages: extraPages as never,
           theme: theme as never,
         },
       });
@@ -288,8 +368,68 @@ export default function Editor() {
 
       <div className="grid flex-1 grid-cols-1 lg:grid-cols-[280px_1fr_320px] min-h-[calc(100vh-128px)]">
         <aside className="border-r border-white/10 p-4 overflow-y-auto">
-          <div className="mb-3 flex items-center justify-between">
-            <div className="text-sm font-semibold">Blocks</div>
+          <div className="mb-3">
+            <div className="text-xs uppercase tracking-wider opacity-60 mb-2">
+              Pages
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                onClick={() => setCurrentSlug(HOME_SLUG)}
+                className={`group inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs ${
+                  currentSlug === HOME_SLUG
+                    ? "border-[#00F0FF] bg-[#00F0FF]/10 text-[#00F0FF]"
+                    : "border-white/10 hover:border-white/30"
+                }`}
+              >
+                Home
+              </button>
+              {extraPages.map((p) => (
+                <button
+                  key={p.slug}
+                  onClick={() => setCurrentSlug(p.slug)}
+                  className={`group inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs ${
+                    currentSlug === p.slug
+                      ? "border-[#00F0FF] bg-[#00F0FF]/10 text-[#00F0FF]"
+                      : "border-white/10 hover:border-white/30"
+                  }`}
+                >
+                  {p.name}
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Delete page ${p.name}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removePage(p.slug);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        removePage(p.slug);
+                      }
+                    }}
+                    className="opacity-50 hover:opacity-100 cursor-pointer rounded p-0.5"
+                  >
+                    <X className="h-3 w-3" />
+                  </span>
+                </button>
+              ))}
+              <button
+                onClick={addPage}
+                className="inline-flex items-center gap-1 rounded-full border border-dashed border-white/20 px-2.5 py-1 text-xs opacity-70 hover:opacity-100"
+              >
+                <Plus className="h-3 w-3" /> Page
+              </button>
+            </div>
+          </div>
+          <div className="mb-3 flex items-center justify-between border-t border-white/10 pt-3">
+            <div className="text-sm font-semibold">
+              Blocks
+              <span className="ml-1 text-xs font-normal opacity-50">
+                ({currentSlug === HOME_SLUG ? "Home" : extraPages.find((p) => p.slug === currentSlug)?.name ?? currentSlug})
+              </span>
+            </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button size="sm" variant="outline">
@@ -306,7 +446,7 @@ export default function Editor() {
             </DropdownMenu>
           </div>
           <div className="space-y-1">
-            {blocks.map((b, i) => (
+            {currentBlocks.map((b, i) => (
               <div
                 key={b.id}
                 className={`group rounded-md border px-3 py-2 cursor-pointer text-sm flex items-center gap-2 ${
@@ -347,7 +487,7 @@ export default function Editor() {
                 </button>
               </div>
             ))}
-            {blocks.length === 0 ? (
+            {currentBlocks.length === 0 ? (
               <div className="text-center text-xs opacity-50 py-8">
                 No blocks yet. Add one above.
               </div>
@@ -357,12 +497,19 @@ export default function Editor() {
 
         <main className="overflow-y-auto bg-neutral-950">
           <div className="m-4 rounded-2xl border border-white/10 overflow-hidden">
-            <div className="flex items-center gap-2 border-b border-white/10 bg-black/40 px-4 py-2 text-xs opacity-60">
-              <Eye className="h-3 w-3" /> Live preview
+            <div className="flex items-center justify-between border-b border-white/10 bg-black/40 px-4 py-2 text-xs opacity-60">
+              <div className="flex items-center gap-2">
+                <Eye className="h-3 w-3" /> Live preview
+              </div>
+              <div className="opacity-70">
+                {currentSlug === HOME_SLUG
+                  ? "/"
+                  : `/${currentSlug}`}
+              </div>
             </div>
             <div>
               <ThemedSite
-                blocks={blocks}
+                blocks={currentBlocks}
                 theme={theme}
                 siteId={id}
                 ownerWallet={cryptoWallet}

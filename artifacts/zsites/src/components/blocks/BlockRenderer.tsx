@@ -20,25 +20,26 @@ export interface BlockRendererProps {
   siteId: number;
   ownerWallet?: string;
   isPreview?: boolean;
+  siteSubdomain?: string;
 }
 
-export function BlockRenderer({ block, siteId, ownerWallet, isPreview }: BlockRendererProps) {
-  const ctx = { siteId, ownerWallet, isPreview };
+export function BlockRenderer({ block, siteId, ownerWallet, isPreview, siteSubdomain }: BlockRendererProps) {
+  const ctx = { siteId, ownerWallet, isPreview, siteSubdomain };
   switch (block.type) {
     case "nav":
-      return <NavBlock props={block.props} />;
+      return <NavBlock props={block.props} ctx={ctx} />;
     case "hero":
-      return <HeroBlock props={block.props} />;
+      return <HeroBlock props={block.props} ctx={ctx} />;
     case "features":
       return <FeaturesBlock props={block.props} />;
     case "pricing":
-      return <PricingBlock props={block.props} />;
+      return <PricingBlock props={block.props} ctx={ctx} />;
     case "testimonials":
       return <TestimonialsBlock props={block.props} />;
     case "faq":
       return <FaqBlock props={block.props} />;
     case "cta":
-      return <CtaBlock props={block.props} />;
+      return <CtaBlock props={block.props} ctx={ctx} />;
     case "text":
       return <TextBlock props={block.props} />;
     case "image":
@@ -50,7 +51,7 @@ export function BlockRenderer({ block, siteId, ownerWallet, isPreview }: BlockRe
     case "crypto_checkout":
       return <CryptoCheckoutBlock props={block.props} ctx={ctx} />;
     case "footer":
-      return <FooterBlock props={block.props} />;
+      return <FooterBlock props={block.props} ctx={ctx} />;
     default:
       return (
         <div className="px-6 py-8 text-center text-sm opacity-60">
@@ -66,12 +67,14 @@ export function ThemedSite({
   siteId,
   ownerWallet,
   isPreview,
+  siteSubdomain,
 }: {
   blocks: SiteBlock[];
   theme: SiteTheme;
   siteId: number;
   ownerWallet?: string;
   isPreview?: boolean;
+  siteSubdomain?: string;
 }) {
   const style: React.CSSProperties = {
     background: theme.backgroundColor,
@@ -93,6 +96,7 @@ export function ThemedSite({
           siteId={siteId}
           ownerWallet={ownerWallet}
           isPreview={isPreview}
+          siteSubdomain={siteSubdomain}
         />
       ))}
     </div>

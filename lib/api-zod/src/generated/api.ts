@@ -47,6 +47,44 @@ export const GetSitesDashboardSummaryResponse = zod.object({
           })
           .describe("A single content block on a site page"),
       ),
+      extraPages: zod
+        .array(
+          zod
+            .object({
+              slug: zod
+                .string()
+                .describe(
+                  'URL-safe page slug (e.g. \"about\", \"pricing\"). Empty string or \"home\" = home page.',
+                ),
+              name: zod
+                .string()
+                .describe(
+                  'Display name shown in the editor and nav (e.g. \"About\")',
+                ),
+              blocks: zod.array(
+                zod
+                  .object({
+                    id: zod.string(),
+                    type: zod
+                      .string()
+                      .describe(
+                        "hero | features | pricing | faq | cta | testimonials | text | image | gallery | crypto_checkout | lead_form | footer | nav",
+                      ),
+                    props: zod.record(zod.string(), zod.unknown()),
+                  })
+                  .describe("A single content block on a site page"),
+              ),
+              seo: zod.object({
+                title: zod.string(),
+                description: zod.string(),
+                ogImageUrl: zod.string().optional(),
+              }),
+            })
+            .describe("A single page within a site (home is the default page)"),
+        )
+        .describe(
+          "Additional pages beyond the home page (about, pricing, contact, etc.)",
+        ),
       theme: zod
         .object({
           primaryColor: zod.string(),
@@ -111,6 +149,42 @@ export const ListSiteTemplatesResponseItem = zod.object({
           })
           .describe("A single content block on a site page"),
       ),
+      extraPages: zod
+        .array(
+          zod
+            .object({
+              slug: zod
+                .string()
+                .describe(
+                  'URL-safe page slug (e.g. \"about\", \"pricing\"). Empty string or \"home\" = home page.',
+                ),
+              name: zod
+                .string()
+                .describe(
+                  'Display name shown in the editor and nav (e.g. \"About\")',
+                ),
+              blocks: zod.array(
+                zod
+                  .object({
+                    id: zod.string(),
+                    type: zod
+                      .string()
+                      .describe(
+                        "hero | features | pricing | faq | cta | testimonials | text | image | gallery | crypto_checkout | lead_form | footer | nav",
+                      ),
+                    props: zod.record(zod.string(), zod.unknown()),
+                  })
+                  .describe("A single content block on a site page"),
+              ),
+              seo: zod.object({
+                title: zod.string(),
+                description: zod.string(),
+                ogImageUrl: zod.string().optional(),
+              }),
+            })
+            .describe("A single page within a site (home is the default page)"),
+        )
+        .describe("Additional generated pages (about, pricing, contact, etc.)"),
       theme: zod
         .object({
           primaryColor: zod.string(),
@@ -165,6 +239,42 @@ export const GenerateSiteWithAiResponse = zod
         })
         .describe("A single content block on a site page"),
     ),
+    extraPages: zod
+      .array(
+        zod
+          .object({
+            slug: zod
+              .string()
+              .describe(
+                'URL-safe page slug (e.g. \"about\", \"pricing\"). Empty string or \"home\" = home page.',
+              ),
+            name: zod
+              .string()
+              .describe(
+                'Display name shown in the editor and nav (e.g. \"About\")',
+              ),
+            blocks: zod.array(
+              zod
+                .object({
+                  id: zod.string(),
+                  type: zod
+                    .string()
+                    .describe(
+                      "hero | features | pricing | faq | cta | testimonials | text | image | gallery | crypto_checkout | lead_form | footer | nav",
+                    ),
+                  props: zod.record(zod.string(), zod.unknown()),
+                })
+                .describe("A single content block on a site page"),
+            ),
+            seo: zod.object({
+              title: zod.string(),
+              description: zod.string(),
+              ogImageUrl: zod.string().optional(),
+            }),
+          })
+          .describe("A single page within a site (home is the default page)"),
+      )
+      .describe("Additional generated pages (about, pricing, contact, etc.)"),
     theme: zod
       .object({
         primaryColor: zod.string(),
@@ -207,6 +317,44 @@ export const ListSitesResponseItem = zod.object({
       })
       .describe("A single content block on a site page"),
   ),
+  extraPages: zod
+    .array(
+      zod
+        .object({
+          slug: zod
+            .string()
+            .describe(
+              'URL-safe page slug (e.g. \"about\", \"pricing\"). Empty string or \"home\" = home page.',
+            ),
+          name: zod
+            .string()
+            .describe(
+              'Display name shown in the editor and nav (e.g. \"About\")',
+            ),
+          blocks: zod.array(
+            zod
+              .object({
+                id: zod.string(),
+                type: zod
+                  .string()
+                  .describe(
+                    "hero | features | pricing | faq | cta | testimonials | text | image | gallery | crypto_checkout | lead_form | footer | nav",
+                  ),
+                props: zod.record(zod.string(), zod.unknown()),
+              })
+              .describe("A single content block on a site page"),
+          ),
+          seo: zod.object({
+            title: zod.string(),
+            description: zod.string(),
+            ogImageUrl: zod.string().optional(),
+          }),
+        })
+        .describe("A single page within a site (home is the default page)"),
+    )
+    .describe(
+      "Additional pages beyond the home page (about, pricing, contact, etc.)",
+    ),
   theme: zod
     .object({
       primaryColor: zod.string(),
@@ -254,6 +402,42 @@ export const CreateSiteBody = zod.object({
       })
       .describe("A single content block on a site page"),
   ),
+  extraPages: zod
+    .array(
+      zod
+        .object({
+          slug: zod
+            .string()
+            .describe(
+              'URL-safe page slug (e.g. \"about\", \"pricing\"). Empty string or \"home\" = home page.',
+            ),
+          name: zod
+            .string()
+            .describe(
+              'Display name shown in the editor and nav (e.g. \"About\")',
+            ),
+          blocks: zod.array(
+            zod
+              .object({
+                id: zod.string(),
+                type: zod
+                  .string()
+                  .describe(
+                    "hero | features | pricing | faq | cta | testimonials | text | image | gallery | crypto_checkout | lead_form | footer | nav",
+                  ),
+                props: zod.record(zod.string(), zod.unknown()),
+              })
+              .describe("A single content block on a site page"),
+          ),
+          seo: zod.object({
+            title: zod.string(),
+            description: zod.string(),
+            ogImageUrl: zod.string().optional(),
+          }),
+        })
+        .describe("A single page within a site (home is the default page)"),
+    )
+    .optional(),
   theme: zod
     .object({
       primaryColor: zod.string(),
@@ -299,6 +483,44 @@ export const GetSiteResponse = zod.object({
       })
       .describe("A single content block on a site page"),
   ),
+  extraPages: zod
+    .array(
+      zod
+        .object({
+          slug: zod
+            .string()
+            .describe(
+              'URL-safe page slug (e.g. \"about\", \"pricing\"). Empty string or \"home\" = home page.',
+            ),
+          name: zod
+            .string()
+            .describe(
+              'Display name shown in the editor and nav (e.g. \"About\")',
+            ),
+          blocks: zod.array(
+            zod
+              .object({
+                id: zod.string(),
+                type: zod
+                  .string()
+                  .describe(
+                    "hero | features | pricing | faq | cta | testimonials | text | image | gallery | crypto_checkout | lead_form | footer | nav",
+                  ),
+                props: zod.record(zod.string(), zod.unknown()),
+              })
+              .describe("A single content block on a site page"),
+          ),
+          seo: zod.object({
+            title: zod.string(),
+            description: zod.string(),
+            ogImageUrl: zod.string().optional(),
+          }),
+        })
+        .describe("A single page within a site (home is the default page)"),
+    )
+    .describe(
+      "Additional pages beyond the home page (about, pricing, contact, etc.)",
+    ),
   theme: zod
     .object({
       primaryColor: zod.string(),
@@ -351,6 +573,42 @@ export const UpdateSiteBody = zod.object({
         .describe("A single content block on a site page"),
     )
     .optional(),
+  extraPages: zod
+    .array(
+      zod
+        .object({
+          slug: zod
+            .string()
+            .describe(
+              'URL-safe page slug (e.g. \"about\", \"pricing\"). Empty string or \"home\" = home page.',
+            ),
+          name: zod
+            .string()
+            .describe(
+              'Display name shown in the editor and nav (e.g. \"About\")',
+            ),
+          blocks: zod.array(
+            zod
+              .object({
+                id: zod.string(),
+                type: zod
+                  .string()
+                  .describe(
+                    "hero | features | pricing | faq | cta | testimonials | text | image | gallery | crypto_checkout | lead_form | footer | nav",
+                  ),
+                props: zod.record(zod.string(), zod.unknown()),
+              })
+              .describe("A single content block on a site page"),
+          ),
+          seo: zod.object({
+            title: zod.string(),
+            description: zod.string(),
+            ogImageUrl: zod.string().optional(),
+          }),
+        })
+        .describe("A single page within a site (home is the default page)"),
+    )
+    .optional(),
   theme: zod
     .object({
       primaryColor: zod.string(),
@@ -392,6 +650,44 @@ export const UpdateSiteResponse = zod.object({
       })
       .describe("A single content block on a site page"),
   ),
+  extraPages: zod
+    .array(
+      zod
+        .object({
+          slug: zod
+            .string()
+            .describe(
+              'URL-safe page slug (e.g. \"about\", \"pricing\"). Empty string or \"home\" = home page.',
+            ),
+          name: zod
+            .string()
+            .describe(
+              'Display name shown in the editor and nav (e.g. \"About\")',
+            ),
+          blocks: zod.array(
+            zod
+              .object({
+                id: zod.string(),
+                type: zod
+                  .string()
+                  .describe(
+                    "hero | features | pricing | faq | cta | testimonials | text | image | gallery | crypto_checkout | lead_form | footer | nav",
+                  ),
+                props: zod.record(zod.string(), zod.unknown()),
+              })
+              .describe("A single content block on a site page"),
+          ),
+          seo: zod.object({
+            title: zod.string(),
+            description: zod.string(),
+            ogImageUrl: zod.string().optional(),
+          }),
+        })
+        .describe("A single page within a site (home is the default page)"),
+    )
+    .describe(
+      "Additional pages beyond the home page (about, pricing, contact, etc.)",
+    ),
   theme: zod
     .object({
       primaryColor: zod.string(),
@@ -455,6 +751,44 @@ export const PublishSiteResponse = zod.object({
       })
       .describe("A single content block on a site page"),
   ),
+  extraPages: zod
+    .array(
+      zod
+        .object({
+          slug: zod
+            .string()
+            .describe(
+              'URL-safe page slug (e.g. \"about\", \"pricing\"). Empty string or \"home\" = home page.',
+            ),
+          name: zod
+            .string()
+            .describe(
+              'Display name shown in the editor and nav (e.g. \"About\")',
+            ),
+          blocks: zod.array(
+            zod
+              .object({
+                id: zod.string(),
+                type: zod
+                  .string()
+                  .describe(
+                    "hero | features | pricing | faq | cta | testimonials | text | image | gallery | crypto_checkout | lead_form | footer | nav",
+                  ),
+                props: zod.record(zod.string(), zod.unknown()),
+              })
+              .describe("A single content block on a site page"),
+          ),
+          seo: zod.object({
+            title: zod.string(),
+            description: zod.string(),
+            ogImageUrl: zod.string().optional(),
+          }),
+        })
+        .describe("A single page within a site (home is the default page)"),
+    )
+    .describe(
+      "Additional pages beyond the home page (about, pricing, contact, etc.)",
+    ),
   theme: zod
     .object({
       primaryColor: zod.string(),
@@ -506,6 +840,40 @@ export const GetPublicSiteBySubdomainResponse = zod
           props: zod.record(zod.string(), zod.unknown()),
         })
         .describe("A single content block on a site page"),
+    ),
+    extraPages: zod.array(
+      zod
+        .object({
+          slug: zod
+            .string()
+            .describe(
+              'URL-safe page slug (e.g. \"about\", \"pricing\"). Empty string or \"home\" = home page.',
+            ),
+          name: zod
+            .string()
+            .describe(
+              'Display name shown in the editor and nav (e.g. \"About\")',
+            ),
+          blocks: zod.array(
+            zod
+              .object({
+                id: zod.string(),
+                type: zod
+                  .string()
+                  .describe(
+                    "hero | features | pricing | faq | cta | testimonials | text | image | gallery | crypto_checkout | lead_form | footer | nav",
+                  ),
+                props: zod.record(zod.string(), zod.unknown()),
+              })
+              .describe("A single content block on a site page"),
+          ),
+          seo: zod.object({
+            title: zod.string(),
+            description: zod.string(),
+            ogImageUrl: zod.string().optional(),
+          }),
+        })
+        .describe("A single page within a site (home is the default page)"),
     ),
     theme: zod
       .object({

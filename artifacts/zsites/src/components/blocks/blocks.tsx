@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { DynamicIcon } from "./icon";
 import { CryptoCheckoutModal } from "./CryptoCheckoutModal";
 import { useSubmitLead } from "@workspace/api-client-react";
@@ -19,30 +20,112 @@ interface RenderContext {
   siteId: number;
   ownerWallet?: string;
   isPreview?: boolean;
+  siteSubdomain?: string;
 }
 
-export function NavBlock({ props }: { props: Props }) {
+function isInternalPageHref(href: string): boolean {
+  if (!href) return false;
+  if (href.startsWith("#")) return false;
+  if (/^(?:https?:|mailto:|tel:|\/\/)/i.test(href)) return false;
+  return href.startsWith("/");
+}
+
+const SAFE_PROTOCOL_RE = /^(?:https?:|mailto:|tel:)/i;
+
+function sanitizeHref(href: string): string {
+  const trimmed = (href ?? "").trim();
+  if (!trimmed) return "#";
+  if (trimmed.startsWith("#")) return trimmed;
+  if (trimmed.startsWith("/")) {
+    if (trimmed.startsWith("//")) return "#";
+    return trimmed;
+  }
+  if (SAFE_PROTOCOL_RE.test(trimmed)) return trimmed;
+  return "#";
+}
+
+function SmartLink({
+  href,
+  ctx,
+  className,
+  style,
+  children,
+}: {
+  href: string;
+  ctx?: RenderContext;
+  className?: string;
+  style?: React.CSSProperties;
+  children: React.ReactNode;
+}) {
+  const [, setLocation] = useLocation();
+  const safeHref = sanitizeHref(href);
+  const internal = isInternalPageHref(safeHref);
+
+  function resolve(): string {
+    if (!internal) return safeHref;
+    const slug = safeHref === "/" ? "" : safeHref.replace(/^\/+/, "").replace(/\/.*$/, "");
+    if (ctx?.siteSubdomain) {
+      return slug ? `/p/${ctx.siteSubdomain}/${slug}` : `/p/${ctx.siteSubdomain}`;
+    }
+    return safeHref;
+  }
+
+  function onClick(e: React.MouseEvent<HTMLAnchorElement>) {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
+    if (ctx?.isPreview) {
+      e.preventDefault();
+      if (internal) toast.message("Preview mode — page navigation disabled");
+      return;
+    }
+    if (internal && ctx?.siteSubdomain) {
+      e.preventDefault();
+      const target = resolve();
+      setLocation(target);
+    }
+  }
+
+  const target = !internal && /^https?:/i.test(safeHref) ? "_blank" : undefined;
+  const rel = target === "_blank" ? "noreferrer noopener" : undefined;
+
+  return (
+    <a
+      href={resolve()}
+      onClick={onClick}
+      className={className}
+      style={style}
+      target={target}
+      rel={rel}
+    >
+      {children}
+    </a>
+  );
+}
+
+export function NavBlock({ props, ctx }: { props: Props; ctx?: RenderContext }) {
   const brandName = get<string>(props, "brandName", "");
   const links = get<{ label: string; href: string }[]>(props, "links", []);
   return (
     <nav className="flex items-center justify-between border-b border-current/10 px-6 py-4">
-      <div className="text-lg font-semibold">{brandName}</div>
+      <SmartLink href="/" ctx={ctx} className="text-lg font-semibold">
+        {brandName}
+      </SmartLink>
       <div className="hidden gap-6 md:flex">
         {links.map((l, i) => (
-          <a
+          <SmartLink
             key={i}
             href={l.href || "#"}
+            ctx={ctx}
             className="text-sm opacity-80 hover:opacity-100 transition"
           >
             {l.label}
-          </a>
+          </SmartLink>
         ))}
       </div>
     </nav>
   );
 }
 
-export function HeroBlock({ props }: { props: Props }) {
+export function HeroBlock({ props, ctx }: { props: Props; ctx?: RenderContext }) {
   const eyebrow = get<string>(props, "eyebrow", "");
   const headline = get<string>(props, "headline", "");
   const subhead = get<string>(props, "subhead", "");
@@ -63,22 +146,24 @@ export function HeroBlock({ props }: { props: Props }) {
         ) : null}
         <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
           {primary ? (
-            <a
-              href={primary.href || "#"}
+            <SmartLink
+              href={primary.href}
+              ctx={ctx}
               className="inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-semibold"
               style={{ background: "var(--zs-primary)", color: "var(--zs-bg)" }}
             >
               {primary.label}
               <ArrowRight className="h-4 w-4" />
-            </a>
+            </SmartLink>
           ) : null}
           {secondary ? (
-            <a
-              href={secondary.href || "#"}
+            <SmartLink
+              href={secondary.href}
+              ctx={ctx}
               className="inline-flex items-center gap-2 rounded-full border border-current/20 px-6 py-3 text-sm font-semibold opacity-90 hover:opacity-100"
             >
               {secondary.label}
-            </a>
+            </SmartLink>
           ) : null}
         </div>
         {imageUrl ? (
@@ -115,7 +200,7 @@ export function FeaturesBlock({ props }: { props: Props }) {
   );
 }
 
-export function PricingBlock({ props }: { props: Props }) {
+export function PricingBlock({ props, ctx }: { props: Props; ctx?: RenderContext }) {
   const title = get<string>(props, "title", "");
   const plans = get<
     {
@@ -159,8 +244,9 @@ export function PricingBlock({ props }: { props: Props }) {
                 ))}
               </ul>
               {plan.cta ? (
-                <a
-                  href={plan.cta.href || "#"}
+                <SmartLink
+                  href={plan.cta.href}
+                  ctx={ctx}
                   className={`mt-8 inline-flex w-full items-center justify-center rounded-full px-4 py-2 text-sm font-semibold ${
                     plan.featured
                       ? "bg-current/90 text-white"
@@ -173,7 +259,7 @@ export function PricingBlock({ props }: { props: Props }) {
                   }
                 >
                   {plan.cta.label}
-                </a>
+                </SmartLink>
               ) : null}
             </div>
           ))}
@@ -229,7 +315,7 @@ export function FaqBlock({ props }: { props: Props }) {
   );
 }
 
-export function CtaBlock({ props }: { props: Props }) {
+export function CtaBlock({ props, ctx }: { props: Props; ctx?: RenderContext }) {
   const headline = get<string>(props, "headline", "");
   const subhead = get<string>(props, "subhead", "");
   const button = get<{ label: string; href: string } | undefined>(props, "button", undefined);
@@ -242,13 +328,14 @@ export function CtaBlock({ props }: { props: Props }) {
         <h2 className="text-3xl md:text-4xl font-bold">{headline}</h2>
         {subhead ? <p className="mt-4 opacity-80">{subhead}</p> : null}
         {button ? (
-          <a
-            href={button.href || "#"}
+          <SmartLink
+            href={button.href}
+            ctx={ctx}
             className="mt-8 inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-semibold"
             style={{ background: "var(--zs-primary)", color: "var(--zs-bg)" }}
           >
             {button.label}
-          </a>
+          </SmartLink>
         ) : null}
       </div>
     </section>
@@ -539,7 +626,7 @@ export function CryptoCheckoutBlock({
   );
 }
 
-export function FooterBlock({ props }: { props: Props }) {
+export function FooterBlock({ props, ctx }: { props: Props; ctx?: RenderContext }) {
   const tagline = get<string>(props, "tagline", "");
   const columns = get<
     { title: string; links: { label: string; href: string }[] }[]
@@ -557,12 +644,13 @@ export function FooterBlock({ props }: { props: Props }) {
             <ul className="space-y-2">
               {(c.links ?? []).map((l, j) => (
                 <li key={j}>
-                  <a
+                  <SmartLink
                     href={l.href || "#"}
+                    ctx={ctx}
                     className="text-sm opacity-70 hover:opacity-100"
                   >
                     {l.label}
-                  </a>
+                  </SmartLink>
                 </li>
               ))}
             </ul>

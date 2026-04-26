@@ -25,6 +25,24 @@ export interface SiteBlock {
   props: SiteBlockProps;
 }
 
+export interface SiteSeo {
+  title: string;
+  description: string;
+  ogImageUrl?: string;
+}
+
+/**
+ * A single page within a site (home is the default page)
+ */
+export interface SitePage {
+  /** URL-safe page slug (e.g. "about", "pricing"). Empty string or "home" = home page. */
+  slug: string;
+  /** Display name shown in the editor and nav (e.g. "About") */
+  name: string;
+  blocks: SiteBlock[];
+  seo: SiteSeo;
+}
+
 /**
  * Visual theme for the rendered site
  */
@@ -39,12 +57,6 @@ export interface SiteTheme {
   mode: string;
 }
 
-export interface SiteSeo {
-  title: string;
-  description: string;
-  ogImageUrl?: string;
-}
-
 export interface Site {
   id: number;
   userId: string;
@@ -52,6 +64,8 @@ export interface Site {
   title: string;
   description: string;
   blocks: SiteBlock[];
+  /** Additional pages beyond the home page (about, pricing, contact, etc.) */
+  extraPages: SitePage[];
   theme: SiteTheme;
   seo: SiteSeo;
   /** Owner's payout wallet address (hex) */
@@ -71,6 +85,7 @@ export interface PublicSite {
   title: string;
   description: string;
   blocks: SiteBlock[];
+  extraPages: SitePage[];
   theme: SiteTheme;
   seo: SiteSeo;
   cryptoWallet?: string;
@@ -83,6 +98,8 @@ export interface SiteDraft {
   title: string;
   description: string;
   blocks: SiteBlock[];
+  /** Additional generated pages (about, pricing, contact, etc.) */
+  extraPages: SitePage[];
   theme: SiteTheme;
   seo: SiteSeo;
   suggestedSubdomain: string;
@@ -109,6 +126,7 @@ export interface CreateSiteBody {
   subdomain: string;
   description: string;
   blocks: SiteBlock[];
+  extraPages?: SitePage[];
   theme: SiteTheme;
   seo: SiteSeo;
   cryptoWallet?: string;
@@ -119,6 +137,7 @@ export interface UpdateSiteBody {
   subdomain?: string;
   description?: string;
   blocks?: SiteBlock[];
+  extraPages?: SitePage[];
   theme?: SiteTheme;
   seo?: SiteSeo;
   cryptoWallet?: string;

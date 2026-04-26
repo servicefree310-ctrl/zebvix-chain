@@ -166,6 +166,7 @@ function Router() {
           <Route path="/sign-in/*?" component={SignInPage} />
           <Route path="/sign-up/*?" component={SignUpPage} />
           <Route path="/p/:subdomain" component={PublicSite} />
+          <Route path="/p/:subdomain/:page" component={PublicSite} />
           <Route path="/dashboard"><ProtectedRoute component={Dashboard} /></Route>
           <Route path="/sites/new"><ProtectedRoute component={NewSite} /></Route>
           <Route path="/templates"><ProtectedRoute component={Templates} /></Route>
