@@ -6,9 +6,11 @@ import {
   RefreshCw, Download, Copy, Check, ExternalLink, Clock, Zap, Hash,
   ChevronRight, Activity, Banknote, ArrowDownToLine, ArrowUpFromLine,
   Star, History, Landmark, BookmarkPlus, X, CheckCircle2,
+  UserCircle2, Loader2, Sparkles,
 } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { useWallet } from "@/contexts/wallet-context";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Magic addresses — mirrored byte-for-byte from zebvix-chain/src/tokenomics.rs
@@ -278,12 +280,25 @@ const ROLE_META: Record<AddressRole, { label: string; color: string; icon: React
 // ────────────────────────────────────────────────────────────────────────────
 // MAIN COMPONENT
 // ────────────────────────────────────────────────────────────────────────────
-export default function BalanceLookup() {
-  const initialAddr = readQueryAddr() ?? "0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc";
-  const [, navigate] = useLocation();
+// Demo address used as the *very last* fallback if the user has no active
+// wallet AND no `?addr=` query param AND we have to render something.
+const FALLBACK_DEMO_ADDR = "0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc";
 
-  const [addr, setAddr] = useState(initialAddr);
+export default function BalanceLookup() {
+  const queryAddr = useMemo(() => readQueryAddr(), []);
+  const [, navigate] = useLocation();
+  // Pull the active wallet so the search auto-prefills with the user's own
+  // address. `active` may be null on the very first render (the wallet
+  // context loads in its own useEffect) — the boot useEffect below handles
+  // that race.
+  const { active } = useWallet();
+
+  const [addr, setAddr] = useState(queryAddr ?? "");
+  // `loading` covers ONLY the fast path (liquid balance + price + tip) so
+  // the user sees the headline number quickly. `enriching` covers the
+  // secondary fan-out (validators / multisig / contract / staking / etc.).
   const [loading, setLoading] = useState(false);
+  const [enriching, setEnriching] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const [data, setData] = useState<{
@@ -340,28 +355,99 @@ export default function BalanceLookup() {
   }, [trimmedAddr, validFmt]);
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Lookup — fans out 14 RPC calls in parallel
+  // Lookup — STAGED for perceived perf.
+  //
+  // Stage 1 (fast path, blocks `loading`): liquid balance + ZBX/USD price
+  //   + chain tip. These are the three numbers needed to render the
+  //   GRAND TOTAL card, so we await *only* them before flipping `loading`
+  //   off and showing the result. Typical latency: ~1 RTT to the RPC node.
+  //
+  // Stage 2 (enrichment, blocks `enriching`): the other 14 calls
+  //   (delegations, locked rewards, validator/staking info, multisigs,
+  //   contract code, Pay-ID, zUSD, LP, governance addresses, etc.). These
+  //   trickle in afterwards and the panels that depend on them swap from
+  //   skeleton/empty to real values. The headline number is already on
+  //   screen, so the page no longer feels frozen for several seconds.
+  //
+  // Cancellation: `lookupSeqRef` carries a per-invocation token. If the
+  //   user fires a second lookup before the first finishes (e.g. types a
+  //   new address mid-flight), the older invocation's setData calls are
+  //   ignored so we don't flicker stale data over the fresh result.
   // ──────────────────────────────────────────────────────────────────────────
-  async function lookup() {
-    if (!validFmt) return;
-    setLoading(true); setErr(null);
-    const a = trimmedAddr;
+  const lookupSeqRef = useRef(0);
+
+  async function lookup(explicitAddr?: string) {
+    // Allow callers (notably the bootstrap useEffect after a `setAddr(...)`)
+    // to pass the address directly so we don't depend on the React state
+    // having flushed yet — `lookup` is recreated each render and the
+    // setTimeout closure would otherwise capture the old `addr`.
+    const a = (explicitAddr ?? addr).trim().toLowerCase();
+    if (!/^0x[0-9a-f]{40}$/.test(a)) return;
+    const seq = ++lookupSeqRef.current;
+    setLoading(true); setErr(null); setEnriching(true);
+
+    // ── Stage 1: liquid balance + price + chain tip ──────────────────────
+    let bal = "0x0";
+    let price = 0;
+    let tipHeight = 0;
+    try {
+      const [b, p, t] = await Promise.all([
+        rpc<string>("zbx_getBalance", [a]).catch(() => "0x0"),
+        rpc<{ zbx_usd: string }>("zbx_getPriceUSD")
+          .then((r) => parseFloat(r?.zbx_usd ?? "0"))
+          .catch(() => 0),
+        rpc<{ height: number }>("zbx_blockNumber").catch(() => ({ height: 0 })),
+      ]);
+      bal = b; price = p; tipHeight = t.height;
+    } catch (e) {
+      if (seq !== lookupSeqRef.current) return;
+      setErr(e instanceof Error ? e.message : String(e));
+      setLoading(false); setEnriching(false);
+      return;
+    }
+    if (seq !== lookupSeqRef.current) return;
+
+    // Render the headline now with empty enrichment fields. Subsequent
+    // panels that depend on enrichment data will render their own
+    // skeleton / "—" placeholder until Stage 2 lands.
+    setData({
+      liquid: bal,
+      delegations: null,
+      locked: null,
+      nonce: 0,
+      payId: null,
+      payIdName: null,
+      zusd: "0x0",
+      priceUsd: price,
+      lpBalance: "0",
+      poolState: null,
+      admin: null,
+      governor: null,
+      validator: null,
+      stakingValidator: null,
+      multisigsOwned: [],
+      isMultisigItself: false,
+      multisigInfo: null,
+      contractCode: null,
+      chainTip: tipHeight,
+    });
+    setLoading(false);
+    pushRecent(a);
+    setRecents(loadRecents());
+
+    // ── Stage 2: enrichment fan-out ──────────────────────────────────────
     try {
       const isAmm = isMagicAddr(a, AMM_POOL_ADDRESS);
       const [
-        bal, delegations, locked, nonce, payIdR, zusd, price, lpBal, poolState,
+        delegations, locked, nonce, payIdR, zusd, lpBal, poolState,
         adminR, governorR, validatorR, stakingValR, multisigsOwned, multisigSelf,
-        codeR, tipR,
+        codeR,
       ] = await Promise.all([
-        rpc<string>("zbx_getBalance", [a]).catch(() => "0x0"),
         rpc<DelegationsRes>("zbx_getDelegationsByDelegator", [a]).catch(() => null),
         rpc<LockedRes>("zbx_getLockedRewards", [a]).catch(() => null),
         rpc<unknown>("zbx_getNonce", [a]).catch(() => 0),
         rpc<PayIdRes>("zbx_getPayIdOf", [a]).catch(() => null),
         rpc<string>("zbx_getZusdBalance", [a]).catch(() => "0x0"),
-        rpc<{ zbx_usd: string }>("zbx_getPriceUSD")
-          .then((r) => parseFloat(r?.zbx_usd ?? "0"))
-          .catch(() => 0),
         rpc<string>("zbx_getLpBalance", [a]).catch(() => "0"),
         isAmm ? rpc<PoolStateRes>("zbx_getPool").catch(() => null) : Promise.resolve<PoolStateRes | null>(null),
         rpc<AdminRes>("zbx_getAdmin").catch(() => null),
@@ -377,20 +463,20 @@ export default function BalanceLookup() {
             return null;
           }),
         rpc<string>("eth_getCode", [a, "latest"]).catch(() => null),
-        rpc<{ height: number }>("zbx_blockNumber").catch(() => ({ height: 0 })),
       ]);
+
+      if (seq !== lookupSeqRef.current) return; // stale invocation
 
       const hasCode = !!codeR && codeR !== "0x" && codeR !== "0x0";
 
-      setData({
-        liquid: bal,
+      setData((prev) => prev ? ({
+        ...prev,
         delegations,
         locked: normalizeLocked(locked),
         nonce: parseNonce(nonce),
         payId: payIdR?.pay_id ?? null,
         payIdName: payIdR?.name ?? null,
         zusd,
-        priceUsd: price,
         lpBalance: lpBal,
         poolState,
         admin: adminR?.current_admin ?? null,
@@ -401,14 +487,15 @@ export default function BalanceLookup() {
         isMultisigItself: !!multisigSelf,
         multisigInfo: multisigSelf ?? null,
         contractCode: hasCode ? codeR : null,
-        chainTip: tipR.height,
-      });
-      pushRecent(a);
-      setRecents(loadRecents());
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      }) : prev);
+    } catch {
+      // Don't blow away the fast-path data on enrichment failure — the
+      // headline number is still accurate and the panels that need
+      // enrichment will simply show empty / "—". We intentionally swallow
+      // here because each individual rpc<>() above already has its own
+      // .catch fallback; reaching this block means something truly unusual.
     } finally {
-      setLoading(false);
+      if (seq === lookupSeqRef.current) setEnriching(false);
     }
   }
 
@@ -421,13 +508,16 @@ export default function BalanceLookup() {
     }
   }
 
-  async function scanTxs(window: number) {
-    if (scanning || !validFmt) return;
+  async function scanTxs(window: number, explicitAddr?: string) {
+    // Like `lookup`, allow callers to pass the address directly so we
+    // don't depend on `addr` state having been flushed yet.
+    const target = (explicitAddr ?? addr).trim();
+    if (scanning || !/^0x[0-9a-f]{40}$/.test(target.toLowerCase())) return;
     setScanning(true); setScanErr(null); setTxs([]); cancelRef.current = false;
     try {
       const tip = await rpc<{ height: number }>("zbx_blockNumber");
       const tipH = tip.height;
-      const lower = lc(addr);
+      const lower = lc(target);
       const heights: number[] = [];
       for (let i = 0; i < window; i++) {
         const h = tipH - i;
@@ -480,10 +570,56 @@ export default function BalanceLookup() {
   // ──────────────────────────────────────────────────────────────────────────
   // Effects
   // ──────────────────────────────────────────────────────────────────────────
+  // Bootstrap order of preference for the initial address:
+  //   1. `?addr=` query param  — the user clicked a link / shared deeplink
+  //   2. `active.address`       — the user's currently-active wallet
+  //   3. FALLBACK_DEMO_ADDR     — last-resort placeholder so the page is
+  //                                still useful for visitors without a
+  //                                wallet set up.
+  //
+  // The wallet context loads in its own useEffect, so `active` is null on
+  // the very first render. We therefore wait one tick for it to populate
+  // before falling back to the demo address.
+  const bootedRef = useRef(false);
   useEffect(() => {
-    lookup(); scanTxs(500); loadMempool();
-    return () => { cancelRef.current = true; };
+    if (bootedRef.current) return;
+    if (queryAddr) {
+      bootedRef.current = true;
+      // `addr` was already initialised from the query param in useState,
+      // so we just kick off the network calls. We still pass the address
+      // explicitly so we don't depend on the React state having flushed.
+      lookup(queryAddr); scanTxs(500, queryAddr); loadMempool();
+      return;
+    }
+    if (active?.address) {
+      bootedRef.current = true;
+      const a = active.address;
+      setAddr(a);
+      lookup(a); scanTxs(500, a); loadMempool();
+    }
+  }, [active, queryAddr]);
+  // Last-resort fallback if no active wallet ever materialises (visitor
+  // without a wallet, or wallet context not used). 300 ms is generous for
+  // localStorage-backed context that loads synchronously in its first
+  // useEffect.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (bootedRef.current) return;
+      bootedRef.current = true;
+      setAddr(FALLBACK_DEMO_ADDR);
+      // Pass the address explicitly so we don't depend on the React state
+      // having flushed yet — `lookup`/`scanTxs` close over the old `addr`
+      // from the render in which this useEffect was scheduled.
+      lookup(FALLBACK_DEMO_ADDR);
+      scanTxs(500, FALLBACK_DEMO_ADDR);
+      loadMempool();
+    }, 300);
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Cleanup any in-flight tx scan on unmount.
+  useEffect(() => {
+    return () => { cancelRef.current = true; };
   }, []);
 
   useEffect(() => {
@@ -640,7 +776,7 @@ export default function BalanceLookup() {
           </div>
         </div>
         <p className="text-lg text-muted-foreground max-w-3xl">
-          Aggregate live state for any Zebvix address — balances, identity, roles, mempool, history. Fans out 17 RPC calls in parallel.
+          Aggregate live state for any Zebvix address — balances, identity, roles, mempool, history. The headline balance lands in one round-trip; the rest streams in.
         </p>
 
         <div className="border-l-4 border-l-emerald-500/50 bg-emerald-500/5 p-3 rounded-md flex gap-3 max-w-3xl">
@@ -655,32 +791,82 @@ export default function BalanceLookup() {
       </div>
 
       {/* ADDRESS INPUT */}
-      <div className="space-y-2">
-        <div className="flex gap-2">
-          <input
-            value={addr}
-            onChange={(e) => setAddr(e.target.value.trim())}
-            placeholder="0x... 40 hex chars (Zebvix address)"
-            className={`flex-1 px-3 py-2 rounded-md bg-background border font-mono text-sm focus:outline-none focus:ring-2 ${
-              !validFmt && trimmedAddr ? "border-rose-500/50 focus:ring-rose-500" : "border-border focus:ring-primary"}`}
-            onKeyDown={(e) => { if (e.key === "Enter" && validFmt) { lookup(); scanTxs(500); loadMempool(); } }}
-          />
-          <button
-            onClick={() => { lookup(); scanTxs(500); loadMempool(); }}
-            disabled={loading || !validFmt}
-            className="px-4 py-2 rounded-md bg-primary text-primary-foreground font-medium text-sm disabled:opacity-40 hover:bg-primary/90 flex items-center gap-2"
-            title={!validFmt && trimmedAddr ? fmtReason : ""}
-          >
-            <Search className="h-4 w-4" /> {loading ? "…" : "Lookup"}
-          </button>
-          <button
-            onClick={copyAddr} disabled={!validFmt}
-            className="px-3 py-2 rounded-md bg-muted hover:bg-muted/70 text-xs disabled:opacity-40"
-            title="copy address"
-          >
-            {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
-          </button>
+      <div className="space-y-2" data-testid="balance-lookup-search">
+        <div className={`flex flex-col sm:flex-row gap-2 p-2 rounded-xl border transition-colors ${
+          !validFmt && trimmedAddr
+            ? "border-rose-500/50 bg-rose-500/5"
+            : "border-border bg-card/40 focus-within:border-primary/60 focus-within:bg-card/60"
+        }`}>
+          <div className="flex items-center gap-2 flex-1 px-2">
+            <Search className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+            <input
+              value={addr}
+              onChange={(e) => setAddr(e.target.value.trim())}
+              placeholder="0x... 40 hex chars (Zebvix address)"
+              data-testid="input-balance-lookup-address"
+              className="flex-1 bg-transparent border-0 font-mono text-sm focus:outline-none placeholder:text-muted-foreground/60"
+              onKeyDown={(e) => { if (e.key === "Enter" && validFmt) { lookup(); scanTxs(500); loadMempool(); } }}
+            />
+            {addr && (
+              <button
+                onClick={() => setAddr("")}
+                className="p-1 rounded hover:bg-muted/60 text-muted-foreground"
+                title="clear"
+                data-testid="button-balance-lookup-clear"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {active?.address && active.address.toLowerCase() !== trimmedAddr.toLowerCase() && (
+              <button
+                onClick={() => {
+                  // Pass address explicitly — `lookup`/`scanTxs` are
+                  // recreated each render and the closures used by a zero
+                  // setTimeout would otherwise still see the previous
+                  // `addr`, fetching data for the wrong wallet while the
+                  // input shows the new one.
+                  const a = active.address;
+                  setAddr(a);
+                  lookup(a); scanTxs(500, a); loadMempool();
+                }}
+                className="px-3 py-2 rounded-md bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-xs font-semibold flex items-center gap-1.5 border border-emerald-500/30 transition"
+                title={`Use your active wallet ${shortAddr(active.address)}`}
+                data-testid="button-balance-lookup-use-my-wallet"
+              >
+                <UserCircle2 className="h-3.5 w-3.5" /> Use my wallet
+              </button>
+            )}
+            <button
+              onClick={copyAddr} disabled={!validFmt}
+              className="px-3 py-2 rounded-md bg-muted/60 hover:bg-muted text-xs disabled:opacity-40"
+              title="copy address"
+              data-testid="button-balance-lookup-copy"
+            >
+              {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+            </button>
+            <button
+              onClick={() => { lookup(); scanTxs(500); loadMempool(); }}
+              disabled={loading || !validFmt}
+              className="px-4 py-2 rounded-md bg-primary text-primary-foreground font-medium text-sm disabled:opacity-40 hover:bg-primary/90 flex items-center gap-2"
+              title={!validFmt && trimmedAddr ? fmtReason : ""}
+              data-testid="button-balance-lookup-search"
+            >
+              {loading
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : <Search className="h-4 w-4" />}
+              <span>{loading ? "Loading" : "Lookup"}</span>
+            </button>
+          </div>
         </div>
+        {/* Subtle indicator that more data is streaming in after the headline */}
+        {enriching && !loading && (
+          <div className="flex items-center gap-2 text-[11px] text-muted-foreground pl-2" data-testid="text-balance-lookup-enriching">
+            <Sparkles className="h-3 w-3 text-primary animate-pulse" />
+            <span>Streaming in roles, validators, multisig, contract code…</span>
+          </div>
+        )}
         {!validFmt && trimmedAddr && (
           <div className="text-xs text-rose-400 flex items-center gap-1.5 pl-1">
             <AlertCircle className="h-3 w-3" /> {fmtReason}
@@ -695,7 +881,13 @@ export default function BalanceLookup() {
         {/* RECENTS + BOOKMARKS QUICK BAR */}
         <RecentsBar
           recents={recents} bookmarks={bookmarks}
-          onPick={(a) => { setAddr(a); setTimeout(() => { lookup(); scanTxs(500); loadMempool(); }, 0); }}
+          onPick={(a) => {
+            // Pass the picked address explicitly to lookup()/scanTxs() so we
+            // don't depend on `addr` state having flushed — the closures
+            // would otherwise use the previous address.
+            setAddr(a);
+            lookup(a); scanTxs(500, a); loadMempool();
+          }}
           onAddBookmark={addBookmark} onRemoveBookmark={removeBookmark}
           currentAddr={validFmt ? addr : ""}
         />
@@ -705,6 +897,16 @@ export default function BalanceLookup() {
         <div className="p-3 rounded-md border border-rose-500/40 bg-rose-500/5 text-sm flex gap-2">
           <AlertCircle className="h-4 w-4 text-rose-500 mt-0.5 shrink-0" />
           <code className="text-xs">{err}</code>
+        </div>
+      )}
+
+      {/* Skeleton for the very first round-trip (Stage 1). Once data lands
+          this is replaced by the GRAND TOTAL card below. */}
+      {loading && !data && (
+        <div className="p-5 rounded-lg border-2 border-primary/20 bg-primary/5 animate-pulse" data-testid="text-balance-lookup-loading">
+          <div className="text-xs text-muted-foreground mb-3">Loading balance…</div>
+          <div className="h-10 w-64 rounded bg-primary/15 mb-3" />
+          <div className="h-7 w-40 rounded bg-emerald-500/20" />
         </div>
       )}
 
