@@ -16,7 +16,11 @@ import {
   Link2,
   AlertTriangle,
   ExternalLink,
+  QrCode,
+  Activity,
+  DollarSign,
 } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import { Link as WLink, useSearch, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,15 +68,6 @@ import {
   zbxToWei,
 } from "@/lib/web-wallet";
 import {
-  hasEthProvider,
-  requestAccounts,
-  getCurrentChainIdHex,
-  switchOrAddZebvixChain,
-  sendMmTransaction,
-  onProviderEvents,
-  ZEBVIX_CHAIN_ID_HEX,
-} from "@/lib/metamask";
-import {
   lookupPayIdForward,
   validatePayIdInput,
   type PayIdRecord,
@@ -86,8 +81,13 @@ function copy(text: string, toast: ReturnType<typeof useToast>["toast"], label =
   toast({ title: label, description: text.length > 60 ? text.slice(0, 60) + "…" : text });
 }
 
-const TAB_VALUES = ["send", "metamask", "manage", "history"] as const;
+const TAB_VALUES = ["send", "receive", "manage", "history"] as const;
 type TabValue = (typeof TAB_VALUES)[number];
+
+interface PriceInfo {
+  zbx_usd: string;
+  source: string;
+}
 
 export default function WalletPage() {
   const { toast } = useToast();
@@ -97,6 +97,8 @@ export default function WalletPage() {
   const [balance, setBalance] = useState<string>("—");
   const [nonce, setNonce] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [price, setPrice] = useState<PriceInfo | null>(null);
+  const [tipHeight, setTipHeight] = useState<number | null>(null);
 
   // ── Tab state — driven by `?tab=…` so deep links from the wallet picker
   // (e.g. /wallet?tab=send) land on the right tab instead of always defaulting.
@@ -151,6 +153,44 @@ export default function WalletPage() {
   };
   useEffect(() => { refreshBalance(active); }, [active]);
 
+  // Light, visibility-aware poll for price + tip so the wallet card shows
+  // a live USD valuation and network heartbeat without hammering RPC.
+  useEffect(() => {
+    let cancelled = false;
+    let timer: number | undefined;
+    const tick = async () => {
+      const [pr, tip] = await Promise.all([
+        rpc<PriceInfo>("zbx_getPriceUSD").catch(() => null),
+        rpc<{ height: number }>("zbx_blockNumber").catch(() => null),
+      ]);
+      if (cancelled) return;
+      if (pr) setPrice(pr);
+      if (tip && typeof tip.height === "number") setTipHeight(tip.height);
+    };
+    const start = () => {
+      if (cancelled || timer !== undefined) return;
+      timer = window.setInterval(tick, 15_000);
+    };
+    const stop = () => {
+      if (timer !== undefined) {
+        clearInterval(timer);
+        timer = undefined;
+      }
+    };
+    const onVisibility = () => {
+      if (document.hidden) stop();
+      else { tick(); start(); }
+    };
+    tick();
+    if (!document.hidden) start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      cancelled = true;
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
+
   const onPick = (a: string) => { setActiveAddress(a); setActive(a); };
 
   // ── Mobile-paired wallet override ───────────────────────────────────────
@@ -194,8 +234,9 @@ export default function WalletPage() {
       <div>
         <h1 className="text-3xl font-bold tracking-tight text-foreground mb-3">ZBX Wallet</h1>
         <p className="text-lg text-muted-foreground">
-          Hot-wallet for Zebvix mainnet — native send with confirmation preview, MetaMask
-          flow for Solidity tx, plus live receipt tracking. Chain id <code className="text-xs">0x1ec6</code> · 18 dec ZBX.
+          Production hot wallet for Zebvix mainnet — native send with confirmation preview,
+          QR receive, encrypted local vault, and live receipt tracking. Chain id{" "}
+          <code className="text-xs">0x1ec6</code> · 18 dec ZBX.
         </p>
       </div>
 
@@ -239,14 +280,17 @@ export default function WalletPage() {
         nonce={nonce}
         refreshing={refreshing}
         isRemote={isRemote}
+        price={price}
+        tipHeight={tipHeight}
         onRefresh={() => refreshBalance(activeWallet?.address ?? null)}
         onCopy={(t, l) => copy(t, toast, l)}
+        onReceive={() => onTabChange("receive")}
       />
 
       <Tabs value={tab} onValueChange={onTabChange} className="space-y-4">
         <TabsList className="grid grid-cols-4 w-full">
-          <TabsTrigger value="send" data-testid="tab-send">Send (native)</TabsTrigger>
-          <TabsTrigger value="metamask" data-testid="tab-metamask">MetaMask</TabsTrigger>
+          <TabsTrigger value="send" data-testid="tab-send">Send</TabsTrigger>
+          <TabsTrigger value="receive" data-testid="tab-receive">Receive</TabsTrigger>
           <TabsTrigger value="manage" data-testid="tab-manage">Manage</TabsTrigger>
           <TabsTrigger value="history" data-testid="tab-history">History</TabsTrigger>
         </TabsList>
@@ -261,8 +305,12 @@ export default function WalletPage() {
           />
         </TabsContent>
 
-        <TabsContent value="metamask">
-          <MetaMaskTab onSent={() => setHistory(loadHistory())} />
+        <TabsContent value="receive">
+          <ReceiveTab
+            active={activeWallet}
+            price={price}
+            onCopy={(t, l) => copy(t, toast, l)}
+          />
         </TabsContent>
 
         <TabsContent value="manage">
@@ -294,20 +342,43 @@ function ActiveCard(props: {
   nonce: number | null;
   refreshing: boolean;
   isRemote?: boolean;
+  price: PriceInfo | null;
+  tipHeight: number | null;
   onRefresh: () => void;
   onCopy: (t: string, l?: string) => void;
+  onReceive: () => void;
 }) {
-  const { wallet, balance, nonce, refreshing, isRemote, onRefresh, onCopy } = props;
+  const { wallet, balance, nonce, refreshing, isRemote, price, tipHeight, onRefresh, onCopy, onReceive } = props;
   if (!wallet) {
     return (
-      <Card className="p-6 text-center text-sm text-muted-foreground">
+      <Card className="p-6 text-center text-sm text-muted-foreground" data-testid="card-no-wallet">
         No wallet selected — go to <strong>Manage</strong> and create or import one.
       </Card>
     );
   }
+  // Compute USD valuation from on-chain oracle. Both inputs may be partial
+  // ("—" for balance pre-fetch, null for price pre-poll) — guard both before
+  // doing arithmetic so we never render "NaN". `weiHexToZbx` formats with
+  // grouping commas (e.g. "10,027.5"), so strip them before parsing or
+  // every USD readout becomes "NaN" → "—" for non-trivial balances.
+  const balNum = Number(balance.replace(/,/g, ""));
+  const priceNum = price ? Number(price.zbx_usd) : NaN;
+  const usd =
+    Number.isFinite(balNum) && Number.isFinite(priceNum)
+      ? balNum * priceNum
+      : null;
+  const usdLabel =
+    usd === null
+      ? "—"
+      : usd >= 1
+        ? `$${usd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        : `$${usd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`;
   return (
-    <Card className={`p-5 space-y-3 ${isRemote ? "border-cyan-500/40" : "border-primary/20"}`}>
-      <div className="flex items-center justify-between gap-3">
+    <Card
+      className={`p-5 space-y-4 ${isRemote ? "border-cyan-500/40" : "border-primary/20"}`}
+      data-testid="card-active-wallet"
+    >
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="min-w-0">
           <div className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-2">
             {isRemote ? (
@@ -320,23 +391,55 @@ function ActiveCard(props: {
             )}
           </div>
           <button
-            className="font-mono text-sm text-foreground hover:text-primary transition flex items-center gap-1.5"
+            className="font-mono text-xs sm:text-sm text-foreground hover:text-primary transition flex items-center gap-1.5 break-all text-left"
             onClick={() => onCopy(wallet.address, "Address copied")}
             title="Click to copy"
+            data-testid="button-copy-active-address"
           >
-            {wallet.address}
-            <Copy className="h-3 w-3" />
+            <span className="break-all">{wallet.address}</span>
+            <Copy className="h-3 w-3 flex-shrink-0" />
           </button>
         </div>
-        <Button variant="outline" size="sm" onClick={onRefresh} disabled={refreshing} data-testid="button-refresh-balance">
-          <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onReceive}
+            data-testid="button-quick-receive"
+          >
+            <QrCode className="h-4 w-4 mr-1.5" /> Receive
+          </Button>
+          <WLink href={`/block-explorer?q=${wallet.address}`}>
+            <a>
+              <Button variant="outline" size="sm" data-testid="link-explorer-active">
+                <ExternalLink className="h-4 w-4 mr-1.5" /> Explorer
+              </Button>
+            </a>
+          </WLink>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onRefresh}
+            disabled={refreshing}
+            data-testid="button-refresh-balance"
+            title="Refresh balance & nonce"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+          </Button>
+        </div>
       </div>
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
         <div>
           <div className="text-xs text-muted-foreground">Balance</div>
-          <div className="text-2xl font-bold text-primary">
+          <div className="text-2xl font-bold text-primary leading-tight" data-testid="text-balance">
             {balance} <span className="text-sm font-normal text-muted-foreground">ZBX</span>
+          </div>
+          <div className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1" data-testid="text-balance-usd">
+            <DollarSign className="h-3 w-3" />
+            <span>{usdLabel}</span>
+            {price && (
+              <span className="opacity-60">· @ ${Number(price.zbx_usd).toFixed(4)}</span>
+            )}
           </div>
         </div>
         <div>
@@ -344,9 +447,158 @@ function ActiveCard(props: {
           <div className="text-2xl font-bold" data-testid="text-total-tx">{nonce ?? "—"}</div>
           <div className="text-[10px] text-muted-foreground mt-0.5">confirmed on-chain</div>
         </div>
-        <div>
-          <div className="text-xs text-muted-foreground">Next nonce</div>
-          <div className="text-2xl font-bold">{nonce ?? "—"}</div>
+        <div className="col-span-2 sm:col-span-1">
+          <div className="text-xs text-muted-foreground">Network</div>
+          <div className="text-2xl font-bold flex items-center gap-2" data-testid="text-network-tip">
+            <span className={`inline-block h-2 w-2 rounded-full ${tipHeight !== null ? "bg-emerald-400 animate-pulse" : "bg-muted-foreground/40"}`} />
+            <span>{tipHeight !== null ? `#${tipHeight.toLocaleString()}` : "—"}</span>
+          </div>
+          <div className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1">
+            <Activity className="h-3 w-3" />
+            Zebvix mainnet · 0x1ec6
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+// ───── Receive tab — QR code + address + optional amount request ─────────────
+function ReceiveTab(props: {
+  active: StoredWallet | null;
+  price: PriceInfo | null;
+  onCopy: (t: string, l?: string) => void;
+}) {
+  const { active, price, onCopy } = props;
+  const [amount, setAmount] = useState("");
+
+  if (!active) {
+    return (
+      <Card className="p-6 text-center text-sm text-muted-foreground" data-testid="card-receive-empty">
+        No wallet selected — open <strong>Manage</strong> and create or import a wallet first.
+      </Card>
+    );
+  }
+
+  // EIP-681 payment URI — wallets that scan this QR will pre-fill the
+  // recipient + chain id + amount. Derive `validAmt` from the same parser
+  // (`zbxToWei`) the encoder uses so the UI label and the QR payload can
+  // never disagree (e.g. "1.", "1e3", ">18 decimals" all reject identically).
+  const trimmedAmt = amount.trim();
+  let weiStr = "";
+  let parsedAmtNum: number | null = null;
+  if (trimmedAmt !== "") {
+    try {
+      const wei = zbxToWei(trimmedAmt);
+      if (wei > 0n) {
+        weiStr = wei.toString();
+        const n = Number(trimmedAmt);
+        if (Number.isFinite(n)) parsedAmtNum = n;
+      }
+    } catch {
+      weiStr = "";
+    }
+  }
+  const validAmt = weiStr !== "";
+  const uri = validAmt
+    ? `ethereum:${active.address}@${CHAIN_ID}?value=${weiStr}`
+    : active.address;
+  const usdEquiv =
+    validAmt && parsedAmtNum !== null && price && Number.isFinite(Number(price.zbx_usd))
+      ? parsedAmtNum * Number(price.zbx_usd)
+      : null;
+
+  return (
+    <Card className="p-6 space-y-5" data-testid="card-receive">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <QrCode className="h-4 w-4 text-primary" />
+        <span>
+          Scan to pay <strong className="text-foreground">{active.label}</strong> on Zebvix mainnet.
+          Compatible with any EVM wallet that supports EIP-681 payment URIs.
+        </span>
+      </div>
+
+      <div className="grid md:grid-cols-[auto_1fr] gap-6 items-start">
+        <div className="bg-white p-4 rounded-lg shadow-sm mx-auto md:mx-0" data-testid="qr-receive">
+          <QRCodeSVG
+            value={uri}
+            size={208}
+            level="M"
+            includeMargin={false}
+          />
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <Label className="text-xs text-muted-foreground">Address</Label>
+            <button
+              className="mt-1 w-full text-left font-mono text-xs sm:text-sm bg-muted/40 hover:bg-muted/60 transition rounded-md px-3 py-2 flex items-center justify-between gap-2 break-all"
+              onClick={() => onCopy(active.address, "Address copied")}
+              data-testid="button-copy-receive-address"
+            >
+              <span className="break-all">{active.address}</span>
+              <Copy className="h-3.5 w-3.5 flex-shrink-0" />
+            </button>
+          </div>
+
+          <div>
+            <Label htmlFor="receive-amount" className="text-xs text-muted-foreground">
+              Request amount (optional)
+            </Label>
+            <div className="mt-1 flex items-center gap-2">
+              <Input
+                id="receive-amount"
+                type="text"
+                inputMode="decimal"
+                placeholder="0.0"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                data-testid="input-receive-amount"
+              />
+              <span className="text-sm font-medium text-muted-foreground">ZBX</span>
+            </div>
+            {amount.trim() !== "" && !validAmt && (
+              <div className="mt-1 text-xs text-amber-300 flex items-center gap-1">
+                <AlertTriangle className="h-3 w-3" />
+                Enter a positive number — QR is showing the address only.
+              </div>
+            )}
+            {validAmt && (
+              <div className="mt-1 text-[11px] text-muted-foreground">
+                QR encodes {amount.trim()} ZBX
+                {usdEquiv !== null && (
+                  <> · ≈ ${usdEquiv.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onCopy(uri, validAmt ? "Payment link copied" : "Address copied")}
+              data-testid="button-copy-payment-link"
+            >
+              <Link2 className="h-4 w-4 mr-1.5" />
+              {validAmt ? "Copy payment link" : "Copy address"}
+            </Button>
+            <WLink href={`/block-explorer?q=${active.address}`}>
+              <a>
+                <Button variant="outline" size="sm" data-testid="link-explorer-receive">
+                  <ExternalLink className="h-4 w-4 mr-1.5" /> View on explorer
+                </Button>
+              </a>
+            </WLink>
+          </div>
+
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-[11px] text-amber-200/80 flex items-start gap-2">
+            <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+            <span>
+              Only send native ZBX on Zebvix mainnet (chain id <code>0x1ec6</code>) to this
+              address. Tokens from other chains may be unrecoverable.
+            </span>
+          </div>
         </div>
       </div>
     </Card>
@@ -978,257 +1230,6 @@ function LiveStatusCard({ status, onReset }: { status: LiveStatus; onReset: () =
       <div className="text-[11px] break-all">{status.message}</div>
       <button onClick={onReset} className="text-muted-foreground hover:text-foreground">Reset</button>
     </Wrapper>
-  );
-}
-
-// ───── MetaMask tab ──────────────────────────────────────────────────────────
-function MetaMaskTab({ onSent }: { onSent: () => void }) {
-  const { toast } = useToast();
-  const [account, setAccount] = useState<string | null>(null);
-  const [chain, setChain] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [to, setTo] = useState("");
-  const [amount, setAmount] = useState("");
-  const [data, setData] = useState("");
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [status, setStatus] = useState<LiveStatus>({ phase: "idle" });
-  const mountedRef = useRef(true);
-  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null; }
-    };
-  }, []);
-  const safeSet = (s: LiveStatus) => { if (mountedRef.current) setStatus(s); };
-
-  useEffect(() => {
-    if (!hasEthProvider()) return;
-    getCurrentChainIdHex().then(setChain).catch(() => undefined);
-    const off = onProviderEvents({
-      onAccounts: (acc) => setAccount(acc[0] ?? null),
-      onChain: (c) => setChain(c),
-    });
-    return off;
-  }, []);
-
-  const onChainOk = chain === ZEBVIX_CHAIN_ID_HEX;
-
-  const connect = async () => {
-    setBusy(true);
-    try {
-      const accs = await requestAccounts();
-      setAccount(accs[0] ?? null);
-      const c = await getCurrentChainIdHex();
-      setChain(c);
-      toast({ title: "Connected", description: accs[0] ?? "" });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      toast({ title: "Connect failed", description: msg, variant: "destructive" });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const switchChain = async () => {
-    setBusy(true);
-    try {
-      await switchOrAddZebvixChain();
-      const c = await getCurrentChainIdHex();
-      setChain(c);
-      toast({ title: "Switched to Zebvix" });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      toast({ title: "Switch failed", description: msg, variant: "destructive" });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  if (!hasEthProvider()) {
-    return (
-      <Card className="p-6 text-sm text-muted-foreground space-y-2">
-        <div className="font-semibold text-foreground flex items-center gap-2">
-          <Link2 className="h-4 w-4 text-primary" /> No EVM wallet detected
-        </div>
-        <div>
-          Install MetaMask (or another EIP-1193 wallet) to send Solidity-style transactions
-          on Zebvix. Once installed, refresh this page and click <strong>Connect</strong>.
-        </div>
-      </Card>
-    );
-  }
-
-  if (!account) {
-    return (
-      <Card className="p-6 text-sm space-y-3">
-        <div className="font-semibold text-foreground">Connect MetaMask</div>
-        <div className="text-muted-foreground text-xs">
-          You will be prompted to share your selected account. Zebvix uses the same
-          secp256k1 / keccak256 address derivation as Ethereum, so any MetaMask account works.
-        </div>
-        <Button onClick={connect} disabled={busy} data-testid="button-mm-connect">
-          {busy ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Link2 className="h-4 w-4 mr-1.5" />}
-          Connect MetaMask
-        </Button>
-      </Card>
-    );
-  }
-
-  const validAddr = /^0x[0-9a-fA-F]{40}$/.test(to.trim());
-  const validAmt = /^\d+(\.\d+)?$/.test(amount.trim()) && parseFloat(amount) >= 0;
-  const validData = !data || /^0x[0-9a-fA-F]*$/.test(data.trim());
-  const canReview = validAddr && validAmt && validData && onChainOk;
-
-  const submit = async () => {
-    if (!account) return;
-    safeSet({ phase: "submitting" });
-    let hash = "";
-    const ts = Date.now();
-    try {
-      hash = await sendMmTransaction({
-        from: account,
-        to: to.trim(),
-        valueZbx: amount || "0",
-        data: data.trim() || undefined,
-      });
-      recordTx({
-        hash, from: account, to: to.trim(),
-        amountZbx: amount || "0", feeZbx: "—",
-        ts, status: "submitted", kind: "metamask",
-        data: data.trim() || undefined,
-      });
-      safeSet({ phase: "in-mempool", hash, secs: 0 });
-      if (mountedRef.current) onSent();
-      toast({ title: "MetaMask submitted", description: hash });
-      const startedAt = Date.now();
-      if (tickRef.current) clearInterval(tickRef.current);
-      tickRef.current = setInterval(() => {
-        if (!mountedRef.current) return;
-        setStatus((s) => s.phase === "in-mempool"
-          ? { ...s, secs: Math.floor((Date.now() - startedAt) / 1000) } : s);
-      }, 1000);
-      const receipt = await pollReceipt(hash, { intervalMs: 4000, timeoutMs: 120_000 });
-      if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null; }
-      if (!mountedRef.current) return;
-      if (!receipt) return;
-      const block = hexToInt(receipt.blockNumber);
-      const ok = receipt.status === "0x1";
-      safeSet({ phase: "included", hash, block, status: ok ? "success" : "reverted" });
-      updateTxByHash(hash, {
-        block, confirmedTs: Date.now(),
-        status: ok ? "confirmed" : "reverted",
-      });
-      if (mountedRef.current) onSent();
-    } catch (e) {
-      if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null; }
-      const msg = e instanceof Error ? e.message : String(e);
-      safeSet({ phase: "error", message: msg });
-      if (hash) {
-        updateTxByHash(hash, { status: "failed", error: msg });
-      } else {
-        recordTx({
-          hash: null, from: account, to: to.trim(),
-          amountZbx: amount || "0", feeZbx: "—",
-          ts, status: "failed", error: msg, kind: "metamask",
-          data: data.trim() || undefined,
-        });
-      }
-      if (mountedRef.current) onSent();
-      toast({ title: "MetaMask error", description: msg, variant: "destructive" });
-    }
-  };
-
-  return (
-    <Card className="p-5 space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="text-xs uppercase tracking-wider text-muted-foreground">Connected</div>
-          <code className="font-mono text-xs">{account}</code>
-        </div>
-        <Badge variant={onChainOk ? "default" : "outline"} className={onChainOk ? "bg-primary/20 text-primary border-primary/30" : "text-amber-300 border-amber-500/40"}>
-          {onChainOk ? "On Zebvix" : `Wrong chain (${chain ?? "?"})`}
-        </Badge>
-      </div>
-
-      {!onChainOk && (
-        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs space-y-2">
-          <div className="text-amber-200">
-            MetaMask is on chain <code>{chain}</code>. Switch to Zebvix Mainnet to send.
-          </div>
-          <Button size="sm" onClick={switchChain} disabled={busy}>
-            {busy ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : null}
-            Switch to Zebvix
-          </Button>
-        </div>
-      )}
-
-      <div className="space-y-3">
-        <div>
-          <Label htmlFor="mm-to">To</Label>
-          <Input id="mm-to" placeholder="0x… (recipient or contract)"
-            value={to} onChange={(e) => setTo(e.target.value)}
-            className="font-mono" data-testid="input-mm-to" />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label htmlFor="mm-val">Value (ZBX)</Label>
-            <Input id="mm-val" type="number" min="0" step="0.0001"
-              placeholder="0.0" value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              data-testid="input-mm-amount" />
-          </div>
-          <div>
-            <Label htmlFor="mm-data">Calldata (hex, optional)</Label>
-            <Input id="mm-data" placeholder="0x…"
-              value={data} onChange={(e) => setData(e.target.value)}
-              className="font-mono text-xs" data-testid="input-mm-data" />
-          </div>
-        </div>
-      </div>
-
-      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogTrigger asChild>
-          <Button disabled={!canReview} className="w-full" data-testid="button-mm-review">
-            <Send className="h-4 w-4 mr-1.5" /> Review (then MetaMask popup)
-          </Button>
-        </DialogTrigger>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-amber-400" /> Confirm transaction
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-2 text-sm">
-            <ReviewRow label="Provider" value="MetaMask (EIP-1193)" />
-            <ReviewRow label="From" value={account ?? ""} mono />
-            <ReviewRow label="To" value={to.trim()} mono />
-            <ReviewRow label="Value" value={`${amount || "0"} ZBX`} highlight />
-            {data.trim() && <ReviewRow label="Data" value={data.trim()} mono />}
-            <ReviewRow label="Chain id" value={`${CHAIN_ID_HEX} (${CHAIN_ID})`} mono />
-            <div className="rounded-md border border-sky-500/30 bg-sky-500/5 p-2 text-xs text-sky-200">
-              On Confirm, MetaMask will open its own native popup with the final gas
-              estimate. The dashboard will then track the receipt.
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmOpen(false)}>Cancel</Button>
-            <Button
-              onClick={async () => { setConfirmOpen(false); await submit(); }}
-              data-testid="button-mm-confirm"
-            >
-              <Check className="h-4 w-4 mr-1.5" /> Confirm &amp; open MetaMask
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <LiveStatusCard status={status} onReset={() => {
-        setStatus({ phase: "idle" });
-        setTo(""); setAmount(""); setData("");
-      }} />
-    </Card>
   );
 }
 

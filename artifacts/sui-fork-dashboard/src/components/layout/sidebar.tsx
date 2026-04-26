@@ -88,7 +88,7 @@ const CORE_NAV: NavLink[] = [
 
 const LIVE_NAV: NavLink[] = [
   { href: "/live-chain", label: "Live Chain Status", icon: Activity, badge: "LIVE" },
-  { href: "/wallet", label: "ZBX Wallet (Send / MetaMask)", icon: Wallet, badge: "LIVE" },
+  { href: "/wallet", label: "ZBX Wallet (Send / Receive)", icon: Wallet, badge: "LIVE" },
   { href: "/import-wallet", label: "Import Address (Key / Mnemonic)", icon: KeyRound },
   { href: "/payid-register", label: "Register Pay-ID", icon: UserPlus },
   { href: "/payid-resolver", label: "Pay-ID Resolver", icon: AtSign },

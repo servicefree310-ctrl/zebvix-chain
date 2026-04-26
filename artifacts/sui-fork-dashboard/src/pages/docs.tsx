@@ -50,7 +50,7 @@ const SECTIONS: DocCard[] = [
     icon: Wallet,
     accent: "text-cyan-400 border-cyan-500/40",
     items: [
-      { href: "/wallet", label: "ZBX Wallet (Send / MetaMask)" },
+      { href: "/wallet", label: "ZBX Wallet (Send / Receive)" },
       { href: "/import-wallet", label: "Import Address (Key / Mnemonic)" },
       { href: "/payid-register", label: "Register Pay-ID" },
       { href: "/payid-resolver", label: "Pay-ID Resolver" },
