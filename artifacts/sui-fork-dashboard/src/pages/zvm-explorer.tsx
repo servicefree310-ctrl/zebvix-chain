@@ -1,10 +1,13 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { rpc } from "@/lib/zbx-rpc";
 import {
   Cpu, Search, Send, Box, Hash, Wallet, Code2, Zap, Wifi,
   Check, Copy, AlertCircle, ChevronRight, Layers, Activity, Sparkles,
-  AtSign, Compass, FileText, ExternalLink, X,
+  AtSign, Compass, FileText, ExternalLink, X, BookOpen, Terminal,
+  Radio, Network, Filter, RotateCw, Clock, History, Trash2, Play,
+  ArrowUpRight, Pause, Eye, EyeOff, Coins, ShieldCheck, Server,
 } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ZVM Explorer — native zbx_* + eth_* RPC playground (ZVM = Zebvix Virtual Machine)
@@ -12,26 +15,82 @@ import {
 // node binary is built with --features zvm. UI prefers zbx_* labels for the
 // always-on path and falls back to eth_* labels for ZVM-only methods.
 // ─────────────────────────────────────────────────────────────────────────────
+
+/** Seed handed to RpcConsole when user clicks "Try" in the Method Catalog.
+ *  `nonce` ensures the console re-applies the seed even if the same method
+ *  is selected twice in a row (state-equality short-circuit defeat). */
+export type ConsoleSeed = { method: string; params: string; nonce: number };
+
+type TabKey = "search" | "catalog" | "console" | "stream" | "network";
+
 export default function ZvmExplorer() {
   const [seed, setSeed] = useState<string>("");
+  const [activeTab, setActiveTab] = useState<TabKey>("search");
+  const [consoleSeed, setConsoleSeed] = useState<ConsoleSeed | null>(null);
+
+  // "Try" handoff from the Method Catalog → RPC Console:
+  // 1) seed the console inputs (method + params)
+  // 2) flip to the console tab so the user sees the result immediately.
+  const tryMethod = (method: string, params: string) => {
+    setConsoleSeed({ method, params, nonce: Date.now() });
+    setActiveTab("console");
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <Header />
-      <SmartSearch seed={seed} onSeed={setSeed} />
       <NetStatusGrid />
 
-      <div className="flex items-center gap-2 pt-2">
-        <Layers className="h-4 w-4 text-muted-foreground" />
-        <h2 className="text-sm font-semibold tracking-wide uppercase text-muted-foreground">Manual Tools</h2>
-        <span className="text-[10px] text-muted-foreground">— direct RPC inspectors</span>
-      </div>
-      <div className="grid lg:grid-cols-2 gap-4">
-        <BalanceTool />
-        <NonceCodeTool />
-      </div>
-      <BlockTool />
-      <TxTool />
-      <RawDispatcher />
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabKey)}>
+        <TabsList className="h-auto flex-wrap gap-1 bg-muted/40 border border-border p-1 rounded-xl">
+          <TabsTrigger value="search" className="text-xs gap-1.5">
+            <Search className="h-3.5 w-3.5" /> Search &amp; Inspect
+          </TabsTrigger>
+          <TabsTrigger value="catalog" className="text-xs gap-1.5">
+            <BookOpen className="h-3.5 w-3.5" /> Method Catalog
+          </TabsTrigger>
+          <TabsTrigger value="console" className="text-xs gap-1.5">
+            <Terminal className="h-3.5 w-3.5" /> RPC Console
+          </TabsTrigger>
+          <TabsTrigger value="stream" className="text-xs gap-1.5">
+            <Radio className="h-3.5 w-3.5" /> Live Tx Stream
+          </TabsTrigger>
+          <TabsTrigger value="network" className="text-xs gap-1.5">
+            <Network className="h-3.5 w-3.5" /> Network Insights
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="search" className="mt-4 space-y-6">
+          <SmartSearch seed={seed} onSeed={setSeed} />
+          <div className="flex items-center gap-2 pt-2">
+            <Layers className="h-4 w-4 text-muted-foreground" />
+            <h2 className="text-sm font-semibold tracking-wide uppercase text-muted-foreground">Manual Tools</h2>
+            <span className="text-[10px] text-muted-foreground">— direct RPC inspectors</span>
+          </div>
+          <div className="grid lg:grid-cols-2 gap-4">
+            <BalanceTool />
+            <NonceCodeTool />
+          </div>
+          <BlockTool />
+          <TxTool />
+        </TabsContent>
+
+        <TabsContent value="catalog" className="mt-4">
+          <MethodCatalog onTry={tryMethod} />
+        </TabsContent>
+
+        <TabsContent value="console" className="mt-4">
+          <RpcConsole seed={consoleSeed} />
+        </TabsContent>
+
+        <TabsContent value="stream" className="mt-4">
+          <TxStreamPanel onCrossLink={(v) => { setSeed(v); setActiveTab("search"); }} />
+        </TabsContent>
+
+        <TabsContent value="network" className="mt-4">
+          <NetworkInsightsPanel />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
@@ -532,84 +591,967 @@ function TxTool() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Raw RPC Dispatcher — any method
+// RPC method catalog — single source of truth for the Method Catalog tab and
+// the autocomplete in the RPC Console. Each entry is grouped by namespace.
+// `gated: true` means the method requires `--features zvm` on the node binary;
+// the catalog renders a badge so the user knows what may 404 / -32601.
 // ─────────────────────────────────────────────────────────────────────────────
-function RawDispatcher() {
+type CatalogEntry = {
+  method: string;
+  namespace: "zbx" | "eth" | "net" | "web3";
+  category: "Chain" | "Account" | "Block" | "Transaction" | "Identity" | "Network" | "Utility";
+  desc: string;
+  paramsExample: string;
+  gated?: boolean;
+};
+
+const RPC_CATALOG: CatalogEntry[] = [
+  // ── zbx_* (always-on native methods) ────────────────────────────────────
+  { method: "zbx_chainId",         namespace: "zbx", category: "Identity", desc: "0x-prefixed chain id (0x1ec6 = 7878).", paramsExample: "[]" },
+  { method: "zbx_netVersion",      namespace: "zbx", category: "Identity", desc: "Decimal chain id as string (\"7878\").", paramsExample: "[]" },
+  { method: "zbx_clientVersion",   namespace: "zbx", category: "Identity", desc: "Node binary version string.", paramsExample: "[]" },
+  { method: "zbx_blockNumber",     namespace: "zbx", category: "Chain",    desc: "Tip header: {height, hex, hash, timestamp_ms, proposer}.", paramsExample: "[]" },
+  { method: "zbx_chainInfo",       namespace: "zbx", category: "Chain",    desc: "Detailed chain config + tip summary.", paramsExample: "[]" },
+  { method: "zbx_supply",          namespace: "zbx", category: "Chain",    desc: "Token supply breakdown (circulating, max, burned).", paramsExample: "[]" },
+  { method: "zbx_listValidators",  namespace: "zbx", category: "Chain",    desc: "Active validator set with stakes + uptime.", paramsExample: "[]" },
+  { method: "zbx_gasPrice",        namespace: "zbx", category: "Chain",    desc: "Recommended fee in wei (hex). AMM-pegged.", paramsExample: "[]" },
+  { method: "zbx_getBalance",      namespace: "zbx", category: "Account",  desc: "Account balance in wei (hex). Param: address [, tag].", paramsExample: '["0x0000000000000000000000000000000000000000","latest"]' },
+  { method: "zbx_getNonce",        namespace: "zbx", category: "Account",  desc: "Next outgoing nonce for an address.", paramsExample: '["0x0000000000000000000000000000000000000000"]' },
+  { method: "zbx_getBlockByNumber", namespace: "zbx", category: "Block",   desc: "Native block: {header, txs, signature}. Param: height (number).", paramsExample: "[0]" },
+  { method: "zbx_recentTxs",       namespace: "zbx", category: "Transaction", desc: "Recent indexed txs ring (cap 1000). Returns {txs[], stored, total_indexed}.", paramsExample: "[50]" },
+  { method: "zbx_sendRawTransaction", namespace: "zbx", category: "Transaction", desc: "Submit a signed Zebvix tx (hex). Returns the tx hash.", paramsExample: '["0x..."]' },
+
+  // ── eth_* (gated behind --features zvm) ──────────────────────────────────
+  { method: "eth_chainId",            namespace: "eth", category: "Identity",    desc: "Same as zbx_chainId via eth namespace.", paramsExample: "[]", gated: true },
+  { method: "eth_blockNumber",        namespace: "eth", category: "Chain",       desc: "Tip block number as hex.", paramsExample: "[]", gated: true },
+  { method: "eth_gasPrice",           namespace: "eth", category: "Chain",       desc: "Recommended gas price (wei hex).", paramsExample: "[]", gated: true },
+  { method: "eth_getBalance",         namespace: "eth", category: "Account",     desc: "Balance via eth namespace.", paramsExample: '["0x0000000000000000000000000000000000000000","latest"]', gated: true },
+  { method: "eth_getTransactionCount", namespace: "eth", category: "Account",    desc: "Tx count (nonce) for an address.", paramsExample: '["0x0000000000000000000000000000000000000000","latest"]', gated: true },
+  { method: "eth_getCode",            namespace: "eth", category: "Account",     desc: "Bytecode at an address (0x for EOAs).", paramsExample: '["0x0000000000000000000000000000000000000000","latest"]', gated: true },
+  { method: "eth_getBlockByNumber",   namespace: "eth", category: "Block",       desc: "Eth-shaped block. Stub: returns tip — prefer zbx_getBlockByNumber.", paramsExample: '["latest", false]', gated: true },
+  { method: "eth_getBlockByHash",     namespace: "eth", category: "Block",       desc: "Eth-shaped block by hash.", paramsExample: '["0x0000000000000000000000000000000000000000000000000000000000000000", false]', gated: true },
+  { method: "eth_getTransactionByHash", namespace: "eth", category: "Transaction", desc: "Eth-shaped tx by hash.", paramsExample: '["0x0000000000000000000000000000000000000000000000000000000000000000"]', gated: true },
+  { method: "eth_getTransactionReceipt", namespace: "eth", category: "Transaction", desc: "Receipt + logs for an executed tx.", paramsExample: '["0x0000000000000000000000000000000000000000000000000000000000000000"]', gated: true },
+  { method: "eth_call",               namespace: "eth", category: "Utility",     desc: "Read-only contract call.", paramsExample: '[{"to":"0x...","data":"0x..."},"latest"]', gated: true },
+  { method: "eth_estimateGas",        namespace: "eth", category: "Utility",     desc: "Estimate gas for a call.", paramsExample: '[{"to":"0x...","data":"0x..."}]', gated: true },
+  { method: "eth_sendRawTransaction", namespace: "eth", category: "Transaction", desc: "Submit a raw eth-shaped signed tx.", paramsExample: '["0x..."]', gated: true },
+
+  // ── net_* / web3_* (informational, gated) ───────────────────────────────
+  { method: "net_version",            namespace: "net",  category: "Network",   desc: "Network id (\"7878\").", paramsExample: "[]", gated: true },
+  { method: "net_listening",          namespace: "net",  category: "Network",   desc: "True if the node is listening for peers.", paramsExample: "[]", gated: true },
+  { method: "net_peerCount",          namespace: "net",  category: "Network",   desc: "Connected-peer count (hex).", paramsExample: "[]", gated: true },
+  { method: "web3_clientVersion",     namespace: "web3", category: "Identity",  desc: "Node version via web3 namespace.", paramsExample: "[]", gated: true },
+  { method: "web3_sha3",              namespace: "web3", category: "Utility",   desc: "keccak-256 hash of input bytes (hex).", paramsExample: '["0x68656c6c6f"]', gated: true },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Method Catalog — searchable, categorized list with one-click "Try" handoff
+// to the RPC Console tab. Acts as the primary discovery surface for the API.
+// ─────────────────────────────────────────────────────────────────────────────
+function MethodCatalog({ onTry }: { onTry: (method: string, params: string) => void }) {
+  const [q, setQ] = useState("");
+  const [ns, setNs] = useState<"all" | "zbx" | "eth" | "net" | "web3">("all");
+  const [showGated, setShowGated] = useState(true);
+
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return RPC_CATALOG.filter((e) => {
+      if (ns !== "all" && e.namespace !== ns) return false;
+      if (!showGated && e.gated) return false;
+      if (!needle) return true;
+      return (
+        e.method.toLowerCase().includes(needle) ||
+        e.desc.toLowerCase().includes(needle) ||
+        e.category.toLowerCase().includes(needle)
+      );
+    });
+  }, [q, ns, showGated]);
+
+  const grouped = useMemo(() => {
+    const m = new Map<string, CatalogEntry[]>();
+    for (const e of filtered) {
+      const k = `${e.namespace.toUpperCase()} · ${e.category}`;
+      if (!m.has(k)) m.set(k, []);
+      m.get(k)!.push(e);
+    }
+    return Array.from(m.entries());
+  }, [filtered]);
+
+  const counts = useMemo(() => {
+    const out: Record<string, number> = { all: RPC_CATALOG.length, zbx: 0, eth: 0, net: 0, web3: 0 };
+    for (const e of RPC_CATALOG) out[e.namespace]++;
+    return out;
+  }, []);
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <div className="p-3 border-b border-border bg-muted/30 flex items-center gap-2 flex-wrap">
+          <span className="p-1.5 rounded-md text-violet-400 bg-violet-500/10">
+            <BookOpen className="h-3.5 w-3.5" />
+          </span>
+          <h3 className="text-sm font-semibold">RPC Method Catalog</h3>
+          <span className="text-[10px] text-muted-foreground">
+            {filtered.length} of {RPC_CATALOG.length} methods
+          </span>
+          <div className="ml-auto flex items-center gap-1">
+            <button
+              onClick={() => setShowGated((v) => !v)}
+              className={`text-[10px] px-2 py-1 rounded border transition flex items-center gap-1 ${
+                showGated ? "border-amber-500/40 bg-amber-500/10 text-amber-300" : "border-border text-muted-foreground"
+              }`}
+              title="Toggle ZVM-gated (--features zvm) methods"
+              data-testid="button-toggle-gated"
+            >
+              {showGated ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+              gated
+            </button>
+          </div>
+        </div>
+
+        <div className="p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search by method name, description, or category…"
+              className="flex-1 px-3 py-2 text-xs rounded-md bg-background border border-border focus:border-violet-500 outline-none"
+              data-testid="input-catalog-search"
+            />
+          </div>
+
+          <div className="flex gap-1 flex-wrap">
+            {(["all", "zbx", "eth", "net", "web3"] as const).map((k) => (
+              <button
+                key={k}
+                onClick={() => setNs(k)}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-mono border transition ${
+                  ns === k
+                    ? "border-violet-500/60 bg-violet-500/15 text-violet-200"
+                    : "border-border hover:border-violet-500/40 hover:bg-violet-500/5"
+                }`}
+                data-testid={`button-catalog-ns-${k}`}
+              >
+                {k === "all" ? "All" : `${k}_*`} <span className="text-muted-foreground">{counts[k]}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {grouped.length === 0 && (
+        <div className="rounded-md border border-dashed border-border bg-card p-6 text-center text-xs text-muted-foreground">
+          No methods match. Try clearing the filters.
+        </div>
+      )}
+
+      {grouped.map(([group, entries]) => (
+        <div key={group} className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="px-3 py-2 border-b border-border bg-muted/20 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            {group}
+          </div>
+          <div className="divide-y divide-border/50">
+            {entries.map((e) => (
+              <div key={e.method} className="p-3 flex items-start gap-3 hover:bg-muted/20 transition">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <code className="text-xs font-mono font-semibold text-violet-300">{e.method}</code>
+                    {e.gated && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 font-bold uppercase tracking-wide">
+                        zvm-gated
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-1">{e.desc}</p>
+                  <code className="block text-[10px] font-mono text-cyan-400 mt-1 break-all">params: {e.paramsExample}</code>
+                </div>
+                <button
+                  onClick={() => onTry(e.method, e.paramsExample)}
+                  className="shrink-0 px-2.5 py-1 rounded-md bg-violet-500/15 border border-violet-500/40 text-violet-200 text-[11px] font-semibold hover:bg-violet-500/25 transition flex items-center gap-1"
+                  data-testid={`button-try-${e.method}`}
+                >
+                  <Play className="h-3 w-3" /> Try
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RPC Console — enhanced raw dispatcher with:
+//   • per-call latency (ms)
+//   • call history (last 20, replayable + deletable)
+//   • copy-as-curl / copy-as-fetch snippets
+//   • pretty / raw JSON toggle
+//   • method autocomplete from RPC_CATALOG
+// Accepts an optional `seed` to be driven from the Method Catalog "Try" buttons.
+// ─────────────────────────────────────────────────────────────────────────────
+type ConsoleHistoryEntry = {
+  id: string;
+  method: string;
+  params: string;
+  ok: boolean;
+  ms: number;
+  at: number;
+  result: unknown;
+  error: string | null;
+};
+
+const HISTORY_KEY = "zbx.zvm.console.history.v1";
+const HISTORY_MAX = 20;
+
+// Strictly validate each entry against the expected shape. A malformed
+// payload (older schema, hand-edited storage, partial write) used to brick
+// the console tab via `cannot read properties of null` during render —
+// here we silently drop bad rows instead.
+function isValidHistoryEntry(e: unknown): e is ConsoleHistoryEntry {
+  if (!e || typeof e !== "object") return false;
+  const o = e as Record<string, unknown>;
+  return (
+    typeof o.id === "string" &&
+    typeof o.method === "string" &&
+    typeof o.params === "string" &&
+    typeof o.ok === "boolean" &&
+    typeof o.ms === "number" &&
+    typeof o.at === "number" &&
+    (o.error === null || typeof o.error === "string")
+  );
+}
+
+function loadHistory(): ConsoleHistoryEntry[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(isValidHistoryEntry).slice(0, HISTORY_MAX);
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(items: ConsoleHistoryEntry[]) {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(items.slice(0, HISTORY_MAX)));
+  } catch {
+    /* ignore quota */
+  }
+}
+
+function RpcConsole({ seed }: { seed: ConsoleSeed | null }) {
   const [method, setMethod] = useState("zbx_blockNumber");
   const [params, setParams] = useState("[]");
-  const [resp, setResp] = useState<any>(null);
+  const [resp, setResp] = useState<unknown>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [lastMs, setLastMs] = useState<number | null>(null);
+  const [pretty, setPretty] = useState(true);
+  const [history, setHistory] = useState<ConsoleHistoryEntry[]>([]);
+  const [showSuggest, setShowSuggest] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
+
+  // Bootstrap history from localStorage on mount.
+  useEffect(() => {
+    setHistory(loadHistory());
+  }, []);
+
+  // React to seed handoffs from the Method Catalog. We compare on `nonce`
+  // (a timestamp) so re-clicking the SAME catalog row still re-fires the
+  // effect, which is the intuitive UX.
+  useEffect(() => {
+    if (!seed) return;
+    setMethod(seed.method);
+    setParams(seed.params);
+    setResp(null);
+    setErr(null);
+    setLastMs(null);
+  }, [seed?.nonce, seed?.method, seed?.params]);
+
+  // Filter the catalog for autocomplete suggestions. We only show when the
+  // user is actively editing the method input (and there's at least one char).
+  const suggestions = useMemo(() => {
+    const q = method.trim().toLowerCase();
+    if (!q) return [];
+    return RPC_CATALOG
+      .filter((e) => e.method.toLowerCase().includes(q) && e.method.toLowerCase() !== q)
+      .slice(0, 8);
+  }, [method]);
 
   async function run() {
-    setErr(null); setResp(null); setLoading(true);
+    setErr(null);
+    setResp(null);
+    setLoading(true);
+    setLastMs(null);
+    const start = performance.now();
+    let ok = false;
+    let result: unknown = null;
+    let errorMsg: string | null = null;
     try {
       const p = JSON.parse(params);
       if (!Array.isArray(p)) throw new Error("params must be a JSON array");
-      const r = await rpc<any>(method.trim(), p);
-      setResp(r);
-    } catch (e: any) { setErr(e?.message ?? String(e)); }
-    finally { setLoading(false); }
+      result = await rpc<unknown>(method.trim(), p);
+      setResp(result);
+      ok = true;
+    } catch (e: unknown) {
+      errorMsg = e instanceof Error ? e.message : String(e);
+      setErr(errorMsg);
+    } finally {
+      const ms = Math.round(performance.now() - start);
+      setLastMs(ms);
+      setLoading(false);
+      // Push to history (newest first). De-dupe consecutive identical calls
+      // by the same {method, params} so a quick double-click doesn't spam
+      // the list with two identical rows.
+      const entry: ConsoleHistoryEntry = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        method: method.trim(),
+        params,
+        ok,
+        ms,
+        at: Date.now(),
+        result,
+        error: errorMsg,
+      };
+      setHistory((prev) => {
+        const top = prev[0];
+        if (top && top.method === entry.method && top.params === entry.params) {
+          // Replace top entry instead of pushing duplicate.
+          const next = [entry, ...prev.slice(1)].slice(0, HISTORY_MAX);
+          saveHistory(next);
+          return next;
+        }
+        const next = [entry, ...prev].slice(0, HISTORY_MAX);
+        saveHistory(next);
+        return next;
+      });
+    }
   }
 
-  // Presets are split into two groups of zbx_* native methods. The first
-  // group returns rich objects (chain state); the second returns scalar
-  // identity values (chain-id, version, gas price). All zbx_* methods are
-  // always-on and work on every Zebvix node regardless of build flags.
-  const presets = [
-    // ── Rich-object methods ──────────────────────────────────────────────
-    { label: "zbx_blockNumber", method: "zbx_blockNumber", params: "[]" },
-    { label: "zbx_chainInfo", method: "zbx_chainInfo", params: "[]" },
-    { label: "zbx_supply", method: "zbx_supply", params: "[]" },
-    { label: "zbx_listValidators", method: "zbx_listValidators", params: "[]" },
-    { label: "zbx_getNonce(0x0)", method: "zbx_getNonce", params: '["0x0000000000000000000000000000000000000000"]' },
-    { label: "zbx_getBalance(0x0)", method: "zbx_getBalance", params: '["0x0000000000000000000000000000000000000000","latest"]' },
-    { label: "zbx_getBlockByNumber(0)", method: "zbx_getBlockByNumber", params: "[0]" },
-    { label: "zbx_recentTxs(50)", method: "zbx_recentTxs", params: "[50]" },
-    // ── Scalar identity / fee helpers ────────────────────────────────────
-    { label: "zbx_chainId", method: "zbx_chainId", params: "[]" },
-    { label: "zbx_netVersion", method: "zbx_netVersion", params: "[]" },
-    { label: "zbx_gasPrice", method: "zbx_gasPrice", params: "[]" },
-    { label: "zbx_clientVersion", method: "zbx_clientVersion", params: "[]" },
-  ];
+  function replay(entry: ConsoleHistoryEntry) {
+    setMethod(entry.method);
+    setParams(entry.params);
+    setResp(entry.result);
+    setErr(entry.error);
+    setLastMs(entry.ms);
+  }
+
+  function deleteEntry(id: string) {
+    setHistory((prev) => {
+      const next = prev.filter((e) => e.id !== id);
+      saveHistory(next);
+      return next;
+    });
+  }
+
+  function clearHistory() {
+    setHistory([]);
+    saveHistory([]);
+  }
+
+  // Build snippets the user can paste into a shell or browser devtools.
+  // The endpoint is intentionally relative ("/api/rpc") — it works in this
+  // dashboard's preview pane and is the most-portable starting point.
+  //
+  // IMPORTANT: parse `params` exactly once inside a single try/catch and
+  // fall back to an empty array if invalid. Earlier versions parsed twice
+  // (the second outside any guard), which crashed render whenever the user
+  // typed intermediate-invalid JSON like `[`.
+  const curlSnippet = useMemo(() => {
+    let parsedParams: unknown[] = [];
+    try {
+      const v = JSON.parse(params);
+      if (Array.isArray(v)) parsedParams = v;
+    } catch { /* keep empty array fallback */ }
+    const body = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: method.trim(),
+      params: parsedParams,
+    });
+    return `curl -X POST /api/rpc \\\n  -H 'Content-Type: application/json' \\\n  -d '${body.replace(/'/g, "'\\''")}'`;
+  }, [method, params]);
+
+  const fetchSnippet = useMemo(() => {
+    // The fetch snippet inlines the params text verbatim so the user sees
+    // exactly what they typed. We pretty-print only when valid; otherwise
+    // we leave the raw text and trust the user to fix it before pasting.
+    let pretty = params;
+    try {
+      const v = JSON.parse(params);
+      if (Array.isArray(v)) pretty = JSON.stringify(v, null, 2);
+    } catch { /* keep raw text */ }
+    return `await fetch("/api/rpc", {\n  method: "POST",\n  headers: { "Content-Type": "application/json" },\n  body: JSON.stringify({\n    jsonrpc: "2.0",\n    id: 1,\n    method: ${JSON.stringify(method.trim())},\n    params: ${pretty},\n  }),\n}).then(r => r.json());`;
+  }, [method, params]);
+
+  async function copyText(label: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(label);
+      setTimeout(() => setCopied(null), 1500);
+    } catch {
+      /* clipboard not available — ignore */
+    }
+  }
+
+  const respDisplay = useMemo(() => {
+    if (resp === null || resp === undefined) return "";
+    if (pretty) return JSON.stringify(resp, null, 2);
+    return JSON.stringify(resp);
+  }, [resp, pretty]);
 
   return (
-    <ToolCard title="Raw JSON-RPC Dispatcher" icon={Zap} accent="orange" wide>
-      <div className="space-y-3">
-        <div className="flex gap-1 flex-wrap">
-          {presets.map((p) => (
-            <button key={p.label} onClick={() => { setMethod(p.method); setParams(p.params); }}
-              className="px-2 py-1 rounded text-[10px] font-mono border border-border hover:bg-orange-500/10 hover:border-orange-500/40 transition">
-              {p.label}
+    <div className="grid lg:grid-cols-[1fr_280px] gap-4">
+      {/* Main console column */}
+      <div className="space-y-4">
+        <ToolCard title="RPC Console" icon={Terminal} accent="orange" wide>
+          <div className="space-y-3">
+            <div className="grid md:grid-cols-[1fr_1fr_auto] gap-2">
+              <div className="relative">
+                <label className="text-[10px] uppercase font-bold text-muted-foreground tracking-wide">
+                  method
+                </label>
+                <input
+                  value={method}
+                  onChange={(e) => { setMethod(e.target.value); setShowSuggest(true); }}
+                  onFocus={() => setShowSuggest(true)}
+                  onBlur={() => setTimeout(() => setShowSuggest(false), 150)}
+                  placeholder="zbx_blockNumber"
+                  className="w-full mt-1 px-3 py-2 text-xs font-mono rounded-md bg-background border border-border focus:border-orange-500 outline-none"
+                  data-testid="input-console-method"
+                />
+                {showSuggest && suggestions.length > 0 && (
+                  <div className="absolute z-20 left-0 right-0 mt-1 rounded-md border border-border bg-popover shadow-lg max-h-56 overflow-y-auto">
+                    {suggestions.map((s) => (
+                      <button
+                        key={s.method}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setMethod(s.method);
+                          setParams(s.paramsExample);
+                          setShowSuggest(false);
+                        }}
+                        className="w-full px-3 py-1.5 text-left text-[11px] font-mono hover:bg-orange-500/10 flex items-center justify-between gap-2"
+                      >
+                        <span className="text-foreground">{s.method}</span>
+                        <span className="text-[9px] text-muted-foreground truncate">{s.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div>
+                <label className="text-[10px] uppercase font-bold text-muted-foreground tracking-wide">
+                  params (JSON array)
+                </label>
+                <input
+                  value={params}
+                  onChange={(e) => setParams(e.target.value)}
+                  placeholder="[]"
+                  className="w-full mt-1 px-3 py-2 text-xs font-mono rounded-md bg-background border border-border focus:border-orange-500 outline-none"
+                  data-testid="input-console-params"
+                />
+              </div>
+              <div className="flex flex-col justify-end">
+                <button
+                  onClick={run}
+                  disabled={loading || !method.trim()}
+                  className="px-3 py-2 rounded-md bg-orange-500 hover:bg-orange-400 text-orange-950 text-xs font-semibold disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  data-testid="button-console-send"
+                >
+                  <Send className="h-3.5 w-3.5" /> {loading ? "dispatching…" : "Send RPC"}
+                </button>
+              </div>
+            </div>
+
+            {err && <ErrorBox msg={err} />}
+
+            {(resp !== null || lastMs !== null) && (
+              <div className="rounded-md border border-border bg-background/40 overflow-hidden">
+                <div className="px-3 py-1.5 border-b border-border bg-muted/30 flex items-center gap-2 flex-wrap text-[10px] font-mono">
+                  <span className="text-muted-foreground uppercase font-bold">result</span>
+                  {lastMs !== null && (
+                    <span
+                      className={`px-1.5 py-0.5 rounded border ${
+                        lastMs < 200
+                          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                          : lastMs < 800
+                          ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                          : "border-red-500/30 bg-red-500/10 text-red-300"
+                      }`}
+                      data-testid="text-console-latency"
+                    >
+                      <Clock className="inline h-2.5 w-2.5 mr-0.5" /> {lastMs} ms
+                    </span>
+                  )}
+                  <div className="ml-auto flex items-center gap-1">
+                    <button
+                      onClick={() => setPretty((p) => !p)}
+                      className="px-1.5 py-0.5 rounded border border-border hover:bg-muted/50 transition"
+                    >
+                      {pretty ? "raw" : "pretty"}
+                    </button>
+                    <button
+                      onClick={() => copyText("result", respDisplay)}
+                      className="px-1.5 py-0.5 rounded border border-border hover:bg-muted/50 transition flex items-center gap-1"
+                    >
+                      {copied === "result" ? <Check className="h-2.5 w-2.5" /> : <Copy className="h-2.5 w-2.5" />}
+                      copy
+                    </button>
+                  </div>
+                </div>
+                <pre className="p-3 text-xs font-mono break-all whitespace-pre-wrap max-h-80 overflow-y-auto">
+                  {respDisplay || "—"}
+                </pre>
+              </div>
+            )}
+
+            {/* Snippet panel — exposes the same call as cURL + fetch so the
+                user can take their working query out of the playground and
+                into a script. */}
+            <details className="rounded-md border border-border bg-background/40">
+              <summary className="px-3 py-2 cursor-pointer text-[11px] font-semibold flex items-center gap-2">
+                <Code2 className="h-3 w-3 text-cyan-400" /> Copy as cURL / fetch
+              </summary>
+              <div className="p-3 space-y-3 border-t border-border">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] uppercase font-bold text-muted-foreground">cURL</span>
+                    <button
+                      onClick={() => copyText("curl", curlSnippet)}
+                      className="text-[10px] px-1.5 py-0.5 rounded border border-border hover:bg-muted/50 transition flex items-center gap-1"
+                    >
+                      {copied === "curl" ? <Check className="h-2.5 w-2.5" /> : <Copy className="h-2.5 w-2.5" />}
+                      copy
+                    </button>
+                  </div>
+                  <pre className="p-2 bg-background/60 rounded text-[10px] font-mono whitespace-pre-wrap break-all">
+                    {curlSnippet}
+                  </pre>
+                </div>
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] uppercase font-bold text-muted-foreground">JS fetch</span>
+                    <button
+                      onClick={() => copyText("fetch", fetchSnippet)}
+                      className="text-[10px] px-1.5 py-0.5 rounded border border-border hover:bg-muted/50 transition flex items-center gap-1"
+                    >
+                      {copied === "fetch" ? <Check className="h-2.5 w-2.5" /> : <Copy className="h-2.5 w-2.5" />}
+                      copy
+                    </button>
+                  </div>
+                  <pre className="p-2 bg-background/60 rounded text-[10px] font-mono whitespace-pre-wrap break-all">
+                    {fetchSnippet}
+                  </pre>
+                </div>
+              </div>
+            </details>
+          </div>
+        </ToolCard>
+      </div>
+
+      {/* History sidebar — last N calls, click to replay, X to delete. */}
+      <div className="rounded-xl border border-border bg-card overflow-hidden h-fit">
+        <div className="p-3 border-b border-border bg-muted/30 flex items-center gap-2">
+          <History className="h-3.5 w-3.5 text-cyan-400" />
+          <h3 className="text-sm font-semibold">History</h3>
+          <span className="text-[10px] text-muted-foreground">{history.length}/{HISTORY_MAX}</span>
+          {history.length > 0 && (
+            <button
+              onClick={clearHistory}
+              className="ml-auto text-[10px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:text-red-400 hover:border-red-500/40 transition flex items-center gap-1"
+              data-testid="button-history-clear"
+            >
+              <Trash2 className="h-2.5 w-2.5" /> clear
             </button>
-          ))}
+          )}
         </div>
-        <div className="grid md:grid-cols-2 gap-2">
-          <div>
-            <label className="text-[10px] uppercase font-bold text-muted-foreground tracking-wide">method</label>
-            <input value={method} onChange={(e) => setMethod(e.target.value)}
-              className="w-full mt-1 px-3 py-2 text-xs font-mono rounded-md bg-background border border-border focus:border-orange-500 outline-none" />
+        {history.length === 0 ? (
+          <div className="p-4 text-[11px] text-muted-foreground text-center">
+            No calls yet. Send an RPC to populate history.
           </div>
-          <div>
-            <label className="text-[10px] uppercase font-bold text-muted-foreground tracking-wide">params (JSON array)</label>
-            <input value={params} onChange={(e) => setParams(e.target.value)}
-              className="w-full mt-1 px-3 py-2 text-xs font-mono rounded-md bg-background border border-border focus:border-orange-500 outline-none" />
-          </div>
-        </div>
-        <button onClick={run} disabled={loading}
-          className="w-full px-3 py-2 rounded-md bg-orange-500 hover:bg-orange-400 text-orange-950 text-xs font-semibold disabled:opacity-50 flex items-center justify-center gap-1.5">
-          <Send className="h-3.5 w-3.5" /> {loading ? "dispatching…" : "Send RPC"}
-        </button>
-        {err && <ErrorBox msg={err} />}
-        {resp !== null && (
-          <div>
-            <div className="text-[10px] uppercase font-bold text-muted-foreground mb-1">result</div>
-            <pre className="p-3 bg-background/60 border border-border rounded-md text-xs font-mono break-all whitespace-pre-wrap max-h-64 overflow-y-auto">{JSON.stringify(resp, null, 2)}</pre>
+        ) : (
+          <div className="divide-y divide-border/50 max-h-[600px] overflow-y-auto">
+            {history.map((e) => (
+              <div key={e.id} className="p-2.5 hover:bg-muted/20 transition group" data-testid="history-entry">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className={`h-1.5 w-1.5 rounded-full ${e.ok ? "bg-emerald-400" : "bg-red-400"}`} />
+                  <code className="text-[11px] font-mono font-semibold flex-1 truncate">{e.method}</code>
+                  <button
+                    onClick={() => deleteEntry(e.id)}
+                    className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-400 transition"
+                    title="Remove from history"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+                <div className="text-[9px] font-mono text-muted-foreground truncate mb-1">
+                  {e.params}
+                </div>
+                <div className="flex items-center justify-between text-[9px] text-muted-foreground">
+                  <span>{new Date(e.at).toLocaleTimeString()}</span>
+                  <span className="flex items-center gap-2">
+                    <span className={e.ms < 200 ? "text-emerald-400" : e.ms < 800 ? "text-amber-400" : "text-red-400"}>
+                      {e.ms}ms
+                    </span>
+                    <button
+                      onClick={() => replay(e)}
+                      className="px-1.5 py-0.5 rounded border border-border hover:border-cyan-500/40 hover:text-cyan-300 transition flex items-center gap-1"
+                    >
+                      <RotateCw className="h-2.5 w-2.5" /> replay
+                    </button>
+                  </span>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
-    </ToolCard>
+    </div>
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Live Tx Stream — auto-refreshing view of the chain's recent-txs ring buffer
+// with kind-filter, live/paused toggle, age countdown, and click-to-inspect
+// (jumps the user back to the Search tab seeded with the tx hash).
+// ─────────────────────────────────────────────────────────────────────────────
+type StreamTx = {
+  seq: number; height: number; timestamp_ms: number;
+  hash: string; from: string; to: string;
+  amount: string; fee: string; nonce: number;
+  kind: string; kind_index: number;
+};
+
+function TxStreamPanel({ onCrossLink }: { onCrossLink: (v: string) => void }) {
+  const [txs, setTxs] = useState<StreamTx[]>([]);
+  const [stored, setStored] = useState<number | null>(null);
+  const [totalIndexed, setTotalIndexed] = useState<number | null>(null);
+  const [paused, setPaused] = useState(false);
+  const [limit, setLimit] = useState(50);
+  const [kindFilter, setKindFilter] = useState<string>("all");
+  const [err, setErr] = useState<string | null>(null);
+  const [lastTickMs, setLastTickMs] = useState<number | null>(null);
+  const [tick, setTick] = useState(0); // for the age countdown
+  const fetching = useRef(false);
+
+  async function fetchOnce() {
+    if (fetching.current) return;
+    fetching.current = true;
+    const start = performance.now();
+    try {
+      const r = await rpc<{ returned: number; stored: number; total_indexed: number; max_cap: number; txs: StreamTx[] }>(
+        "zbx_recentTxs",
+        [Math.max(1, Math.min(limit, 1000))],
+      );
+      setTxs(Array.isArray(r?.txs) ? r.txs : []);
+      setStored(r?.stored ?? null);
+      setTotalIndexed(r?.total_indexed ?? null);
+      setErr(null);
+      setLastTickMs(Math.round(performance.now() - start));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      fetching.current = false;
+    }
+  }
+
+  // Poll every 3s. When paused, the interval still ticks the age clock so
+  // "Xs ago" labels keep counting up — just no network activity.
+  useEffect(() => {
+    fetchOnce();
+    const id = setInterval(() => {
+      setTick((t) => t + 1);
+      if (!paused) fetchOnce();
+    }, 3000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paused, limit]);
+
+  const kinds = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of txs) if (t.kind) set.add(t.kind);
+    return ["all", ...Array.from(set).sort()];
+  }, [txs]);
+
+  const filtered = useMemo(() => {
+    if (kindFilter === "all") return txs;
+    return txs.filter((t) => t.kind === kindFilter);
+  }, [txs, kindFilter]);
+
+  const ageLabel = (ms: number) => {
+    if (!ms) return "—";
+    const dt = Date.now() - ms;
+    if (dt < 0) return "0s";
+    if (dt < 60_000) return `${Math.round(dt / 1000)}s ago`;
+    if (dt < 3_600_000) return `${Math.round(dt / 60_000)}m ago`;
+    return `${Math.round(dt / 3_600_000)}h ago`;
+  };
+
+  // Use `tick` to subscribe — the dependency keeps re-renders cheap.
+  void tick;
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <div className="p-3 border-b border-border bg-muted/30 flex items-center gap-2 flex-wrap">
+          <span className="p-1.5 rounded-md text-emerald-400 bg-emerald-500/10">
+            <Radio className={`h-3.5 w-3.5 ${paused ? "" : "animate-pulse"}`} />
+          </span>
+          <h3 className="text-sm font-semibold">Live Tx Stream</h3>
+          <span className="text-[10px] text-muted-foreground">
+            zbx_recentTxs · cap 1000 · auto-refresh 3s
+          </span>
+          <div className="ml-auto flex items-center gap-1.5 flex-wrap">
+            {lastTickMs !== null && (
+              <span className="text-[10px] font-mono text-muted-foreground">
+                <Clock className="inline h-2.5 w-2.5 mr-0.5" /> {lastTickMs}ms
+              </span>
+            )}
+            <select
+              value={limit}
+              onChange={(e) => setLimit(Number(e.target.value))}
+              className="text-[10px] px-2 py-1 rounded border border-border bg-background"
+              data-testid="select-stream-limit"
+            >
+              {[20, 50, 100, 200, 500, 1000].map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <button
+              onClick={() => setPaused((p) => !p)}
+              className={`text-[10px] px-2 py-1 rounded border transition flex items-center gap-1 ${
+                paused
+                  ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
+                  : "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+              }`}
+              data-testid="button-stream-toggle"
+            >
+              {paused ? <><Play className="h-3 w-3" /> resume</> : <><Pause className="h-3 w-3" /> pause</>}
+            </button>
+            <button
+              onClick={() => fetchOnce()}
+              className="text-[10px] px-2 py-1 rounded border border-border hover:bg-muted/50 transition flex items-center gap-1"
+              data-testid="button-stream-refresh"
+            >
+              <RotateCw className="h-3 w-3" /> refresh
+            </button>
+          </div>
+        </div>
+
+        <div className="p-3 border-b border-border flex items-center gap-2 flex-wrap text-[11px]">
+          <Filter className="h-3 w-3 text-muted-foreground" />
+          <span className="text-muted-foreground">Kind:</span>
+          {kinds.map((k) => (
+            <button
+              key={k}
+              onClick={() => setKindFilter(k)}
+              className={`px-2 py-0.5 rounded text-[10px] font-mono border transition ${
+                kindFilter === k
+                  ? "border-cyan-500/60 bg-cyan-500/15 text-cyan-200"
+                  : "border-border hover:border-cyan-500/30"
+              }`}
+            >
+              {k}
+            </button>
+          ))}
+          <span className="ml-auto text-[10px] text-muted-foreground">
+            {filtered.length} shown · {stored ?? "—"} stored · {totalIndexed?.toLocaleString() ?? "—"} total
+          </span>
+        </div>
+
+        {err && (
+          <div className="p-3">
+            <ErrorBox msg={err} />
+          </div>
+        )}
+
+        {filtered.length === 0 && !err && (
+          <div className="p-8 text-center text-xs text-muted-foreground">
+            {paused ? "Stream paused. Click resume to continue." : "Waiting for transactions…"}
+          </div>
+        )}
+
+        {filtered.length > 0 && (
+          <div className="divide-y divide-border/50 max-h-[640px] overflow-y-auto">
+            {filtered.map((t) => (
+              <div key={`${t.hash}-${t.seq}`} className="p-2.5 grid md:grid-cols-[auto_1fr_1fr_auto_auto] gap-2 items-center text-[11px] hover:bg-muted/20 transition">
+                <div className="flex items-center gap-1.5">
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold border border-violet-500/40 bg-violet-500/10 text-violet-300 uppercase">
+                    {t.kind}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground font-mono">#{t.height}</span>
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[9px] uppercase text-muted-foreground">from</div>
+                  <code className="font-mono truncate block text-[10px]">{t.from || "—"}</code>
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[9px] uppercase text-muted-foreground">to</div>
+                  <code className="font-mono truncate block text-[10px]">{t.to || "—"}</code>
+                </div>
+                <div className="text-right">
+                  <div className="text-[9px] uppercase text-muted-foreground">amount</div>
+                  <div className="font-mono font-semibold">{fmtAmountWei(t.amount)}</div>
+                </div>
+                <div className="flex items-center gap-1.5 justify-end">
+                  <span className="text-[9px] text-muted-foreground" title={new Date(t.timestamp_ms).toISOString()}>
+                    {ageLabel(t.timestamp_ms)}
+                  </span>
+                  <button
+                    onClick={() => onCrossLink(t.hash)}
+                    title="Inspect tx in Search tab"
+                    className="px-1.5 py-0.5 rounded border border-border hover:border-cyan-500/40 hover:text-cyan-300 transition flex items-center gap-0.5 text-[10px]"
+                    data-testid="button-stream-inspect"
+                  >
+                    <ArrowUpRight className="h-2.5 w-2.5" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Network Insights — composite read of zbx_chainInfo + zbx_supply +
+// zbx_listValidators with refresh + per-section error tolerance. Each section
+// fails independently so a flaky validator-listing call doesn't blank out the
+// supply card.
+// ─────────────────────────────────────────────────────────────────────────────
+function NetworkInsightsPanel() {
+  const [chainInfo, setChainInfo] = useState<unknown>(null);
+  const [supply, setSupply] = useState<unknown>(null);
+  const [validators, setValidators] = useState<unknown>(null);
+  const [err, setErr] = useState<{ chainInfo?: string; supply?: string; validators?: string }>({});
+  const [refreshing, setRefreshing] = useState(false);
+
+  async function refresh() {
+    setRefreshing(true);
+    const [ci, sp, vs] = await Promise.all([
+      rpc<unknown>("zbx_chainInfo").then((r) => ({ ok: true as const, r })).catch((e) => ({ ok: false as const, e })),
+      rpc<unknown>("zbx_supply").then((r) => ({ ok: true as const, r })).catch((e) => ({ ok: false as const, e })),
+      rpc<unknown>("zbx_listValidators").then((r) => ({ ok: true as const, r })).catch((e) => ({ ok: false as const, e })),
+    ]);
+    const nextErr: typeof err = {};
+    if (ci.ok) setChainInfo(ci.r); else nextErr.chainInfo = ci.e instanceof Error ? ci.e.message : String(ci.e);
+    if (sp.ok) setSupply(sp.r); else nextErr.supply = sp.e instanceof Error ? sp.e.message : String(sp.e);
+    if (vs.ok) setValidators(vs.r); else nextErr.validators = vs.e instanceof Error ? vs.e.message : String(vs.e);
+    setErr(nextErr);
+    setRefreshing(false);
+  }
+
+  useEffect(() => {
+    refresh();
+    const id = setInterval(refresh, 15_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Validators returns either an array or an object {validators: [...]}.
+  // Normalise so the UI just iterates one shape.
+  const validatorList = useMemo(() => {
+    const v = validators as any;
+    if (Array.isArray(v)) return v;
+    if (v && Array.isArray(v.validators)) return v.validators;
+    if (v && Array.isArray(v.items)) return v.items;
+    return [] as any[];
+  }, [validators]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-end">
+        <button
+          onClick={refresh}
+          disabled={refreshing}
+          className="text-[11px] px-2.5 py-1 rounded-md border border-border hover:bg-muted/50 disabled:opacity-50 transition flex items-center gap-1.5"
+          data-testid="button-network-refresh"
+        >
+          <RotateCw className={`h-3 w-3 ${refreshing ? "animate-spin" : ""}`} />
+          {refreshing ? "refreshing…" : "refresh"}
+        </button>
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-4">
+        <ToolCard title="Chain Info" icon={Server} accent="violet">
+          {err.chainInfo ? <ErrorBox msg={err.chainInfo} /> : (
+            <pre className="text-[11px] font-mono break-all whitespace-pre-wrap max-h-80 overflow-y-auto">
+              {chainInfo ? JSON.stringify(chainInfo, null, 2) : "—"}
+            </pre>
+          )}
+        </ToolCard>
+        <ToolCard title="Supply" icon={Coins} accent="amber">
+          {err.supply ? <ErrorBox msg={err.supply} /> : (
+            <pre className="text-[11px] font-mono break-all whitespace-pre-wrap max-h-80 overflow-y-auto">
+              {supply ? JSON.stringify(supply, null, 2) : "—"}
+            </pre>
+          )}
+        </ToolCard>
+      </div>
+
+      <ToolCard title={`Validators (${validatorList.length})`} icon={ShieldCheck} accent="emerald" wide>
+        {err.validators ? <ErrorBox msg={err.validators} /> : validatorList.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No validators returned by zbx_listValidators.</p>
+        ) : (
+          <div className="rounded-md border border-border overflow-hidden">
+            <div className="grid grid-cols-[2fr_1fr_1fr_auto] px-2 py-1.5 bg-muted/30 text-[10px] uppercase font-bold text-muted-foreground tracking-wide">
+              <span>Address / Pubkey</span>
+              <span className="text-right">Stake</span>
+              <span className="text-right">Power</span>
+              <span className="text-right">Active</span>
+            </div>
+            <div className="divide-y divide-border/50 max-h-[420px] overflow-y-auto">
+              {validatorList.map((v: any, i: number) => {
+                const addr = v.address ?? v.pubkey ?? v.id ?? "—";
+                const stake = v.stake ?? v.bonded ?? v.amount ?? null;
+                const power = v.voting_power ?? v.power ?? null;
+                // Validators may surface "is active" as either a boolean
+                // (`active`) or a string status (`status === "active"`); fall
+                // back to truthy if neither field is present.
+                const active = v.active != null
+                  ? Boolean(v.active)
+                  : v.status != null
+                    ? v.status === "active"
+                    : true;
+                return (
+                  <div key={i} className="grid grid-cols-[2fr_1fr_1fr_auto] px-2 py-1.5 text-[11px] items-center hover:bg-muted/20 transition">
+                    <code className="font-mono truncate">{String(addr)}</code>
+                    <span className="text-right font-mono">{stake !== null ? fmtAmountWei(String(stake)) : "—"}</span>
+                    <span className="text-right font-mono">{power !== null ? String(power) : "—"}</span>
+                    <span className={`text-right text-[10px] font-bold ${active ? "text-emerald-400" : "text-muted-foreground"}`}>
+                      {active ? "✓" : "—"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </ToolCard>
+    </div>
+  );
+}
+
+// Format a wei amount (decimal string) as ZBX with 4 decimals. Tolerates
+// hex strings and undefined values gracefully.
+function fmtAmountWei(v: string | undefined | null): string {
+  if (!v) return "0 ZBX";
+  try {
+    const big = v.startsWith("0x") ? BigInt(v) : BigInt(v);
+    const wei = big;
+    const ZBX = 10n ** 18n;
+    const whole = wei / ZBX;
+    const frac = wei % ZBX;
+    if (frac === 0n) return `${whole.toString()} ZBX`;
+    const fracStr = (frac + ZBX).toString().slice(1).padStart(18, "0").slice(0, 4);
+    return `${whole.toString()}.${fracStr} ZBX`;
+  } catch {
+    return `${v} wei`;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
