@@ -5,6 +5,7 @@ import {
   loadWallets, getActiveAddress, getWallet, sendTransfer, parseNonce,
   type StoredWallet,
 } from "@/lib/web-wallet";
+import { unlockVault } from "@/lib/wallet-vault";
 import { useWallet } from "@/contexts/wallet-context";
 import {
   Activity, Box, Users, Zap, AlertCircle, TrendingUp, Coins,
@@ -12,9 +13,16 @@ import {
   Hash, Clock, Cpu, Droplet, ArrowUpRight, ChevronDown, ChevronUp,
   Sparkles, BarChart3, Search, Inbox, Send, Check, RefreshCw, Hourglass,
   Smartphone, Copy, ChevronLeft, ChevronRight, ExternalLink, FileSignature,
-  Anchor, ArrowDown,
+  Anchor, ArrowDown, Loader2, AlertTriangle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter,
+  DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -2079,6 +2087,21 @@ function QuickSendPanel({
   const [okHash, setOkHash] = useState<string | null>(null);
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
+  // Per-transaction password gate. Required even when the vault is already
+  // unlocked in this tab — verifies the human at the keyboard is the one
+  // signing, not just whoever opened the tab.
+  const [pwOpen, setPwOpen] = useState(false);
+  const [pwInput, setPwInput] = useState("");
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwErr, setPwErr] = useState<string | null>(null);
+  useEffect(() => {
+    if (!pwOpen) {
+      setPwInput("");
+      setPwBusy(false);
+      setPwErr(null);
+    }
+  }, [pwOpen]);
+
   // Pick up wallets from localStorage on mount + whenever localStorage changes.
   const reload = () => {
     const ws = loadWallets();
@@ -2128,12 +2151,23 @@ function QuickSendPanel({
     : activeAddr ? getWallet(activeAddr) : null;
   const canSend = !!active && !isRemote && validAddr && validAmt && !busy;
 
-  const submit = async () => {
+  // Step 1: user clicks Send → open the password gate. We don't broadcast
+  // anything until the password is verified.
+  const requestSend = () => {
     if (!active) return;
     if (isRemote) {
       setErrMsg("Mobile wallet connected — quick-send must be approved on your phone. Disconnect from the topbar to send from a stored key.");
       return;
     }
+    setOkHash(null);
+    setErrMsg(null);
+    setPwOpen(true);
+  };
+
+  // Step 2: actually broadcast. Called from the password-gate dialog after
+  // unlockVault(pw) succeeds.
+  const doSubmit = async () => {
+    if (!active) return;
     setBusy(true);
     setOkHash(null);
     setErrMsg(null);
@@ -2156,6 +2190,27 @@ function QuickSendPanel({
       setErrMsg(e?.message ?? String(e));
     } finally {
       setBusy(false);
+    }
+  };
+
+  // Verify the password by re-decrypting the vault, then proceed. unlockVault
+  // throws "Wrong password" on a bad guess and is idempotent when the vault
+  // is already unlocked in this tab.
+  const handleConfirmPw = async () => {
+    if (!pwInput) {
+      setPwErr("Enter your wallet password");
+      return;
+    }
+    setPwBusy(true);
+    setPwErr(null);
+    try {
+      await unlockVault(pwInput);
+      setPwOpen(false);
+      await doSubmit();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setPwErr(msg || "Wrong password");
+      setPwBusy(false);
     }
   };
 
@@ -2285,7 +2340,7 @@ function QuickSendPanel({
             title="Fee in ZBX"
           />
           <button
-            onClick={submit}
+            onClick={requestSend}
             disabled={!canSend}
             className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition disabled:opacity-40 flex items-center gap-1.5"
             data-testid="button-quick-send"
@@ -2293,6 +2348,88 @@ function QuickSendPanel({
             {busy ? "Sending…" : <><Send className="h-3.5 w-3.5" /> Sign &amp; broadcast</>}
           </button>
         </div>
+
+        {/* Per-tx password confirmation. Opens when the user clicks Send;
+            doSubmit() only runs after unlockVault(pw) verifies the password. */}
+        <Dialog open={pwOpen} onOpenChange={setPwOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-400" />
+                Confirm transaction
+              </DialogTitle>
+              <DialogDescription>
+                Re-enter your wallet password to authorize this broadcast.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 py-1 text-xs">
+              <div className="rounded-md border border-border bg-muted/30 p-2 space-y-1">
+                <div className="flex justify-between gap-2">
+                  <span className="text-muted-foreground">From</span>
+                  <code className="font-mono break-all text-right">{active?.address ?? ""}</code>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-muted-foreground">To</span>
+                  <code className="font-mono break-all text-right">{to.trim()}</code>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-muted-foreground">Amount</span>
+                  <span>{amount} ZBX</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-muted-foreground">Fee</span>
+                  <span>{fee || "auto"} ZBX</span>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="input-quick-send-password">Wallet password</Label>
+                <Input
+                  id="input-quick-send-password"
+                  data-testid="input-quick-send-password"
+                  type="password"
+                  placeholder="Enter your wallet password"
+                  value={pwInput}
+                  onChange={(e) => setPwInput(e.target.value)}
+                  disabled={pwBusy || busy}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return;
+                    if (pwBusy || busy || !pwInput) return;
+                    e.preventDefault();
+                    void handleConfirmPw();
+                  }}
+                />
+                {pwErr && (
+                  <p
+                    className="text-[11px] text-red-400"
+                    data-testid="text-quick-send-password-error"
+                  >
+                    {pwErr}
+                  </p>
+                )}
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setPwOpen(false)}
+                disabled={pwBusy || busy}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => void handleConfirmPw()}
+                disabled={pwBusy || busy || !pwInput}
+                data-testid="button-quick-send-confirm"
+              >
+                {pwBusy ? (
+                  <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Verifying…</>
+                ) : (
+                  <><Check className="h-4 w-4 mr-1.5" /> Confirm &amp; sign</>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Status */}
         {okHash && (
