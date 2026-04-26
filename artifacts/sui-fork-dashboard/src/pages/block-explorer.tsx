@@ -604,6 +604,79 @@ function TypedPayloadView({ typedTx }: { typedTx: ZbxTypedTx }) {
         </>
       );
 
+    case "staking": {
+      // Staking is a wrapper kind — the actual op (stake / unstake /
+      // redelegate / claim_rewards / create_validator / edit_validator)
+      // is nested under `payload.op.op`. Each sub-op has its own field
+      // shape, all defined in zebvix-chain/src/rpc.rs::stake_op_to_json.
+      const op = (p.op as Record<string, unknown>) ?? {};
+      const sub = String(op.op ?? "");
+      switch (sub) {
+        case "stake":
+          return (
+            <>
+              <DetailRow label="Operation" value="Stake" highlight />
+              <DetailRow label="Validator" value={String(op.validator)} mono linkAddr />
+              <DetailRow label="Amount" value={fmtZbx(op.amount)} highlight />
+            </>
+          );
+        case "unstake":
+          return (
+            <>
+              <DetailRow label="Operation" value="Unstake" highlight />
+              <DetailRow label="Validator" value={String(op.validator)} mono linkAddr />
+              <DetailRow label="Shares" value={String(op.shares)} highlight />
+            </>
+          );
+        case "redelegate":
+          return (
+            <>
+              <DetailRow label="Operation" value="Redelegate" highlight />
+              <DetailRow label="From validator" value={String(op.from)} mono linkAddr />
+              <DetailRow label="To validator" value={String(op.to)} mono linkAddr />
+              <DetailRow label="Shares" value={String(op.shares)} highlight />
+            </>
+          );
+        case "claim_rewards":
+          return (
+            <>
+              <DetailRow label="Operation" value="Claim rewards" highlight />
+              <DetailRow label="Validator" value={String(op.validator)} mono linkAddr />
+            </>
+          );
+        case "create_validator":
+          return (
+            <>
+              <DetailRow label="Operation" value="Create validator" highlight />
+              <DetailRow label="Pubkey" value={String(op.pubkey)} mono />
+              <DetailRow label="Commission (bps)" value={String(op.commission_bps)} />
+              <DetailRow label="Self bond" value={fmtZbx(op.self_bond)} highlight />
+            </>
+          );
+        case "edit_validator":
+          return (
+            <>
+              <DetailRow label="Operation" value="Edit validator" highlight />
+              <DetailRow label="Validator" value={String(op.validator)} mono linkAddr />
+              <DetailRow label="New commission (bps)" value={String(op.new_commission_bps)} highlight />
+            </>
+          );
+        default:
+          // Unknown staking sub-op — show the raw inner payload so we
+          // never hide data on this critical "what happened?" surface.
+          return (
+            <div className="space-y-1 pt-2 border-t border-border/50">
+              <div className="text-xs uppercase tracking-wider text-muted-foreground">
+                Staking op (unrecognized sub-variant)
+              </div>
+              <pre className="text-[10px] font-mono p-2 rounded bg-muted/40 overflow-auto max-h-64">
+                {JSON.stringify(op, null, 2)}
+              </pre>
+            </div>
+          );
+      }
+    }
+
     default:
       // Fallback for kinds we haven't bespoke-rendered yet (rare wrapper
       // sub-variants whose inner shape varies a lot). Show the raw decoded

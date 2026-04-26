@@ -49,7 +49,7 @@ The project is organized as a pnpm workspace monorepo with the following key pac
 - **RPC Playground:** Interactive tool for testing RPC methods.
 - **Pay-ID Register:** Allows users to claim permanent `handle@zbx` aliases on-chain.
 - **Staking Dashboard:** Full delegator UI for staking operations (Stake, Unstake, Redelegate, ClaimRewards).
-- **Typed Tx Decoder:** `zbx_getTxByHash` RPC provides full semantically-decoded `TxKind` payloads for historical transactions.
+- **Typed Tx Decoder:** `zbx_getTxByHash` RPC provides full semantically-decoded `TxKind` payloads for historical transactions. Block Explorer's `TypedPayloadView` renders dedicated per-kind sections (token ops, pool ops, swap, staking with all 6 sub-ops, validator admin ops, governor change, register PayID) so users see the actual operation parameters instead of the misleading eth-style "Value: 0 ZBX" row.
 - **Live Chain Click-Through:** `/live-chain` Recent Txs panel shows a Tx Hash column; Block#, Tx Hash, From, To, and (in Blocks tab) block hash + proposer all link to `/block-explorer?q=<value>` which auto-resolves the kind via `DetailRouter` + `detectQueryKind`.
 - **User-Creatable Fungible Tokens:** Permissionless creation of ERC-20-style tokens with custom metadata and supply. A dedicated "Create Token Page" facilitates this process.
 
