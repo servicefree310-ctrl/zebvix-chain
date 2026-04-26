@@ -281,17 +281,98 @@ export async function getTip(): Promise<ZbxTipInfo | null> {
   }
 }
 
-/** Fetch a block via eth_getBlockByNumber. `tag` is "latest" or a number. */
+/** Native zbx block header shape returned by `zbx_getBlockByNumber`. */
+interface ZbxNativeBlock {
+  header: {
+    height: number;
+    parent_hash: string;
+    state_root: string;
+    tx_root: string;
+    timestamp_ms: number;
+    proposer: string;
+  };
+  txs?: unknown[];
+  signature?: unknown;
+}
+
+async function getZbxNativeBlock(height: number): Promise<ZbxNativeBlock | null> {
+  try {
+    return (await rpc<ZbxNativeBlock | null>("zbx_getBlockByNumber", [height])) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch a block by height (or "latest") and return it in `EthBlock` shape,
+ * sourcing height / parentHash / timestamp / miner from the **native**
+ * `zbx_getBlockByNumber` (which is the source of truth) and using
+ * `eth_getBlockByNumber` only for supplementary gas fields.
+ *
+ * Why native-first?
+ *   The chain's eth-style `eth_getBlockByNumber` is currently a stub that
+ *   IGNORES the requested block number and always returns the current tip
+ *   (see zvm_rpc.rs::eth_getBlockByNumber). It also omits `hash` and
+ *   `parentHash`. Trusting it means searching for any historic block
+ *   silently displays the tip block instead.
+ *
+ * Hash derivation:
+ *   The native block's envelope `hash` is not stored on the block itself —
+ *   only on the *next* block's `header.parent_hash`. We:
+ *     • read native block at the requested height for parentHash + header,
+ *     • read native block at height+1 to derive THIS block's hash,
+ *     • for the tip (no next block yet), fall back to `zbx_blockNumber.hash`.
+ */
 export async function getEthBlock(
   tag: number | "latest",
   includeTxs = false,
 ): Promise<EthBlock | null> {
-  const param = tag === "latest" ? "latest" : "0x" + tag.toString(16);
-  try {
-    return (await rpc<EthBlock | null>("eth_getBlockByNumber", [param, includeTxs])) ?? null;
-  } catch {
+  const tip = await getTip();
+  const targetHeight =
+    tag === "latest" ? (tip?.height ?? null) : tag;
+  if (targetHeight === null || !Number.isFinite(targetHeight) || targetHeight < 0) {
     return null;
   }
+
+  const param = "0x" + targetHeight.toString(16);
+  const [native, nextNative, ethStub] = await Promise.all([
+    getZbxNativeBlock(targetHeight),
+    getZbxNativeBlock(targetHeight + 1),
+    rpc<EthBlock | null>("eth_getBlockByNumber", [param, includeTxs]).catch(() => null),
+  ]);
+
+  if (!native?.header) return null;
+
+  const tsHex = "0x" + Math.floor(native.header.timestamp_ms / 1000).toString(16);
+  const numberHex = "0x" + targetHeight.toString(16);
+
+  // Derive canonical hash for this block via the parent_hash chain
+  // (block N's hash == block N+1's header.parent_hash). For the tip, fall
+  // back to the tip header from `zbx_blockNumber`. If N+1 was expected
+  // (height < tip.height) but transiently failed, retry once before giving
+  // up — better to wait one extra round-trip than silently surface "".
+  let hash = "";
+  if (nextNative?.header?.parent_hash) {
+    hash = nextNative.header.parent_hash;
+  } else if (tip && tip.height === targetHeight && tip.hash) {
+    hash = tip.hash;
+  } else if (tip && targetHeight < tip.height) {
+    const retry = await getZbxNativeBlock(targetHeight + 1);
+    if (retry?.header?.parent_hash) hash = retry.header.parent_hash;
+  }
+
+  return {
+    number: numberHex,
+    hash,
+    parentHash: native.header.parent_hash ?? "",
+    timestamp: tsHex,
+    miner: native.header.proposer ?? (ethStub?.miner ?? ""),
+    gasUsed: ethStub?.gasUsed ?? "0x0",
+    gasLimit: ethStub?.gasLimit ?? "0x0",
+    baseFeePerGas: ethStub?.baseFeePerGas,
+    size: ethStub?.size,
+    transactions: ethStub?.transactions ?? [],
+  };
 }
 
 /** Last `n` blocks ending at `tip` (newest first). */

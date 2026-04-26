@@ -11,8 +11,10 @@ import {
   ArrowLeftRight, Gauge, Timer, Flame, Layers, Wifi, ShieldCheck,
   Hash, Clock, Cpu, Droplet, ArrowUpRight, ChevronDown, ChevronUp,
   Sparkles, BarChart3, Search, Inbox, Send, Check, RefreshCw, Hourglass,
-  Smartphone,
+  Smartphone, Copy, ChevronLeft, ChevronRight, ExternalLink, FileSignature,
+  Anchor, ArrowDown,
 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -137,29 +139,41 @@ export default function LiveChain() {
           }
         });
 
+        // Window of recent block heights, ordered NEWEST-FIRST so the
+        // parent_hash chain (block H's hash = block H+1's parent_hash)
+        // can be unrolled in one pass with no extra RPC calls.
         const WINDOW = 20;
         const heights: number[] = [];
         for (let i = 0; i < WINDOW; i++) {
           const h = tipRes.height - i;
           if (h >= 0) heights.push(h);
         }
-        const blocks = await Promise.all(
-          heights.map(async (h) => {
-            try {
-              const r = await rpc<any>("zbx_getBlockByNumber", [h]);
-              if (!r) return null;
-              const hdr = r.header ?? r;
-              const txs = Array.isArray(r.txs) ? r.txs : [];
-              return {
-                hash: r.hash ?? hdr.hash ?? `h${h}`,
-                height: hdr.height ?? h,
-                proposer: hdr.proposer ?? "",
-                timestamp_ms: hdr.timestamp_ms ?? 0,
-                tx_count: txs.length,
-              } as BlockInfo;
-            } catch { return null; }
-          }),
+        const rawBlocks = await Promise.all(
+          heights.map((h) => rpc<any>("zbx_getBlockByNumber", [h]).catch(() => null)),
         );
+        // Derive a real hash for each block: tip's hash comes straight from
+        // zbx_blockNumber; every other block's hash is the next-newer block's
+        // parent_hash (consensus invariant).
+        const derivedHashes = deriveHashesFromChain(
+          rawBlocks.map((r) => r ?? {}),
+          tipRes.hash,
+          tipRes.height,
+        );
+        const blocks: (BlockInfo | null)[] = rawBlocks.map((r, i) => {
+          if (!r) return null;
+          const hdr = r.header ?? r;
+          const txs = Array.isArray(r.txs) ? r.txs : [];
+          const h = hdr.height ?? heights[i];
+          return {
+            // Fall back to a synthetic key only if BOTH the derived hash AND
+            // the (unlikely) inline hash are absent — keeps React keys stable.
+            hash: derivedHashes[i] || r.hash || hdr.hash || `h${h}`,
+            height: h,
+            proposer: hdr.proposer ?? "",
+            timestamp_ms: hdr.timestamp_ms ?? 0,
+            tx_count: txs.length,
+          } as BlockInfo;
+        });
         const validBlocks = blocks.filter((b): b is BlockInfo => !!b);
         if (mounted) setRecent(validBlocks.slice(0, 15));
 
@@ -368,11 +382,23 @@ function Hero({
           </p>
         </div>
 
-        <div className="flex flex-col items-end gap-2 min-w-[200px]">
+        <div className="flex flex-col items-end gap-2 min-w-[220px]">
           <div className={`text-5xl font-bold tabular-nums transition-all ${flash ? "text-emerald-400 scale-110" : "text-foreground"}`}>
             {tip ? `#${tip.height.toLocaleString()}` : "—"}
           </div>
           <div className="text-xs text-muted-foreground">current block</div>
+          {tip?.hash && (
+            <div className="flex items-center gap-1.5 group">
+              <code
+                className="text-[11px] font-mono text-cyan-400/90 bg-cyan-500/10 border border-cyan-500/20 rounded px-2 py-0.5"
+                title={tip.hash}
+                data-testid="text-hero-tip-hash"
+              >
+                {shortAddr(tip.hash, 8, 6)}
+              </code>
+              <CopyBtn value={tip.hash} label="tip hash" />
+            </div>
+          )}
           {price && (
             <div className="flex items-center gap-2 mt-2">
               <span className="text-xl font-semibold tabular-nums">${formatPrice(parseFloat(price.zbx_usd))}</span>
@@ -1096,9 +1122,12 @@ function AddressSearch() {
     if (c.kind === "block") {
       setBlockLoading(true);
       try {
-        const r = await rpc<any>("zbx_getBlockByNumber", [c.value]);
-        if (!r) setBlockErr(`block #${c.value} not found`);
-        else setBlockResult({ ...r, _height: c.value });
+        // Derive the canonical block hash by also fetching block H+1
+        // (its parent_hash == block H's hash). For the tip block (no H+1),
+        // fall back to zbx_blockNumber's own hash field.
+        const { block, hash, tipHeight } = await fetchBlockWithDerivedHash(c.value);
+        if (!block) setBlockErr(`block #${c.value} not found`);
+        else setBlockResult({ ...block, _height: c.value, _hash: hash, _tipHeight: tipHeight });
       } catch (e) {
         setBlockErr(e instanceof Error ? e.message : String(e));
       } finally {
@@ -1107,30 +1136,67 @@ function AddressSearch() {
       return;
     }
     if (c.kind === "hash") {
-      // Try as block hash by scanning recent
+      // Look up a block by its hash by walking the recent-block window and
+      // matching against the *derived* hash (block H's hash = block H+1's
+      // parent_hash). This is the only way given the chain currently doesn't
+      // expose a `getBlockByHash` RPC for native blocks.
       setBlockLoading(true);
       setBlockErr(null);
       try {
-        const tip = await rpc<{ height: number }>("zbx_blockNumber");
+        const tip = await rpc<{ height: number; hash: string }>("zbx_blockNumber");
         const W = 500;
-        let hit: any = null;
-        for (let i = 0; i < W && !hit; i += 16) {
-          const slice: number[] = [];
-          for (let j = 0; j < 16 && i + j < W; j++) slice.push(tip.height - (i + j));
-          const rs = await Promise.all(slice.map((h) => rpc<any>("zbx_getBlockByNumber", [h]).catch(() => null)));
-          for (const r of rs) {
-            if (!r) continue;
-            const h = r.hash ?? r.header?.hash;
-            if (h && h.toLowerCase() === c.value) { hit = r; break; }
-          }
+        // Fetch newest-first batch (also fetch tip+0 so the chain head's
+        // hash comes from the tip RPC, not parent_hash of a non-existent
+        // block above it).
+        const heights: number[] = [];
+        for (let i = 0; i < W; i++) {
+          const h = tip.height - i;
+          if (h < 0) break;
+          heights.push(h);
         }
-        if (hit) setBlockResult({ ...hit, _height: hit.header?.height ?? hit.height });
-        else setBlockErr(`hash ${shortAddr(c.value, 8, 6)} not found in last ${W} blocks. Try as address (must be 40 hex chars), or this may be a tx hash (tx lookup by hash not supported by RPC).`);
+        const rawBlocks = await Promise.all(
+          heights.map((h) => rpc<any>("zbx_getBlockByNumber", [h]).catch(() => null)),
+        );
+        const derived = deriveHashesFromChain(
+          rawBlocks.map((r) => r ?? {}),
+          tip.hash,
+          tip.height,
+        );
+        let hitIdx = -1;
+        for (let i = 0; i < derived.length; i++) {
+          if (derived[i] && derived[i].toLowerCase() === c.value) { hitIdx = i; break; }
+        }
+        if (hitIdx >= 0 && rawBlocks[hitIdx]) {
+          const hit = rawBlocks[hitIdx];
+          setBlockResult({ ...hit, _height: hit.header?.height ?? heights[hitIdx], _hash: derived[hitIdx], _tipHeight: tip.height });
+        } else {
+          setBlockErr(`block hash ${shortAddr(c.value, 8, 6)} not found in last ${W} blocks. If this is a tx hash, paste it into the Block Explorer instead.`);
+        }
       } catch (e) {
         setBlockErr(e instanceof Error ? e.message : String(e));
       } finally {
         setBlockLoading(false);
       }
+    }
+  }
+
+  // Allow BlockResultCard's prev/next nav to swap in another block without
+  // closing the card. Same derivation path as the search button.
+  async function navigateToBlock(height: number) {
+    if (height < 0) return;
+    setBlockLoading(true);
+    setBlockErr(null);
+    try {
+      const { block, hash, tipHeight } = await fetchBlockWithDerivedHash(height);
+      if (!block) setBlockErr(`block #${height} not found`);
+      else {
+        setBlockResult({ ...block, _height: height, _hash: hash, _tipHeight: tipHeight });
+        setVal(String(height));
+      }
+    } catch (e) {
+      setBlockErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBlockLoading(false);
     }
   }
 
@@ -1180,66 +1246,308 @@ function AddressSearch() {
         </div>
       )}
 
-      {blockResult && <BlockResultCard block={blockResult} onClose={() => setBlockResult(null)} />}
+      {blockResult && (
+        <BlockResultCard
+          block={blockResult}
+          onClose={() => { setBlockResult(null); setBlockErr(null); }}
+          onNavigate={navigateToBlock}
+          loading={blockLoading}
+        />
+      )}
     </div>
   );
 }
 
-function BlockResultCard({ block, onClose }: { block: any; onClose: () => void }) {
+// ─────────────────────────────────────────────────────────────────────────────
+// BlockResultCard — Etherscan-style full block detail panel.
+// Renders all header fields with copy buttons, computes total ZBX moved /
+// total fees burned across the block, gives prev/next block navigation,
+// and a one-click "Open in Block Explorer" deep link.
+// ─────────────────────────────────────────────────────────────────────────────
+function BlockResultCard({
+  block, onClose, onNavigate, loading,
+}: {
+  block: any;
+  onClose: () => void;
+  onNavigate: (h: number) => void;
+  loading: boolean;
+}) {
   const hdr = block.header ?? block;
-  const height = hdr.height ?? block._height;
-  const hash = block.hash ?? hdr.hash ?? "";
-  const txs = Array.isArray(block.txs) ? block.txs : [];
+  const height: number = hdr.height ?? block._height ?? 0;
+  // Prefer the derived hash (set by the search/nav handlers) — `block.hash`
+  // was historically empty because the chain's Block JSON has no hash field.
+  const hash: string = block._hash || block.hash || hdr.hash || "";
+  const tipHeight: number = block._tipHeight ?? 0;
+  const txs: any[] = Array.isArray(block.txs) ? block.txs : [];
+  const isTip = tipHeight > 0 && height >= tipHeight;
+  const canPrev = height > 0;
+  const canNext = !isTip;
+
+  // Aggregate ZBX moved and fees paid in this block.
+  const totals = useMemo(() => {
+    let amtWei = 0n;
+    let feeWei = 0n;
+    let withAmount = 0;
+    for (const t of txs) {
+      const b = t.body ?? t;
+      try {
+        if (b.amount) { amtWei += BigInt(String(b.amount)); withAmount++; }
+        if (b.fee) feeWei += BigInt(String(b.fee));
+      } catch { /* skip malformed */ }
+    }
+    return { amtWei: amtWei.toString(), feeWei: feeWei.toString(), withAmount };
+  }, [txs]);
+
+  // 64-byte secp256k1 sig over header bytes (proposer signature).
+  const sigHex: string = useMemo(() => {
+    const s = block.signature;
+    if (!s) return "";
+    if (typeof s === "string") return s.startsWith("0x") ? s : `0x${s}`;
+    if (Array.isArray(s)) {
+      try { return "0x" + s.map((n: number) => n.toString(16).padStart(2, "0")).join(""); }
+      catch { return ""; }
+    }
+    return "";
+  }, [block.signature]);
+
   return (
-    <div className="rounded-xl border border-cyan-500/40 bg-gradient-to-br from-cyan-500/10 to-transparent p-4 space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold flex items-center gap-2">
-          <Box className="h-4 w-4 text-cyan-400" />
-          Block #{height?.toLocaleString()}
-          <span className="text-[10px] font-normal text-muted-foreground">{txs.length} tx{txs.length === 1 ? "" : "s"}</span>
-        </h3>
-        <button onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground">✕ close</button>
+    <div className="rounded-xl border border-cyan-500/40 bg-gradient-to-br from-cyan-500/10 via-card to-transparent overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300">
+      {/* Header strip */}
+      <div className="p-4 border-b border-cyan-500/20 flex items-center justify-between gap-3 flex-wrap bg-cyan-500/5">
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 rounded-lg bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center">
+            <Box className="h-5 w-5 text-cyan-400" />
+          </div>
+          <div>
+            <div className="text-[11px] uppercase tracking-wider text-cyan-300/80 font-semibold flex items-center gap-2">
+              Block detail
+              {isTip && <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[9px] font-bold">CHAIN TIP</span>}
+            </div>
+            <h3 className="text-xl font-bold tabular-nums">
+              #{height.toLocaleString()}
+              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                {txs.length} tx{txs.length === 1 ? "" : "s"} · {ageStr(hdr.timestamp_ms ?? 0)}
+              </span>
+            </h3>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => canPrev && onNavigate(height - 1)}
+            disabled={!canPrev || loading}
+            className="px-2 py-1.5 rounded-md border border-border bg-card text-xs font-medium hover:bg-muted/50 disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1"
+            data-testid="button-block-prev"
+            title="Previous block"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" /> Prev
+          </button>
+          <button
+            type="button"
+            onClick={() => canNext && onNavigate(height + 1)}
+            disabled={!canNext || loading}
+            className="px-2 py-1.5 rounded-md border border-border bg-card text-xs font-medium hover:bg-muted/50 disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1"
+            data-testid="button-block-next"
+            title="Next block"
+          >
+            Next <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+          <WLink
+            href={explorerHref(height)}
+            className="px-2 py-1.5 rounded-md bg-primary/15 border border-primary/30 text-primary text-xs font-medium hover:bg-primary/25 flex items-center gap-1"
+            data-testid="link-block-explorer"
+          >
+            <ExternalLink className="h-3.5 w-3.5" /> Explorer
+          </WLink>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50"
+            aria-label="close"
+            data-testid="button-block-close"
+          >
+            ✕
+          </button>
+        </div>
       </div>
-      <div className="grid md:grid-cols-2 gap-3 text-xs">
-        <KV k="Hash" v={hash} mono />
-        <KV k="Parent Hash" v={hdr.parent_hash ?? "—"} mono />
-        <KV k="Proposer" v={hdr.proposer ?? "—"} mono />
-        <KV k="Timestamp" v={hdr.timestamp_ms ? `${new Date(hdr.timestamp_ms).toISOString()} (${ageStr(hdr.timestamp_ms)})` : "—"} />
-        <KV k="State Root" v={hdr.state_root ?? "—"} mono />
-        <KV k="Tx Root" v={hdr.tx_root ?? "—"} mono />
+
+      {/* Quick-stat strip */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-border">
+        <BlockStat label="Transactions" value={txs.length.toString()} icon={ArrowLeftRight} />
+        <BlockStat label="Total ZBX moved" value={`${weiHexToZbx(totals.amtWei)} ZBX`} icon={TrendingUp} sub={`${totals.withAmount} of ${txs.length} carry value`} />
+        <BlockStat label="Total fees" value={`${weiHexToZbx(totals.feeWei)} ZBX`} icon={Flame} accent="amber" />
+        <BlockStat label="Block time" value={hdr.timestamp_ms ? new Date(hdr.timestamp_ms).toLocaleTimeString() : "—"} icon={Clock} sub={hdr.timestamp_ms ? new Date(hdr.timestamp_ms).toISOString().slice(0, 10) : ""} />
       </div>
-      {txs.length > 0 && (
-        <div className="rounded border border-border bg-card overflow-hidden">
-          <div className="p-2 bg-muted/30 text-xs font-semibold">Transactions ({txs.length})</div>
-          <table className="w-full text-xs">
-            <thead className="bg-muted/20 text-muted-foreground">
-              <tr>
-                <th className="text-left p-2 w-20 font-medium">Kind</th>
-                <th className="text-left p-2 font-medium">From</th>
-                <th className="text-left p-2 font-medium">To</th>
-                <th className="text-right p-2 font-medium">Amount</th>
-                <th className="text-right p-2 font-medium">Fee</th>
-              </tr>
-            </thead>
-            <tbody>
-              {txs.map((t: any, i: number) => {
-                const b = t.body ?? t;
-                return (
-                  <tr key={i} className="border-t border-border">
-                    <td className="p-2"><KindBadge kind={kindLabel(b.kind)} /></td>
-                    <td className="p-2 font-mono text-muted-foreground">{shortAddr(b.from ?? "", 6, 4)}</td>
-                    <td className="p-2 font-mono text-muted-foreground">{shortAddr(b.to ?? "", 6, 4)}</td>
-                    <td className="p-2 text-right font-mono">
-                      {b.amount ? `${weiHexToZbx(String(b.amount))} ZBX` : <span className="text-muted-foreground">—</span>}
-                    </td>
-                    <td className="p-2 text-right font-mono text-amber-400">{weiHexToZbx(String(b.fee ?? "0"))}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+
+      {/* Detail rows — each with copy + (where useful) deep link. */}
+      <div className="divide-y divide-border">
+        <DetailRow icon={Hash} label="Hash" value={hash || "—"} mono accent="cyan" copy />
+        <DetailRow
+          icon={Anchor}
+          label="Parent hash"
+          value={hdr.parent_hash ?? "—"}
+          mono
+          copy
+          link={canPrev && hdr.parent_hash ? { href: "#prev-block", onClick: () => onNavigate(height - 1), label: "open prev" } : undefined}
+        />
+        <DetailRow
+          icon={Users}
+          label="Proposer"
+          value={hdr.proposer ?? "—"}
+          mono
+          accent="violet"
+          copy
+          link={hdr.proposer ? { href: explorerHref(hdr.proposer), label: "view address" } : undefined}
+        />
+        <DetailRow icon={Layers} label="State root" value={hdr.state_root ?? "—"} mono copy />
+        <DetailRow icon={ArrowDown} label="Tx root" value={hdr.tx_root ?? "—"} mono copy />
+        <DetailRow
+          icon={Clock}
+          label="Timestamp"
+          value={hdr.timestamp_ms
+            ? `${new Date(hdr.timestamp_ms).toISOString()}  (${ageStr(hdr.timestamp_ms)})`
+            : "—"}
+        />
+        {sigHex && (
+          <DetailRow
+            icon={FileSignature}
+            label="Signature"
+            value={`${sigHex.slice(0, 22)}…${sigHex.slice(-12)}  (64 B secp256k1)`}
+            mono
+            copy
+            copyValue={sigHex}
+          />
+        )}
+      </div>
+
+      {/* Tx table */}
+      {txs.length > 0 ? (
+        <div className="border-t border-border">
+          <div className="p-3 bg-muted/30 text-xs font-semibold flex items-center gap-2">
+            <ArrowLeftRight className="h-3.5 w-3.5 text-primary" />
+            Transactions ({txs.length})
+          </div>
+          <div className="max-h-96 overflow-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-muted/20 text-muted-foreground sticky top-0 backdrop-blur">
+                <tr>
+                  <th className="text-left p-2 w-8 font-medium">#</th>
+                  <th className="text-left p-2 w-24 font-medium">Kind</th>
+                  <th className="text-left p-2 font-medium">From</th>
+                  <th className="text-left p-2 font-medium">To</th>
+                  <th className="text-right p-2 font-medium">Amount</th>
+                  <th className="text-right p-2 font-medium">Fee</th>
+                  <th className="text-right p-2 w-16 font-medium">Nonce</th>
+                </tr>
+              </thead>
+              <tbody>
+                {txs.map((t: any, i: number) => {
+                  const b = t.body ?? t;
+                  const txHash = String(t.hash ?? t.tx_hash ?? "");
+                  return (
+                    <tr key={txHash || i} className="border-t border-border hover:bg-muted/20" data-testid={`row-block-tx-${i}`}>
+                      <td className="p-2 text-muted-foreground tabular-nums">{i + 1}</td>
+                      <td className="p-2"><KindBadge kind={kindLabel(b.kind)} /></td>
+                      <td className="p-2 font-mono">
+                        {b.from
+                          ? <WLink href={explorerHref(b.from)} title={b.from} className="text-muted-foreground hover:text-foreground hover:underline underline-offset-2">{shortAddr(b.from, 6, 4)}</WLink>
+                          : <span className="text-muted-foreground">—</span>}
+                      </td>
+                      <td className="p-2 font-mono">
+                        {b.to
+                          ? <WLink href={explorerHref(b.to)} title={b.to} className="text-muted-foreground hover:text-foreground hover:underline underline-offset-2">{shortAddr(b.to, 6, 4)}</WLink>
+                          : <span className="text-muted-foreground">—</span>}
+                      </td>
+                      <td className="p-2 text-right font-mono">
+                        {b.amount ? <span className="text-foreground">{weiHexToZbx(String(b.amount))}</span> : <span className="text-muted-foreground">—</span>}
+                      </td>
+                      <td className="p-2 text-right font-mono text-amber-400">{weiHexToZbx(String(b.fee ?? "0"))}</td>
+                      <td className="p-2 text-right font-mono text-muted-foreground tabular-nums">{b.nonce !== undefined ? String(b.nonce) : "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        <div className="border-t border-border p-6 text-center text-xs text-muted-foreground">
+          <Inbox className="h-6 w-6 mx-auto mb-1.5 text-muted-foreground/30" />
+          empty block — no transactions
         </div>
       )}
+    </div>
+  );
+}
+
+// Compact stat tile used in the BlockResultCard quick-stat strip.
+function BlockStat({
+  label, value, sub, icon: Icon, accent = "cyan",
+}: {
+  label: string; value: string; sub?: string;
+  icon: React.ElementType; accent?: "cyan" | "amber" | "emerald" | "violet";
+}) {
+  const tone = {
+    cyan: "text-cyan-400",
+    amber: "text-amber-400",
+    emerald: "text-emerald-400",
+    violet: "text-violet-400",
+  }[accent];
+  return (
+    <div className="p-3 bg-card/60 backdrop-blur">
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
+        <Icon className={`h-3 w-3 ${tone}`} />
+        {label}
+      </div>
+      <div className="text-sm font-bold tabular-nums truncate" title={value}>{value}</div>
+      {sub && <div className="text-[10px] text-muted-foreground truncate" title={sub}>{sub}</div>}
+    </div>
+  );
+}
+
+// Etherscan-style label/value row with optional copy button + deep link.
+function DetailRow({
+  icon: Icon, label, value, mono, copy, copyValue, accent, link,
+}: {
+  icon: React.ElementType;
+  label: string;
+  value: string;
+  mono?: boolean;
+  copy?: boolean;
+  copyValue?: string;
+  accent?: "cyan" | "violet";
+  link?: { href: string; label: string; onClick?: () => void };
+}) {
+  const tone = accent === "cyan" ? "text-cyan-400" : accent === "violet" ? "text-violet-400" : "text-foreground";
+  return (
+    <div className="px-4 py-2.5 flex items-start gap-3 hover:bg-muted/10 transition">
+      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground w-32 shrink-0 pt-0.5">
+        <Icon className="h-3 w-3" />
+        <span>{label}</span>
+      </div>
+      <div className="flex-1 min-w-0 flex items-center gap-2">
+        <code className={`text-xs ${mono ? "font-mono" : ""} ${tone} break-all`} data-testid={`text-block-${label.toLowerCase().replace(/\s+/g, "-")}`}>
+          {value}
+        </code>
+        {copy && value && value !== "—" && <CopyBtn value={copyValue ?? value} label={label} />}
+        {link && (
+          link.onClick ? (
+            <button
+              type="button"
+              onClick={(e) => { e.preventDefault(); link.onClick!(); }}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted/70 shrink-0 inline-flex items-center gap-0.5"
+            >
+              {link.label} <ArrowUpRight className="h-2.5 w-2.5" />
+            </button>
+          ) : (
+            <WLink
+              href={link.href}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted/70 shrink-0 inline-flex items-center gap-0.5"
+            >
+              {link.label} <ArrowUpRight className="h-2.5 w-2.5" />
+            </WLink>
+          )
+        )}
+      </div>
     </div>
   );
 }
@@ -1268,6 +1576,110 @@ interface OnchainTx {
 function explorerHref(q: string | number): string {
   const v = typeof q === "number" ? String(q) : q;
   return `/block-explorer?q=${encodeURIComponent(v)}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Block-hash derivation
+//
+// The chain's `Block` JSON shape is `{ header, txs, signature }` — there is
+// no `hash` field on the block envelope. The only places where a fully-
+// formed block hash is exposed by RPC are:
+//   1) `zbx_blockNumber` — returns the *tip* block's hash directly.
+//   2) Any block H+1's `header.parent_hash` — equals block H's hash by
+//      definition (consensus invariant).
+//
+// So to know the hash of an arbitrary historical block at height H, we
+// fetch H+1 and read its parent_hash. For a contiguous window of recent
+// blocks fetched in one batch (e.g. tip..tip-N), every block except the
+// oldest has its hash inside the next-newer block's header — meaning we
+// can fill in N+1 hashes from N+1 RPC calls (no extra round trips).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Given an array of blocks ordered NEWEST-FIRST (idx 0 = highest height),
+ * along with the known tip hash from `zbx_blockNumber`, return a parallel
+ * array of derived block hashes. Hash at index i is read from the parent_hash
+ * of the block at index i-1 (i.e. the next-newer block). Index 0 (the
+ * newest block in the window) takes its hash from the supplied tipHash if
+ * its height matches `tipHeight`; otherwise we fetch height+1 separately.
+ */
+function deriveHashesFromChain(
+  blocksNewestFirst: Array<{ header?: { parent_hash?: string; height?: number }; height?: number }>,
+  tipHash: string | undefined,
+  tipHeight: number,
+): string[] {
+  const out: string[] = new Array(blocksNewestFirst.length).fill("");
+  for (let i = 0; i < blocksNewestFirst.length; i++) {
+    const b = blocksNewestFirst[i];
+    const h = b.header?.height ?? b.height ?? 0;
+    if (h === tipHeight && tipHash) {
+      out[i] = tipHash;
+      continue;
+    }
+    // Otherwise, the next-newer block in our window (i-1) carries
+    // this block's hash as its parent_hash.
+    if (i > 0) {
+      const newer = blocksNewestFirst[i - 1];
+      out[i] = newer.header?.parent_hash ?? "";
+    }
+  }
+  return out;
+}
+
+/**
+ * For a single arbitrary height H, fetch block H AND block H+1 in parallel,
+ * then derive H's hash from H+1's parent_hash. If H is the tip (no H+1),
+ * fetch the tip RPC for the hash.
+ */
+async function fetchBlockWithDerivedHash(height: number): Promise<{ block: any | null; hash: string; tipHeight: number }> {
+  const [self, next, tip] = await Promise.all([
+    rpc<any>("zbx_getBlockByNumber", [height]).catch(() => null),
+    rpc<any>("zbx_getBlockByNumber", [height + 1]).catch(() => null),
+    rpc<{ height: number; hash: string }>("zbx_blockNumber").catch(() => null),
+  ]);
+  if (!self) return { block: null, hash: "", tipHeight: tip?.height ?? 0 };
+  let hash = "";
+  if (next?.header?.parent_hash) {
+    hash = String(next.header.parent_hash);
+  } else if (tip && tip.height === height && tip.hash) {
+    // Block H is the tip — use the tip RPC's hash directly.
+    hash = String(tip.hash);
+  }
+  return { block: self, hash, tipHeight: tip?.height ?? height };
+}
+
+/**
+ * Tiny clipboard-copy button used inside expanded block detail / search
+ * result cards. Shows a transient checkmark on success; falls back to a
+ * toast otherwise. Stops click propagation so it never collapses the row
+ * it is rendered inside.
+ */
+function CopyBtn({ value, label, className = "" }: { value: string; label?: string; className?: string }) {
+  const [ok, setOk] = useState(false);
+  const { toast } = useToast();
+  if (!value) return null;
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(value).then(
+          () => {
+            setOk(true);
+            window.setTimeout(() => setOk(false), 1200);
+            toast({ title: `Copied${label ? ` ${label}` : ""}`, duration: 1500 });
+          },
+          () => toast({ title: "Copy failed", variant: "destructive" }),
+        );
+      }}
+      className={`inline-flex items-center justify-center h-5 w-5 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground transition shrink-0 ${className}`}
+      title={`Copy${label ? ` ${label}` : ""}`}
+      aria-label={`Copy${label ? ` ${label}` : ""}`}
+      data-testid={`button-copy${label ? `-${label.toLowerCase().replace(/\s+/g, "-")}` : ""}`}
+    >
+      {ok ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+    </button>
+  );
 }
 
 const TARGET_TX_COUNT = 15;
