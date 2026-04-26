@@ -38,7 +38,8 @@ import {
   Terminal,
   UserPlus,
   KeyRound,
-  Info
+  Info,
+  Lock
 } from "lucide-react";
 import { useChecklist } from "@/hooks/useChecklist";
 import { Progress } from "@/components/ui/progress";
@@ -84,6 +85,7 @@ const ADDON_NAV = [
   { href: "/zbx-tokenomics", label: "ZBX Tokenomics Design", icon: Coins },
   { href: "/faucet", label: "Testnet Faucet", icon: Droplets },
   { href: "/bridge", label: "Cross-Chain Bridge", icon: ArrowLeftRight },
+  { href: "/bridge-live", label: "Bridge — Lock & Send (Live)", icon: Lock },
   { href: "/staking", label: "Staking Dashboard", icon: TrendingUp },
   { href: "/token-create", label: "Create Your Token", icon: Sparkles },
   { href: "/token-trade", label: "Token Trade (AMM)", icon: ArrowDownUp },

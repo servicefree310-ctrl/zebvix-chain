@@ -83,6 +83,14 @@ const ALLOWED_METHODS = new Set<string>([
   // legacy `eth_getTransactionByHash` mapping flattens to `value: 0`.
   // Read-only, scoped to the recent-tx ring window (~1000 txs).
   "zbx_getTxByHash",
+  // ── Bridge (read-only) — lock vault + asset registry + events ─────
+  "zbx_bridgeStats",
+  "zbx_listBridgeNetworks",
+  "zbx_getBridgeNetwork",
+  "zbx_listBridgeAssets",
+  "zbx_getBridgeAsset",
+  "zbx_recentBridgeOutEvents",
+  "zbx_isBridgeClaimUsed",
   // ── Phase D — On-chain governance (read-only) ──────────────────────
   "zbx_proposalsList",
   "zbx_proposalGet",

@@ -21,6 +21,7 @@ import BlockExplorer from "@/pages/block-explorer";
 import WalletPage from "@/pages/wallet";
 import Faucet from "@/pages/faucet";
 import Bridge from "@/pages/bridge";
+import BridgeLive from "@/pages/bridge-live";
 import Staking from "@/pages/staking";
 import TokenCreate from "@/pages/token-create";
 import TokenTrade from "@/pages/token-trade";
@@ -72,6 +73,7 @@ function Router() {
         <Route path="/wallet" component={WalletPage} />
         <Route path="/faucet" component={Faucet} />
         <Route path="/bridge" component={Bridge} />
+        <Route path="/bridge-live" component={BridgeLive} />
         <Route path="/staking" component={Staking} />
         <Route path="/token-create" component={TokenCreate} />
         <Route path="/token-trade" component={TokenTrade} />
