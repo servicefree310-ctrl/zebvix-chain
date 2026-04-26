@@ -127,8 +127,21 @@ export function Sidebar() {
       </div>
     );
     if (external) {
+      // Same-tab navigation — Replit preview iframes often block target="_blank".
+      // The user can use the browser back button to return.
       return (
-        <a href={href} target="_blank" rel="noopener noreferrer" data-testid={`link-${href.replace(/[^a-z0-9]/gi, "-")}`}>
+        <a
+          href={href}
+          data-testid={`link-${href.replace(/[^a-z0-9]/gi, "-")}`}
+          onClick={(e) => {
+            e.preventDefault();
+            // Use top-level navigation so the proxy serves the path
+            // (works inside Replit preview iframes).
+            window.top
+              ? (window.top.location.href = href)
+              : (window.location.href = href);
+          }}
+        >
           {inner}
         </a>
       );
