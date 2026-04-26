@@ -164,9 +164,32 @@ function Overview({ onSelect }: { onSelect: (v: string) => void }) {
   };
 
   useEffect(() => {
+    let timer: number | undefined;
+    const start = () => {
+      if (timer !== undefined) return;
+      timer = window.setInterval(load, 6000);
+    };
+    const stop = () => {
+      if (timer !== undefined) {
+        clearInterval(timer);
+        timer = undefined;
+      }
+    };
+    const onVisibility = () => {
+      if (document.hidden) {
+        stop();
+      } else {
+        load();
+        start();
+      }
+    };
     load();
-    const t = setInterval(load, 6000);
-    return () => clearInterval(t);
+    if (!document.hidden) start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, []);
 
   const recentTxs = useMemo(() => {

@@ -270,8 +270,7 @@ export default function Faucet() {
         </Link>
         <a
           href="https://docs.zebvix.io"
-          target="_blank"
-          rel="noopener noreferrer"
+          target="_blank" rel="noopener noreferrer"
           className="block h-full"
         >
           <Card className="hover:border-primary/40 hover:bg-card/60 cursor-pointer transition-colors h-full">

@@ -58,6 +58,12 @@ export default defineConfig({
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
   },
+  // Strip console.* and debugger statements from production bundles so we
+  // don't leak diagnostics (tx hashes, address balances, RPC payloads) to
+  // browser devtools in the deployed dashboard.
+  esbuild: {
+    drop: process.env.NODE_ENV === "production" ? ["console", "debugger"] : [],
+  },
   server: {
     port,
     strictPort: true,

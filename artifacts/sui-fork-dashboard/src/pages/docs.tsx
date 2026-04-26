@@ -258,8 +258,7 @@ export default function DocsPage() {
                       <li key={it.href}>
                         <a
                           href={it.href}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                          target="_blank" rel="noopener noreferrer"
                           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors"
                         >
                           <span>{it.label}</span>

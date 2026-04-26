@@ -250,11 +250,32 @@ export default function Validators() {
         }
       }
     };
+    let timer: number | undefined;
+    const start = () => {
+      if (cancelled || timer !== undefined) return;
+      timer = window.setInterval(load, 10_000);
+    };
+    const stop = () => {
+      if (timer !== undefined) {
+        clearInterval(timer);
+        timer = undefined;
+      }
+    };
+    const onVisibility = () => {
+      if (document.hidden) {
+        stop();
+      } else {
+        load();
+        start();
+      }
+    };
     load();
-    const id = setInterval(load, 10_000);
+    if (!document.hidden) start();
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       cancelled = true;
-      clearInterval(id);
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 

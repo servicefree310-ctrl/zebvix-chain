@@ -260,8 +260,7 @@ function ActivityRow({ item }: { item: ActivityItem }) {
         <div className="text-sm font-medium text-foreground">{label}</div>
         <a
           href={item.link}
-          target="_blank"
-          rel="noopener noreferrer"
+          target="_blank" rel="noopener noreferrer"
           className="text-[11px] text-muted-foreground font-mono hover:text-primary inline-flex items-center gap-1 truncate"
         >
           {shortAddr(item.hash, 8, 6)}
@@ -1038,8 +1037,7 @@ export default function UnifiedBridge() {
               <div className="flex items-center gap-2 font-mono mt-1 break-all">
                 <a
                   href={`${cfg.bsc_explorer}/address/${cfg.wzbx_address}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  target="_blank" rel="noopener noreferrer"
                   className="hover:text-primary inline-flex items-center gap-1"
                 >
                   {cfg.wzbx_address}
@@ -1055,8 +1053,7 @@ export default function UnifiedBridge() {
               <div className="flex items-center gap-2 font-mono mt-1 break-all">
                 <a
                   href={`${cfg.bsc_explorer}/address/${cfg.bridge_address}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  target="_blank" rel="noopener noreferrer"
                   className="hover:text-primary inline-flex items-center gap-1"
                 >
                   {cfg.bridge_address}

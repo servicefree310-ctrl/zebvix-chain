@@ -125,9 +125,34 @@ export default function Home() {
       }
     }
 
+    const start = () => {
+      if (!mounted || timer !== undefined) return;
+      timer = window.setInterval(tick, 5000);
+    };
+    const stop = () => {
+      if (timer !== undefined) {
+        clearInterval(timer);
+        timer = undefined;
+      }
+    };
+    const onVisibility = () => {
+      if (document.hidden) {
+        stop();
+      } else {
+        tick();
+        start();
+      }
+    };
+
     tick();
-    timer = window.setInterval(tick, 5000);
-    return () => { mounted = false; if (timer) clearInterval(timer); };
+    if (!document.hidden) start();
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      mounted = false;
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, []);
 
   const priceNum = price ? parseFloat(price.zbx_usd) : 0;

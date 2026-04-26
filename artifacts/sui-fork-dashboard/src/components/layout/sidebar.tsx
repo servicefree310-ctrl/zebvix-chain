@@ -353,8 +353,7 @@ export function Sidebar() {
         <a
           key={key}
           href={href}
-          target="_blank"
-          rel="noopener noreferrer"
+          target="_blank" rel="noopener noreferrer"
           data-testid={`link-${href.replace(/[^a-z0-9]/gi, "-")}`}
           aria-label={label}
           onClick={(e) => {

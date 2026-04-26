@@ -1,10 +1,11 @@
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { Shell } from "@/components/layout/shell";
 import { WalletProvider } from "@/contexts/wallet-context";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 // Pages
 import Home from "@/pages/home";
@@ -56,11 +57,35 @@ import PayIdRegister from "@/pages/payid-register";
 import ImportWallet from "@/pages/import-wallet";
 import DocsPage from "@/pages/docs";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Live chain data is fast-moving but most of the dashboard's panels
+      // tolerate ~30s freshness. Aggressive refetch-on-focus was causing
+      // duplicate RPC calls every time the user switched tabs.
+      staleTime: 30_000,
+      gcTime: 5 * 60_000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+      retryDelay: 800,
+    },
+    mutations: {
+      retry: 0,
+    },
+  },
+});
+
+function RouteBoundary({ children }: { children: React.ReactNode }) {
+  // Re-mount the ErrorBoundary whenever the path changes so a recovered route
+  // doesn't keep showing the previous page's fallback after navigation.
+  const [location] = useLocation();
+  return <ErrorBoundary key={location}>{children}</ErrorBoundary>;
+}
 
 function Router() {
   return (
     <Shell>
+      <RouteBoundary>
       <Switch>
         <Route path="/" component={Home} />
         <Route path="/quick-start" component={QuickStart} />
@@ -113,6 +138,7 @@ function Router() {
         <Route path="/chain-builder" component={ChainBuilder} />
         <Route component={NotFound} />
       </Switch>
+      </RouteBoundary>
     </Shell>
   );
 }

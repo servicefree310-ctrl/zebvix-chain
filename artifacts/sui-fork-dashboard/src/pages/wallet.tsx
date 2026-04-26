@@ -44,6 +44,7 @@ import {
 } from "@/lib/zbx-rpc";
 import { useWallet } from "@/contexts/wallet-context";
 import { Smartphone } from "lucide-react";
+import { VaultControls } from "@/components/wallet/VaultControls";
 import {
   StoredWallet,
   TxRecord,
@@ -157,14 +158,24 @@ export default function WalletPage() {
   // local wallet for display + as the "from" address. Local signing is
   // disabled while paired — the user must disconnect the mobile wallet to
   // sign locally (full WC sign-relay routing is a follow-up).
-  const { remote, isRemote } = useWallet();
+  const { remote, isRemote, refresh } = useWallet();
   const localActiveWallet = useMemo(
     () => wallets.find((w) => w.address === active) ?? null,
     [wallets, active],
   );
   const activeWallet: StoredWallet | null = useMemo(() => {
     if (isRemote && remote) {
-      return { address: remote.address, label: remote.label, privateKey: "" };
+      // Synthesize a StoredWallet shape for the remote wallet so consumers
+      // that destructure `address` / `label` keep working. `privateKey` is
+      // intentionally empty — every signing call site MUST guard with
+      // `isRemote` before touching it.
+      return {
+        address: remote.address,
+        label: remote.label,
+        privateKey: "",
+        publicKey: "",
+        createdAt: remote.connectedAt,
+      };
     }
     return localActiveWallet;
   }, [isRemote, remote, localActiveWallet]);
@@ -187,6 +198,8 @@ export default function WalletPage() {
           flow for Solidity tx, plus live receipt tracking. Chain id <code className="text-xs">0x1ec6</code> · 18 dec ZBX.
         </p>
       </div>
+
+      <VaultControls onChange={refresh} />
 
       <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm flex items-center gap-3 flex-wrap">
         <span className="text-primary font-semibold">New:</span>

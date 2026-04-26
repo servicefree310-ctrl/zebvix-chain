@@ -8,18 +8,31 @@
 // `k256::ecdsa::SigningKey::sign` exactly). We hand-hash with SHA-256 here
 // so that what we sign on the wire matches what the chain verifies.
 //
-// Storage: keys live in localStorage as a JSON array under `zbx.wallets.v1`.
-// Active address is in `zbx.wallet.active`. Private keys are stored UNENCRYPTED
-// in the browser — this is a developer / hot-wallet flow only. Always export
-// the keystore JSON as a backup; losing localStorage = losing the funds.
+// Storage: keys live in localStorage as a JSON array under `zbx.wallets.v1`
+// (plaintext — "hot dev wallet" mode) OR encrypted under `zbx.wallets.vault.v1`
+// once the user opts in to a password vault (see `wallet-vault.ts`).
+// Active address is in `zbx.wallet.active`.
+//
+// **When the vault exists but is not yet unlocked in this tab,
+// `loadWallets()` returns `[]`** — UI must check `vaultExists() &&
+// !vaultUnlocked()` and prompt the user to unlock first.
 
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { keccak_256 } from "@noble/hashes/sha3.js";
 import { bytesToHex, hexToBytes, randomBytes } from "@noble/hashes/utils.js";
 import { rpc, getRecommendedFeeWei } from "./zbx-rpc";
+import {
+  vaultExists,
+  vaultUnlocked,
+  readVaultedWallets,
+  memCacheSet,
+} from "./wallet-vault";
 
 const STORAGE_KEY = "zbx.wallets.v1";
 const ACTIVE_KEY = "zbx.wallet.active";
+
+/** The localStorage key that holds plaintext keystores (when no vault). */
+export const PLAINTEXT_WALLETS_KEY = STORAGE_KEY;
 
 export interface StoredWallet {
   address: string;          // 0x + 40 hex (ETH-style)
@@ -103,6 +116,13 @@ export function importWalletFromHex(secretHex: string, label = "Imported"): Stor
 // ── Persistence ────────────────────────────────────────────────────────────
 
 export function loadWallets(): StoredWallet[] {
+  // Prefer the encrypted vault when one exists. Returning [] for a locked
+  // vault is intentional — callers (the wallet page especially) detect this
+  // via `vaultExists() && !vaultUnlocked()` and prompt for a password.
+  if (vaultExists()) {
+    if (!vaultUnlocked()) return [];
+    return readVaultedWallets() ?? [];
+  }
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
@@ -114,6 +134,14 @@ export function loadWallets(): StoredWallet[] {
 }
 
 export function saveWallets(ws: StoredWallet[]) {
+  if (vaultExists() && vaultUnlocked()) {
+    // Update the per-tab plaintext mirror immediately so the rest of the
+    // app sees the new list. The on-disk vault is not re-encrypted on every
+    // write (we don't keep the password) — the next explicit `lockVault`
+    // call (or page unlock) flushes the latest state.
+    memCacheSet(ws);
+    return;
+  }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(ws));
 }
 

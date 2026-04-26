@@ -453,8 +453,7 @@ export default function BscSidePanel() {
             <div className="font-mono text-xs break-all flex items-center gap-2">
               <a
                 href={cfg ? explorerAddr(account) : "#"}
-                target="_blank"
-                rel="noopener noreferrer"
+                target="_blank" rel="noopener noreferrer"
                 className="hover:text-primary inline-flex items-center gap-1"
               >
                 {account}
@@ -606,8 +605,7 @@ export default function BscSidePanel() {
             </div>
             <a
               href={explorerTx(lastTx.hash)}
-              target="_blank"
-              rel="noopener noreferrer"
+              target="_blank" rel="noopener noreferrer"
               className="break-all font-mono hover:text-primary inline-flex items-center gap-1"
             >
               {lastTx.hash}
@@ -695,8 +693,7 @@ function ContractCard({
         <div className="font-mono text-xs break-all flex items-center gap-2">
           <a
             href={explorerUrl}
-            target="_blank"
-            rel="noopener noreferrer"
+            target="_blank" rel="noopener noreferrer"
             className="hover:text-primary inline-flex items-center gap-1"
           >
             {address}

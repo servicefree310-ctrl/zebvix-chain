@@ -188,6 +188,24 @@ rpcRouter.post("/rpc", async (req, res) => {
     });
     return;
   }
+  // Reject excessively large param payloads early (express.json() already
+  // caps body size to 256kb; this is a softer per-call sanity bound).
+  if (body.method.length > 64) {
+    res.status(400).json({
+      jsonrpc: "2.0",
+      id: body.id ?? null,
+      error: { code: -32600, message: "invalid method" },
+    });
+    return;
+  }
+  if (body.params !== undefined && !Array.isArray(body.params) && typeof body.params !== "object") {
+    res.status(400).json({
+      jsonrpc: "2.0",
+      id: body.id ?? null,
+      error: { code: -32602, message: "invalid params" },
+    });
+    return;
+  }
 
   if (!ALLOWED_METHODS.has(body.method)) {
     res.status(403).json({
@@ -221,14 +239,19 @@ rpcRouter.post("/rpc", async (req, res) => {
     const text = await r.text();
     res.status(r.status).type("application/json").send(text);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    // Don't leak the upstream URL or internal stack traces; just signal that
+    // the RPC backend is unreachable + whether it was a timeout.
+    const aborted =
+      err instanceof Error &&
+      (err.name === "AbortError" || /abort/i.test(err.message));
     res.status(502).json({
       jsonrpc: "2.0",
       id: body.id ?? null,
       error: {
         code: -32000,
-        message: `upstream RPC unreachable: ${msg}`,
-        data: { upstream: VPS_RPC_URL },
+        message: aborted
+          ? "upstream RPC timeout"
+          : "upstream RPC unreachable",
       },
     });
   }

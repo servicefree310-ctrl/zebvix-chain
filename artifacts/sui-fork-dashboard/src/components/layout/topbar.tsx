@@ -78,8 +78,7 @@ export function Topbar() {
       <div className="flex items-center gap-2">
         <a
           href="/api/mobile/"
-          target="_blank"
-          rel="noopener noreferrer"
+          target="_blank" rel="noopener noreferrer"
           className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-card/60 px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-card transition-colors"
           data-testid="topbar-mobile-link"
         >
