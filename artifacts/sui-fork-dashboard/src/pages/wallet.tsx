@@ -47,8 +47,14 @@ import {
   type EthReceipt,
 } from "@/lib/zbx-rpc";
 import { useWallet } from "@/contexts/wallet-context";
-import { Smartphone } from "lucide-react";
+import { Smartphone, ShieldCheck } from "lucide-react";
 import { VaultControls } from "@/components/wallet/VaultControls";
+import {
+  setupVault,
+  vaultExists,
+  vaultUnlocked,
+} from "@/lib/wallet-vault";
+import { PLAINTEXT_WALLETS_KEY } from "@/lib/web-wallet";
 import {
   StoredWallet,
   TxRecord,
@@ -615,6 +621,14 @@ function ManageTab(props: {
 }) {
   const { wallets, active, onPick, onChange, onCopy } = props;
   const { toast } = useToast();
+  // Pull the global refresh from wallet-context so we can re-sample
+  // `vaultState` / `vaultReady` after `setupVault()`. Without this,
+  // bypass-site components (wallet-picker, import-wallet, payid-register)
+  // would keep seeing `vaultState === "missing"` until a tab refresh,
+  // and would redirect users back to the gate even though the vault is
+  // already provisioned and unlocked. Storage events do not fire for
+  // same-tab writes, so explicit refresh is mandatory.
+  const { refresh: refreshWalletContext } = useWallet();
   const [importHex, setImportHex] = useState("");
   const [importLabel, setImportLabel] = useState("Imported");
   const [createLabel, setCreateLabel] = useState("Wallet");
@@ -622,12 +636,133 @@ function ManageTab(props: {
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
 
+  // Encrypted-by-default gate: when no vault exists, the user must set a
+  // password before any private key can be minted into local storage. The
+  // gate dialog remembers which action ("create" | "import") triggered it
+  // so we can resume that flow once the vault is provisioned.
+  const [gateOpen, setGateOpen] = useState(false);
+  const [gatePending, setGatePending] = useState<"create" | "import" | null>(
+    null,
+  );
+  const [gatePw, setGatePw] = useState("");
+  const [gatePw2, setGatePw2] = useState("");
+  const [gateBusy, setGateBusy] = useState(false);
+  const [gateErr, setGateErr] = useState<string | null>(null);
+
+  const closeGate = () => {
+    setGateOpen(false);
+    setGatePending(null);
+    setGatePw("");
+    setGatePw2("");
+    setGateErr(null);
+    setGateBusy(false);
+  };
+
+  /**
+   * Returns `true` when the caller may proceed with the wallet-mint
+   * operation. When `false`, the gate dialog has been opened and the
+   * dialog's submit handler will resume the requested action via
+   * `gatePending`.
+   */
+  const ensureVaultReady = (action: "create" | "import"): boolean => {
+    if (vaultExists() && vaultUnlocked()) return true;
+    if (vaultExists() && !vaultUnlocked()) {
+      // The locked-vault banner already provides Unlock; nudge the user.
+      toast({
+        title: "Wallet is locked",
+        description:
+          "Unlock your encrypted wallet vault first using the banner above.",
+        variant: "destructive",
+      });
+      return false;
+    }
+    setGatePending(action);
+    setGateOpen(true);
+    return false;
+  };
+
+  const onGateSubmit = async () => {
+    setGateErr(null);
+    if (gatePw.length < 8) {
+      setGateErr("Password must be at least 8 characters");
+      return;
+    }
+    if (gatePw !== gatePw2) {
+      setGateErr("Passwords do not match");
+      return;
+    }
+    setGateBusy(true);
+    try {
+      await setupVault(gatePw, PLAINTEXT_WALLETS_KEY);
+      const next = gatePending;
+      // Refresh BOTH the local wallet list AND the global wallet-context
+      // so the picker / import / payid bypass guards re-sample
+      // `vaultReady` immediately. Storage events do NOT fire for
+      // same-tab writes — without this explicit context refresh the
+      // guards would keep redirecting users to the gate even though
+      // setup just succeeded.
+      onChange();
+      refreshWalletContext();
+      closeGate();
+      // Resume the originally-requested action now that the vault is live.
+      if (next === "create") setCreateOpen(true);
+      else if (next === "import") setImportOpen(true);
+    } catch (e) {
+      setGateErr(e instanceof Error ? e.message : String(e));
+      setGateBusy(false);
+    }
+  };
+
+  const requestCreate = () => {
+    if (!ensureVaultReady("create")) return;
+    setCreateOpen(true);
+  };
+  const requestImport = () => {
+    if (!ensureVaultReady("import")) return;
+    setImportOpen(true);
+  };
+
+  // Auto-open the gate dialog when arriving from a bypass-site redirect
+  // such as `/wallet?tab=manage&gate=create` (sent by WalletPicker /
+  // ImportWallet / PayId pages when they detect a missing vault). We
+  // strip the `gate` param after consuming it so a refresh doesn't keep
+  // re-triggering the dialog.
+  const search = useSearch();
+  const [, setLocation] = useLocation();
+  useEffect(() => {
+    const params = new URLSearchParams(search);
+    const gate = params.get("gate");
+    if (!gate) return;
+    if (gate === "create" || gate === "import") {
+      // Only open if a vault doesn't already exist — otherwise the user
+      // is redirected for "locked" state, not for "needs setup".
+      if (!vaultExists()) {
+        setGatePending(gate);
+        setGateOpen(true);
+      }
+      // Strip the param so it doesn't fire again on re-render / refresh.
+      params.delete("gate");
+      const qs = params.toString();
+      setLocation(`/wallet${qs ? `?${qs}` : ""}`, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
+
   const handleCreate = () => {
-    const w = generateWallet(createLabel || "Wallet");
-    addWallet(w);
-    onChange();
-    setCreateOpen(false);
-    toast({ title: "Wallet created", description: w.address });
+    try {
+      const w = generateWallet(createLabel || "Wallet");
+      addWallet(w);
+      onChange();
+      setCreateOpen(false);
+      toast({ title: "Wallet created", description: w.address });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast({
+        title: "Create failed",
+        description: msg,
+        variant: "destructive",
+      });
+    }
   };
 
   const handleImport = () => {
@@ -664,12 +799,12 @@ function ManageTab(props: {
   return (
     <div className="space-y-4">
       <div className="flex gap-2 flex-wrap">
+        {/* Create button — routes through `requestCreate` so the encrypted
+            vault is set up first when one doesn't exist yet. */}
+        <Button onClick={requestCreate} data-testid="button-create-wallet">
+          <Plus className="h-4 w-4 mr-1.5" /> Create new wallet
+        </Button>
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogTrigger asChild>
-            <Button data-testid="button-create-wallet">
-              <Plus className="h-4 w-4 mr-1.5" /> Create new wallet
-            </Button>
-          </DialogTrigger>
           <DialogContent>
             <DialogHeader><DialogTitle>Create new wallet</DialogTitle></DialogHeader>
             <div className="space-y-3 py-2">
@@ -678,8 +813,9 @@ function ManageTab(props: {
                 onChange={(e) => setCreateLabel(e.target.value)}
                 data-testid="input-create-label" />
               <p className="text-xs text-muted-foreground">
-                A fresh secp256k1 keypair will be generated using your browser's crypto RNG.
-                Be sure to export the keystore JSON afterwards.
+                A fresh secp256k1 keypair will be generated using your browser&apos;s crypto RNG
+                and saved into your encrypted vault. Export the keystore JSON afterwards
+                if you want a backup.
               </p>
             </div>
             <DialogFooter>
@@ -689,12 +825,16 @@ function ManageTab(props: {
           </DialogContent>
         </Dialog>
 
+        {/* Import button — same gating: requires a vault before any private
+            key is touched. */}
+        <Button
+          variant="outline"
+          onClick={requestImport}
+          data-testid="button-import-wallet"
+        >
+          <KeyRound className="h-4 w-4 mr-1.5" /> Import private key
+        </Button>
         <Dialog open={importOpen} onOpenChange={setImportOpen}>
-          <DialogTrigger asChild>
-            <Button variant="outline" data-testid="button-import-wallet">
-              <KeyRound className="h-4 w-4 mr-1.5" /> Import private key
-            </Button>
-          </DialogTrigger>
           <DialogContent>
             <DialogHeader><DialogTitle>Import private key</DialogTitle></DialogHeader>
             <div className="space-y-3 py-2">
@@ -713,6 +853,73 @@ function ManageTab(props: {
           </DialogContent>
         </Dialog>
       </div>
+
+      {/* Encrypted-by-default gate dialog — opens automatically when the
+          user clicks Create / Import while no vault exists. Provisions a
+          fresh AES-GCM vault under a user-chosen password and then resumes
+          the originally-requested action. */}
+      <Dialog open={gateOpen} onOpenChange={(o) => (!o ? closeGate() : null)}>
+        <DialogContent
+          className="bg-zinc-950 border border-emerald-500/30"
+          data-testid="dialog-vault-gate"
+        >
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-emerald-400" />
+              Set a wallet password
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Your private key will be encrypted at rest in this browser using
+              AES-GCM (256-bit) derived from this password via PBKDF2-SHA256.
+              We can&apos;t recover the password for you — losing it means
+              losing access to your keys.
+            </p>
+            <Input
+              type="password"
+              placeholder="Password (min 8 chars)"
+              value={gatePw}
+              onChange={(e) => setGatePw(e.target.value)}
+              data-testid="input-gate-password"
+            />
+            <Input
+              type="password"
+              placeholder="Confirm password"
+              value={gatePw2}
+              onChange={(e) => setGatePw2(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && gatePw && gatePw2 && !gateBusy) {
+                  void onGateSubmit();
+                }
+              }}
+              data-testid="input-gate-password-confirm"
+            />
+            {gateErr && (
+              <div className="text-xs text-red-400" data-testid="text-gate-error">
+                {gateErr}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={closeGate} disabled={gateBusy}>
+              Cancel
+            </Button>
+            <Button
+              onClick={onGateSubmit}
+              disabled={gateBusy || !gatePw || !gatePw2}
+              className="bg-emerald-500 hover:bg-emerald-400 text-black font-semibold"
+              data-testid="button-gate-confirm"
+            >
+              {gateBusy ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                "Encrypt and continue"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {wallets.length === 0 ? (
         <Card className="p-6 text-center text-sm text-muted-foreground">

@@ -133,16 +133,48 @@ export function loadWallets(): StoredWallet[] {
   }
 }
 
+/**
+ * Stable error code thrown by `saveWallets` when a non-empty wallet list
+ * would otherwise be persisted in plaintext. UI callers can pattern-match
+ * on this to render a "set up / unlock the vault" prompt instead of a
+ * generic toast.
+ */
+export const E_VAULT_NOT_READY = "VAULT_NOT_READY";
+
 export function saveWallets(ws: StoredWallet[]) {
   if (vaultExists() && vaultUnlocked()) {
     // Update the per-tab plaintext mirror immediately so the rest of the
-    // app sees the new list. The on-disk vault is not re-encrypted on every
-    // write (we don't keep the password) — the next explicit `lockVault`
-    // call (or page unlock) flushes the latest state.
+    // app sees the new list. `memCacheSet` also re-encrypts the on-disk
+    // vault using the cached AES key so freshly-added wallets are durable
+    // across tab close without re-prompting for the password.
     memCacheSet(ws);
     return;
   }
+  // Defence in depth — encrypted-by-default. Reject any non-empty
+  // plaintext write whenever the vault is not in the "exists AND unlocked"
+  // state. This single guard covers three failure modes:
+  //   - Fresh user, no vault yet (caller bypassed the setup gate).
+  //   - Vault exists but is locked (caller forgot to prompt for unlock).
+  //   - Vault was destroyed mid-flight (race condition).
+  // Either way, refusing to mint plaintext is the safe default.
+  if (ws.length > 0) {
+    const err = new Error(
+      vaultExists()
+        ? "Wallet vault is locked — unlock it first to add or import keys."
+        : "Set up the encrypted wallet vault before creating or importing keys.",
+    );
+    (err as Error & { code?: string }).code = E_VAULT_NOT_READY;
+    throw err;
+  }
+  // Empty-list writes are harmless (used by `removeWallet` to clear out
+  // the last entry) and are allowed through so legacy plaintext storage
+  // can still be drained during migration.
   localStorage.setItem(STORAGE_KEY, JSON.stringify(ws));
+}
+
+/** Type guard for the vault-not-ready error thrown by `saveWallets`. */
+export function isVaultNotReady(e: unknown): boolean {
+  return !!(e && typeof e === "object" && (e as { code?: string }).code === E_VAULT_NOT_READY);
 }
 
 export function addWallet(w: StoredWallet) {

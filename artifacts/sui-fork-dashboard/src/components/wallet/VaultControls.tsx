@@ -18,6 +18,7 @@ import {
   vaultExists,
   vaultUnlocked,
   persistVaultUpdate,
+  setupVault,
 } from "@/lib/wallet-vault";
 import {
   loadWallets,
@@ -63,17 +64,27 @@ export function VaultControls({ onChange }: Props) {
     }
     setBusy(true);
     try {
+      // Two paths share this dialog:
+      //   1. Legacy users with plaintext wallets in localStorage — migrate
+      //      them into a fresh vault via `lockVault`.
+      //   2. Fresh users with no wallets yet — provision an empty vault via
+      //      `setupVault` so subsequent Create / Import flows are encrypted
+      //      from the very first key.
       const ws: StoredWallet[] = loadWallets();
-      if (ws.length === 0) {
-        setErr("No wallets to encrypt — create or import one first");
-        setBusy(false);
-        return;
+      if (ws.length > 0) {
+        await lockVault(ws, pw, PLAINTEXT_WALLETS_KEY);
+        toast({
+          title: "Wallets encrypted",
+          description: "Your existing keys are now protected by a password.",
+        });
+      } else {
+        await setupVault(pw, PLAINTEXT_WALLETS_KEY);
+        toast({
+          title: "Encryption enabled",
+          description:
+            "Any wallet you create or import will now be encrypted at rest.",
+        });
       }
-      await lockVault(ws, pw, PLAINTEXT_WALLETS_KEY);
-      toast({
-        title: "Wallet encrypted",
-        description: "Your private keys are now protected by a password.",
-      });
       onChange();
       close();
     } catch (e) {
@@ -127,10 +138,16 @@ export function VaultControls({ onChange }: Props) {
     }
   };
 
+  // Distinguish "legacy plaintext to migrate" from "fresh user, nothing on
+  // disk yet". The former is an urgent at-rest exposure; the latter is an
+  // informational nudge to set the encryption password before the first
+  // wallet is created.
+  const hasPlaintext = !hasVault && loadWallets().length > 0;
+
   return (
     <>
-      {/* Status banner */}
-      {!hasVault && (
+      {/* Status banner — legacy plaintext data on disk: urgent migration. */}
+      {!hasVault && hasPlaintext && (
         <div
           className="flex items-start gap-3 rounded-xl border border-amber-500/40 bg-amber-500/5 p-3 mb-3"
           data-testid="banner-wallet-unencrypted"
@@ -138,11 +155,11 @@ export function VaultControls({ onChange }: Props) {
           <ShieldAlert className="w-5 h-5 text-amber-400 mt-0.5 shrink-0" />
           <div className="flex-1 min-w-0">
             <div className="text-sm font-medium text-amber-200">
-              Your wallet is not encrypted
+              Your existing wallets are stored in plain text
             </div>
             <div className="text-xs text-amber-200/70 mt-0.5">
-              Private keys are stored in plain text in this browser. Add a
-              password to encrypt them at rest.
+              Set a password now to migrate them into the encrypted vault.
+              This wipes the plaintext copy from this browser.
             </div>
           </div>
           <Button
@@ -152,7 +169,36 @@ export function VaultControls({ onChange }: Props) {
             className="shrink-0 border-amber-500/40 text-amber-200 hover:bg-amber-500/10"
             data-testid="button-wallet-lock"
           >
-            <Lock className="w-3.5 h-3.5 mr-1.5" /> Encrypt
+            <Lock className="w-3.5 h-3.5 mr-1.5" /> Encrypt now
+          </Button>
+        </div>
+      )}
+
+      {/* Status banner — fresh user, no vault yet: passive nudge. */}
+      {!hasVault && !hasPlaintext && (
+        <div
+          className="flex items-start gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 mb-3"
+          data-testid="banner-wallet-setup"
+        >
+          <Lock className="w-5 h-5 text-emerald-400 mt-0.5 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium text-emerald-200">
+              Encryption is on by default
+            </div>
+            <div className="text-xs text-emerald-200/70 mt-0.5">
+              You&apos;ll be prompted to set a password before your first
+              wallet is created or imported. Set one now to skip the prompt
+              later.
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setMode("lock")}
+            className="shrink-0 border-emerald-500/40 text-emerald-200 hover:bg-emerald-500/10"
+            data-testid="button-wallet-setup"
+          >
+            <Lock className="w-3.5 h-3.5 mr-1.5" /> Set password
           </Button>
         </div>
       )}

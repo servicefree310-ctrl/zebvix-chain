@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import {
   AtSign,
   CheckCircle2,
@@ -16,6 +16,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { SectionCard, Stat } from "@/components/ui/section-card";
 import { useWallet } from "@/contexts/wallet-context";
+import { isVaultNotReady } from "@/lib/web-wallet";
 import { useToast } from "@/hooks/use-toast";
 import {
   validatePayIdInput,
@@ -30,8 +31,52 @@ import { rpc, weiHexToZbx, shortAddr, pollReceipt } from "@/lib/zbx-rpc";
 type AvailState = "idle" | "checking" | "available" | "taken" | "invalid" | "error";
 
 export default function PayIdRegister() {
-  const { active, addGenerated } = useWallet();
+  const { active, addGenerated, vaultReady, vaultState } = useWallet();
   const { toast } = useToast();
+  const [, navigate] = useLocation();
+
+  /**
+   * Mints a fresh wallet for users who landed here without one — but
+   * only after the encrypted vault is ready. Otherwise we SPA-navigate
+   * (NOT window.location.assign — that would discard the just-queued
+   * toast) to /wallet so the gate dialog can collect a password.
+   */
+  function generateOrRedirect() {
+    if (!vaultReady) {
+      const dest =
+        vaultState === "missing"
+          ? "/wallet?tab=manage&gate=create"
+          : "/wallet";
+      toast({
+        title:
+          vaultState === "missing"
+            ? "Set a wallet password first"
+            : "Unlock your wallet vault",
+        description:
+          vaultState === "missing"
+            ? "Encryption is on by default — opening the wallet page so you can set a password."
+            : "Opening the wallet page so you can unlock your encrypted vault.",
+      });
+      navigate(dest);
+      return;
+    }
+    try {
+      addGenerated();
+    } catch (e) {
+      // Race-defense: vault could have been locked in another tab
+      // between the `vaultReady` snapshot and this storage write.
+      // Re-run the redirect path instead of showing a generic error.
+      if (isVaultNotReady(e)) {
+        generateOrRedirect();
+        return;
+      }
+      toast({
+        title: "Wallet creation failed",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "destructive",
+      });
+    }
+  }
 
   const [handle, setHandle] = useState("");
   const [name, setName] = useState("");
@@ -227,7 +272,7 @@ export default function PayIdRegister() {
           </p>
           <div className="flex flex-wrap gap-2">
             <button
-              onClick={() => addGenerated()}
+              onClick={generateOrRedirect}
               className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
             >
               <Sparkles className="h-4 w-4" />

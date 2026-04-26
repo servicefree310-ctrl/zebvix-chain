@@ -17,6 +17,7 @@ import {
   type StoredWallet,
 } from "@/lib/web-wallet";
 import { importWalletFromMnemonic } from "@/lib/mnemonic";
+import { vaultExists, vaultUnlocked } from "@/lib/wallet-vault";
 
 const REMOTE_KEY = "zbx.wallet.remote";
 
@@ -53,6 +54,16 @@ interface WalletCtx {
   remote: RemoteWallet | null;
   activeAddress: string | null;
   isRemote: boolean;
+  /**
+   * Whether the encrypted wallet vault is currently usable for new
+   * mints — true ⇔ vault exists AND is unlocked in this tab. UI
+   * components MUST check this before calling `addGenerated` /
+   * `addFromPrivateKey` / `addFromMnemonic` to avoid an unhandled
+   * "vault not ready" exception from the storage layer.
+   */
+  vaultReady: boolean;
+  /** Coarse vault state: "missing" (set up needed), "locked", or "ready". */
+  vaultState: "missing" | "locked" | "ready";
   setActive: (addr: string | null) => void;
   addGenerated: (label?: string) => StoredWallet;
   addFromPrivateKey: (hex: string, label?: string) => StoredWallet;
@@ -90,6 +101,22 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const [wallets, setWallets] = useState<StoredWallet[]>([]);
   const [activeAddress, setActiveAddressState] = useState<string | null>(null);
   const [remote, setRemote] = useState<RemoteWallet | null>(null);
+  // Vault state is sampled into React state so components re-render when
+  // the user encrypts / unlocks via VaultControls. The underlying truth
+  // still lives in `vaultExists()` / `vaultUnlocked()`.
+  const [vaultState, setVaultStateInternal] = useState<
+    "missing" | "locked" | "ready"
+  >(() => {
+    if (typeof window === "undefined") return "missing";
+    if (!vaultExists()) return "missing";
+    return vaultUnlocked() ? "ready" : "locked";
+  });
+
+  const sampleVaultState = useCallback(() => {
+    if (!vaultExists()) setVaultStateInternal("missing");
+    else if (vaultUnlocked()) setVaultStateInternal("ready");
+    else setVaultStateInternal("locked");
+  }, []);
 
   const refresh = useCallback(() => {
     const ws = loadWallets();
@@ -103,7 +130,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     } else {
       setActiveAddressState(null);
     }
-  }, []);
+    sampleVaultState();
+  }, [sampleVaultState]);
 
   useEffect(() => {
     refresh();
@@ -120,18 +148,30 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     setActiveAddressState(addr);
   }, []);
 
-  const addToList = useCallback((w: StoredWallet) => {
-    const ws = loadWallets();
-    const exists = ws.some(
-      (x) => x.address.toLowerCase() === w.address.toLowerCase(),
-    );
-    const next = exists ? ws : [...ws, w];
-    saveWallets(next);
-    setWallets(next);
-    persistActive(w.address);
-    setActiveAddressState(w.address);
-    return w;
-  }, []);
+  const addToList = useCallback(
+    (w: StoredWallet) => {
+      const ws = loadWallets();
+      const exists = ws.some(
+        (x) => x.address.toLowerCase() === w.address.toLowerCase(),
+      );
+      const next = exists ? ws : [...ws, w];
+      // `saveWallets` enforces the encrypted-by-default policy and throws
+      // a typed `VAULT_NOT_READY` error when the vault is missing or
+      // locked. We let that propagate to the caller — every UI mint site
+      // is expected to either pre-check `vaultReady` from the context or
+      // wrap the call in try/catch with `isVaultNotReady` so the user
+      // gets a "set up / unlock" prompt instead of a crash.
+      saveWallets(next);
+      setWallets(next);
+      persistActive(w.address);
+      setActiveAddressState(w.address);
+      // Re-sample vault state in case `saveWallets` minted into a freshly
+      // unlocked vault for the first time.
+      sampleVaultState();
+      return w;
+    },
+    [sampleVaultState],
+  );
 
   const addGenerated = useCallback(
     (label = `Wallet ${loadWallets().length + 1}`) =>
@@ -216,6 +256,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       remote,
       activeAddress: effectiveAddress,
       isRemote: !!remote,
+      vaultReady: vaultState === "ready",
+      vaultState,
       setActive,
       addGenerated,
       addFromPrivateKey,
@@ -231,6 +273,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       localActive,
       remote,
       effectiveAddress,
+      vaultState,
       setActive,
       addGenerated,
       addFromPrivateKey,

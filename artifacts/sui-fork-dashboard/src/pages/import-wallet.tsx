@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import {
   KeyRound,
   FileKey2,
@@ -20,14 +20,52 @@ import { useWallet } from "@/contexts/wallet-context";
 import { useToast } from "@/hooks/use-toast";
 import { shortAddr } from "@/lib/zbx-rpc";
 import { validateMnemonic, privateKeyFromMnemonic } from "@/lib/mnemonic";
-import { addressFromPublic, publicKeyFromSeed } from "@/lib/web-wallet";
+import { addressFromPublic, publicKeyFromSeed, isVaultNotReady } from "@/lib/web-wallet";
 import { hexToBytes } from "@noble/hashes/utils.js";
 
 type Tab = "key" | "mnemonic" | "generate";
 
 export default function ImportWallet() {
-  const { wallets, active, addFromPrivateKey, addFromMnemonic, addGenerated, remove, setActive } = useWallet();
+  const {
+    wallets,
+    active,
+    addFromPrivateKey,
+    addFromMnemonic,
+    addGenerated,
+    remove,
+    setActive,
+    vaultReady,
+    vaultState,
+  } = useWallet();
   const { toast } = useToast();
+  const [, navigate] = useLocation();
+
+  /**
+   * Shared guard for any "mint a key into local storage" action on this
+   * page. If the encrypted vault isn't ready we SPA-navigate (NOT
+   * window.location.assign — that would discard the just-queued toast)
+   * to /wallet so the user can set a password or unlock. Returns `true`
+   * when the caller may proceed.
+   */
+  function ensureVaultOrRedirect(): boolean {
+    if (vaultReady) return true;
+    const dest =
+      vaultState === "missing"
+        ? "/wallet?tab=manage&gate=create"
+        : "/wallet";
+    toast({
+      title:
+        vaultState === "missing"
+          ? "Set a wallet password first"
+          : "Unlock your wallet vault",
+      description:
+        vaultState === "missing"
+          ? "Encryption is on by default — opening the wallet page so you can set a password."
+          : "Opening the wallet page so you can unlock your encrypted vault.",
+    });
+    navigate(dest);
+    return false;
+  }
 
   const [tab, setTab] = useState<Tab>("key");
 
@@ -54,12 +92,19 @@ export default function ImportWallet() {
 
   function importKey() {
     if (keyValidation.state !== "ok") return;
+    if (!ensureVaultOrRedirect()) return;
     try {
       const w = addFromPrivateKey(keyHex.trim(), keyLabel.trim() || "Imported (key)");
       toast({ title: "Imported", description: shortAddr(w.address) });
       setKeyHex("");
       setKeyLabel("Imported (key)");
     } catch (e) {
+      // Race-defense: vault could have been locked in another tab
+      // between the `vaultReady` snapshot and this storage write.
+      if (isVaultNotReady(e)) {
+        ensureVaultOrRedirect();
+        return;
+      }
       toast({
         title: "Import failed",
         description: e instanceof Error ? e.message : String(e),
@@ -100,12 +145,18 @@ export default function ImportWallet() {
 
   function importMnemonic() {
     if (mnValidation.state !== "ok") return;
+    if (!ensureVaultOrRedirect()) return;
     try {
       const w = addFromMnemonic(phrase.trim(), mnLabel.trim() || "Imported (mnemonic)");
       toast({ title: "Imported", description: shortAddr(w.address) });
       setPhrase("");
       setMnLabel("Imported (mnemonic)");
     } catch (e) {
+      // Race-defense (see importKey above).
+      if (isVaultNotReady(e)) {
+        ensureVaultOrRedirect();
+        return;
+      }
       toast({
         title: "Import failed",
         description: e instanceof Error ? e.message : String(e),
@@ -300,8 +351,22 @@ export default function ImportWallet() {
           </p>
           <button
             onClick={() => {
-              const w = addGenerated();
-              toast({ title: "Wallet created", description: shortAddr(w.address) });
+              if (!ensureVaultOrRedirect()) return;
+              try {
+                const w = addGenerated();
+                toast({ title: "Wallet created", description: shortAddr(w.address) });
+              } catch (e) {
+                // Race-defense (see importKey above).
+                if (isVaultNotReady(e)) {
+                  ensureVaultOrRedirect();
+                  return;
+                }
+                toast({
+                  title: "Wallet creation failed",
+                  description: e instanceof Error ? e.message : String(e),
+                  variant: "destructive",
+                });
+              }
             }}
             className="w-full rounded-md bg-primary py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
           >

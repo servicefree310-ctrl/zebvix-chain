@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import {
   Wallet,
   ChevronDown,
@@ -19,6 +19,7 @@ import {
 import { useWallet } from "@/contexts/wallet-context";
 import { useToast } from "@/hooks/use-toast";
 import { rpc, weiHexToZbx, shortAddr } from "@/lib/zbx-rpc";
+import { isVaultNotReady } from "@/lib/web-wallet";
 import { LivePulse } from "./live-pulse";
 
 /**
@@ -35,8 +36,62 @@ export function WalletPicker() {
     setActive,
     addGenerated,
     disconnectRemote,
+    vaultReady,
+    vaultState,
   } = useWallet();
   const { toast } = useToast();
+  const [, navigate] = useLocation();
+
+  /**
+   * Centralised mint helper that respects the encrypted-by-default policy.
+   * If the vault isn't ready, SPA-navigate to the wallet page where the
+   * Manage tab's gate dialog will provision an encrypted vault. SPA
+   * navigation is essential — a hard reload (window.location.assign)
+   * would wipe the toast we just queued and give the user no feedback.
+   */
+  const mintOrRedirect = () => {
+    if (!vaultReady) {
+      const dest =
+        vaultState === "missing"
+          ? "/wallet?tab=manage&gate=create"
+          : "/wallet";
+      toast({
+        title:
+          vaultState === "missing"
+            ? "Set a wallet password first"
+            : "Unlock your wallet vault",
+        description:
+          vaultState === "missing"
+            ? "Encryption is on by default — opening the wallet page so you can set a password."
+            : "Opening the wallet page so you can unlock your encrypted vault.",
+      });
+      navigate(dest);
+      return;
+    }
+    try {
+      addGenerated();
+    } catch (e) {
+      // Defensive race-condition catch: between the `vaultReady` snapshot
+      // we read above and the actual storage write, the vault could have
+      // been locked (e.g. another tab calling lockVault). Detect that
+      // typed VAULT_NOT_READY error and redirect to the gate flow rather
+      // than showing a confusing generic failure toast.
+      if (isVaultNotReady(e)) {
+        toast({
+          title: "Set a wallet password first",
+          description:
+            "Encryption is on by default — opening the wallet page so you can set a password.",
+        });
+        navigate("/wallet?tab=manage&gate=create");
+        return;
+      }
+      toast({
+        title: "Wallet creation failed",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "destructive",
+      });
+    }
+  };
   const [open, setOpen] = useState(false);
   const [bal, setBal] = useState<string>("—");
   const [revealKey, setRevealKey] = useState(false);
@@ -123,7 +178,7 @@ export function WalletPicker() {
     return (
       <div className="flex items-center gap-2" data-wallet-picker>
         <button
-          onClick={() => addGenerated()}
+          onClick={mintOrRedirect}
           className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90"
         >
           <Sparkles className="h-3.5 w-3.5" />
@@ -374,8 +429,8 @@ export function WalletPicker() {
             </Link>
             <button
               onClick={() => {
-                addGenerated();
                 setOpen(false);
+                mintOrRedirect();
               }}
               className="inline-flex items-center justify-center gap-1.5 rounded bg-primary/10 px-2 py-1.5 text-xs font-medium text-primary transition hover:bg-primary/20"
             >

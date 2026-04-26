@@ -223,6 +223,50 @@ export async function lockVault(
 }
 
 /**
+ * Provision a fresh vault for the user — used by the "encrypted by default"
+ * onboarding gate before any wallet is created or imported.
+ *
+ * Behaviour:
+ *   - Refuses to overwrite an existing vault (caller must use "change
+ *     password" instead).
+ *   - If a legacy plaintext wallet list exists at `plaintextStorageKey`,
+ *     migrate those wallets into the new vault and wipe the plaintext copy.
+ *   - Otherwise the new vault simply starts out empty; subsequent
+ *     `saveWallets` calls will encrypt against the cached key.
+ *
+ * Leaves the vault unlocked in this tab on success.
+ */
+export async function setupVault(
+  password: string,
+  plaintextStorageKey: string,
+): Promise<void> {
+  if (!password || password.length < 8) {
+    throw new Error("Password must be at least 8 characters");
+  }
+  if (vaultExists()) {
+    throw new Error(
+      "A vault already exists — use change-password to update it.",
+    );
+  }
+  let existing: StoredWallet[] = [];
+  try {
+    const raw = localStorage.getItem(plaintextStorageKey);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) existing = parsed as StoredWallet[];
+    }
+  } catch {
+    /* ignore — start with an empty vault */
+  }
+  await writeVaultedWallets(existing, password);
+  try {
+    localStorage.removeItem(plaintextStorageKey);
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
  * Decrypt the vault with the given password. On success populate the
  * in-process + sessionStorage caches and return the wallet list.
  */
