@@ -3,12 +3,22 @@ import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import pinoHttp from "pino-http";
+import { clerkMiddleware } from "@clerk/express";
 import path from "path";
 import { fileURLToPath } from "url";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import {
+  CLERK_PROXY_PATH,
+  clerkProxyMiddleware,
+} from "./middlewares/clerkProxyMiddleware";
 
 const app: Express = express();
+
+// Mount Clerk's binary proxy BEFORE any body parsers — the proxy streams raw
+// bytes through to Clerk's servers and breaks if Express has already consumed
+// the request body.
+app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
 
 // Hide framework fingerprint.
 app.disable("x-powered-by");
@@ -141,6 +151,9 @@ const looseLimiter = rateLimit({
 app.use("/api/wc", tightLimiter);
 app.use("/api/tokens/register", tightLimiter);
 app.use("/api", looseLimiter);
+
+// Clerk session middleware reads the cookie/JWT and attaches auth info to req.
+app.use(clerkMiddleware());
 
 app.use("/api", router);
 

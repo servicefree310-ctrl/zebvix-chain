@@ -5,18 +5,39 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import type {
+  MutationFunction,
   QueryFunction,
   QueryKey,
+  UseMutationOptions,
+  UseMutationResult,
   UseQueryOptions,
   UseQueryResult,
 } from "@tanstack/react-query";
 
-import type { HealthStatus } from "./api.schemas";
+import type {
+  CreateSiteBody,
+  GenerateSiteWithAiBody,
+  HealthStatus,
+  Lead,
+  PublicSite,
+  PublishSiteBody,
+  RecordSitePaymentBody,
+  Site,
+  SiteAnalytics,
+  SiteDraft,
+  SitePayment,
+  SiteTemplate,
+  SitesDashboardSummary,
+  SitesError,
+  SubmitLeadBody,
+  TrackPageViewBody,
+  UpdateSiteBody,
+} from "./api.schemas";
 
 import { customFetch } from "../custom-fetch";
-import type { ErrorType } from "../custom-fetch";
+import type { ErrorType, BodyType } from "../custom-fetch";
 
 type AwaitedInput<T> = PromiseLike<T> | T;
 
@@ -92,6 +113,1343 @@ export function useHealthCheck<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getHealthCheckQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Aggregate dashboard metrics for the signed-in user
+ */
+export const getGetSitesDashboardSummaryUrl = () => {
+  return `/api/sites/dashboard/summary`;
+};
+
+export const getSitesDashboardSummary = async (
+  options?: RequestInit,
+): Promise<SitesDashboardSummary> => {
+  return customFetch<SitesDashboardSummary>(getGetSitesDashboardSummaryUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetSitesDashboardSummaryQueryKey = () => {
+  return [`/api/sites/dashboard/summary`] as const;
+};
+
+export const getGetSitesDashboardSummaryQueryOptions = <
+  TData = Awaited<ReturnType<typeof getSitesDashboardSummary>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getSitesDashboardSummary>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetSitesDashboardSummaryQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getSitesDashboardSummary>>
+  > = ({ signal }) => getSitesDashboardSummary({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getSitesDashboardSummary>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetSitesDashboardSummaryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getSitesDashboardSummary>>
+>;
+export type GetSitesDashboardSummaryQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Aggregate dashboard metrics for the signed-in user
+ */
+
+export function useGetSitesDashboardSummary<
+  TData = Awaited<ReturnType<typeof getSitesDashboardSummary>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getSitesDashboardSummary>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetSitesDashboardSummaryQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List starter site templates
+ */
+export const getListSiteTemplatesUrl = () => {
+  return `/api/sites/templates`;
+};
+
+export const listSiteTemplates = async (
+  options?: RequestInit,
+): Promise<SiteTemplate[]> => {
+  return customFetch<SiteTemplate[]>(getListSiteTemplatesUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListSiteTemplatesQueryKey = () => {
+  return [`/api/sites/templates`] as const;
+};
+
+export const getListSiteTemplatesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listSiteTemplates>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listSiteTemplates>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListSiteTemplatesQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listSiteTemplates>>
+  > = ({ signal }) => listSiteTemplates({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listSiteTemplates>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListSiteTemplatesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listSiteTemplates>>
+>;
+export type ListSiteTemplatesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List starter site templates
+ */
+
+export function useListSiteTemplates<
+  TData = Awaited<ReturnType<typeof listSiteTemplates>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listSiteTemplates>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListSiteTemplatesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Generate a complete site (blocks + theme) from a business description
+ */
+export const getGenerateSiteWithAiUrl = () => {
+  return `/api/sites/ai/generate`;
+};
+
+export const generateSiteWithAi = async (
+  generateSiteWithAiBody: GenerateSiteWithAiBody,
+  options?: RequestInit,
+): Promise<SiteDraft> => {
+  return customFetch<SiteDraft>(getGenerateSiteWithAiUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(generateSiteWithAiBody),
+  });
+};
+
+export const getGenerateSiteWithAiMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof generateSiteWithAi>>,
+    TError,
+    { data: BodyType<GenerateSiteWithAiBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof generateSiteWithAi>>,
+  TError,
+  { data: BodyType<GenerateSiteWithAiBody> },
+  TContext
+> => {
+  const mutationKey = ["generateSiteWithAi"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof generateSiteWithAi>>,
+    { data: BodyType<GenerateSiteWithAiBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return generateSiteWithAi(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type GenerateSiteWithAiMutationResult = NonNullable<
+  Awaited<ReturnType<typeof generateSiteWithAi>>
+>;
+export type GenerateSiteWithAiMutationBody = BodyType<GenerateSiteWithAiBody>;
+export type GenerateSiteWithAiMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Generate a complete site (blocks + theme) from a business description
+ */
+export const useGenerateSiteWithAi = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof generateSiteWithAi>>,
+    TError,
+    { data: BodyType<GenerateSiteWithAiBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof generateSiteWithAi>>,
+  TError,
+  { data: BodyType<GenerateSiteWithAiBody> },
+  TContext
+> => {
+  return useMutation(getGenerateSiteWithAiMutationOptions(options));
+};
+
+/**
+ * @summary List all sites for the signed-in user
+ */
+export const getListSitesUrl = () => {
+  return `/api/sites/sites`;
+};
+
+export const listSites = async (options?: RequestInit): Promise<Site[]> => {
+  return customFetch<Site[]>(getListSitesUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListSitesQueryKey = () => {
+  return [`/api/sites/sites`] as const;
+};
+
+export const getListSitesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listSites>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof listSites>>, TError, TData>;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListSitesQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listSites>>> = ({
+    signal,
+  }) => listSites({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listSites>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListSitesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listSites>>
+>;
+export type ListSitesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List all sites for the signed-in user
+ */
+
+export function useListSites<
+  TData = Awaited<ReturnType<typeof listSites>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof listSites>>, TError, TData>;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListSitesQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Create a new site
+ */
+export const getCreateSiteUrl = () => {
+  return `/api/sites/sites`;
+};
+
+export const createSite = async (
+  createSiteBody: CreateSiteBody,
+  options?: RequestInit,
+): Promise<Site> => {
+  return customFetch<Site>(getCreateSiteUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(createSiteBody),
+  });
+};
+
+export const getCreateSiteMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createSite>>,
+    TError,
+    { data: BodyType<CreateSiteBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createSite>>,
+  TError,
+  { data: BodyType<CreateSiteBody> },
+  TContext
+> => {
+  const mutationKey = ["createSite"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createSite>>,
+    { data: BodyType<CreateSiteBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createSite(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateSiteMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createSite>>
+>;
+export type CreateSiteMutationBody = BodyType<CreateSiteBody>;
+export type CreateSiteMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Create a new site
+ */
+export const useCreateSite = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createSite>>,
+    TError,
+    { data: BodyType<CreateSiteBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createSite>>,
+  TError,
+  { data: BodyType<CreateSiteBody> },
+  TContext
+> => {
+  return useMutation(getCreateSiteMutationOptions(options));
+};
+
+/**
+ * @summary Get a site by id (owner only)
+ */
+export const getGetSiteUrl = (id: number) => {
+  return `/api/sites/sites/${id}`;
+};
+
+export const getSite = async (
+  id: number,
+  options?: RequestInit,
+): Promise<Site> => {
+  return customFetch<Site>(getGetSiteUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetSiteQueryKey = (id: number) => {
+  return [`/api/sites/sites/${id}`] as const;
+};
+
+export const getGetSiteQueryOptions = <
+  TData = Awaited<ReturnType<typeof getSite>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<Awaited<ReturnType<typeof getSite>>, TError, TData>;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetSiteQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getSite>>> = ({
+    signal,
+  }) => getSite(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof getSite>>, TError, TData> & {
+    queryKey: QueryKey;
+  };
+};
+
+export type GetSiteQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getSite>>
+>;
+export type GetSiteQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get a site by id (owner only)
+ */
+
+export function useGetSite<
+  TData = Awaited<ReturnType<typeof getSite>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<Awaited<ReturnType<typeof getSite>>, TError, TData>;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetSiteQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Update a site (blocks, theme, title, subdomain)
+ */
+export const getUpdateSiteUrl = (id: number) => {
+  return `/api/sites/sites/${id}`;
+};
+
+export const updateSite = async (
+  id: number,
+  updateSiteBody: UpdateSiteBody,
+  options?: RequestInit,
+): Promise<Site> => {
+  return customFetch<Site>(getUpdateSiteUrl(id), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(updateSiteBody),
+  });
+};
+
+export const getUpdateSiteMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateSite>>,
+    TError,
+    { id: number; data: BodyType<UpdateSiteBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateSite>>,
+  TError,
+  { id: number; data: BodyType<UpdateSiteBody> },
+  TContext
+> => {
+  const mutationKey = ["updateSite"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateSite>>,
+    { id: number; data: BodyType<UpdateSiteBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateSite(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateSiteMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateSite>>
+>;
+export type UpdateSiteMutationBody = BodyType<UpdateSiteBody>;
+export type UpdateSiteMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Update a site (blocks, theme, title, subdomain)
+ */
+export const useUpdateSite = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateSite>>,
+    TError,
+    { id: number; data: BodyType<UpdateSiteBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateSite>>,
+  TError,
+  { id: number; data: BodyType<UpdateSiteBody> },
+  TContext
+> => {
+  return useMutation(getUpdateSiteMutationOptions(options));
+};
+
+/**
+ * @summary Delete a site
+ */
+export const getDeleteSiteUrl = (id: number) => {
+  return `/api/sites/sites/${id}`;
+};
+
+export const deleteSite = async (
+  id: number,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getDeleteSiteUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteSiteMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteSite>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteSite>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["deleteSite"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteSite>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteSite(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteSiteMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteSite>>
+>;
+
+export type DeleteSiteMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Delete a site
+ */
+export const useDeleteSite = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteSite>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteSite>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getDeleteSiteMutationOptions(options));
+};
+
+/**
+ * @summary Publish a site (toggles published flag + updates published_at)
+ */
+export const getPublishSiteUrl = (id: number) => {
+  return `/api/sites/sites/${id}/publish`;
+};
+
+export const publishSite = async (
+  id: number,
+  publishSiteBody: PublishSiteBody,
+  options?: RequestInit,
+): Promise<Site> => {
+  return customFetch<Site>(getPublishSiteUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(publishSiteBody),
+  });
+};
+
+export const getPublishSiteMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof publishSite>>,
+    TError,
+    { id: number; data: BodyType<PublishSiteBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof publishSite>>,
+  TError,
+  { id: number; data: BodyType<PublishSiteBody> },
+  TContext
+> => {
+  const mutationKey = ["publishSite"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof publishSite>>,
+    { id: number; data: BodyType<PublishSiteBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return publishSite(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PublishSiteMutationResult = NonNullable<
+  Awaited<ReturnType<typeof publishSite>>
+>;
+export type PublishSiteMutationBody = BodyType<PublishSiteBody>;
+export type PublishSiteMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Publish a site (toggles published flag + updates published_at)
+ */
+export const usePublishSite = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof publishSite>>,
+    TError,
+    { id: number; data: BodyType<PublishSiteBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof publishSite>>,
+  TError,
+  { id: number; data: BodyType<PublishSiteBody> },
+  TContext
+> => {
+  return useMutation(getPublishSiteMutationOptions(options));
+};
+
+/**
+ * @summary Public read of a published site by subdomain (no auth)
+ */
+export const getGetPublicSiteBySubdomainUrl = (subdomain: string) => {
+  return `/api/sites/public/by-subdomain/${subdomain}`;
+};
+
+export const getPublicSiteBySubdomain = async (
+  subdomain: string,
+  options?: RequestInit,
+): Promise<PublicSite> => {
+  return customFetch<PublicSite>(getGetPublicSiteBySubdomainUrl(subdomain), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetPublicSiteBySubdomainQueryKey = (subdomain: string) => {
+  return [`/api/sites/public/by-subdomain/${subdomain}`] as const;
+};
+
+export const getGetPublicSiteBySubdomainQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPublicSiteBySubdomain>>,
+  TError = ErrorType<SitesError>,
+>(
+  subdomain: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPublicSiteBySubdomain>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetPublicSiteBySubdomainQueryKey(subdomain);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getPublicSiteBySubdomain>>
+  > = ({ signal }) =>
+    getPublicSiteBySubdomain(subdomain, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!subdomain,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPublicSiteBySubdomain>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPublicSiteBySubdomainQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPublicSiteBySubdomain>>
+>;
+export type GetPublicSiteBySubdomainQueryError = ErrorType<SitesError>;
+
+/**
+ * @summary Public read of a published site by subdomain (no auth)
+ */
+
+export function useGetPublicSiteBySubdomain<
+  TData = Awaited<ReturnType<typeof getPublicSiteBySubdomain>>,
+  TError = ErrorType<SitesError>,
+>(
+  subdomain: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getPublicSiteBySubdomain>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPublicSiteBySubdomainQueryOptions(
+    subdomain,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Public page view ping for a published site
+ */
+export const getTrackPageViewUrl = (siteId: number) => {
+  return `/api/sites/public/${siteId}/track`;
+};
+
+export const trackPageView = async (
+  siteId: number,
+  trackPageViewBody: TrackPageViewBody,
+  options?: RequestInit,
+): Promise<void> => {
+  return customFetch<void>(getTrackPageViewUrl(siteId), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(trackPageViewBody),
+  });
+};
+
+export const getTrackPageViewMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof trackPageView>>,
+    TError,
+    { siteId: number; data: BodyType<TrackPageViewBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof trackPageView>>,
+  TError,
+  { siteId: number; data: BodyType<TrackPageViewBody> },
+  TContext
+> => {
+  const mutationKey = ["trackPageView"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof trackPageView>>,
+    { siteId: number; data: BodyType<TrackPageViewBody> }
+  > = (props) => {
+    const { siteId, data } = props ?? {};
+
+    return trackPageView(siteId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type TrackPageViewMutationResult = NonNullable<
+  Awaited<ReturnType<typeof trackPageView>>
+>;
+export type TrackPageViewMutationBody = BodyType<TrackPageViewBody>;
+export type TrackPageViewMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Public page view ping for a published site
+ */
+export const useTrackPageView = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof trackPageView>>,
+    TError,
+    { siteId: number; data: BodyType<TrackPageViewBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof trackPageView>>,
+  TError,
+  { siteId: number; data: BodyType<TrackPageViewBody> },
+  TContext
+> => {
+  return useMutation(getTrackPageViewMutationOptions(options));
+};
+
+/**
+ * @summary Public lead submission from a published site
+ */
+export const getSubmitLeadUrl = (siteId: number) => {
+  return `/api/sites/public/${siteId}/leads`;
+};
+
+export const submitLead = async (
+  siteId: number,
+  submitLeadBody: SubmitLeadBody,
+  options?: RequestInit,
+): Promise<Lead> => {
+  return customFetch<Lead>(getSubmitLeadUrl(siteId), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(submitLeadBody),
+  });
+};
+
+export const getSubmitLeadMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof submitLead>>,
+    TError,
+    { siteId: number; data: BodyType<SubmitLeadBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof submitLead>>,
+  TError,
+  { siteId: number; data: BodyType<SubmitLeadBody> },
+  TContext
+> => {
+  const mutationKey = ["submitLead"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof submitLead>>,
+    { siteId: number; data: BodyType<SubmitLeadBody> }
+  > = (props) => {
+    const { siteId, data } = props ?? {};
+
+    return submitLead(siteId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SubmitLeadMutationResult = NonNullable<
+  Awaited<ReturnType<typeof submitLead>>
+>;
+export type SubmitLeadMutationBody = BodyType<SubmitLeadBody>;
+export type SubmitLeadMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Public lead submission from a published site
+ */
+export const useSubmitLead = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof submitLead>>,
+    TError,
+    { siteId: number; data: BodyType<SubmitLeadBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof submitLead>>,
+  TError,
+  { siteId: number; data: BodyType<SubmitLeadBody> },
+  TContext
+> => {
+  return useMutation(getSubmitLeadMutationOptions(options));
+};
+
+/**
+ * @summary Owner: list leads for a site
+ */
+export const getListLeadsForSiteUrl = (id: number) => {
+  return `/api/sites/sites/${id}/leads`;
+};
+
+export const listLeadsForSite = async (
+  id: number,
+  options?: RequestInit,
+): Promise<Lead[]> => {
+  return customFetch<Lead[]>(getListLeadsForSiteUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListLeadsForSiteQueryKey = (id: number) => {
+  return [`/api/sites/sites/${id}/leads`] as const;
+};
+
+export const getListLeadsForSiteQueryOptions = <
+  TData = Awaited<ReturnType<typeof listLeadsForSite>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listLeadsForSite>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListLeadsForSiteQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listLeadsForSite>>
+  > = ({ signal }) => listLeadsForSite(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listLeadsForSite>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListLeadsForSiteQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listLeadsForSite>>
+>;
+export type ListLeadsForSiteQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Owner: list leads for a site
+ */
+
+export function useListLeadsForSite<
+  TData = Awaited<ReturnType<typeof listLeadsForSite>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listLeadsForSite>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListLeadsForSiteQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Public — record a crypto payment after wallet sends tx (server verifies on-chain)
+ */
+export const getRecordSitePaymentUrl = (siteId: number) => {
+  return `/api/sites/public/${siteId}/payments`;
+};
+
+export const recordSitePayment = async (
+  siteId: number,
+  recordSitePaymentBody: RecordSitePaymentBody,
+  options?: RequestInit,
+): Promise<SitePayment> => {
+  return customFetch<SitePayment>(getRecordSitePaymentUrl(siteId), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(recordSitePaymentBody),
+  });
+};
+
+export const getRecordSitePaymentMutationOptions = <
+  TError = ErrorType<SitesError>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof recordSitePayment>>,
+    TError,
+    { siteId: number; data: BodyType<RecordSitePaymentBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof recordSitePayment>>,
+  TError,
+  { siteId: number; data: BodyType<RecordSitePaymentBody> },
+  TContext
+> => {
+  const mutationKey = ["recordSitePayment"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof recordSitePayment>>,
+    { siteId: number; data: BodyType<RecordSitePaymentBody> }
+  > = (props) => {
+    const { siteId, data } = props ?? {};
+
+    return recordSitePayment(siteId, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RecordSitePaymentMutationResult = NonNullable<
+  Awaited<ReturnType<typeof recordSitePayment>>
+>;
+export type RecordSitePaymentMutationBody = BodyType<RecordSitePaymentBody>;
+export type RecordSitePaymentMutationError = ErrorType<SitesError>;
+
+/**
+ * @summary Public — record a crypto payment after wallet sends tx (server verifies on-chain)
+ */
+export const useRecordSitePayment = <
+  TError = ErrorType<SitesError>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof recordSitePayment>>,
+    TError,
+    { siteId: number; data: BodyType<RecordSitePaymentBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof recordSitePayment>>,
+  TError,
+  { siteId: number; data: BodyType<RecordSitePaymentBody> },
+  TContext
+> => {
+  return useMutation(getRecordSitePaymentMutationOptions(options));
+};
+
+/**
+ * @summary Owner: list payments for a site
+ */
+export const getListPaymentsForSiteUrl = (id: number) => {
+  return `/api/sites/sites/${id}/payments`;
+};
+
+export const listPaymentsForSite = async (
+  id: number,
+  options?: RequestInit,
+): Promise<SitePayment[]> => {
+  return customFetch<SitePayment[]>(getListPaymentsForSiteUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListPaymentsForSiteQueryKey = (id: number) => {
+  return [`/api/sites/sites/${id}/payments`] as const;
+};
+
+export const getListPaymentsForSiteQueryOptions = <
+  TData = Awaited<ReturnType<typeof listPaymentsForSite>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listPaymentsForSite>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListPaymentsForSiteQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listPaymentsForSite>>
+  > = ({ signal }) => listPaymentsForSite(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listPaymentsForSite>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListPaymentsForSiteQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listPaymentsForSite>>
+>;
+export type ListPaymentsForSiteQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Owner: list payments for a site
+ */
+
+export function useListPaymentsForSite<
+  TData = Awaited<ReturnType<typeof listPaymentsForSite>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listPaymentsForSite>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListPaymentsForSiteQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Owner: aggregate analytics for a site (views, leads, revenue, daily timeline)
+ */
+export const getGetSiteAnalyticsUrl = (id: number) => {
+  return `/api/sites/sites/${id}/analytics`;
+};
+
+export const getSiteAnalytics = async (
+  id: number,
+  options?: RequestInit,
+): Promise<SiteAnalytics> => {
+  return customFetch<SiteAnalytics>(getGetSiteAnalyticsUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetSiteAnalyticsQueryKey = (id: number) => {
+  return [`/api/sites/sites/${id}/analytics`] as const;
+};
+
+export const getGetSiteAnalyticsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getSiteAnalytics>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getSiteAnalytics>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetSiteAnalyticsQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getSiteAnalytics>>
+  > = ({ signal }) => getSiteAnalytics(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getSiteAnalytics>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetSiteAnalyticsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getSiteAnalytics>>
+>;
+export type GetSiteAnalyticsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Owner: aggregate analytics for a site (views, leads, revenue, daily timeline)
+ */
+
+export function useGetSiteAnalytics<
+  TData = Awaited<ReturnType<typeof getSiteAnalytics>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getSiteAnalytics>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetSiteAnalyticsQueryOptions(id, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

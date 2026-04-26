@@ -10,6 +10,16 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: sites
+    description: Zebvix Sites — site CRUD, AI generation, publishing
+  - name: leads
+    description: Lead capture for published sites
+  - name: payments
+    description: On-chain crypto payments (ZBX / zUSD / BNB) tied to sites
+  - name: analytics
+    description: Site analytics — views, leads, revenue
+  - name: templates
+    description: Starter templates for new sites
 paths:
   /healthz:
     get:
@@ -24,6 +34,328 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /sites/dashboard/summary:
+    get:
+      operationId: getSitesDashboardSummary
+      tags: [sites]
+      summary: Aggregate dashboard metrics for the signed-in user
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SitesDashboardSummary"
+
+  /sites/templates:
+    get:
+      operationId: listSiteTemplates
+      tags: [templates]
+      summary: List starter site templates
+      responses:
+        "200":
+          description: Templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SiteTemplate"
+
+  /sites/ai/generate:
+    post:
+      operationId: generateSiteWithAi
+      tags: [sites]
+      summary: Generate a complete site (blocks + theme) from a business description
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateSiteWithAiBody"
+      responses:
+        "200":
+          description: Generated site draft (not yet saved)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteDraft"
+
+  /sites/sites:
+    get:
+      operationId: listSites
+      tags: [sites]
+      summary: List all sites for the signed-in user
+      responses:
+        "200":
+          description: Sites
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Site"
+    post:
+      operationId: createSite
+      tags: [sites]
+      summary: Create a new site
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSiteBody"
+      responses:
+        "201":
+          description: Created site
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Site"
+
+  /sites/sites/{id}:
+    get:
+      operationId: getSite
+      tags: [sites]
+      summary: Get a site by id (owner only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Site
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Site"
+    patch:
+      operationId: updateSite
+      tags: [sites]
+      summary: Update a site (blocks, theme, title, subdomain)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSiteBody"
+      responses:
+        "200":
+          description: Updated site
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Site"
+    delete:
+      operationId: deleteSite
+      tags: [sites]
+      summary: Delete a site
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /sites/sites/{id}/publish:
+    post:
+      operationId: publishSite
+      tags: [sites]
+      summary: Publish a site (toggles published flag + updates published_at)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishSiteBody"
+      responses:
+        "200":
+          description: Site after publish toggle
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Site"
+
+  /sites/public/by-subdomain/{subdomain}:
+    get:
+      operationId: getPublicSiteBySubdomain
+      tags: [sites]
+      summary: Public read of a published site by subdomain (no auth)
+      parameters:
+        - name: subdomain
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Public site
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicSite"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SitesError"
+
+  /sites/public/{siteId}/track:
+    post:
+      operationId: trackPageView
+      tags: [analytics]
+      summary: Public page view ping for a published site
+      parameters:
+        - name: siteId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TrackPageViewBody"
+      responses:
+        "204":
+          description: Recorded
+
+  /sites/public/{siteId}/leads:
+    post:
+      operationId: submitLead
+      tags: [leads]
+      summary: Public lead submission from a published site
+      parameters:
+        - name: siteId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitLeadBody"
+      responses:
+        "201":
+          description: Created lead
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Lead"
+
+  /sites/sites/{id}/leads:
+    get:
+      operationId: listLeadsForSite
+      tags: [leads]
+      summary: "Owner: list leads for a site"
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Leads
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Lead"
+
+  /sites/public/{siteId}/payments:
+    post:
+      operationId: recordSitePayment
+      tags: [payments]
+      summary: Public — record a crypto payment after wallet sends tx (server verifies on-chain)
+      parameters:
+        - name: siteId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordSitePaymentBody"
+      responses:
+        "201":
+          description: Recorded payment (verified)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SitePayment"
+        "400":
+          description: Verification failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SitesError"
+
+  /sites/sites/{id}/payments:
+    get:
+      operationId: listPaymentsForSite
+      tags: [payments]
+      summary: "Owner: list payments for a site"
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Payments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SitePayment"
+
+  /sites/sites/{id}/analytics:
+    get:
+      operationId: getSiteAnalytics
+      tags: [analytics]
+      summary: "Owner: aggregate analytics for a site (views, leads, revenue, daily timeline)"
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Analytics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteAnalytics"
 components:
   schemas:
     HealthStatus:
@@ -34,3 +366,479 @@ components:
       required:
         - status
 
+    SitesError:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    SiteBlock:
+      type: object
+      description: A single content block on a site page
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          description: "hero | features | pricing | faq | cta | testimonials | text | image | gallery | crypto_checkout | lead_form | footer | nav"
+        props:
+          type: object
+          additionalProperties: true
+      required:
+        - id
+        - type
+        - props
+
+    SiteTheme:
+      type: object
+      description: Visual theme for the rendered site
+      properties:
+        primaryColor:
+          type: string
+        accentColor:
+          type: string
+        backgroundColor:
+          type: string
+        textColor:
+          type: string
+        fontFamily:
+          type: string
+        radius:
+          type: string
+        mode:
+          type: string
+          description: "light | dark"
+      required:
+        - primaryColor
+        - accentColor
+        - backgroundColor
+        - textColor
+        - fontFamily
+        - radius
+        - mode
+
+    SiteSeo:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        ogImageUrl:
+          type: string
+      required:
+        - title
+        - description
+
+    Site:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: string
+        subdomain:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        blocks:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiteBlock"
+        theme:
+          $ref: "#/components/schemas/SiteTheme"
+        seo:
+          $ref: "#/components/schemas/SiteSeo"
+        cryptoWallet:
+          type: string
+          description: Owner's payout wallet address (hex)
+        published:
+          type: boolean
+        publishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - userId
+        - subdomain
+        - title
+        - description
+        - blocks
+        - theme
+        - seo
+        - published
+        - createdAt
+        - updatedAt
+
+    PublicSite:
+      type: object
+      description: Public read of a published site (omits owner-only fields)
+      properties:
+        id:
+          type: integer
+        subdomain:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        blocks:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiteBlock"
+        theme:
+          $ref: "#/components/schemas/SiteTheme"
+        seo:
+          $ref: "#/components/schemas/SiteSeo"
+        cryptoWallet:
+          type: string
+      required:
+        - id
+        - subdomain
+        - title
+        - description
+        - blocks
+        - theme
+        - seo
+
+    SiteDraft:
+      type: object
+      description: AI-generated site draft (not yet persisted)
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        blocks:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiteBlock"
+        theme:
+          $ref: "#/components/schemas/SiteTheme"
+        seo:
+          $ref: "#/components/schemas/SiteSeo"
+        suggestedSubdomain:
+          type: string
+      required:
+        - title
+        - description
+        - blocks
+        - theme
+        - seo
+        - suggestedSubdomain
+
+    SiteTemplate:
+      type: object
+      properties:
+        slug:
+          type: string
+        name:
+          type: string
+        category:
+          type: string
+        description:
+          type: string
+        previewImage:
+          type: string
+        draft:
+          $ref: "#/components/schemas/SiteDraft"
+      required:
+        - slug
+        - name
+        - category
+        - description
+        - draft
+
+    GenerateSiteWithAiBody:
+      type: object
+      properties:
+        prompt:
+          type: string
+          description: Free-form business description
+        category:
+          type: string
+          description: Optional category hint (saas, nft, agency, restaurant, portfolio)
+      required:
+        - prompt
+
+    CreateSiteBody:
+      type: object
+      properties:
+        title:
+          type: string
+        subdomain:
+          type: string
+        description:
+          type: string
+        blocks:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiteBlock"
+        theme:
+          $ref: "#/components/schemas/SiteTheme"
+        seo:
+          $ref: "#/components/schemas/SiteSeo"
+        cryptoWallet:
+          type: string
+      required:
+        - title
+        - subdomain
+        - description
+        - blocks
+        - theme
+        - seo
+
+    UpdateSiteBody:
+      type: object
+      properties:
+        title:
+          type: string
+        subdomain:
+          type: string
+        description:
+          type: string
+        blocks:
+          type: array
+          items:
+            $ref: "#/components/schemas/SiteBlock"
+        theme:
+          $ref: "#/components/schemas/SiteTheme"
+        seo:
+          $ref: "#/components/schemas/SiteSeo"
+        cryptoWallet:
+          type: string
+
+    PublishSiteBody:
+      type: object
+      properties:
+        published:
+          type: boolean
+      required:
+        - published
+
+    Lead:
+      type: object
+      properties:
+        id:
+          type: integer
+        siteId:
+          type: integer
+        email:
+          type: string
+          nullable: true
+        walletAddress:
+          type: string
+          nullable: true
+        fields:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - siteId
+        - fields
+        - createdAt
+
+    SubmitLeadBody:
+      type: object
+      properties:
+        email:
+          type: string
+        walletAddress:
+          type: string
+        fields:
+          type: object
+          additionalProperties: true
+
+    SitePayment:
+      type: object
+      properties:
+        id:
+          type: integer
+        siteId:
+          type: integer
+        txHash:
+          type: string
+        fromAddress:
+          type: string
+        toAddress:
+          type: string
+        asset:
+          type: string
+          description: "zbx | zusd | bnb"
+        amount:
+          type: string
+          description: Decimal string
+        status:
+          type: string
+          description: "pending | confirmed | failed"
+        chainId:
+          type: integer
+        memo:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - siteId
+        - txHash
+        - fromAddress
+        - toAddress
+        - asset
+        - amount
+        - status
+        - chainId
+        - createdAt
+
+    RecordSitePaymentBody:
+      type: object
+      properties:
+        txHash:
+          type: string
+        fromAddress:
+          type: string
+        toAddress:
+          type: string
+        asset:
+          type: string
+        amount:
+          type: string
+        chainId:
+          type: integer
+        memo:
+          type: string
+      required:
+        - txHash
+        - fromAddress
+        - toAddress
+        - asset
+        - amount
+        - chainId
+
+    TrackPageViewBody:
+      type: object
+      properties:
+        path:
+          type: string
+        referrer:
+          type: string
+      required:
+        - path
+
+    DailyMetric:
+      type: object
+      properties:
+        date:
+          type: string
+        views:
+          type: integer
+        leads:
+          type: integer
+        payments:
+          type: integer
+        revenue:
+          type: string
+      required:
+        - date
+        - views
+        - leads
+        - payments
+        - revenue
+
+    SiteAnalytics:
+      type: object
+      properties:
+        siteId:
+          type: integer
+        totalViews:
+          type: integer
+        totalLeads:
+          type: integer
+        totalPayments:
+          type: integer
+        totalRevenueZbx:
+          type: string
+        totalRevenueZusd:
+          type: string
+        totalRevenueBnb:
+          type: string
+        last30Days:
+          type: array
+          items:
+            $ref: "#/components/schemas/DailyMetric"
+        topReferrers:
+          type: array
+          items:
+            type: object
+            properties:
+              referrer:
+                type: string
+              count:
+                type: integer
+            required:
+              - referrer
+              - count
+      required:
+        - siteId
+        - totalViews
+        - totalLeads
+        - totalPayments
+        - totalRevenueZbx
+        - totalRevenueZusd
+        - totalRevenueBnb
+        - last30Days
+        - topReferrers
+
+    SitesDashboardSummary:
+      type: object
+      properties:
+        totalSites:
+          type: integer
+        publishedSites:
+          type: integer
+        totalViews:
+          type: integer
+        totalLeads:
+          type: integer
+        totalPayments:
+          type: integer
+        totalRevenueZbx:
+          type: string
+        totalRevenueZusd:
+          type: string
+        totalRevenueBnb:
+          type: string
+        recentSites:
+          type: array
+          items:
+            $ref: "#/components/schemas/Site"
+        recentLeads:
+          type: array
+          items:
+            $ref: "#/components/schemas/Lead"
+      required:
+        - totalSites
+        - publishedSites
+        - totalViews
+        - totalLeads
+        - totalPayments
+        - totalRevenueZbx
+        - totalRevenueZusd
+        - totalRevenueBnb
+        - recentSites
+        - recentLeads

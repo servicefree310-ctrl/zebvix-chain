@@ -8,3 +8,211 @@
 export interface HealthStatus {
   status: string;
 }
+
+export interface SitesError {
+  error: string;
+}
+
+export type SiteBlockProps = { [key: string]: unknown };
+
+/**
+ * A single content block on a site page
+ */
+export interface SiteBlock {
+  id: string;
+  /** hero | features | pricing | faq | cta | testimonials | text | image | gallery | crypto_checkout | lead_form | footer | nav */
+  type: string;
+  props: SiteBlockProps;
+}
+
+/**
+ * Visual theme for the rendered site
+ */
+export interface SiteTheme {
+  primaryColor: string;
+  accentColor: string;
+  backgroundColor: string;
+  textColor: string;
+  fontFamily: string;
+  radius: string;
+  /** light | dark */
+  mode: string;
+}
+
+export interface SiteSeo {
+  title: string;
+  description: string;
+  ogImageUrl?: string;
+}
+
+export interface Site {
+  id: number;
+  userId: string;
+  subdomain: string;
+  title: string;
+  description: string;
+  blocks: SiteBlock[];
+  theme: SiteTheme;
+  seo: SiteSeo;
+  /** Owner's payout wallet address (hex) */
+  cryptoWallet?: string;
+  published: boolean;
+  publishedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Public read of a published site (omits owner-only fields)
+ */
+export interface PublicSite {
+  id: number;
+  subdomain: string;
+  title: string;
+  description: string;
+  blocks: SiteBlock[];
+  theme: SiteTheme;
+  seo: SiteSeo;
+  cryptoWallet?: string;
+}
+
+/**
+ * AI-generated site draft (not yet persisted)
+ */
+export interface SiteDraft {
+  title: string;
+  description: string;
+  blocks: SiteBlock[];
+  theme: SiteTheme;
+  seo: SiteSeo;
+  suggestedSubdomain: string;
+}
+
+export interface SiteTemplate {
+  slug: string;
+  name: string;
+  category: string;
+  description: string;
+  previewImage?: string;
+  draft: SiteDraft;
+}
+
+export interface GenerateSiteWithAiBody {
+  /** Free-form business description */
+  prompt: string;
+  /** Optional category hint (saas, nft, agency, restaurant, portfolio) */
+  category?: string;
+}
+
+export interface CreateSiteBody {
+  title: string;
+  subdomain: string;
+  description: string;
+  blocks: SiteBlock[];
+  theme: SiteTheme;
+  seo: SiteSeo;
+  cryptoWallet?: string;
+}
+
+export interface UpdateSiteBody {
+  title?: string;
+  subdomain?: string;
+  description?: string;
+  blocks?: SiteBlock[];
+  theme?: SiteTheme;
+  seo?: SiteSeo;
+  cryptoWallet?: string;
+}
+
+export interface PublishSiteBody {
+  published: boolean;
+}
+
+export type LeadFields = { [key: string]: unknown };
+
+export interface Lead {
+  id: number;
+  siteId: number;
+  email?: string | null;
+  walletAddress?: string | null;
+  fields: LeadFields;
+  createdAt: string;
+}
+
+export type SubmitLeadBodyFields = { [key: string]: unknown };
+
+export interface SubmitLeadBody {
+  email?: string;
+  walletAddress?: string;
+  fields?: SubmitLeadBodyFields;
+}
+
+export interface SitePayment {
+  id: number;
+  siteId: number;
+  txHash: string;
+  fromAddress: string;
+  toAddress: string;
+  /** zbx | zusd | bnb */
+  asset: string;
+  /** Decimal string */
+  amount: string;
+  /** pending | confirmed | failed */
+  status: string;
+  chainId: number;
+  memo?: string | null;
+  createdAt: string;
+}
+
+export interface RecordSitePaymentBody {
+  txHash: string;
+  fromAddress: string;
+  toAddress: string;
+  asset: string;
+  amount: string;
+  chainId: number;
+  memo?: string;
+}
+
+export interface TrackPageViewBody {
+  path: string;
+  referrer?: string;
+}
+
+export interface DailyMetric {
+  date: string;
+  views: number;
+  leads: number;
+  payments: number;
+  revenue: string;
+}
+
+export type SiteAnalyticsTopReferrersItem = {
+  referrer: string;
+  count: number;
+};
+
+export interface SiteAnalytics {
+  siteId: number;
+  totalViews: number;
+  totalLeads: number;
+  totalPayments: number;
+  totalRevenueZbx: string;
+  totalRevenueZusd: string;
+  totalRevenueBnb: string;
+  last30Days: DailyMetric[];
+  topReferrers: SiteAnalyticsTopReferrersItem[];
+}
+
+export interface SitesDashboardSummary {
+  totalSites: number;
+  publishedSites: number;
+  totalViews: number;
+  totalLeads: number;
+  totalPayments: number;
+  totalRevenueZbx: string;
+  totalRevenueZusd: string;
+  totalRevenueBnb: string;
+  recentSites: Site[];
+  recentLeads: Lead[];
+}

@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/sites/"
+title = "Zebvix Sites — Web3 Site Builder"
+version = "1.0.0"
+id = "artifacts/zsites"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/sites/" ]
+localPort = 22302
+
+[services.development]
+run = "pnpm --filter @workspace/zsites run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/zsites", "run", "build" ]
+publicDir = "artifacts/zsites/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22302"
+BASE_PATH = "/sites/"

@@ -85,7 +85,7 @@ router.post("/pair/init", (_req, res) => {
 // Web: poll session state
 router.get("/pair/state/:id", (req, res) => {
   const s = getSession(req.params.id);
-  if (!s) return res.status(404).json({ error: "session not found or expired" });
+  if (!s) { res.status(404).json({ error: "session not found or expired" }); return; }
   res.json({
     sessionId: s.id,
     paired: s.paired,
@@ -99,11 +99,11 @@ router.get("/pair/state/:id", (req, res) => {
 // Mobile: confirm pairing after scanning QR
 router.post("/pair/connect/:id", (req, res) => {
   const s = getSession(req.params.id);
-  if (!s) return res.status(404).json({ error: "session not found or expired" });
+  if (!s) { res.status(404).json({ error: "session not found or expired" }); return; }
   const { secret, address, payIdName, meta } = req.body ?? {};
-  if (secret !== s.secret) return res.status(401).json({ error: "invalid secret" });
+  if (secret !== s.secret) { res.status(401).json({ error: "invalid secret" }); return; }
   if (!address || typeof address !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(address)) {
-    return res.status(400).json({ error: "invalid address" });
+    res.status(400).json({ error: "invalid address" }); return;
   }
   s.paired = true;
   s.address = address.toLowerCase();
@@ -116,10 +116,10 @@ router.post("/pair/connect/:id", (req, res) => {
 // Web: ask the mobile wallet to sign / approve a request
 router.post("/pair/request/:id", (req, res) => {
   const s = getSession(req.params.id);
-  if (!s) return res.status(404).json({ error: "session not found or expired" });
-  if (!s.paired) return res.status(409).json({ error: "not paired" });
+  if (!s) { res.status(404).json({ error: "session not found or expired" }); return; }
+  if (!s.paired) { res.status(409).json({ error: "not paired" }); return; }
   const { type, payload } = req.body ?? {};
-  if (!type) return res.status(400).json({ error: "missing type" });
+  if (!type) { res.status(400).json({ error: "missing type" }); return; }
   const reqId = newId(12);
   const r: SignRequest = {
     id: reqId,
@@ -136,7 +136,7 @@ router.post("/pair/request/:id", (req, res) => {
 // Mobile: long-poll for pending requests (since timestamp)
 router.get("/pair/poll/:id", async (req, res) => {
   const s = getSession(req.params.id);
-  if (!s) return res.status(404).json({ error: "session not found or expired" });
+  if (!s) { res.status(404).json({ error: "session not found or expired" }); return; }
   const since = Number(req.query.since ?? 0) || 0;
   const wait = Math.min(Number(req.query.wait ?? 25_000) || 25_000, 25_000);
   touch(s);
@@ -150,12 +150,12 @@ router.get("/pair/poll/:id", async (req, res) => {
   };
 
   let pending = find();
-  if (pending.length > 0) return res.json({ requests: pending });
+  if (pending.length > 0) res.json({ requests: pending }); return;
 
   const start = Date.now();
   await new Promise<void>((resolve) => {
     const tick = setInterval(() => {
-      if (!SESSIONS.has(s.id)) {
+      if (!SESSIONS.has(s!.id)) {
         clearInterval(tick);
         return resolve();
       }
@@ -172,12 +172,12 @@ router.get("/pair/poll/:id", async (req, res) => {
 // Mobile: respond to a request
 router.post("/pair/respond/:id", (req, res) => {
   const s = getSession(req.params.id);
-  if (!s) return res.status(404).json({ error: "session not found or expired" });
+  if (!s) { res.status(404).json({ error: "session not found or expired" }); return; }
   const { requestId, status, result, error } = req.body ?? {};
   const r = s.requests.get(requestId);
-  if (!r) return res.status(404).json({ error: "request not found" });
+  if (!r) { res.status(404).json({ error: "request not found" }); return; }
   if (!["approved", "rejected", "error"].includes(status)) {
-    return res.status(400).json({ error: "invalid status" });
+    res.status(400).json({ error: "invalid status" }); return;
   }
   r.status = status;
   r.result = result;
@@ -189,9 +189,9 @@ router.post("/pair/respond/:id", (req, res) => {
 // Web: poll for the result of a specific request
 router.get("/pair/result/:id/:requestId", (req, res) => {
   const s = getSession(req.params.id);
-  if (!s) return res.status(404).json({ error: "session not found or expired" });
+  if (!s) { res.status(404).json({ error: "session not found or expired" }); return; }
   const r = s.requests.get(req.params.requestId);
-  if (!r) return res.status(404).json({ error: "request not found" });
+  if (!r) { res.status(404).json({ error: "request not found" }); return; }
   res.json({
     id: r.id,
     type: r.type,

@@ -9,6 +9,7 @@ args = ["pnpm", "store", "prune"]
 env = { "CI" = "true" }
 
 [workflows]
+runButton = "Project"
 
 [agent]
 stack = "PNPM_WORKSPACE"
@@ -55,6 +56,10 @@ localPort = 18487
 externalPort = 3000
 
 [[ports]]
+localPort = 22302
+externalPort = 6800
+
+[[ports]]
 localPort = 22815
 externalPort = 3003
 
@@ -71,3 +76,4 @@ BSC_CHAIN_NAME = "BNB Smart Chain"
 BSC_PUBLIC_RPC = "https://bsc-dataseed.binance.org"
 BSC_EXPLORER = "https://bscscan.com"
 ZEBVIX_ZBX_ASSET_ID = "240518168576"
+VITE_CLERK_PUBLISHABLE_KEY = "pk_test_c2FmZS1qYXdmaXNoLTMuY2xlcmsuYWNjb3VudHMuZGV2JA"

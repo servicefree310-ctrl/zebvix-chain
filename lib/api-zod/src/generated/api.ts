@@ -14,3 +14,630 @@ import * as zod from "zod";
 export const HealthCheckResponse = zod.object({
   status: zod.string(),
 });
+
+/**
+ * @summary Aggregate dashboard metrics for the signed-in user
+ */
+export const GetSitesDashboardSummaryResponse = zod.object({
+  totalSites: zod.number(),
+  publishedSites: zod.number(),
+  totalViews: zod.number(),
+  totalLeads: zod.number(),
+  totalPayments: zod.number(),
+  totalRevenueZbx: zod.string(),
+  totalRevenueZusd: zod.string(),
+  totalRevenueBnb: zod.string(),
+  recentSites: zod.array(
+    zod.object({
+      id: zod.number(),
+      userId: zod.string(),
+      subdomain: zod.string(),
+      title: zod.string(),
+      description: zod.string(),
+      blocks: zod.array(
+        zod
+          .object({
+            id: zod.string(),
+            type: zod
+              .string()
+              .describe(
+                "hero | features | pricing | faq | cta | testimonials | text | image | gallery | crypto_checkout | lead_form | footer | nav",
+              ),
+            props: zod.record(zod.string(), zod.unknown()),
+          })
+          .describe("A single content block on a site page"),
+      ),
+      theme: zod
+        .object({
+          primaryColor: zod.string(),
+          accentColor: zod.string(),
+          backgroundColor: zod.string(),
+          textColor: zod.string(),
+          fontFamily: zod.string(),
+          radius: zod.string(),
+          mode: zod.string().describe("light | dark"),
+        })
+        .describe("Visual theme for the rendered site"),
+      seo: zod.object({
+        title: zod.string(),
+        description: zod.string(),
+        ogImageUrl: zod.string().optional(),
+      }),
+      cryptoWallet: zod
+        .string()
+        .optional()
+        .describe("Owner's payout wallet address (hex)"),
+      published: zod.boolean(),
+      publishedAt: zod.coerce.date().nullish(),
+      createdAt: zod.coerce.date(),
+      updatedAt: zod.coerce.date(),
+    }),
+  ),
+  recentLeads: zod.array(
+    zod.object({
+      id: zod.number(),
+      siteId: zod.number(),
+      email: zod.string().nullish(),
+      walletAddress: zod.string().nullish(),
+      fields: zod.record(zod.string(), zod.unknown()),
+      createdAt: zod.coerce.date(),
+    }),
+  ),
+});
+
+/**
+ * @summary List starter site templates
+ */
+export const ListSiteTemplatesResponseItem = zod.object({
+  slug: zod.string(),
+  name: zod.string(),
+  category: zod.string(),
+  description: zod.string(),
+  previewImage: zod.string().optional(),
+  draft: zod
+    .object({
+      title: zod.string(),
+      description: zod.string(),
+      blocks: zod.array(
+        zod
+          .object({
+            id: zod.string(),
+            type: zod
+              .string()
+              .describe(
+                "hero | features | pricing | faq | cta | testimonials | text | image | gallery | crypto_checkout | lead_form | footer | nav",
+              ),
+            props: zod.record(zod.string(), zod.unknown()),
+          })
+          .describe("A single content block on a site page"),
+      ),
+      theme: zod
+        .object({
+          primaryColor: zod.string(),
+          accentColor: zod.string(),
+          backgroundColor: zod.string(),
+          textColor: zod.string(),
+          fontFamily: zod.string(),
+          radius: zod.string(),
+          mode: zod.string().describe("light | dark"),
+        })
+        .describe("Visual theme for the rendered site"),
+      seo: zod.object({
+        title: zod.string(),
+        description: zod.string(),
+        ogImageUrl: zod.string().optional(),
+      }),
+      suggestedSubdomain: zod.string(),
+    })
+    .describe("AI-generated site draft (not yet persisted)"),
+});
+export const ListSiteTemplatesResponse = zod.array(
+  ListSiteTemplatesResponseItem,
+);
+
+/**
+ * @summary Generate a complete site (blocks + theme) from a business description
+ */
+export const GenerateSiteWithAiBody = zod.object({
+  prompt: zod.string().describe("Free-form business description"),
+  category: zod
+    .string()
+    .optional()
+    .describe(
+      "Optional category hint (saas, nft, agency, restaurant, portfolio)",
+    ),
+});
+
+export const GenerateSiteWithAiResponse = zod
+  .object({
+    title: zod.string(),
+    description: zod.string(),
+    blocks: zod.array(
+      zod
+        .object({
+          id: zod.string(),
+          type: zod
+            .string()
+            .describe(
+              "hero | features | pricing | faq | cta | testimonials | text | image | gallery | crypto_checkout | lead_form | footer | nav",
+            ),
+          props: zod.record(zod.string(), zod.unknown()),
+        })
+        .describe("A single content block on a site page"),
+    ),
+    theme: zod
+      .object({
+        primaryColor: zod.string(),
+        accentColor: zod.string(),
+        backgroundColor: zod.string(),
+        textColor: zod.string(),
+        fontFamily: zod.string(),
+        radius: zod.string(),
+        mode: zod.string().describe("light | dark"),
+      })
+      .describe("Visual theme for the rendered site"),
+    seo: zod.object({
+      title: zod.string(),
+      description: zod.string(),
+      ogImageUrl: zod.string().optional(),
+    }),
+    suggestedSubdomain: zod.string(),
+  })
+  .describe("AI-generated site draft (not yet persisted)");
+
+/**
+ * @summary List all sites for the signed-in user
+ */
+export const ListSitesResponseItem = zod.object({
+  id: zod.number(),
+  userId: zod.string(),
+  subdomain: zod.string(),
+  title: zod.string(),
+  description: zod.string(),
+  blocks: zod.array(
+    zod
+      .object({
+        id: zod.string(),
+        type: zod
+          .string()
+          .describe(
+            "hero | features | pricing | faq | cta | testimonials | text | image | gallery | crypto_checkout | lead_form | footer | nav",
+          ),
+        props: zod.record(zod.string(), zod.unknown()),
+      })
+      .describe("A single content block on a site page"),
+  ),
+  theme: zod
+    .object({
+      primaryColor: zod.string(),
+      accentColor: zod.string(),
+      backgroundColor: zod.string(),
+      textColor: zod.string(),
+      fontFamily: zod.string(),
+      radius: zod.string(),
+      mode: zod.string().describe("light | dark"),
+    })
+    .describe("Visual theme for the rendered site"),
+  seo: zod.object({
+    title: zod.string(),
+    description: zod.string(),
+    ogImageUrl: zod.string().optional(),
+  }),
+  cryptoWallet: zod
+    .string()
+    .optional()
+    .describe("Owner's payout wallet address (hex)"),
+  published: zod.boolean(),
+  publishedAt: zod.coerce.date().nullish(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+export const ListSitesResponse = zod.array(ListSitesResponseItem);
+
+/**
+ * @summary Create a new site
+ */
+export const CreateSiteBody = zod.object({
+  title: zod.string(),
+  subdomain: zod.string(),
+  description: zod.string(),
+  blocks: zod.array(
+    zod
+      .object({
+        id: zod.string(),
+        type: zod
+          .string()
+          .describe(
+            "hero | features | pricing | faq | cta | testimonials | text | image | gallery | crypto_checkout | lead_form | footer | nav",
+          ),
+        props: zod.record(zod.string(), zod.unknown()),
+      })
+      .describe("A single content block on a site page"),
+  ),
+  theme: zod
+    .object({
+      primaryColor: zod.string(),
+      accentColor: zod.string(),
+      backgroundColor: zod.string(),
+      textColor: zod.string(),
+      fontFamily: zod.string(),
+      radius: zod.string(),
+      mode: zod.string().describe("light | dark"),
+    })
+    .describe("Visual theme for the rendered site"),
+  seo: zod.object({
+    title: zod.string(),
+    description: zod.string(),
+    ogImageUrl: zod.string().optional(),
+  }),
+  cryptoWallet: zod.string().optional(),
+});
+
+/**
+ * @summary Get a site by id (owner only)
+ */
+export const GetSiteParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetSiteResponse = zod.object({
+  id: zod.number(),
+  userId: zod.string(),
+  subdomain: zod.string(),
+  title: zod.string(),
+  description: zod.string(),
+  blocks: zod.array(
+    zod
+      .object({
+        id: zod.string(),
+        type: zod
+          .string()
+          .describe(
+            "hero | features | pricing | faq | cta | testimonials | text | image | gallery | crypto_checkout | lead_form | footer | nav",
+          ),
+        props: zod.record(zod.string(), zod.unknown()),
+      })
+      .describe("A single content block on a site page"),
+  ),
+  theme: zod
+    .object({
+      primaryColor: zod.string(),
+      accentColor: zod.string(),
+      backgroundColor: zod.string(),
+      textColor: zod.string(),
+      fontFamily: zod.string(),
+      radius: zod.string(),
+      mode: zod.string().describe("light | dark"),
+    })
+    .describe("Visual theme for the rendered site"),
+  seo: zod.object({
+    title: zod.string(),
+    description: zod.string(),
+    ogImageUrl: zod.string().optional(),
+  }),
+  cryptoWallet: zod
+    .string()
+    .optional()
+    .describe("Owner's payout wallet address (hex)"),
+  published: zod.boolean(),
+  publishedAt: zod.coerce.date().nullish(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Update a site (blocks, theme, title, subdomain)
+ */
+export const UpdateSiteParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateSiteBody = zod.object({
+  title: zod.string().optional(),
+  subdomain: zod.string().optional(),
+  description: zod.string().optional(),
+  blocks: zod
+    .array(
+      zod
+        .object({
+          id: zod.string(),
+          type: zod
+            .string()
+            .describe(
+              "hero | features | pricing | faq | cta | testimonials | text | image | gallery | crypto_checkout | lead_form | footer | nav",
+            ),
+          props: zod.record(zod.string(), zod.unknown()),
+        })
+        .describe("A single content block on a site page"),
+    )
+    .optional(),
+  theme: zod
+    .object({
+      primaryColor: zod.string(),
+      accentColor: zod.string(),
+      backgroundColor: zod.string(),
+      textColor: zod.string(),
+      fontFamily: zod.string(),
+      radius: zod.string(),
+      mode: zod.string().describe("light | dark"),
+    })
+    .optional()
+    .describe("Visual theme for the rendered site"),
+  seo: zod
+    .object({
+      title: zod.string(),
+      description: zod.string(),
+      ogImageUrl: zod.string().optional(),
+    })
+    .optional(),
+  cryptoWallet: zod.string().optional(),
+});
+
+export const UpdateSiteResponse = zod.object({
+  id: zod.number(),
+  userId: zod.string(),
+  subdomain: zod.string(),
+  title: zod.string(),
+  description: zod.string(),
+  blocks: zod.array(
+    zod
+      .object({
+        id: zod.string(),
+        type: zod
+          .string()
+          .describe(
+            "hero | features | pricing | faq | cta | testimonials | text | image | gallery | crypto_checkout | lead_form | footer | nav",
+          ),
+        props: zod.record(zod.string(), zod.unknown()),
+      })
+      .describe("A single content block on a site page"),
+  ),
+  theme: zod
+    .object({
+      primaryColor: zod.string(),
+      accentColor: zod.string(),
+      backgroundColor: zod.string(),
+      textColor: zod.string(),
+      fontFamily: zod.string(),
+      radius: zod.string(),
+      mode: zod.string().describe("light | dark"),
+    })
+    .describe("Visual theme for the rendered site"),
+  seo: zod.object({
+    title: zod.string(),
+    description: zod.string(),
+    ogImageUrl: zod.string().optional(),
+  }),
+  cryptoWallet: zod
+    .string()
+    .optional()
+    .describe("Owner's payout wallet address (hex)"),
+  published: zod.boolean(),
+  publishedAt: zod.coerce.date().nullish(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Delete a site
+ */
+export const DeleteSiteParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+/**
+ * @summary Publish a site (toggles published flag + updates published_at)
+ */
+export const PublishSiteParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const PublishSiteBody = zod.object({
+  published: zod.boolean(),
+});
+
+export const PublishSiteResponse = zod.object({
+  id: zod.number(),
+  userId: zod.string(),
+  subdomain: zod.string(),
+  title: zod.string(),
+  description: zod.string(),
+  blocks: zod.array(
+    zod
+      .object({
+        id: zod.string(),
+        type: zod
+          .string()
+          .describe(
+            "hero | features | pricing | faq | cta | testimonials | text | image | gallery | crypto_checkout | lead_form | footer | nav",
+          ),
+        props: zod.record(zod.string(), zod.unknown()),
+      })
+      .describe("A single content block on a site page"),
+  ),
+  theme: zod
+    .object({
+      primaryColor: zod.string(),
+      accentColor: zod.string(),
+      backgroundColor: zod.string(),
+      textColor: zod.string(),
+      fontFamily: zod.string(),
+      radius: zod.string(),
+      mode: zod.string().describe("light | dark"),
+    })
+    .describe("Visual theme for the rendered site"),
+  seo: zod.object({
+    title: zod.string(),
+    description: zod.string(),
+    ogImageUrl: zod.string().optional(),
+  }),
+  cryptoWallet: zod
+    .string()
+    .optional()
+    .describe("Owner's payout wallet address (hex)"),
+  published: zod.boolean(),
+  publishedAt: zod.coerce.date().nullish(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Public read of a published site by subdomain (no auth)
+ */
+export const GetPublicSiteBySubdomainParams = zod.object({
+  subdomain: zod.coerce.string(),
+});
+
+export const GetPublicSiteBySubdomainResponse = zod
+  .object({
+    id: zod.number(),
+    subdomain: zod.string(),
+    title: zod.string(),
+    description: zod.string(),
+    blocks: zod.array(
+      zod
+        .object({
+          id: zod.string(),
+          type: zod
+            .string()
+            .describe(
+              "hero | features | pricing | faq | cta | testimonials | text | image | gallery | crypto_checkout | lead_form | footer | nav",
+            ),
+          props: zod.record(zod.string(), zod.unknown()),
+        })
+        .describe("A single content block on a site page"),
+    ),
+    theme: zod
+      .object({
+        primaryColor: zod.string(),
+        accentColor: zod.string(),
+        backgroundColor: zod.string(),
+        textColor: zod.string(),
+        fontFamily: zod.string(),
+        radius: zod.string(),
+        mode: zod.string().describe("light | dark"),
+      })
+      .describe("Visual theme for the rendered site"),
+    seo: zod.object({
+      title: zod.string(),
+      description: zod.string(),
+      ogImageUrl: zod.string().optional(),
+    }),
+    cryptoWallet: zod.string().optional(),
+  })
+  .describe("Public read of a published site (omits owner-only fields)");
+
+/**
+ * @summary Public page view ping for a published site
+ */
+export const TrackPageViewParams = zod.object({
+  siteId: zod.coerce.number(),
+});
+
+export const TrackPageViewBody = zod.object({
+  path: zod.string(),
+  referrer: zod.string().optional(),
+});
+
+/**
+ * @summary Public lead submission from a published site
+ */
+export const SubmitLeadParams = zod.object({
+  siteId: zod.coerce.number(),
+});
+
+export const SubmitLeadBody = zod.object({
+  email: zod.string().optional(),
+  walletAddress: zod.string().optional(),
+  fields: zod.record(zod.string(), zod.unknown()).optional(),
+});
+
+/**
+ * @summary Owner: list leads for a site
+ */
+export const ListLeadsForSiteParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const ListLeadsForSiteResponseItem = zod.object({
+  id: zod.number(),
+  siteId: zod.number(),
+  email: zod.string().nullish(),
+  walletAddress: zod.string().nullish(),
+  fields: zod.record(zod.string(), zod.unknown()),
+  createdAt: zod.coerce.date(),
+});
+export const ListLeadsForSiteResponse = zod.array(ListLeadsForSiteResponseItem);
+
+/**
+ * @summary Public — record a crypto payment after wallet sends tx (server verifies on-chain)
+ */
+export const RecordSitePaymentParams = zod.object({
+  siteId: zod.coerce.number(),
+});
+
+export const RecordSitePaymentBody = zod.object({
+  txHash: zod.string(),
+  fromAddress: zod.string(),
+  toAddress: zod.string(),
+  asset: zod.string(),
+  amount: zod.string(),
+  chainId: zod.number(),
+  memo: zod.string().optional(),
+});
+
+/**
+ * @summary Owner: list payments for a site
+ */
+export const ListPaymentsForSiteParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const ListPaymentsForSiteResponseItem = zod.object({
+  id: zod.number(),
+  siteId: zod.number(),
+  txHash: zod.string(),
+  fromAddress: zod.string(),
+  toAddress: zod.string(),
+  asset: zod.string().describe("zbx | zusd | bnb"),
+  amount: zod.string().describe("Decimal string"),
+  status: zod.string().describe("pending | confirmed | failed"),
+  chainId: zod.number(),
+  memo: zod.string().nullish(),
+  createdAt: zod.coerce.date(),
+});
+export const ListPaymentsForSiteResponse = zod.array(
+  ListPaymentsForSiteResponseItem,
+);
+
+/**
+ * @summary Owner: aggregate analytics for a site (views, leads, revenue, daily timeline)
+ */
+export const GetSiteAnalyticsParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetSiteAnalyticsResponse = zod.object({
+  siteId: zod.number(),
+  totalViews: zod.number(),
+  totalLeads: zod.number(),
+  totalPayments: zod.number(),
+  totalRevenueZbx: zod.string(),
+  totalRevenueZusd: zod.string(),
+  totalRevenueBnb: zod.string(),
+  last30Days: zod.array(
+    zod.object({
+      date: zod.string(),
+      views: zod.number(),
+      leads: zod.number(),
+      payments: zod.number(),
+      revenue: zod.string(),
+    }),
+  ),
+  topReferrers: zod.array(
+    zod.object({
+      referrer: zod.string(),
+      count: zod.number(),
+    }),
+  ),
+});
