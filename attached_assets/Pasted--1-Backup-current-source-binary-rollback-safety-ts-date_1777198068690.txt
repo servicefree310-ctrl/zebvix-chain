@@ -1,0 +1,70 @@
+# 1) Backup current source + binary (rollback safety)
+ts=$(date +%Y%m%d-%H%M%S)
+sudo cp -a target/release/zebvix-node /home/zebvix-node.bak.$ts 2>/dev/null || true
+sudo tar -czf /home/zebvix-src.bak.$ts.tgz src Cargo.toml 2>/dev/null || true
+
+# 2) Pull fresh source from Replit (overwrites src/, Cargo.toml, scripts/)
+curl -fsSL "https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/api/download/newchain" -o newchain.tgz
+tar -xzf newchain.tgz
+rm newchain.tgz
+
+# 3) Build (with zvm feature). If build fails, OLD binary stays running.
+cargo build --release --features zvm 2>&1 | tail -20
+test -f target/release/zebvix-node || { echo "❌ build failed — keeping old binary"; exit 1; }
+
+# 4) Restart service + show status
+sudo systemctl restart zebvix
+sleep 5
+sudo systemctl status zebvix --no-pager | head -15
+
+# 5) Tail logs to confirm chain still producing blocks
+echo "── recent chain logs ──"
+sudo journalctl -u zebvix -n 30 --no-pager | tail -20
+   Compiling zebvix-node v0.1.0 (/home/zebvix-chain)
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:393:4
+    |
+393 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 1m 55s
+● zebvix.service - Zebvix L1 Blockchain Node
+     Loaded: loaded (/etc/systemd/system/zebvix.service; enabled; preset: enabled)
+     Active: active (running) since Sun 2026-04-26 10:06:41 UTC; 5s ago
+   Main PID: 577504 (zebvix-node)
+      Tasks: 7 (limit: 9483)
+     Memory: 5.3M (peak: 9.8M)
+        CPU: 172ms
+     CGroup: /system.slice/zebvix.service
+             └─577504 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333 --no-mdns
+
+Apr 26 10:06:42 srv1266996.hstgr.cloud zebvix-node[577504]: 2026-04-26T10:06:42.091341Z  INFO zebvix_node:    chain_id  : 7878
+Apr 26 10:06:42 srv1266996.hstgr.cloud zebvix-node[577504]: 2026-04-26T10:06:42.091351Z  INFO zebvix_node:    proposer  : 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315
+Apr 26 10:06:42 srv1266996.hstgr.cloud zebvix-node[577504]: 2026-04-26T10:06:42.091390Z  INFO zebvix_node:    tip       : height=30583 hash=0x16736a1e273f098f7c31e321c86f5cf6342396e9da8b0cf65d7230a1d9632d44
+Apr 26 10:06:42 srv1266996.hstgr.cloud zebvix-node[577504]: 2026-04-26T10:06:42.091394Z  INFO zebvix_node:    rpc       : http://0.0.0.0:8545
+Apr 26 10:06:42 srv1266996.hstgr.cloud zebvix-node[577504]: 2026-04-26T10:06:42.097645Z  INFO zebvix_node:    p2p       : tcp/30333  peer_id=12D3KooWLxRneksegmywFVLTim4NsGUyxu7oGFQtJhnrFvdzzLnH
+── recent chain logs ──
+Apr 26 10:06:32 srv1266996.hstgr.cloud zebvix-node[503812]: 2026-04-26T10:06:32.280478Z  INFO zebvix_node: 🗳  emitted precommit h=30582 block=0xa4ab0c0a78956adfbbeb1738e7b725da318e376597cb222ca374c9b05fdc35a7  ✅ QUORUM
+Apr 26 10:06:37 srv1266996.hstgr.cloud zebvix-node[503812]: 2026-04-26T10:06:37.504653Z  INFO zebvix_node::consensus: ⛏  block #30583 produced  proposer=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315  round=0  txs=0  hash=0x16736a1e273f098f7c31e321c86f5cf6342396e9da8b0cf65d7230a1d9632d44
+Apr 26 10:06:37 srv1266996.hstgr.cloud zebvix-node[503812]: 2026-04-26T10:06:37.780511Z  INFO zebvix_node: 🗳  emitted prevote h=30583 block=0x16736a1e273f098f7c31e321c86f5cf6342396e9da8b0cf65d7230a1d9632d44  ✅ QUORUM
+Apr 26 10:06:37 srv1266996.hstgr.cloud zebvix-node[503812]: 2026-04-26T10:06:37.780874Z  INFO zebvix_node: 🗳  emitted precommit h=30583 block=0x16736a1e273f098f7c31e321c86f5cf6342396e9da8b0cf65d7230a1d9632d44  ✅ QUORUM
+Apr 26 10:06:41 srv1266996.hstgr.cloud systemd[1]: Stopping zebvix.service - Zebvix L1 Blockchain Node...
+Apr 26 10:06:41 srv1266996.hstgr.cloud systemd[1]: zebvix.service: Deactivated successfully.
+Apr 26 10:06:41 srv1266996.hstgr.cloud systemd[1]: Stopped zebvix.service - Zebvix L1 Blockchain Node.
+Apr 26 10:06:41 srv1266996.hstgr.cloud systemd[1]: zebvix.service: Consumed 32.069s CPU time, 8.8M memory peak, 0B memory swap peak.
+Apr 26 10:06:41 srv1266996.hstgr.cloud systemd[1]: Started zebvix.service - Zebvix L1 Blockchain Node.
+Apr 26 10:06:42 srv1266996.hstgr.cloud zebvix-node[577504]: 2026-04-26T10:06:42.090988Z  INFO zebvix_node: 🚀 Zebvix node starting
+Apr 26 10:06:42 srv1266996.hstgr.cloud zebvix-node[577504]: 2026-04-26T10:06:42.091341Z  INFO zebvix_node:    chain_id  : 7878
+Apr 26 10:06:42 srv1266996.hstgr.cloud zebvix-node[577504]: 2026-04-26T10:06:42.091351Z  INFO zebvix_node:    proposer  : 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315
+Apr 26 10:06:42 srv1266996.hstgr.cloud zebvix-node[577504]: 2026-04-26T10:06:42.091390Z  INFO zebvix_node:    tip       : height=30583 hash=0x16736a1e273f098f7c31e321c86f5cf6342396e9da8b0cf65d7230a1d9632d44
+Apr 26 10:06:42 srv1266996.hstgr.cloud zebvix-node[577504]: 2026-04-26T10:06:42.091394Z  INFO zebvix_node:    rpc       : http://0.0.0.0:8545
+Apr 26 10:06:42 srv1266996.hstgr.cloud zebvix-node[577504]: 2026-04-26T10:06:42.097645Z  INFO zebvix_node:    p2p       : tcp/30333  peer_id=12D3KooWLxRneksegmywFVLTim4NsGUyxu7oGFQtJhnrFvdzzLnH
+Apr 26 10:06:42 srv1266996.hstgr.cloud zebvix-node[577504]: 2026-04-26T10:06:42.097688Z  INFO zebvix_node:    mdns      : DISABLED (--no-mdns)
+Apr 26 10:06:42 srv1266996.hstgr.cloud zebvix-node[577504]: 2026-04-26T10:06:42.098143Z  INFO zebvix_node::rpc: 🛡  RPC CORS: localhost-only (default). Set ZEBVIX_RPC_CORS_ORIGINS=<csv> to add public origins, or ZEBVIX_RPC_CORS_ORIGINS=* to allow any.
+Apr 26 10:06:42 srv1266996.hstgr.cloud zebvix-node[577504]: 2026-04-26T10:06:42.098415Z  INFO zebvix_node::consensus: ⛏  producer started: my_address=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315, mode=ROUND_ROBIN+TIMEOUTS (B.3.2.2) pacing=5s propose_timeout=8s tick=500ms
+Apr 26 10:06:42 srv1266996.hstgr.cloud zebvix-node[577504]: 2026-04-26T10:06:42.109520Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWLxRneksegmywFVLTim4NsGUyxu7oGFQtJhnrFvdzzLnH
+Apr 26 10:06:42 srv1266996.hstgr.cloud zebvix-node[577504]: 2026-04-26T10:06:42.109572Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/93.127.213.192/tcp/30333/p2p/12D3KooWLxRneksegmywFVLTim4NsGUyxu7oGFQtJhnrFvdzzLnH
+root@srv1266996:/home/zebvix-chain# 
