@@ -58,6 +58,11 @@ function streamFreshTar(_req: any, res: any) {
     "--exclude=zebvix-chain/target",
     "--exclude=zebvix-chain/.git",
     "--exclude=zebvix-chain/Cargo.lock",
+    // The Replit .cargo/config.toml hard-pins LIBCLANG_PATH to a Nix store
+    // path that does not exist on Ubuntu/Debian VPS — would break VPS build.
+    // VPS has libclang at the standard /usr/lib/... path that bindgen finds
+    // automatically, so we ship without any cargo config override.
+    "--exclude=zebvix-chain/.cargo",
     "--exclude=scripts/node_modules",
     "--transform=s|^zebvix-chain/||",
     "--transform=s|^zebvix-chain$|.|",
