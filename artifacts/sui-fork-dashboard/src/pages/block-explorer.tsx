@@ -677,6 +677,232 @@ function TypedPayloadView({ typedTx }: { typedTx: ZbxTypedTx }) {
       }
     }
 
+    case "multisig": {
+      // Multisig wraps 5 sub-ops (create / propose / approve / revoke /
+      // execute). Inner shapes defined in zebvix-chain/src/rpc.rs::
+      // multisig_op_to_json.
+      const op = (p.op as Record<string, unknown>) ?? {};
+      const sub = String(op.op ?? "");
+      switch (sub) {
+        case "create": {
+          const owners = (op.owners as string[] | undefined) ?? [];
+          return (
+            <>
+              <DetailRow label="Operation" value="Create multisig" highlight />
+              <DetailRow label="Threshold" value={`${op.threshold} of ${owners.length}`} highlight />
+              <DetailRow label="Salt" value={String(op.salt)} mono />
+              <div className="grid grid-cols-[140px_1fr] gap-x-4 gap-y-1 items-start">
+                <div className="text-xs uppercase tracking-wider text-muted-foreground pt-0.5">
+                  Owners ({owners.length})
+                </div>
+                <div className="space-y-0.5 font-mono text-xs">
+                  {owners.map((o, i) => (
+                    <div key={i} className="text-muted-foreground">{o}</div>
+                  ))}
+                </div>
+              </div>
+            </>
+          );
+        }
+        case "propose": {
+          const action = (op.action as Record<string, unknown>) ?? {};
+          const actType = String(action.action ?? "");
+          return (
+            <>
+              <DetailRow label="Operation" value="Propose action" highlight />
+              <DetailRow label="Multisig" value={String(op.multisig)} mono linkAddr />
+              <DetailRow label="Expiry (blocks)" value={String(op.expiry_blocks)} />
+              {actType === "transfer" ? (
+                <>
+                  <DetailRow label="Action" value="Transfer ZBX" />
+                  <DetailRow label="To" value={String(action.to)} mono linkAddr />
+                  <DetailRow label="Amount" value={fmtZbx(action.amount)} highlight />
+                </>
+              ) : (
+                <DetailRow
+                  label="Action"
+                  value={`unknown (${actType || "—"})`}
+                />
+              )}
+            </>
+          );
+        }
+        case "approve":
+          return (
+            <>
+              <DetailRow label="Operation" value="Approve proposal" highlight />
+              <DetailRow label="Multisig" value={String(op.multisig)} mono linkAddr />
+              <DetailRow label="Proposal ID" value={String(op.proposal_id)} highlight />
+            </>
+          );
+        case "revoke":
+          return (
+            <>
+              <DetailRow label="Operation" value="Revoke approval" highlight />
+              <DetailRow label="Multisig" value={String(op.multisig)} mono linkAddr />
+              <DetailRow label="Proposal ID" value={String(op.proposal_id)} highlight />
+            </>
+          );
+        case "execute":
+          return (
+            <>
+              <DetailRow label="Operation" value="Execute proposal" highlight />
+              <DetailRow label="Multisig" value={String(op.multisig)} mono linkAddr />
+              <DetailRow label="Proposal ID" value={String(op.proposal_id)} highlight />
+            </>
+          );
+        default:
+          return (
+            <div className="space-y-1 pt-2 border-t border-border/50">
+              <div className="text-xs uppercase tracking-wider text-muted-foreground">
+                Multisig op (unrecognized sub-variant)
+              </div>
+              <pre className="text-[10px] font-mono p-2 rounded bg-muted/40 overflow-auto max-h-64">
+                {JSON.stringify(op, null, 2)}
+              </pre>
+            </div>
+          );
+      }
+    }
+
+    case "bridge": {
+      // Bridge wraps 6 sub-ops. Inner shapes defined in zebvix-chain/src/
+      // rpc.rs::bridge_op_to_json. Note: `bridge_in.amount` is in the
+      // bridged asset's smallest unit and we don't have decimals on hand
+      // here, so we show the raw integer string.
+      const op = (p.op as Record<string, unknown>) ?? {};
+      const sub = String(op.op ?? "");
+      switch (sub) {
+        case "register_network":
+          return (
+            <>
+              <DetailRow label="Operation" value="Register network" highlight />
+              <DetailRow label="Network ID" value={String(op.id)} highlight />
+              <DetailRow label="Name" value={String(op.name)} />
+              <DetailRow label="Kind" value={JSON.stringify(op.kind)} mono />
+            </>
+          );
+        case "set_network_active":
+          return (
+            <>
+              <DetailRow label="Operation" value="Toggle network active" highlight />
+              <DetailRow label="Network ID" value={String(op.id)} />
+              <DetailRow label="Active" value={op.active ? "true" : "false"} highlight />
+            </>
+          );
+        case "register_asset":
+          return (
+            <>
+              <DetailRow label="Operation" value="Register asset" highlight />
+              <DetailRow label="Network ID" value={String(op.network_id)} />
+              <DetailRow label="Native" value={JSON.stringify(op.native)} mono />
+              {op.contract != null && op.contract !== "" && (
+                <DetailRow label="Contract" value={String(op.contract)} mono />
+              )}
+              <DetailRow label="Decimals" value={String(op.decimals)} />
+            </>
+          );
+        case "set_asset_active":
+          return (
+            <>
+              <DetailRow label="Operation" value="Toggle asset active" highlight />
+              <DetailRow label="Asset ID" value={String(op.asset_id)} />
+              <DetailRow label="Active" value={op.active ? "true" : "false"} highlight />
+            </>
+          );
+        case "bridge_out":
+          return (
+            <>
+              <DetailRow label="Operation" value="Bridge out" highlight />
+              <DetailRow label="Asset ID" value={String(op.asset_id)} />
+              <DetailRow label="Destination" value={String(op.dest_address)} mono highlight />
+            </>
+          );
+        case "bridge_in":
+          return (
+            <>
+              <DetailRow label="Operation" value="Bridge in" highlight />
+              <DetailRow label="Source tx hash" value={String(op.source_tx_hash)} mono />
+              <DetailRow label="Asset ID" value={String(op.asset_id)} />
+              <DetailRow label="Recipient" value={String(op.recipient)} mono linkAddr />
+              <DetailRow label="Amount (raw)" value={String(op.amount)} highlight />
+            </>
+          );
+        default:
+          return (
+            <div className="space-y-1 pt-2 border-t border-border/50">
+              <div className="text-xs uppercase tracking-wider text-muted-foreground">
+                Bridge op (unrecognized sub-variant)
+              </div>
+              <pre className="text-[10px] font-mono p-2 rounded bg-muted/40 overflow-auto max-h-64">
+                {JSON.stringify(op, null, 2)}
+              </pre>
+            </div>
+          );
+      }
+    }
+
+    case "proposal": {
+      // Proposal wraps 2 sub-ops (submit / vote). Submit's inner `kind`
+      // is itself one of 4 ProposalKind variants — see zebvix-chain/src/
+      // rpc.rs::proposal_kind_to_json.
+      const op = (p.op as Record<string, unknown>) ?? {};
+      const sub = String(op.op ?? "");
+      switch (sub) {
+        case "submit": {
+          const kind = (op.kind as Record<string, unknown>) ?? {};
+          const ktype = String(kind.type ?? "");
+          return (
+            <>
+              <DetailRow label="Operation" value="Submit proposal" highlight />
+              <DetailRow label="Title" value={String(op.title)} highlight />
+              <DetailRow label="Description" value={String(op.description)} />
+              <DetailRow label="Kind" value={ktype || "—"} />
+              {ktype === "feature_flag" && (
+                <>
+                  <DetailRow label="Flag key" value={String(kind.key)} mono />
+                  <DetailRow label="Enabled" value={kind.enabled ? "true" : "false"} highlight />
+                </>
+              )}
+              {ktype === "param_change" && (
+                <>
+                  <DetailRow label="Param" value={String(kind.param)} mono />
+                  <DetailRow label="New value" value={String(kind.new_value)} highlight />
+                </>
+              )}
+              {ktype === "contract_whitelist" && (
+                <>
+                  <DetailRow label="Whitelist key" value={String(kind.key)} mono />
+                  <DetailRow label="Address" value={String(kind.address)} mono linkAddr />
+                  <DetailRow label="Label" value={String(kind.label)} />
+                </>
+              )}
+              {/* text_only carries no extra fields */}
+            </>
+          );
+        }
+        case "vote":
+          return (
+            <>
+              <DetailRow label="Operation" value="Vote on proposal" highlight />
+              <DetailRow label="Proposal ID" value={String(op.proposal_id)} />
+              <DetailRow label="Vote" value={op.yes ? "Yes" : "No"} highlight />
+            </>
+          );
+        default:
+          return (
+            <div className="space-y-1 pt-2 border-t border-border/50">
+              <div className="text-xs uppercase tracking-wider text-muted-foreground">
+                Proposal op (unrecognized sub-variant)
+              </div>
+              <pre className="text-[10px] font-mono p-2 rounded bg-muted/40 overflow-auto max-h-64">
+                {JSON.stringify(op, null, 2)}
+              </pre>
+            </div>
+          );
+      }
+    }
+
     default:
       // Fallback for kinds we haven't bespoke-rendered yet (rare wrapper
       // sub-variants whose inner shape varies a lot). Show the raw decoded
