@@ -48,6 +48,20 @@ class RpcClient {
     return int.parse(hex.replaceFirst('0x', ''), radix: 16);
   }
 
+  /// Zebvix L1 only: H6 admin kill-switch state.
+  /// Fail-open (returns false) on any RPC error so a temporary network blip
+  /// doesn't block the bridge UI for the user. The actual chain-side enforcement
+  /// will reject the tx if the bridge is paused, so this is just UX guidance.
+  Future<bool> bridgePaused() async {
+    try {
+      final res = await call('zbx_bridgePaused');
+      if (res is Map && res['paused'] == true) return true;
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<BigInt> nativeBalance(String address) async {
     final hex = (await call('eth_getBalance', [address, 'latest'])) as String;
     return BigInt.parse(hex.replaceFirst('0x', ''), radix: 16);

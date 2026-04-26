@@ -1195,6 +1195,14 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 "lock_address":     crate::tokenomics::BRIDGE_LOCK_ADDRESS_HEX,
             }))
         }
+        "zbx_bridgePaused" => {
+            // H6 admin kill-switch surface. Read-only; safe for public RPC.
+            // Wallet UIs poll this to show a "bridge unavailable" banner and
+            // disable the Send button when paused.
+            ok(id, json!({
+                "paused": ctx.state.bridge_paused(),
+            }))
+        }
         "zbx_getAdmin" => {
             ok(id, json!({
                 "current_admin": ctx.state.current_admin().to_hex(),

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../bridge/bridge_service.dart';
@@ -22,8 +23,11 @@ class _BridgeScreenState extends State<BridgeScreen> {
   bool _busy = false;
   bool _checkingAllow = false;
   bool _needsApproval = false;
+  bool _bridgePaused = false;
+  bool _checkingPause = false;
   String? _err;
   String? _lastTx;
+  Timer? _pauseTimer;
 
   ChainConfig get _from =>
       _dir == BridgeDirection.zebvixToBsc ? Chains.zebvix : Chains.bsc;
@@ -36,14 +40,34 @@ class _BridgeScreenState extends State<BridgeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _useMyAddress();
       _refreshAllowance();
+      _refreshBridgePause();
     });
+    // Re-poll bridge pause state every 30s so a paused bridge becomes visible
+    // promptly without the user having to leave/re-enter the screen.
+    _pauseTimer = Timer.periodic(
+        const Duration(seconds: 30), (_) => _refreshBridgePause());
   }
 
   @override
   void dispose() {
+    _pauseTimer?.cancel();
     _amtCtrl.dispose();
     _destCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _refreshBridgePause() async {
+    if (!mounted) return;
+    setState(() => _checkingPause = true);
+    try {
+      final rpc = context.read<RpcRegistry>().get(Chains.zebvix);
+      final paused = await rpc.bridgePaused();
+      if (mounted) setState(() => _bridgePaused = paused);
+    } catch (_) {
+      // fail-open; chain will reject tx if truly paused
+    } finally {
+      if (mounted) setState(() => _checkingPause = false);
+    }
   }
 
   void _useMyAddress() {
@@ -172,6 +196,7 @@ class _BridgeScreenState extends State<BridgeScreen> {
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
+        if (_bridgePaused) _pausedBanner(),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
@@ -331,18 +356,73 @@ class _BridgeScreenState extends State<BridgeScreen> {
         ],
         const SizedBox(height: 18),
         GradientButton(
-          label: _actionLabel,
-          icon: _needsApproval && _dir == BridgeDirection.bscToZebvix
-              ? Icons.lock_open_rounded
-              : Icons.swap_horiz_rounded,
+          label: _bridgePaused ? 'Bridge Paused' : _actionLabel,
+          icon: _bridgePaused
+              ? Icons.pause_circle_filled_rounded
+              : (_needsApproval && _dir == BridgeDirection.bscToZebvix
+                  ? Icons.lock_open_rounded
+                  : Icons.swap_horiz_rounded),
           loading: _busy,
-          onPressed: ((double.tryParse(_amtCtrl.text.trim()) ?? 0) > 0 &&
+          onPressed: (!_bridgePaused &&
+                  (double.tryParse(_amtCtrl.text.trim()) ?? 0) > 0 &&
                   _destCtrl.text.trim().length == 42 &&
                   !_checkingAllow)
               ? _submit
               : null,
         ),
       ],
+    );
+  }
+
+  Widget _pausedBanner() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.danger.withOpacity(0.14),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.danger.withOpacity(0.55), width: 1.5),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.pause_circle_filled_rounded,
+              color: AppColors.danger, size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                Text(
+                  'Bridge temporarily paused',
+                  style: TextStyle(
+                    color: AppColors.danger,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'Admin kill-switch is active. Bridging is disabled until the '
+                  'team re-enables it. Existing balances are safe — only new '
+                  'cross-chain transfers are blocked.',
+                  style: TextStyle(
+                    color: AppColors.text,
+                    fontSize: 12,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (_checkingPause)
+            const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: AppColors.danger)),
+        ],
+      ),
     );
   }
 

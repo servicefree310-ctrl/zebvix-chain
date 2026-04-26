@@ -13,7 +13,7 @@ The project is organized as a pnpm workspace monorepo with the following key pac
 - `zebvix-chain/`: Core Rust L1 blockchain.
 - `api-server/`: Express 5 based API server.
 - Dashboard (`artifacts/sui-fork-dashboard/`): React-based frontend.
-- `mobile/zebvix-wallet/`: Flutter mobile wallet application.
+- `mobile/zebvix_wallet/`: Flutter mobile wallet application (canonical). Older `mobile/zebvix-wallet/` was archived to `backups/zebvix-wallet-2026-04-archived/` during the Hafte-1 cleanup.
 - `artifacts/zebvix-js/`: TypeScript SDK (`@zebvix/zebvix.js`).
 
 ## Core Technologies
@@ -68,10 +68,12 @@ The project is organized as a pnpm workspace monorepo with the following key pac
 
 ## Security Hardening
 - **Block Forgery Defense:** Proposer signature verification, two-phase apply with pre-validation, fail-loud apply policy, crash-safety markers.
-- **Mempool DoS Hardening:** Balance checks and nonce windows.
-- **RPC Security:** CORS defaults to localhost-only.
+- **Mempool DoS Hardening:** Balance checks, nonce windows, fee-priority eviction with duplicate-hash no-op (H1).
+- **RPC Security:** CORS defaults to localhost-only. New `zbx_bridgePaused` read-only RPC exposes the H6 admin kill-switch state for client UIs.
 - **Slashing:** Automatic burning of stake for double-signing.
 - **State-Root Verification:** Recommended for fresh chains.
+- **Bridge kill-switch (H6):** `BridgeOp::SetBridgePaused` admin op halts new BridgeIn/BridgeOut flows without rolling back held escrow. Wallet's bridge screen polls `zbx_bridgePaused` every 30s and shows a visible banner + disables Send when active.
+- **Operator hygiene (Hafte-1, scripts/vps_hafta1_hardening.sh):** Validator key file 0400 with pre-state recorded under `/var/lib/zebvix/hafta1-state/`; daily RocksDB tar.gz snapshot cron (rotated 7d) at 03:00; RPC bound to 127.0.0.1 only with post-restart `ss` verification; Caddy reverse-proxy with auto-TLS in front. Per-IP rate-limit module is **not** included in this pass — tracked as Hafte-2 followup. mDNS off by default (opt-in via `--enable-mdns`).
 
 ## Censorship-Resistance Guarantees
 Zebvix prevents administrative interference with user transfers for core transaction types. Administrative control is limited to actions like `ValidatorAdd/Edit/Remove`, `GovernorChange`, and certain `Bridge` operations. The mempool has no admin filter or address blacklist.
