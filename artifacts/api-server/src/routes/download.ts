@@ -83,6 +83,101 @@ downloadRouter.get("/download/newchain", streamFreshTar);
 // Friendly alias used by Phase B.11.1 deploy run-book.
 downloadRouter.get("/download/chain-latest", streamFreshTar);
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Bridge code update — fresh tarball of the BSC ↔ Zebvix bridge packages.
+// Streams the live source on every request so the VPS always pulls the
+// canonical version that matches what's running on Replit.
+//
+// Tarball layout (relative paths, extracts in-place at /opt/zebvix):
+//   ./package.json
+//   ./pnpm-workspace.yaml
+//   ./pnpm-lock.yaml
+//   ./.npmrc
+//   ./tsconfig.base.json
+//   ./lib/bridge-relayer/...
+//   ./lib/bridge-signer/...
+//   ./lib/bridge-deployment/...
+//   ./lib/bsc-contracts/...      (incl deployments/bsc/MAINNET-LIVE.md)
+//
+// Excludes: node_modules, dist, .cache, hardhat artifacts, typechain-types,
+// coverage. Total payload is small (~6 MB uncompressed, ~1 MB gzipped).
+//
+// VPS install workflow (one-shot updater):
+//   cd /opt/zebvix
+//   curl -fsSL "https://<dev-domain>/api/download/bridge" -o bridge.tgz
+//   tar -tzf bridge.tgz | head            # preview
+//   tar -xzf bridge.tgz                   # overwrite in-place
+//   sudo VALIDATOR_COUNT=1 bash lib/bridge-deployment/install-vps.sh
+function streamBridgeTar(_req: any, res: any) {
+  const required = [
+    "package.json",
+    "pnpm-workspace.yaml",
+    "pnpm-lock.yaml",
+    ".npmrc",
+    "tsconfig.base.json",
+  ];
+  for (const f of required) {
+    if (!fs.existsSync(path.join(WORKSPACE, f))) {
+      res.status(500).json({ error: `missing workspace file: ${f}` });
+      return;
+    }
+  }
+  const bridgeDirs = [
+    "lib/bridge-relayer",
+    "lib/bridge-signer",
+    "lib/bridge-deployment",
+    "lib/bsc-contracts",
+  ];
+  for (const d of bridgeDirs) {
+    if (!fs.existsSync(path.join(WORKSPACE, d))) {
+      res.status(500).json({ error: `missing bridge dir: ${d}` });
+      return;
+    }
+  }
+
+  res.setHeader("Content-Type", "application/gzip");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="zebvix-bridge.tar.gz"`,
+  );
+  res.setHeader("Cache-Control", "no-store");
+
+  const args: string[] = [
+    "-czf", "-",
+    "-C", WORKSPACE,
+    // Exclude build/runtime artifacts — must come BEFORE the include list.
+    "--exclude=**/node_modules",
+    "--exclude=**/dist",
+    "--exclude=**/.cache",
+    "--exclude=**/coverage",
+    "--exclude=**/.next",
+    "--exclude=lib/bsc-contracts/artifacts",
+    "--exclude=lib/bsc-contracts/cache",
+    "--exclude=lib/bsc-contracts/typechain-types",
+    "--exclude=lib/bridge-relayer/data",
+    "--exclude=lib/bridge-relayer/relayer.sqlite*",
+    "--exclude=*.log",
+    // Include list — root workspace files + bridge packages.
+    ...required,
+    ...bridgeDirs,
+  ];
+
+  const tar = spawn("tar", args, { stdio: ["ignore", "pipe", "pipe"] });
+  tar.stdout.pipe(res);
+  tar.stderr.on("data", (d) => console.error("[bridge-tar]", d.toString()));
+  tar.on("error", (e) => {
+    console.error("[bridge-tar spawn error]", e);
+    if (!res.headersSent) res.status(500).end();
+  });
+  tar.on("exit", (code) => {
+    if (code !== 0) console.error("[bridge-tar exit]", code);
+  });
+}
+
+downloadRouter.get("/download/bridge", streamBridgeTar);
+// Friendly aliases.
+downloadRouter.get("/download/bridge-latest", streamBridgeTar);
+
 // Stream a single live script straight from disk (no static cache, no rebuild).
 // GET /api/download/script/<filename>  e.g. deploy_pool_genesis_seed.sh
 const ALLOWED_SCRIPTS = new Set([
