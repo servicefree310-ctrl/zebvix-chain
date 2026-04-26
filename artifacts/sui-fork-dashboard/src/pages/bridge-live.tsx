@@ -37,6 +37,7 @@ import {
   type StoredWallet,
 } from "@/lib/web-wallet";
 import { rpc, weiHexToZbx } from "@/lib/zbx-rpc";
+import BscSidePanel from "@/components/bridge/BscSidePanel";
 
 /** Format a base-units bigint into a human decimal string for `decimals` places. */
 function fmtUnits(
@@ -789,6 +790,8 @@ export default function BridgeLive() {
         <BridgeOutForm />
         <RecentEventsFeed />
       </div>
+
+      <BscSidePanel />
 
       <DecentralizationCard />
     </div>

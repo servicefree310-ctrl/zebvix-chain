@@ -31,7 +31,7 @@ The project is organized as a pnpm workspace monorepo with the following key pac
 - **Pool Addresses:** Deterministic 20-byte addresses for per-token AMM pools derived from `keccak256("zbx-pool-v1" || token_id_be8)[12..]`. Addresses are reserved at token creation to prevent griefing.
 - **Recent Transactions:** RocksDB-backed ring buffer (1000 native transactions) for O(1) lookup.
 - **Cryptography:** secp256k1 (ECDSA) for Ethereum-compatible address derivation.
-- **Bridge Module:** On-chain lock/release pattern with a single-trusted-oracle MVP.
+- **Bridge Module:** On-chain lock/release pattern. The legacy single-trusted-oracle MVP for Z→foreign mints is being superseded by the BSC bridge described below; on the Zebvix side, BridgeOut still locks ZBX in a public escrow vault, BridgeIn is admin-attested, and the chain enforces replay protection by `(network, source_tx_hash)`.
 - **Forkless On-chain Governance:** `proposal` module supporting `FeatureFlag`, `ParamChange`, `ContractWhitelist`, and `TextOnly` proposals, with testing and voting phases.
 
 ## ZVM (Zebvix Virtual Machine) Integration
@@ -52,6 +52,18 @@ The project is organized as a pnpm workspace monorepo with the following key pac
 - **Typed Tx Decoder:** `zbx_getTxByHash` RPC provides full semantically-decoded `TxKind` payloads for historical transactions. Block Explorer's `TypedPayloadView` renders dedicated per-kind sections (token ops, pool ops, swap, staking with all 6 sub-ops, validator admin ops, governor change, register PayID) so users see the actual operation parameters instead of the misleading eth-style "Value: 0 ZBX" row.
 - **Live Chain Click-Through:** `/live-chain` Recent Txs panel shows a Tx Hash column; Block#, Tx Hash, From, To, and (in Blocks tab) block hash + proposer all link to `/block-explorer?q=<value>` which auto-resolves the kind via `DetailRouter` + `detectQueryKind`.
 - **User-Creatable Fungible Tokens:** Permissionless creation of ERC-20-style tokens with custom metadata and supply. A dedicated "Create Token Page" facilitates this process.
+
+## BSC ↔ Zebvix Bridge (Production multisig)
+- **Goal:** Replace the single-admin attestation MVP with an M-of-N validator multisig for the Zebvix → BSC mint direction.
+- **On-chain (BSC):**
+  - `WrappedZBX` (`lib/bsc-contracts/contracts/WrappedZBX.sol`) — OpenZeppelin 5.6 ERC20 + AccessControl + Pausable, 18 decimals. Only `MINTER_ROLE` (= the `ZebvixBridge` contract) can mint; any holder can burn their own balance. Admin/pauser is the governance Gnosis Safe.
+  - `ZebvixBridge` (`lib/bsc-contracts/contracts/ZebvixBridge.sol`) — Solidity 0.8.24 + cancun (for OZ `mcopy`). Holds the validator set + threshold and verifies M-of-N EIP-712 signatures per mint with replay protection on `sourceTxHash`. Owner = Safe (add/remove validators, set threshold, pause). EIP-712 domain `{name:"ZebvixBridge", version:"1", chainId, verifyingContract}`; type `MintRequest{bytes32 sourceTxHash, address recipient, uint256 amount, uint256 sourceChainId, uint64 sourceBlockHeight}`. 22/22 Hardhat tests passing.
+- **Off-chain:**
+  - `lib/bridge-relayer/` — single Express service. Polls `zbx_recentBridgeOutEvents` (Z→BSC) and watches `BurnToZebvix` events on BSC after `BSC_BURN_CONFIRMATIONS` (BSC→Z). For mints it asks each validator's signer service for an EIP-712 signature, aggregates M unique sigs, and submits one `mintFromZebvix` tx using the relayer EOA (which holds NO authority). State persisted in better-sqlite3.
+  - `lib/bridge-signer/` — per-validator daemon. Independently re-verifies the source Zebvix BridgeOut tx exists with the expected recipient/amount on its own Zebvix RPC before signing. Holds a single validator key. Designed to run on isolated infrastructure per-operator behind TLS + `AUTH_TOKEN`. So a malicious relayer cannot forge mints — it would need M honest signers to all be tricked.
+- **Dashboard:** `/bridge-live` page now includes a `BscSidePanel` (`artifacts/sui-fork-dashboard/src/components/bridge/BscSidePanel.tsx`) showing wZBX + bridge contract addresses (BscScan links), an "Add wZBX to MetaMask" button (`wallet_watchAsset`), live wZBX balance via the BSC public RPC, and a reverse-bridge form (approve + `burnToZebvix`) with a relayer status indicator. The dashboard talks to BSC directly via a tiny no-deps client (`src/lib/bsc-bridge.ts`) using `@noble/hashes` for keccak — no `ethers` dependency added to the dashboard bundle.
+- **api-server:** `GET /api/bridge/bsc-config` (public read of wZBX/bridge addresses + chain id from env) and `GET /api/bridge/relayer-status` (proxy to relayer `/health`) at `artifacts/api-server/src/routes/bridge.ts`.
+- **Operator runbook:** `lib/bsc-contracts/DEPLOY.md` covers compile/test, testnet deploy, signer + relayer wiring, dashboard env, end-to-end testnet verification, and a mainnet promotion checklist (Safe ownership, validator key isolation, pause-recovery drill, monitoring).
 
 ## Security Hardening
 - **Block Forgery Defense:** Proposer signature verification, two-phase apply with pre-validation, fail-loud apply policy, crash-safety markers.

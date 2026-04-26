@@ -1127,6 +1127,40 @@ async fn handle(AxState(ctx): AxState<RpcCtx>, Json(req): Json<RpcReq>) -> Json<
                 "events":   arr,
             }))
         }
+        "zbx_getBridgeOutBySeq" => {
+            // Params: [seq: u64 (string or number)]
+            let seq = req
+                .params
+                .get(0)
+                .and_then(|v| {
+                    v.as_u64()
+                        .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
+                })
+                .unwrap_or(u64::MAX);
+            if seq == u64::MAX {
+                return axum::Json(err(id, -32602, "seq must be a u64"));
+            }
+            match ctx.state.bridge_get_out_event_by_seq(seq) {
+                Some(e) => ok(
+                    id,
+                    json!({
+                        "seq":           e.seq,
+                        "asset_id":      e.asset_id.to_string(),
+                        "native_symbol": e.native_symbol,
+                        "from":          e.from.to_hex(),
+                        "dest_address":  e.dest_address,
+                        "amount":        e.amount.to_string(),
+                        "height":        e.height,
+                        "tx_hash":       format!("0x{}", hex::encode(e.tx_hash)),
+                    }),
+                ),
+                None => err(
+                    id,
+                    -32004,
+                    format!("bridge-out event seq {} not found (evicted or out of range)", seq),
+                ),
+            }
+        }
         "zbx_isBridgeClaimUsed" => {
             // Params: [source_tx_hash: 0x… (32 bytes hex)]
             let h = req.params.get(0).and_then(|v| v.as_str()).unwrap_or("");

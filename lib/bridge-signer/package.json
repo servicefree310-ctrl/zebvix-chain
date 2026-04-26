@@ -1,0 +1,25 @@
+{
+  "name": "@workspace/bridge-signer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Per-validator signer service. Receives EIP-712 mint requests from the relayer over HTTP, independently verifies the source Zebvix transaction exists, then signs with its validator key. Run one instance per validator on isolated infrastructure.",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "ethers": "^6.16.0",
+    "express": "^5",
+    "pino": "^9",
+    "pino-pretty": "^13",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "^5.7.0"
+  }
+}

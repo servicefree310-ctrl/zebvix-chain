@@ -706,6 +706,23 @@ impl State {
         out
     }
 
+    /// Look up a single outbound bridge event by sequence number.
+    /// Returns `None` if the seq is outside `[0, total)` or has already been
+    /// evicted by the on-chain ring buffer (`MAX_OUT_EVENTS`).
+    /// Used by the off-chain relayer to back-fill gaps when polling
+    /// `zbx_recentBridgeOutEvents` after downtime.
+    pub fn bridge_get_out_event_by_seq(
+        &self,
+        seq: u64,
+    ) -> Option<crate::bridge::BridgeOutEvent> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db
+            .get_cf(cf, Self::br_event_key(seq))
+            .ok()
+            .flatten()
+            .and_then(|b| bincode::deserialize::<crate::bridge::BridgeOutEvent>(&b).ok())
+    }
+
     pub fn genesis_credit(&self, alloc: &[(Address, u128)]) -> Result<()> {
         for (addr, amount) in alloc {
             let mut acc = self.account(addr);
