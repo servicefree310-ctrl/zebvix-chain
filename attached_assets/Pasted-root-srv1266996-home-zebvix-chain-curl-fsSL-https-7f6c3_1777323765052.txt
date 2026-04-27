@@ -1,0 +1,85 @@
+root@srv1266996:/home/zebvix-chain# curl -fsSL "https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/api/download/newchain" \
+  -o /tmp/newchain.tar.gz \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  && ls -lh /tmp/newchain.tar.gz
+-rw-r--r-- 1 root root 339K Apr 27 21:00 /tmp/newchain.tar.gz
+root@srv1266996:/home/zebvix-chain# # 1. File integrity check
+file /tmp/newchain.tar.gz                    # 'gzip compressed data' aana chahiye
+tar tzf /tmp/newchain.tar.gz | head -20      # listing dekho — Cargo.toml + src/* dikhne chahiye
+tar tzf /tmp/newchain.tar.gz | wc -l         # file count — typically 80-150 entries
+
+# 2. Backup current install
+cp -a /home/zebvix-chain /home/zebvix-chain.bak.$(date +%Y%m%d_%H%M%S)
+
+# 3. Extract OVER existing tree (target/ + .git/ preserved kyunki tarball mein nahi hain)
+tar xzf /tmp/newchain.tar.gz -C /home/zebvix-chain
+
+# 4. Diff sanity — naye files check karo
+ls -la /home/zebvix-chain/src/fsm_runtime.rs        # ~12 KB hona chahiye (handle_action shipped)
+grep -c "apply_evidence\|slash_for_evidence" /home/zebvix-chain/src/state.rs /home/zebvix-chain/src/staking.rs
+grep -n "EVIDENCE_REPLAY_WINDOW_HEIGHTS" /home/zebvix-chain/src/state.rs
+
+# 5. CI gate dobara — naye tests bhi pass hone chahiye (182 → ~192 tests)
+cd /home/zebvix-chain && bash scripts/ci-check.sh
+/tmp/newchain.tar.gz: gzip compressed data, from Unix, original size modulo 2^32 1454080
+./
+src/
+src/bin/
+src/bin/zbx.rs
+src/block_stm.rs
+src/multisig.rs
+src/proposal.rs
+src/zvm_rlp.rs
+src/tokenomics.rs
+src/crypto.rs
+src/bridge.rs
+src/zvm.rs
+src/transaction.rs
+src/zvm_state.rs
+src/zvm_rpc.rs
+src/zvm_precompiles.rs
+src/types.rs
+src/fsm.rs
+src/evidence.rs
+src/metrics.rs
+tar: stdout: write error
+68
+-rw-r--r-- 1 ubuntu ubuntu 19786 Apr 27 20:43 /home/zebvix-chain/src/fsm_runtime.rs
+/home/zebvix-chain/src/state.rs:14
+/home/zebvix-chain/src/staking.rs:11
+78:pub const EVIDENCE_REPLAY_WINDOW_HEIGHTS: u64 = 17_280;
+4665:    //      `EVIDENCE_REPLAY_WINDOW_HEIGHTS` (~24h at 5s blocks). Prevents
+4690:        if current_height.saturating_sub(slot_h) > EVIDENCE_REPLAY_WINDOW_HEIGHTS {
+4692:                "evidence: stale (slot {slot_h}, current {current_height}, window {EVIDENCE_REPLAY_WINDOW_HEIGHTS})"
+5466:    /// T-2 (stale): slot older than `EVIDENCE_REPLAY_WINDOW_HEIGHTS`
+5479:        let current = 10 + EVIDENCE_REPLAY_WINDOW_HEIGHTS + 1;
+▶ Phase D-10 CI gate
+  chain_root = /home/zebvix-chain
+  features   = zvm
+  timeout    = 600s per step
+  mode       = full
+
+── cargo check --features zvm ──
+warning: unused import: `Hash`
+  --> src/fsm_runtime.rs:54:27
+   |
+54 | use crate::types::{Block, Hash};
+   |                           ^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+✓ PASS: cargo check --features zvm
+
+── cargo clippy --features zvm (warnings denied) ──
+error: unused import: `Hash`
+  --> src/fsm_runtime.rs:54:27
+   |
+54 | use crate::types::{Block, Hash};
+   |                           ^^^^
+   |
+   = note: `-D unused-imports` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(unused_imports)]`
+
+error: could not compile `zebvix-node` (lib) due to 1 previous error
+✗ FAIL: cargo clippy --features zvm (warnings denied) (rc=101)
+root@srv1266996:/home/zebvix-chain# 

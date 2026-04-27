@@ -51,7 +51,7 @@ use tokio::sync::Mutex;
 use crate::consensus::Producer;
 use crate::fsm::{FsmAction, FsmEvent, FsmState, Timeouts};
 use crate::state::State;
-use crate::types::{Block, Hash};
+use crate::types::Block;
 
 /// Reads the `ZEBVIX_FSM_ENABLED` env var. Returns `true` only for the
 /// canonical truthy strings (`1`, `true`, `yes`, `on` — case-insensitive).
