@@ -1,0 +1,92 @@
+root@srv1266996:~# # Re-pull updated tarball (sirf pool.rs change hua hai is patch mein)
+cd /home/zebvix-chain && \
+  curl -fsSL "https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/api/download/newchain" \
+    -o newchain.tgz && \
+  tar -xzf newchain.tgz && \
+  echo "--- pool.rs patch verify ---" && \
+  grep -A 1 "Reserved utility" src/pool.rs
+
+# Full CI gate ab pass karega
+bash scripts/ci-check.sh
+--- pool.rs patch verify ---
+// Reserved utility — paired with isqrt_u256 below. Kept as the canonical
+// u128 integer-sqrt helper for upcoming pool-math code paths (concentrated
+▶ Phase D-10 CI gate
+  chain_root = /home/zebvix-chain
+  features   = zvm
+  timeout    = 600s per step
+  mode       = full
+
+── cargo check --features zvm ──
+✓ PASS: cargo check --features zvm
+
+── cargo clippy --features zvm (warnings denied) ──
+✓ PASS: cargo clippy --features zvm (warnings denied)
+
+── cargo test --lib --features zvm ──
+
+running 182 tests
+........................................................................ 72/182
+staking::tests::redelegate_legacy_small_position_does_not_inflate --- FAILED
+staking::tests::redelegate_moves_stake --- FAILED
+........ 82/182
+state::state_root_tests::empty_state_root_is_zero --- FAILED
+.................. 101/182
+token_pool::tests::swap_zbx_for_token_collects_fee_in_reserve --- FAILED
+........................................ 142/182
+zvm_interp::tests::sar_preserves_sign --- FAILED
+zvm_interp::tests::signed_div_handles_negatives_and_overflow --- FAILED
+......................................
+failures:
+
+---- staking::tests::redelegate_legacy_small_position_does_not_inflate stdout ----
+
+thread 'staking::tests::redelegate_legacy_small_position_does_not_inflate' (1068420) panicked at src/staking.rs:1013:70:
+called `Result::unwrap()` on an `Err` value: ValidatorExists(0x0000000000000000000000000000000000000000)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- staking::tests::redelegate_moves_stake stdout ----
+
+thread 'staking::tests::redelegate_moves_stake' (1068421) panicked at src/staking.rs:1013:70:
+called `Result::unwrap()` on an `Err` value: ValidatorExists(0x0000000000000000000000000000000000000000)
+
+---- state::state_root_tests::empty_state_root_is_zero stdout ----
+
+thread 'state::state_root_tests::empty_state_root_is_zero' (1068527) panicked at src/state.rs:4760:9:
+assertion `left == right` failed
+  left: 0x05115454a4e0114d2ec30f8ccca76aa0452e8b74676bf0289a7de729d5363e9a
+ right: 0x0000000000000000000000000000000000000000000000000000000000000000
+
+---- token_pool::tests::swap_zbx_for_token_collects_fee_in_reserve stdout ----
+
+thread 'token_pool::tests::swap_zbx_for_token_collects_fee_in_reserve' (1068722) panicked at src/token_pool.rs:475:9:
+fee should grow k
+
+---- zvm_interp::tests::sar_preserves_sign stdout ----
+
+thread 'zvm_interp::tests::sar_preserves_sign' (1068764) panicked at src/zvm_interp.rs:1661:9:
+assertion `left == right` failed
+  left: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+ right: [255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255]
+
+---- zvm_interp::tests::signed_div_handles_negatives_and_overflow stdout ----
+
+thread 'zvm_interp::tests::signed_div_handles_negatives_and_overflow' (1068765) panicked at src/zvm_interp.rs:1611:9:
+assertion `left == right` failed
+  left: 1
+ right: 2
+
+
+failures:
+    staking::tests::redelegate_legacy_small_position_does_not_inflate
+    staking::tests::redelegate_moves_stake
+    state::state_root_tests::empty_state_root_is_zero
+    token_pool::tests::swap_zbx_for_token_collects_fee_in_reserve
+    zvm_interp::tests::sar_preserves_sign
+    zvm_interp::tests::signed_div_handles_negatives_and_overflow
+
+test result: FAILED. 176 passed; 6 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.49s
+
+error: test failed, to rerun pass `--lib`
+✗ FAIL: cargo test --lib --features zvm (rc=101)
+root@srv1266996:/home/zebvix-chain# 

@@ -1604,8 +1604,16 @@ mod tests {
 
     #[test]
     fn signed_div_handles_negatives_and_overflow() {
+        // NOTE (test-fixture fix, April 2026): the previous expression
+        // `!U256::one() + U256::one()` is **not** -2. `!1` flips every
+        // bit of 0x00…01 → 0xff…fe (which is -2 in two's complement),
+        // and adding 1 yields 0xff…ff = -1. So the old `neg_two` was
+        // actually -1, making the test assert `signed_div(-1, -1) == 2`
+        // when the correct answer is 1. Production `signed_div` math is
+        // correct; the fixture constant was wrong. Use the canonical
+        // helper `neg_i256(2)` to construct the value unambiguously.
         let neg_one = !U256::zero();
-        let neg_two = !U256::one() + U256::one(); // -2
+        let neg_two = neg_i256(U256::from(2u64));
         let i256_min = U256::one() << 255;
         // -2 / -1 = 2
         assert_eq!(signed_div(neg_two, neg_one), U256::from(2u64));
@@ -1645,13 +1653,23 @@ mod tests {
 
     #[test]
     fn sar_preserves_sign() {
-        // SAR: PUSH1 0x01 PUSH32 -1 SAR PUSH1 0x00 MSTORE PUSH1 0x20 PUSH1 0x00 RETURN
-        // -1 >>(arith) 1 = -1 (sign extends)
-        let mut code = vec![0x60, 0x01]; // PUSH1 1
-        code.push(0x7f); // PUSH32
-        code.extend_from_slice(&[0xffu8; 32]); // -1
-        code.push(0x1d); // SAR
-        code.extend_from_slice(&[0x60, 0x00, 0x52]); // PUSH1 0 MSTORE
+        // NOTE (test-fixture fix, April 2026): EVM SAR (and SHL, SHR)
+        // pop `shift` first (top of stack), then `value`. To compute
+        // `(-1) SAR 1` you must push `value` FIRST and `shift` SECOND
+        // so the shift count is on top when SAR executes. The previous
+        // bytecode pushed shift=1 first then value=-1, causing SAR to
+        // pop shift=-1 (a huge unsigned magnitude > 256) and value=1,
+        // then return 0 because value's sign bit is clear and shift
+        // saturates. Production op_sar semantics in zvm_interp.rs are
+        // correct per EIP-145; only the test bytecode push order needed
+        // swapping.
+        // Correct sequence: PUSH32 -1, PUSH1 1, SAR, MSTORE 0, RETURN 32.
+        let mut code = Vec::new();
+        code.push(0x7f);                              // PUSH32
+        code.extend_from_slice(&[0xffu8; 32]);        // value = -1 (all ones)
+        code.extend_from_slice(&[0x60, 0x01]);        // PUSH1 1 (shift count, ends up on top)
+        code.push(0x1d);                              // SAR → -1 SAR 1 = -1
+        code.extend_from_slice(&[0x60, 0x00, 0x52]);  // PUSH1 0 MSTORE
         code.extend_from_slice(&[0x60, 0x20, 0x60, 0x00, 0xf3]); // PUSH1 32 PUSH1 0 RETURN
         let db = StubDb;
         let mut interp = Interp::new(&db, &ctx(), 1_000_000);

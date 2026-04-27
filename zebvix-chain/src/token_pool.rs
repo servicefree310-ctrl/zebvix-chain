@@ -465,16 +465,30 @@ mod tests {
 
     #[test]
     fn swap_zbx_for_token_collects_fee_in_reserve() {
+        // NOTE (test-fixture fix, April 2026): the previous version used
+        // `z(1_000_000)` reserves which produces `k = 1e24 * 1e24 = 1e48`
+        // — well above `u128::MAX ≈ 3.4e38`. `saturating_mul` then pinned
+        // both `k_before` and `k_after` to `u128::MAX`, making the
+        // `k_after > k_before` assertion always false (MAX > MAX is
+        // false). The production semantics — fee stays in reserve, k
+        // grows — are unchanged; we just need a test pool small enough
+        // for the `k = z * t` invariant to fit in u128. Using `z(100)`
+        // each side gives `k ≈ (100·1e18)² = 1e40` … still overflows.
+        // Drop scale further: `1_000` units each side → k ≈ (1e21)² =
+        // 1e42 (overflows). Use raw u128 amounts (no z() macro) so we
+        // pick magnitudes that fit. With reserves of `1_000_000_000`
+        // each, k ≈ 1e18 (well under u128::MAX), and a 1_000-unit input
+        // exercises the same code path with measurable fee growth.
         let mut p = TokenPool::default();
-        p.init(addr(1), 1, z(1_000_000), z(1_000_000), 0).unwrap();
+        p.init(addr(1), 1, 1_000_000_000u128, 1_000_000_000u128, 0).unwrap();
         let k_before = p.zbx_reserve.saturating_mul(p.token_reserve);
-        let token_out = p.swap_zbx_for_token(z(1_000)).unwrap();
+        let token_out = p.swap_zbx_for_token(1_000u128).unwrap();
         assert!(token_out > 0);
         // k must grow (fee stays in reserve).
         let k_after = p.zbx_reserve.saturating_mul(p.token_reserve);
-        assert!(k_after > k_before, "fee should grow k");
+        assert!(k_after > k_before, "fee should grow k (got before={k_before}, after={k_after})");
         assert_eq!(p.swap_count, 1);
-        assert_eq!(p.cum_zbx_in_volume, z(1_000));
+        assert_eq!(p.cum_zbx_in_volume, 1_000u128);
     }
 
     #[test]

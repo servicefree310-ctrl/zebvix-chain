@@ -1002,14 +1002,19 @@ mod tests {
         Address(a)
     }
 
-    fn pk(b: u8) -> [u8; 33] {
-        let mut p = [0u8; 33];
-        p[0] = b;
-        p
-    }
-
-    fn make_validator(s: &mut StakingModule, op: Address, seed: u8, bond: u128) -> Address {
-        let pubkey = pk(seed);
+    // NOTE (test-fixture fix, April 2026): the previous `pk(b)` helper
+    // returned `[b, 0, 0, …, 0]` which is NOT a valid secp256k1 compressed
+    // point. After the Phase-H crypto hardening, `address_from_pubkey`
+    // correctly rejects invalid pubkeys and falls back to `Address::ZERO`
+    // — so every "distinct" validator built via the old helper collided
+    // on the zero address and the second `create_validator` call panicked
+    // with `ValidatorExists(0x00…00)`. The fix is to derive a real
+    // keypair per seed via `generate_keypair()` so each validator has a
+    // unique, well-formed public key. The `_seed` parameter is kept for
+    // call-site compatibility (it was already ignored for actual
+    // randomness) and underscored to silence the unused-variable warning.
+    fn make_validator(s: &mut StakingModule, op: Address, _seed: u8, bond: u128) -> Address {
+        let (_sk, pubkey) = crate::crypto::generate_keypair();
         s.create_validator(op, pubkey, 500, bond, MIN_SELF_BOND_WEI).unwrap();
         crate::crypto::address_from_pubkey(&pubkey)
     }

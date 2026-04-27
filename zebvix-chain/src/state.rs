@@ -4755,9 +4755,26 @@ mod state_root_tests {
     }
 
     #[test]
-    fn empty_state_root_is_zero() {
-        let (_td, st) = fresh_state();
-        assert_eq!(st.compute_state_root(), Hash::ZERO);
+    fn empty_state_root_is_deterministic() {
+        // NOTE (test-fixture fix, April 2026): the previous assertion
+        // `compute_state_root() == Hash::ZERO` held true only for a
+        // literally-empty RocksDB. After genesis seeding was wired into
+        // `State::open()` (Phase B token-pool / tokenomics constants
+        // land in the META and ACCOUNTS column families on first open),
+        // a "fresh" state is never empty in the consensus sense, so the
+        // root is no longer zero. The production semantics in
+        // `compute_state_root` (state.rs:4575-4577) DO still return
+        // `Hash::ZERO` for a truly-empty CF iterator — that path is
+        // unreachable from `State::open()` now, but remains correct.
+        // The meaningful invariant is determinism: two opens of the
+        // same genesis must yield byte-identical roots.
+        let (_td1, st1) = fresh_state();
+        let (_td2, st2) = fresh_state();
+        let r1 = st1.compute_state_root();
+        let r2 = st2.compute_state_root();
+        assert_eq!(r1, r2, "fresh-state root must be deterministic across opens");
+        // And recomputation on the same instance is idempotent.
+        assert_eq!(st1.compute_state_root(), r1);
     }
 
     #[test]
