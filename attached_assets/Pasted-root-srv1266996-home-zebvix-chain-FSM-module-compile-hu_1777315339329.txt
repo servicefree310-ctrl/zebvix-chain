@@ -1,0 +1,38 @@
+root@srv1266996:/home/zebvix-chain# # FSM module compile hua hai but Producer::run unchanged hai —
+# chain legacy PoA path pe chal raha hoga, koi behavior change nahi
+sudo journalctl -u zebvix -n 100 --no-pager | grep -E "fsm|FSM|height" | head -10
+root@srv1266996:/home/zebvix-chain# # 1. Confirm legacy PoA producer chal raha hai (FSM OFF)
+sudo journalctl -u zebvix --since "5 min ago" --no-pager | grep "producer started" | tail -3
+# Expected: mode=ROUND_ROBIN+TIMEOUTS (B.3.2.2)
+
+# 2. Confirm BFT commit persistence (Phase B.3.2.5) actively running
+sudo journalctl -u zebvix --since "2 min ago" --no-pager | grep "BFT commit persisted" | tail -5
+# Expected: 📜 BFT commit persisted h=50XXX precommits=1 bytes=297 (har 5 sec)
+
+# 3. Confirm chain produce kar raha hai naye blocks
+sudo journalctl -u zebvix --since "2 min ago" --no-pager | grep "block #" | tail -5
+# Expected: ⛏  block #50XXX produced  proposer=0x40907...
+
+# 4. Confirm naya FSM module binary mein compile hua (dormant proof)
+strings /usr/local/bin/zebvix-node | grep -iE "fsm|BlockApplied|PrevoteQuorum" | sort -u | head -10
+# Expected: function names visible — symbols compiled in but unused at runtime
+
+# 5. Confirm flag OFF (env var set nahi hai)
+sudo systemctl show zebvix -p Environment | grep -i ZEBVIX_FSM_ENABLED || echo "✓ ZEBVIX_FSM_ENABLED not set — FSM dormant (correct)"
+
+# 6. Live tip check via RPC
+curl -s http://localhost:8545 -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' | head
+# Expected: hex height jo har 5 sec aage
+Apr 27 18:41:32 srv1266996.hstgr.cloud zebvix-node[1045052]: 2026-04-27T18:41:32.283626Z  INFO zebvix_node: 📜 BFT commit persisted h=50967 hash=0x3095eb9b62f8484dc67cfa1aceedc2d17ee3234ec6604b95bc93d8a5e1c65d89 precommits=1 bytes=297
+Apr 27 18:41:37 srv1266996.hstgr.cloud zebvix-node[1045052]: 2026-04-27T18:41:37.783204Z  INFO zebvix_node: 📜 BFT commit persisted h=50968 hash=0x7cd1fbb493980f54340a00d5453b1f52e54177829d89cfd3ea31603fc17b2dee precommits=1 bytes=297
+Apr 27 18:41:43 srv1266996.hstgr.cloud zebvix-node[1045052]: 2026-04-27T18:41:43.783007Z  INFO zebvix_node: 📜 BFT commit persisted h=50969 hash=0xbbcede5a41be7c55e7405e6ea57ca07297fd28671f177464c8014994c580d4e0 precommits=1 bytes=297
+Apr 27 18:41:49 srv1266996.hstgr.cloud zebvix-node[1045052]: 2026-04-27T18:41:49.283138Z  INFO zebvix_node: 📜 BFT commit persisted h=50970 hash=0xa48afc4a3ce7ce521bae995ec2d4ebb6477f2c1ad0ff85ce232739358429768f precommits=1 bytes=297
+Apr 27 18:41:55 srv1266996.hstgr.cloud zebvix-node[1045052]: 2026-04-27T18:41:55.283684Z  INFO zebvix_node: 📜 BFT commit persisted h=50971 hash=0x7d57cf742ab2b35ae130f918d7423b9571bec589ed88efd06efc448660ca5385 precommits=1 bytes=297
+Apr 27 18:41:32 srv1266996.hstgr.cloud zebvix-node[1045052]: 2026-04-27T18:41:32.029061Z  INFO zebvix_node::consensus: ⛏  block #50967 produced  proposer=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315  round=0  txs=0  hash=0x3095eb9b62f8484dc67cfa1aceedc2d17ee3234ec6604b95bc93d8a5e1c65d89
+Apr 27 18:41:37 srv1266996.hstgr.cloud zebvix-node[1045052]: 2026-04-27T18:41:37.530852Z  INFO zebvix_node::consensus: ⛏  block #50968 produced  proposer=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315  round=0  txs=0  hash=0x7cd1fbb493980f54340a00d5453b1f52e54177829d89cfd3ea31603fc17b2dee
+Apr 27 18:41:43 srv1266996.hstgr.cloud zebvix-node[1045052]: 2026-04-27T18:41:43.528649Z  INFO zebvix_node::consensus: ⛏  block #50969 produced  proposer=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315  round=0  txs=0  hash=0xbbcede5a41be7c55e7405e6ea57ca07297fd28671f177464c8014994c580d4e0
+Apr 27 18:41:49 srv1266996.hstgr.cloud zebvix-node[1045052]: 2026-04-27T18:41:49.027786Z  INFO zebvix_node::consensus: ⛏  block #50970 produced  proposer=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315  round=0  txs=0  hash=0xa48afc4a3ce7ce521bae995ec2d4ebb6477f2c1ad0ff85ce232739358429768f
+Apr 27 18:41:55 srv1266996.hstgr.cloud zebvix-node[1045052]: 2026-04-27T18:41:55.028034Z  INFO zebvix_node::consensus: ⛏  block #50971 produced  proposer=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315  round=0  txs=0  hash=0x7d57cf742ab2b35ae130f918d7423b9571bec589ed88efd06efc448660ca5385
+✓ ZEBVIX_FSM_ENABLED not set — FSM dormant (correct)
+{"jsonrpc":"2.0","id":1,"result":"0xc71b"}root@srv1266996:/home/zebvix-chain# 
