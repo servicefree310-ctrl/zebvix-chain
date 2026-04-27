@@ -519,6 +519,510 @@ ordering above is the only coordination requirement.
 
 ---
 
+## Phase D — Operator Maturity Roadmap (Production-Readiness)
+
+The B/C/H series above are **chain-correctness** items (consensus,
+crypto, mempool, p2p safety). Even after every C/H item ships, the
+chain remains operationally fragile — single VPS, no off-site backups,
+no metrics dashboard, no slashing teeth, no state-sync. This section
+catalogues what an "advanced production chain" needs *beyond
+correctness*: decentralisation, observability, disaster recovery,
+operator workflow polish.
+
+These are deliberately **separated** from B/C/H because they are
+mostly **additive** — no chain-breaking activation height needed, no
+risk of bricking the live VPS chain. They can ship in any order, in
+parallel, by different operators, without coordinating restarts.
+
+The recommended sequencing (by impact-per-week-of-work) is:
+**D2 → D5 → D4 → D1 → D6 → D7 → D9 → D10 → D3 → D8**, but each
+section is self-contained.
+
+---
+
+## D1 — Multi-validator decentralisation (N ≥ 3)
+
+**Current state:** Live VPS runs a single validator
+(`0x40907000ac0a1a73e4cd89889b4d7ee8980c0315`). Genesis is hard-coded
+to this address; `state::validators()` returns this single entry; the
+"BFT" path technically computes 2/3-of-N quorums but with N=1 every
+quorum trivially holds.
+
+**Why deferred:** Real BFT safety + liveness requires the full FSM
+runtime (F006.2-7) shipped first. Adding a second validator today
+under the legacy producer would create a fork-prone race because the
+legacy `Producer::run` has no real Tendermint vote handling — both
+validators would mine round-0 blocks at the same height.
+
+**Migration plan:**
+1. Block on F006.7 (`ENABLED=true` byte-identical to legacy on N=1
+   over 1000 blocks) being green on dev VPS.
+2. Provision 2 additional VPS hosts (target geographic diversity:
+   one EU, one APAC, one US-East). Same systemd unit + same
+   `cargo build --release --features zvm` binary.
+3. Generate 2 new validator keypairs offline (HSM or air-gapped
+   laptop). Never paste private keys into chat / Replit / SSH
+   history. Store in `pass`/`gpg`/Yubikey for each operator.
+4. Add a new admin RPC endpoint `zvb_addValidator(address, stake,
+   admin_token)` that writes to `state::validators` via the
+   side-table (no Block schema change). Gate behind `ADMIN_TOKEN`
+   already in env.
+5. Activation procedure:
+   - Validators 2 + 3 sync from genesis with `ZEBVIX_FSM_ENABLED=
+     false` (they catch up via legacy producer driven by V1).
+   - When all 3 are at the same tip, V1 calls `zvb_addValidator`
+     for V2 and V3 (one at a time, 100 blocks apart).
+   - All 3 nodes restart with `ZEBVIX_FSM_ENABLED=true` at a
+     coordinated height (`current_tip + 200` ≈ 16 minutes).
+   - Watch logs: every node should see prevote + precommit
+     quorums from the other two within 5 seconds of each block.
+6. Once N=3 is stable for ≥ 7 days, remove V1's "boot validator"
+   privilege so any 2-of-3 can advance the chain alone.
+
+**Risk if not done:** Any V1 outage (hardware, network, Hetzner
+incident, key compromise) = entire chain stalls. No fault tolerance.
+
+**Estimated effort:** 2 sessions (1 for `zvb_addValidator` RPC + side-
+table writer, 1 for activation procedure + 7-day soak).
+
+**Dependencies:** F006.7 SHIPPED.
+
+---
+
+## D2 — Slashing enforcement (equivocation evidence)
+
+**Current state:** `staking.rs` has `Validator::jailed: bool` and
+`jail_until: u64` fields, plus a `jail()` API. **Nothing actually
+calls `jail()`.** A double-signing validator (signing two conflicting
+prevotes / precommits at the same height + round) faces zero
+economic cost. Stake is at risk only via voluntary unbonding.
+
+**Why deferred:** Useless under N=1 (you cannot slash yourself
+gainfully). Only meaningful once D1 ships and we have multiple
+validators that could equivocate.
+
+**Migration plan:**
+1. Add a new module `src/evidence.rs`:
+   - `pub struct EquivocationEvidence { height, round, validator,
+     vote_a, vote_b }` — two signed votes by the same validator
+     for different targets at the same `(height, round, kind)`.
+   - `pub fn verify_evidence(ev, validators) -> Result<()>` — checks
+     both signatures, asserts they are by the same address, asserts
+     `vote_a.target != vote_b.target`, asserts same `(h, r, kind)`.
+   - `pub struct Evidence` enum (Equivocation today; LightClientAttack
+     placeholder for D3).
+2. Extend `state::apply_block` (or side-table) to accept an
+   `evidence: Vec<Evidence>` field passed from the FSM runtime
+   (F006.3 will collect these from the vote pool — duplicate
+   detection there).
+3. On verified evidence:
+   - Call `staking::jail(validator, jail_until = current_height +
+     SLASH_JAIL_HEIGHTS)` (initial value 50_000 ≈ 3 days at 5s/block).
+   - Burn `SLASH_PERCENT` (initial 5%) of the validator's stake
+     directly into the fee-burn account — does NOT redistribute to
+     other validators (avoids incentive games).
+4. Add a CLI tool `zbx evidence submit <bincode-hex>` for off-chain
+   evidence collectors to forward equivocation proofs to any
+   validator's RPC.
+5. Add a 24-hour evidence-submission window after the offending
+   height — beyond that, evidence is rejected (prevents stale
+   slashing weaponisation against a now-honest operator).
+
+**Risk if not done:** A byzantine validator under D1 can fork the
+chain at no cost. With a 1/3 minority byzantine + no slashing, an
+attacker can grief the chain (round-bumps every block) without
+losing stake.
+
+**Estimated effort:** 2 sessions (evidence verification + jail/burn
+plumbing).
+
+**Dependencies:** D1 deployed (need ≥ 2 validators to slash).
+
+---
+
+## D3 — State-sync (snapshot offer/accept) for fast new-validator bootstrap
+
+**Current state:** A new node joining the network must sync from
+genesis (height 0). At today's tip ≈ 51 K this is ~minutes; at 10 M
+blocks it would be days. Block-by-block sync via existing p2p
+`SyncReq/SyncResp` works, just slowly.
+
+**Why deferred:** Not blocking under low height. Becomes critical at
+~1 M+ blocks or whenever a fresh validator needs to join.
+
+**Migration plan:**
+1. Add a new RocksDB checkpoint API call in `state.rs`:
+   `pub fn snapshot_at(height: u64) -> Result<PathBuf>` — uses
+   `rocksdb::checkpoint::Checkpoint::create_checkpoint` for a
+   hard-link (zero-copy) snapshot. Run periodically (every 100 K
+   blocks) into `/root/.zebvix/snapshots/<height>/`.
+2. Add a new p2p message `SnapshotOffer { height, hash, manifest }`
+   gossiped by validators that have a snapshot ready, and
+   `SnapshotRequest { height }` / `SnapshotChunk { idx, total, bytes }`
+   for chunked transfer (1 MB chunks).
+3. Receiver validates each chunk's hash against the manifest, then
+   atomically swaps `/root/.zebvix/state/` with the assembled
+   snapshot, then resumes block-by-block sync from the snapshot
+   height.
+4. Cold-start operator UX: a new flag `--state-sync-trust <height>:
+   <hash>` lets operators pin a known-good (height, hash) tuple from
+   a trusted source (block explorer, social media announcement) so a
+   malicious peer cannot serve a poisoned snapshot.
+
+**Risk if not done:** Onboarding new validators becomes a
+multi-day ordeal once the chain grows. Single biggest deterrent to
+decentralisation past N=3.
+
+**Estimated effort:** 3 sessions (snapshot API + chunked transfer +
+trust-anchor UX).
+
+**Dependencies:** none at code level; D1 makes it useful.
+
+---
+
+## D4 — Monitoring stack (Prometheus exporter + Grafana dashboard)
+
+**Current state:** Operator visibility = `journalctl -u zebvix -f`.
+No metrics, no alerting, no historical trend graphs. A slow memory
+leak or growing mempool would be invisible until OOM-kill.
+
+**Why deferred:** Manual journal grep was sufficient at N=1.
+
+**Migration plan:**
+1. Add `prometheus = "0.13"` + `lazy_static` to `Cargo.toml`. Create
+   `src/metrics.rs` with `lazy_static!` registry exposing:
+   - `zvb_block_height` (gauge)
+   - `zvb_block_apply_seconds` (histogram, buckets 0.01 → 5.0)
+   - `zvb_mempool_depth` (gauge)
+   - `zvb_mempool_bytes` (gauge)
+   - `zvb_peer_count` (gauge)
+   - `zvb_vote_pool_size` (gauge, by `kind` label)
+   - `zvb_bft_commit_persisted_total` (counter)
+   - `zvb_proposer_round_bumps_total` (counter, by `reason` label)
+   - `zvb_fsm_step_seconds` (histogram, by `step` label) — enabled
+     once F006 is live
+   - `zvb_validator_jailed_total` (counter) — once D2 lands
+2. Add an HTTP scrape endpoint at `/metrics` on the existing RPC
+   port (or a separate port if mTLS strictness needed).
+3. Increment / observe these from the relevant call sites:
+   `state::apply_block` for height + apply_seconds, `mempool::insert/
+   evict` for depth + bytes, `p2p` swarm event handler for peer_count,
+   `vote::insert` for vote_pool_size + commit_persisted, `consensus::
+   run` for round_bumps.
+4. Ship a Grafana dashboard JSON at `ops/grafana/zebvix-chain.json`
+   with 12 panels (the metrics above + derived rates). Include in
+   the source tarball.
+5. Add Prometheus alerting rules at `ops/prometheus/zebvix-alerts.
+   yml`:
+   - `ZebvixBlockHeightStalled` — no height change in 60s.
+   - `ZebvixMempoolGrowing` — mempool > 10 K txs sustained for 5 min.
+   - `ZebvixPeerCountLow` — peer_count < 2 for 10 min.
+   - `ZebvixApplyTimeHigh` — p99 apply_seconds > 1.0 over 10 min.
+6. Document in `replit.md` how operators wire `node_exporter` +
+   `prometheus` + `grafana` + `alertmanager` to Pushover / Telegram /
+   PagerDuty for on-call alerts.
+
+**Risk if not done:** Slow degradations (memory leak, peer-count
+collapse, mempool DoS) go unnoticed until catastrophic failure.
+
+**Estimated effort:** 1.5 sessions (metrics module + scrape endpoint +
+dashboard JSON).
+
+**Dependencies:** none.
+
+---
+
+## D5 — Backup & disaster-recovery strategy
+
+**Current state:** `/root/.zebvix/` lives on a single VPS. No
+off-site backup. Validator private key (`/root/.zebvix/validator.key`)
+exists in exactly one place. Hetzner hardware failure or accidental
+`rm -rf` = chain irrecoverable, validator address permanently locked.
+
+**Why deferred:** Manual operator hygiene worked at N=1, but is the
+single largest residual risk.
+
+**Migration plan:**
+1. **State backup:** add a systemd timer `zebvix-backup.timer` that
+   runs every 6 hours:
+   - Calls `zbx admin snapshot --out /var/backups/zebvix/<ts>.tar.zst`
+     (uses RocksDB checkpoint from D3, then `tar | zstd -9`).
+   - Pushes via `rclone` to one of {S3, B2, R2, Hetzner Storage Box}
+     under a per-day prefix.
+   - Retention: keep all snapshots ≤ 7 days, daily snapshots ≤ 30
+     days, weekly snapshots ≤ 1 year. Pruned by a second timer.
+2. **Validator key escrow:** split the validator key with Shamir's
+   Secret Sharing (`ssss`) into a 2-of-3 share set. Distribute to
+   3 trusted operators in geographically separate locations,
+   stored on Yubikeys + paper backup in a tamper-evident envelope.
+   Document the recovery procedure (gather any 2 of 3, run `ssss-
+   combine`, write to `/root/.zebvix/validator.key`, `chmod 0400`,
+   restart service).
+3. **DR drill:** quarterly `restore-from-backup` exercise on a
+   throwaway VPS — pull latest snapshot, verify chain catches up to
+   live tip, verify a test transaction mines. Document the runbook
+   in `docs/DR.md`.
+4. **State-integrity self-check:** add `zbx admin verify-state` that
+   walks the RocksDB and asserts every persisted block's hash
+   matches the chain it claims to extend, every BFT commit blob
+   verifies, every account balance >= 0. Run weekly via systemd
+   timer; alert via Prometheus on failure.
+
+**Risk if not done:** **Single largest operator risk today.** A
+disk failure on `srv1266996` = total chain loss + permanent
+validator-address lockout (the address is determined by the key;
+losing the key means that address can never sign again).
+
+**Estimated effort:** 1 session for backup timer + rclone wiring;
+0.5 session for SSS key split (mostly procedure docs); 0.5 session
+for self-check tool.
+
+**Dependencies:** D3 snapshot API (or use raw `tar` of stopped-node
+state dir as MVP).
+
+---
+
+## D6 — Block explorer feature parity (`sui-fork-dashboard`)
+
+**Current state:** `artifacts/sui-fork-dashboard` is registered and
+running. Audit has not been done since the B.3.2.5 BFT commit blob
+shipped — explorer may not display per-block precommit signers,
+validator-set changes, or evidence submissions (D2).
+
+**Why deferred:** Cosmetic until a public user base exists.
+
+**Migration plan:**
+1. Add explorer endpoints (in `rpc.rs` or `zvm_rpc.rs`):
+   - `zvb_getBftCommit(height) -> { precommits, total_voting_power,
+     signed_voting_power }` — for the "BFT confirmation" badge.
+   - `zvb_getValidators(height?) -> Vec<ValidatorView>` — current
+     set, optionally historical.
+   - `zvb_getEvidence(height?) -> Vec<Evidence>` — D2 dependency.
+   - `zvb_getMempool(limit?) -> Vec<TxView>` — pending tx list.
+2. Update `sui-fork-dashboard` UI:
+   - Block detail page: show precommit signers + BFT commit badge.
+   - Validators page: voting power, jailed flag, recent uptime %.
+   - Evidence page: list of slashing events with links to offending
+     blocks.
+   - Mempool page: live-updating list with fee-priority sort
+     visualisation.
+3. Add WebSocket subscription `zvb_subscribe(channels: ["heads",
+   "votes", "evidence", "mempool"])` for real-time updates instead
+   of polling.
+
+**Risk if not done:** No public-facing transparency. Investors /
+users cannot independently verify chain health.
+
+**Estimated effort:** 2 sessions (RPC + UI), parallelisable across
+two operators.
+
+**Dependencies:** D2 (for evidence), D1 (for meaningful validator
+diversity).
+
+---
+
+## D7 — Fee market dynamics (EIP-1559 base-fee + priority-fee)
+
+**Current state:** `transaction.rs` charges a flat
+`gas_price * gas_used`, paid entirely to the proposer. No base-fee
+burn, no priority-fee tipping, no congestion-aware pricing.
+
+**Why deferred:** Adequate at low transaction volume. Becomes
+problematic at scale because (a) proposers face perverse incentive to
+include spam at floor price, (b) users have no reliable way to
+prioritise during congestion.
+
+**Migration plan:**
+1. Add `base_fee: u64` field to a new `FeeMarket` side-table (no
+   Block schema change — keep Block byte-stable, store base-fee per
+   height in the side-table same as BFT commit blobs).
+2. EIP-1559 update rule per block:
+   ```
+   if block.gas_used > target: base_fee *= (1 + (gas_used - target) /
+                                             target / 8)
+   if block.gas_used < target: base_fee *= (1 - (target - gas_used) /
+                                             target / 8)
+   ```
+   With `target = block.gas_limit / 2` and a hard floor of 1 wei.
+3. Transaction format: add `max_fee_per_gas` and
+   `max_priority_fee_per_gas` fields. Existing `gas_price` field
+   becomes legacy (height-gated activation via
+   `ZEBVIX_FEE_MARKET_ACTIVATION_HEIGHT`).
+4. Receipt computation: `effective_gas_price = min(max_fee_per_gas,
+   base_fee + max_priority_fee_per_gas)`. Of that,
+   `base_fee * gas_used` is **burned** (sent to a sink address) and
+   `priority_fee * gas_used` goes to the proposer.
+5. RPC: add `eth_feeHistory(blockCount, newestBlock, percentiles)`
+   for wallet UX (MetaMask uses this for the fee slider).
+6. Mempool: re-prioritise by `effective_gas_price` instead of
+   `gas_price`. Existing fee-priority sort code in `mempool.rs`
+   adapts trivially.
+
+**Risk if not done:** During congestion, users cannot reliably get
+txs included. Validators have no incentive to include only valuable
+txs (since spam pays the same per gas as valuable tx).
+
+**Estimated effort:** 2 sessions (fee market state + tx format
+plumbing + RPC).
+
+**Dependencies:** D1 (height-gated activation pattern is identical to
+C2's, no extra infra needed).
+
+---
+
+## D8 — Operator run-book consolidation (`docs/RUNBOOK.md`)
+
+**Current state:** Deploy steps live in chat-history scrollback.
+Rollback steps live in `replit.md`'s session notes. Activation env
+flag procedures (BFT commit gate, ZEBVIX_FSM_ENABLED,
+ZEBVIX_SIGN_HASH_ACTIVATION_HEIGHT) are scattered across
+`HARDENING_TODO.md` sections. A new operator joining the team would
+have to read the entire chat history to figure out how to deploy.
+
+**Why deferred:** Single-operator situation didn't need
+consolidation.
+
+**Migration plan:**
+1. Create `docs/RUNBOOK.md` with these top-level sections:
+   - **0. Architecture overview** (1 page: VPS, systemd unit,
+     RocksDB layout, key files)
+   - **1. Routine deploy** (the 5-step pull-build-restart
+     procedure, with rollback at each step)
+   - **2. Activation flags** (one sub-section per env flag with
+     compute-activation-height + edit-systemd + restart + verify)
+   - **3. Validator key rotation** (when, why, how — with the SSS
+     procedure from D5)
+   - **4. Evidence submission** (operator-facing, when D2 lands)
+   - **5. Backup & restore** (D5 procedures)
+   - **6. Multi-validator addition** (D1's `zvb_addValidator` flow)
+   - **7. Snapshot pin update** (D3 trust-anchor refresh)
+   - **8. Incident response** (chain-stalled, fork-detected,
+     evidence-of-attack, key-compromise)
+2. Cross-link from `replit.md` and `HARDENING_TODO.md`. Move all
+   operational procedures OUT of those two files into the runbook.
+3. Add `docs/RUNBOOK.md` to the source tarball so it ships to every
+   VPS.
+
+**Risk if not done:** Operator turnover = lost institutional
+knowledge. Rollback under stress (3am incident) requires hunting
+through chat history.
+
+**Estimated effort:** 1 session (mostly extraction of existing
+procedures, no new code).
+
+**Dependencies:** none, but most useful AFTER D1/D2/D3/D5 land
+(more procedures to document).
+
+---
+
+## D9 — RPC pagination + range caps (DoS hardening)
+
+**Current state:** `eth_getLogs` accepts arbitrary block ranges.
+A request with `fromBlock=0&toBlock=latest` over a chain with
+significant log volume would attempt to load every event into
+memory and serialise to a single response. OOM the node trivially.
+Same hazard for `eth_getBlockByNumber` with `fullTransactions=true`
+on huge blocks.
+
+**Why deferred:** Legitimate users have not hit it; no public RPC
+exposure yet.
+
+**Migration plan:**
+1. Hard cap: `eth_getLogs` rejects if `toBlock - fromBlock > 10_000`
+   with error code `-32602` and message
+   `"range too large (max 10000 blocks per request)"`.
+2. Result-size cap: even within range, abort if
+   `accumulated_logs.len() > 5_000` with a paginated response shape
+   `{ logs, next_cursor }`. Wallet adapts via repeated calls with
+   the cursor.
+3. Per-IP rate limit: `governor` crate, 100 req/s per IP for read
+   methods, 10 req/s for write methods. Configurable via env.
+4. Request-body size cap: reject any request body > 1 MB.
+5. Add `eth_chainId`-style introspection for the limits:
+   `zvb_getRpcLimits() -> { max_log_range, max_logs_per_response,
+   per_ip_read_rps, per_ip_write_rps }` so wallets can adapt.
+
+**Risk if not done:** Once the chain has even modest public
+adoption, a single malicious request can OOM the node. Repeated
+attacks = chain stalls.
+
+**Estimated effort:** 1 session.
+
+**Dependencies:** none.
+
+---
+
+## D10 — CI gate (pre-tarball validation)
+
+**Current state:** Tarball at `/api/download/newchain` streams
+the live `zebvix-chain/src/` directory on every request, regardless
+of whether the source even compiles. A broken commit on Replit
+would propagate to VPS on the next operator-initiated pull.
+
+**Why deferred:** Single-operator workflow has been "build locally
+first, deploy second" — the implicit CI was the operator's brain.
+
+**Migration plan:**
+1. Add `scripts/ci-check.sh`:
+   - `cargo check --features zvm` (timeout 120s).
+   - `cargo clippy --features zvm -- -D warnings` (allow specific
+     pre-existing warnings via `#[allow]` annotations, not via
+     blanket flags).
+   - Standalone-rustc tests for FSM modules (the established
+     pattern from B.3.2.6 / B.3.2.7).
+   - Smoke test: spawn the binary against an ephemeral RocksDB,
+     submit a single tx via RPC, assert it mines, kill the binary.
+2. Wire into the Replit api-server's tarball handler:
+   - Before streaming, check the timestamp of `target/.last-ci-pass`.
+   - If older than 24h OR newer than `target/.last-ci-pass`'s
+     manifest hash of `src/`, refuse to stream and return HTTP 503
+     with `{"error": "ci-stale", "last_pass": "<ts>"}`.
+   - A separate cron / file-watcher (or manual `bash scripts/ci-
+     check.sh && touch target/.last-ci-pass`) re-runs CI when
+     `src/` changes.
+3. Add a green-bypass for emergency rollback deploys:
+   `?bypass_ci=true&token=<ADMIN_TOKEN>` accepts the request even
+   without a fresh CI pass, but logs the bypass loudly.
+4. Replit-side workflow file `.github/workflows/ci.yml` (or
+   equivalent) that runs the same script on every push to a
+   branch that auto-PRs into main.
+
+**Risk if not done:** A typo or broken `cargo check` on Replit
+silently propagates to VPS, where the operator only discovers it
+during `cargo build --release` — losing 1m34s of build time per
+mistake. Worse, a subtle behavioural regression that compiles
+clean but mis-handles an edge case can ship to mainnet without
+any test gate.
+
+**Estimated effort:** 1.5 sessions (CI script + tarball-handler
+wiring + bypass UX).
+
+**Dependencies:** none, but most useful AFTER D8 (so the bypass
+procedure is documented).
+
+---
+
+## Phase D summary table
+
+| ID  | Title                                              | Effort | Deps        | Impact-per-week |
+|-----|----------------------------------------------------|--------|-------------|------|
+| D1  | Multi-validator decentralisation                   | 2 sessions | F006.7      | High (no SPOF) |
+| D2  | Slashing enforcement                               | 2 sessions | D1          | High (deterrent) |
+| D3  | State-sync (snapshot offer/accept)                 | 3 sessions | —           | Medium (long-term) |
+| D4  | Monitoring stack (Prom + Grafana)                  | 1.5 sessions | —         | High (visibility) |
+| D5  | Backup & DR                                        | 2 sessions | (D3 nice)   | **Highest** (single biggest residual risk) |
+| D6  | Block explorer feature parity                      | 2 sessions | D1, D2      | Medium (transparency) |
+| D7  | Fee market (EIP-1559)                              | 2 sessions | —           | Medium (scale) |
+| D8  | Operator run-book consolidation                    | 1 session | (post-D1-5) | Medium (ops hygiene) |
+| D9  | RPC pagination + range caps                        | 1 session | —           | High (DoS) |
+| D10 | CI gate (pre-tarball validation)                   | 1.5 sessions | —         | High (ship safety) |
+
+**Total: ~18 sessions** for full Phase D. Recommended sequence
+**D2 → D5 → D4 → D9 → D10 → D1 → D6 → D7 → D3 → D8** prioritises
+correctness/safety first, decentralisation second, polish last.
+
+---
+
 ## Process
 
 These items are tracked here, in `replit.md`, and in the project tasks
