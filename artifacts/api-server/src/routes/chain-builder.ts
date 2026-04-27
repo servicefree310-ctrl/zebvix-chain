@@ -66,6 +66,7 @@ interface ChainConfig {
   totalSupplyZbx: number;
   fixedSupply: boolean;
   founderPremineZbx: number;
+  founderAddress: string; // empty string = fall back to auto-generated validator key address
   mintPerBlockZbx: number;
   halvingBlocks: number;
   blockTimeSecs: number;
@@ -125,6 +126,17 @@ function validate(cfg: any): { ok: true; value: ChainConfig } | { ok: false; err
     return { ok: false, error: "founderPremineZbx: non-negative integer" };
   if (fixedSupply && founderPremineZbx > totalSupplyZbx)
     return { ok: false, error: "founderPremineZbx: cannot exceed totalSupplyZbx on a fixed-supply chain" };
+
+  // Optional admin / founder address that receives the pre-mine at genesis.
+  // Empty string = fall back to the auto-generated validator key address.
+  let founderAddress = String(cfg.founderAddress || "").trim();
+  if (founderAddress !== "") {
+    if (!/^0x[a-fA-F0-9]{40}$/.test(founderAddress))
+      return { ok: false, error: "founderAddress: must be a 0x-prefixed 40-hex EVM address (or blank to use the validator key)" };
+    founderAddress = "0x" + founderAddress.slice(2).toLowerCase();
+    if (founderPremineZbx === 0)
+      return { ok: false, error: "founderAddress: set founderPremineZbx > 0 or leave the address blank" };
+  }
 
   const mintPerBlockZbx = intInRange(cfg.mintPerBlockZbx, 0, 1_000_000);
   if (mintPerBlockZbx === null)
@@ -206,7 +218,7 @@ function validate(cfg: any): { ok: true; value: ChainConfig } | { ok: false; err
     ok: true,
     value: {
       chainName, chainId, symbol, decimals, description,
-      totalSupplyZbx, fixedSupply, founderPremineZbx, mintPerBlockZbx, halvingBlocks, blockTimeSecs,
+      totalSupplyZbx, fixedSupply, founderPremineZbx, founderAddress, mintPerBlockZbx, halvingBlocks, blockTimeSecs,
       consensus: consensus as "pos" | "poa", minValidatorStakeZbx, maxValidators, slashPercent, unbondingDays,
       governanceEnabled, votingPeriodBlocks, quorumPercent, proposalThresholdZbx, executionDelayBlocks,
       rpcPort, p2pPort, features,
@@ -260,6 +272,7 @@ tokenomics:
   total_supply_zbx: ${c.totalSupplyZbx}
   fixed_supply: ${c.fixedSupply ? "true" : "false"}
   founder_premine_zbx: ${c.founderPremineZbx}
+  founder_address: ${yamlString(c.founderAddress)}   # blank = use validator key address
   mint_per_block_zbx: ${c.mintPerBlockZbx}
   halving_blocks: ${c.halvingBlocks}
   block_time_secs: ${c.blockTimeSecs}
@@ -328,7 +341,7 @@ function genInstallSh(c: ChainConfig, baseUrl: string): string {
 #   chain ID    ${c.chainId}
 #   symbol      ${c.symbol}
 #   supply      ${c.totalSupplyZbx} ${c.symbol}
-#   pre-mine    ${c.founderPremineZbx} ${c.symbol} (to validator)
+#   pre-mine    ${c.founderPremineZbx} ${c.symbol} (to ${c.founderAddress ? `admin ${c.founderAddress}` : "validator key"})
 #   block time  ${c.blockTimeSecs} s
 #   RPC / P2P   ${c.rpcPort} / ${c.p2pPort}
 #
@@ -342,6 +355,7 @@ CHAIN_ID=${c.chainId}
 SYMBOL=${escSh(c.symbol)}
 TOTAL_SUPPLY_ZBX=${c.totalSupplyZbx}
 FOUNDER_PREMINE_ZBX=${c.founderPremineZbx}
+FOUNDER_ADDRESS=${escSh(c.founderAddress)}
 BLOCK_TIME_SECS=${c.blockTimeSecs}
 RPC_PORT=${c.rpcPort}
 P2P_PORT=${c.p2pPort}
@@ -407,13 +421,44 @@ if [[ ! -f "$TOK" ]]; then
   echo "ERROR: $TOK not found in source tarball" >&2
   exit 1
 fi
-# Patch the four user-facing constants. Use sed -E with | delimiters.
+# Patch the four user-facing tokenomics constants into the binary. Use sed -E with | delimiters.
+# Each patch must change exactly one line — we verify post-patch and abort on drift.
+patch_const() {
+  local label="$1" pattern="$2" want_substring="$3"
+  if ! grep -qE "$pattern" "$TOK"; then
+    echo "ERROR: expected constant '$label' not found in $TOK — aborting (incompatible source tarball)" >&2
+    exit 1
+  fi
+}
+patch_const "CHAIN_ID"             "^pub const CHAIN_ID: u64 = [0-9_]+;"            "$CHAIN_ID"
+patch_const "TOTAL_SUPPLY_ZBX"     "^pub const TOTAL_SUPPLY_ZBX: u128 = [0-9_]+u128;" "$TOTAL_SUPPLY_ZBX"
+patch_const "FOUNDER_PREMINE_ZBX"  "^pub const FOUNDER_PREMINE_ZBX: u128 = [0-9_]+u128;" "$FOUNDER_PREMINE_ZBX"
+patch_const "BLOCK_TIME_SECS"      "^pub const BLOCK_TIME_SECS: u64 = [0-9]+;"      "$BLOCK_TIME_SECS"
 sed -i -E "s|^pub const CHAIN_ID: u64 = [0-9_]+;|pub const CHAIN_ID: u64 = \${CHAIN_ID};|" "$TOK"
 sed -i -E "s|^pub const TOTAL_SUPPLY_ZBX: u128 = [0-9_]+u128;|pub const TOTAL_SUPPLY_ZBX: u128 = \${TOTAL_SUPPLY_ZBX}u128;|" "$TOK"
 sed -i -E "s|^pub const FOUNDER_PREMINE_ZBX: u128 = [0-9_]+u128;|pub const FOUNDER_PREMINE_ZBX: u128 = \${FOUNDER_PREMINE_ZBX}u128;|" "$TOK"
 sed -i -E "s|^pub const BLOCK_TIME_SECS: u64 = [0-9]+;|pub const BLOCK_TIME_SECS: u64 = \${BLOCK_TIME_SECS};|" "$TOK"
+# Verify the patches actually landed (defence against future source-format drift).
+for want in "pub const CHAIN_ID: u64 = \${CHAIN_ID};" \\
+            "pub const TOTAL_SUPPLY_ZBX: u128 = \${TOTAL_SUPPLY_ZBX}u128;" \\
+            "pub const FOUNDER_PREMINE_ZBX: u128 = \${FOUNDER_PREMINE_ZBX}u128;" \\
+            "pub const BLOCK_TIME_SECS: u64 = \${BLOCK_TIME_SECS};"; do
+  if ! grep -qF "$want" "$TOK"; then
+    echo "ERROR: post-patch verification failed — '$want' not found in $TOK" >&2
+    exit 1
+  fi
+done
 echo "  Patched values:"
 grep -E "^pub const (CHAIN_ID|TOTAL_SUPPLY_ZBX|FOUNDER_PREMINE_ZBX|BLOCK_TIME_SECS)" "$TOK"
+# NOTE: the founder/admin address is NOT patched into the binary as a constant
+# (the base node does not declare one). Instead it is supplied at chain-init
+# time via the deterministic --alloc flag — see step 8 below.
+if [[ -n "$FOUNDER_ADDRESS" ]]; then
+  echo "  Founder/admin address (genesis pre-mine recipient): $FOUNDER_ADDRESS"
+  echo "    (will be applied at genesis via 'init --alloc \${FOUNDER_ADDRESS}:\${FOUNDER_PREMINE_ZBX}')"
+else
+  echo "  Founder/admin address: <blank> — pre-mine will go to the validator key generated below"
+fi
 
 # 5b. ────────────────────────────────────────────────────────────────────────
 step "Installing chain.config.yaml (PoS, governance, mint, features)"
@@ -449,12 +494,49 @@ fi
 # 8. ─────────────────────────────────────────────────────────────────────────
 step "Initializing chain (genesis)"
 if [[ ! -d "$DATA_DIR/data" ]]; then
-  sudo -u "$CHAIN_NAME" "/usr/local/bin/$CHAIN_NAME-node" init \\
-    --home "$DATA_DIR" \\
-    --validator-key "$KEYFILE"
+  # If a founder/admin address was supplied AND there is a non-zero pre-mine,
+  # credit it deterministically via --alloc instead of letting the validator
+  # key receive the default Foundation pre-mine.
+  if [[ -n "$FOUNDER_ADDRESS" && "$FOUNDER_PREMINE_ZBX" -gt 0 ]]; then
+    echo "  → Pre-mine destination: $FOUNDER_ADDRESS  (admin wallet)"
+    sudo -u "$CHAIN_NAME" "/usr/local/bin/$CHAIN_NAME-node" init \\
+      --home "$DATA_DIR" \\
+      --validator-key "$KEYFILE" \\
+      --alloc "\${FOUNDER_ADDRESS}:\${FOUNDER_PREMINE_ZBX}"
+  else
+    echo "  → Pre-mine destination: validator key (no admin address supplied)"
+    sudo -u "$CHAIN_NAME" "/usr/local/bin/$CHAIN_NAME-node" init \\
+      --home "$DATA_DIR" \\
+      --validator-key "$KEYFILE"
+  fi
   echo "  ✓ Genesis initialized at $DATA_DIR"
+  # Verify the genesis allocation actually landed where requested (defence
+  # against a future binary that silently ignores --alloc).
+  GENESIS="$DATA_DIR/genesis.json"
+  if [[ -f "$GENESIS" && -n "$FOUNDER_ADDRESS" && "$FOUNDER_PREMINE_ZBX" -gt 0 ]]; then
+    if grep -qiF "\${FOUNDER_ADDRESS}" "$GENESIS"; then
+      echo "  ✓ Verified: $FOUNDER_ADDRESS appears in $GENESIS allocation"
+    else
+      echo "  ✗ ERROR: $FOUNDER_ADDRESS NOT present in $GENESIS — refusing to start" >&2
+      echo "    Inspect with:  jq . $GENESIS" >&2
+      exit 1
+    fi
+  fi
 else
   echo "  ✓ $DATA_DIR/data already exists — skipping init"
+  # Idempotency safety: still verify any existing genesis matches the
+  # currently-requested founder address. If it doesn't, refuse to (re)start
+  # rather than silently running on a divergent allocation.
+  GENESIS="$DATA_DIR/genesis.json"
+  if [[ -f "$GENESIS" && -n "$FOUNDER_ADDRESS" && "$FOUNDER_PREMINE_ZBX" -gt 0 ]]; then
+    if ! grep -qiF "\${FOUNDER_ADDRESS}" "$GENESIS"; then
+      echo "  ✗ ERROR: existing $GENESIS does NOT contain admin address $FOUNDER_ADDRESS." >&2
+      echo "    The on-disk genesis was created with a different founder configuration." >&2
+      echo "    Refusing to (re)start. To start fresh, stop the service and delete \\\"$DATA_DIR/data\\\" + \\\"$GENESIS\\\" manually." >&2
+      exit 1
+    fi
+    echo "  ✓ Verified: existing $GENESIS already credits $FOUNDER_ADDRESS"
+  fi
 fi
 
 # 9. ─────────────────────────────────────────────────────────────────────────
@@ -498,7 +580,12 @@ if systemctl is-active --quiet "$CHAIN_NAME-node"; then
   echo "      -H 'content-type: application/json' \\\\"
   echo "      -d '{\\"jsonrpc\\":\\"2.0\\",\\"id\\":1,\\"method\\":\\"eth_chainId\\",\\"params\\":[]}'"
   echo
-  echo "  Validator key: $KEYFILE  (KEEP THIS SAFE — your founder/premine wallet)"
+  if [[ -n "$FOUNDER_ADDRESS" ]]; then
+    echo "  Pre-mine wallet: $FOUNDER_ADDRESS  (admin-supplied — control with your own MetaMask / multisig / hardware key)"
+    echo "  Validator key:   $KEYFILE  (used for block production / staking only — back up but it does NOT hold the pre-mine)"
+  else
+    echo "  Validator key:   $KEYFILE  (KEEP THIS SAFE — also holds your $FOUNDER_PREMINE_ZBX $SYMBOL pre-mine because no admin address was supplied)"
+  fi
   echo
   echo "Done. Your chain is live."
 else
@@ -530,8 +617,14 @@ node at startup where supported, otherwise recorded for audit and upcoming binar
 |------------------|-------------------------------------------|
 | Chain ID         | \`${c.chainId}\` (\`0x${c.chainId.toString(16)}\`) |
 | Total supply     | \`${supplyFmt}\` ${c.symbol}                   |
-| Founder pre-mine | \`${premineFmt}\` ${c.symbol} (to validator at genesis) |
+| Founder pre-mine | \`${premineFmt}\` ${c.symbol}                  |
 | Block time       | ${c.blockTimeSecs} s                           |
+
+### Applied at chain-init (deterministic, verified against \`genesis.json\`)
+
+| Property        | Value                                                                                       |
+|-----------------|---------------------------------------------------------------------------------------------|
+| Founder address | ${c.founderAddress ? `\`${c.founderAddress}\` (admin-supplied — credited at block 0 via \`init --alloc\`)` : "_blank — pre-mine falls back to the validator key auto-generated on the VPS_"} |
 
 ### Declared in chain.config.yaml (editable, restart to apply)
 
@@ -570,7 +663,7 @@ The installer:
 1. Installs system deps (curl, build-essential, libssl-dev, libclang-dev, cmake, jq).
 2. Installs Rust if missing.
 3. Downloads the Zebvix base source from \`${baseUrl}/api/download/newchain\`.
-4. Sed-patches \`src/tokenomics.rs\` with **your** chain ID / supply / pre-mine / block time.
+4. Sed-patches \`src/tokenomics.rs\` with **your** chain ID / supply / pre-mine / block time, then runs a post-patch verification that aborts on drift.
 5. \`cargo build --release --bin zebvix-node\` and installs \`/usr/local/bin/${c.chainName}-node\`.
 6. Creates a dedicated \`${c.chainName}\` system user and FHS directories.
 7. Generates a fresh validator key at \`/etc/${c.chainName}/validator.key\`.
@@ -603,7 +696,7 @@ curl -s http://localhost:${c.rpcPort} \\
 
 \`\`\`
 /usr/local/bin/${c.chainName}-node     binary (built from patched source)
-/etc/${c.chainName}/validator.key      founder / validator key — KEEP SAFE
+/etc/${c.chainName}/validator.key      ${c.founderAddress ? `validator key — block production / staking only (does NOT hold the pre-mine; admin wallet ${c.founderAddress.slice(0, 10)}…${c.founderAddress.slice(-6)} does)` : "founder / validator key — KEEP SAFE (also holds the pre-mine)"}
 /var/lib/${c.chainName}/data           chain data (RocksDB)
 /var/log/${c.chainName}/               journald-style log files
 /etc/systemd/system/${c.chainName}-node.service
@@ -611,17 +704,27 @@ curl -s http://localhost:${c.rpcPort} \\
 
 ## What's pre-mined
 
-Because you set founder pre-mine to **${premineFmt} ${c.symbol}**, the
-validator address (auto-generated during install) holds that balance at
-block 0. Use \`${c.chainName}-node send\` to airdrop from this address to a
-faucet, exchange, or end users:
+Because you set founder pre-mine to **${premineFmt} ${c.symbol}**, ${c.founderAddress
+  ? `your **admin address \`${c.founderAddress}\`** (which you control off-chain — MetaMask, hardware wallet, multisig, etc.) holds that balance at block 0. The auto-generated validator key on the VPS is used **only for block production / staking**, not for the pre-mine.`
+  : `the **validator address (auto-generated during install)** holds that balance at block 0 — because you left the founder address blank. To target a specific admin wallet instead, re-generate the bundle with a non-empty *Founder / admin address* on Step 2.`}
+${c.founderAddress
+  ? `To airdrop from your admin wallet to a faucet, exchange, or end users, sign and broadcast a transfer **from your own wallet** (MetaMask, hardware wallet, multisig, etc.) — the validator key on the VPS does **not** hold the pre-mine and cannot spend it. Any standard EVM-compatible wallet pointed at \`http://<your-vps>:${c.rpcPort}\` works:
+
+\`\`\`text
+From:   ${c.founderAddress}        (your admin wallet — sign locally)
+To:     0xYOUR_FAUCET_ADDRESS
+Amount: 100000 ${c.symbol}
+RPC:    http://<your-vps>:${c.rpcPort}
+ChainId: ${c.chainId} (0x${c.chainId.toString(16)})
+\`\`\``
+  : `Use \`${c.chainName}-node send\` to airdrop from the validator key (which holds the pre-mine) to a faucet, exchange, or end users:
 
 \`\`\`bash
 sudo -u ${c.chainName} ${c.chainName}-node send \\
   --from-key /etc/${c.chainName}/validator.key \\
   --to 0xYOUR_FAUCET_ADDRESS \\
   --amount 100000   # ${c.symbol}
-\`\`\`
+\`\`\``}
 
 ## License
 

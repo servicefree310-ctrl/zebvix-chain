@@ -34,6 +34,7 @@ type ChainConfig = {
   totalSupplyZbx: number;
   fixedSupply: boolean;
   founderPremineZbx: number;
+  founderAddress: string;
   mintPerBlockZbx: number;
   halvingBlocks: number;
   blockTimeSecs: number;
@@ -79,6 +80,7 @@ const DEFAULT_CFG: ChainConfig = {
   totalSupplyZbx: 150_000_000,
   fixedSupply: true,
   founderPremineZbx: 9_990_000,
+  founderAddress: "",
   mintPerBlockZbx: 0,
   halvingBlocks: 0,
   blockTimeSecs: 5,
@@ -238,6 +240,13 @@ function validateStep(step: number, c: ChainConfig): { field?: string; message: 
       return { field: "founderPremineZbx", message: "Founder pre-mine must be 0..1,000,000,000,000 whole tokens." };
     if (c.fixedSupply && c.founderPremineZbx > c.totalSupplyZbx)
       return { field: "founderPremineZbx", message: "On a fixed-supply chain, pre-mine cannot exceed total supply." };
+    const addr = c.founderAddress.trim();
+    if (addr !== "") {
+      if (!/^0x[a-fA-F0-9]{40}$/.test(addr))
+        return { field: "founderAddress", message: "Founder address must be 0x followed by 40 hex characters (an EVM address). Leave blank to use the validator key." };
+      if (c.founderPremineZbx === 0)
+        return { field: "founderAddress", message: "Set a founder pre-mine above 0, or clear this address." };
+    }
     if (!Number.isInteger(c.mintPerBlockZbx) || c.mintPerBlockZbx < 0 || c.mintPerBlockZbx > 1_000_000)
       return { field: "mintPerBlockZbx", message: "Mint per block must be 0..1,000,000 tokens." };
     if (c.fixedSupply && c.mintPerBlockZbx > 0)
@@ -290,7 +299,7 @@ function validateStep(step: number, c: ChainConfig): { field?: string; message: 
 
 const STEP_FOR_FIELD: Record<string, number> = {
   chainName: 1, chainId: 1, symbol: 1, decimals: 1,
-  totalSupplyZbx: 2, founderPremineZbx: 2, mintPerBlockZbx: 2, halvingBlocks: 2, blockTimeSecs: 2,
+  totalSupplyZbx: 2, founderPremineZbx: 2, founderAddress: 2, mintPerBlockZbx: 2, halvingBlocks: 2, blockTimeSecs: 2,
   consensus: 3, minValidatorStakeZbx: 3, maxValidators: 3, slashPercent: 3, unbondingDays: 3,
   votingPeriodBlocks: 4, quorumPercent: 4, proposalThresholdZbx: 4, executionDelayBlocks: 4,
   rpcPort: 5, p2pPort: 5, features: 5,
@@ -387,7 +396,7 @@ export default function ChainBuilderPage() {
     appendLog({ kind: "ok", text: `  ✓ symbol          ${cfg.symbol}` });
     appendLog({ kind: "ok", text: `  ✓ supply model    ${cfg.fixedSupply ? "fixed" : "inflationary"}` });
     appendLog({ kind: "ok", text: `  ✓ supply          ${cfg.totalSupplyZbx.toLocaleString()} ${cfg.symbol}${cfg.fixedSupply ? "" : "  (initial)"}` });
-    appendLog({ kind: "ok", text: `  ✓ pre-mine        ${cfg.founderPremineZbx.toLocaleString()} ${cfg.symbol}` });
+    appendLog({ kind: "ok", text: `  ✓ pre-mine        ${cfg.founderPremineZbx.toLocaleString()} ${cfg.symbol} → ${cfg.founderAddress ? `admin ${cfg.founderAddress.slice(0, 10)}…${cfg.founderAddress.slice(-6)}` : "validator key (auto-generated on VPS)"}` });
     if (cfg.mintPerBlockZbx > 0) {
       appendLog({ kind: "ok", text: `  ✓ mint per block  ${cfg.mintPerBlockZbx.toLocaleString()} ${cfg.symbol}${cfg.halvingBlocks > 0 ? `  (halving every ${cfg.halvingBlocks.toLocaleString()} blocks)` : ""}` });
     }
@@ -630,6 +639,28 @@ export default function ChainBuilderPage() {
                   onChange={(n) => update({ founderPremineZbx: n })} />
               </div>
 
+              <div className="space-y-1.5">
+                <Label htmlFor="founderAddress">
+                  Founder / admin address <span className="text-muted-foreground font-normal">(optional — receives the pre-mine at genesis)</span>
+                </Label>
+                <Input
+                  id="founderAddress"
+                  data-testid="input-founderAddress"
+                  className={`font-mono ${stepError?.field === "founderAddress" ? "border-destructive" : ""}`}
+                  placeholder="0x... — leave blank to credit the auto-generated validator key"
+                  value={cfg.founderAddress}
+                  onChange={(e) => update({ founderAddress: e.target.value.trim() })}
+                  spellCheck={false}
+                  autoComplete="off"
+                  maxLength={42}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {cfg.founderAddress
+                    ? <>Pre-mine of <span className="text-foreground font-mono">{cfg.founderPremineZbx.toLocaleString()} {cfg.symbol}</span> will be credited at block 0 to <span className="text-foreground font-mono break-all">{cfg.founderAddress}</span>. You control this address off-chain (MetaMask, hardware wallet, multisig, etc.).</>
+                    : <>Blank = the validator key generated on the VPS will hold the pre-mine. Paste a 0x address to send the pre-mine to a wallet you already control.</>}
+                </p>
+              </div>
+
               <Separator />
 
               <SectionHeader icon={Flame} title="Block emission" hint="Inflationary chains only — fixed-supply chains keep these at 0." />
@@ -825,6 +856,13 @@ export default function ChainBuilderPage() {
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Supply model</dt><dd className="font-mono text-foreground">{cfg.fixedSupply ? "fixed" : "inflationary"}</dd></div>
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{cfg.fixedSupply ? "Total" : "Initial"} supply</dt><dd className="font-mono text-foreground">{cfg.totalSupplyZbx.toLocaleString()} {cfg.symbol}</dd></div>
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Founder pre-mine</dt><dd className="font-mono text-foreground">{cfg.founderPremineZbx.toLocaleString()} {cfg.symbol}</dd></div>
+                    <div className="flex justify-between gap-4 items-start"><dt className="text-muted-foreground flex-shrink-0">Pre-mine to</dt>
+                      <dd className="font-mono text-foreground text-xs text-right break-all">
+                        {cfg.founderAddress
+                          ? <span className="text-emerald-300">{cfg.founderAddress.slice(0, 10)}…{cfg.founderAddress.slice(-8)}</span>
+                          : <span className="text-amber-400">validator key (auto)</span>}
+                      </dd>
+                    </div>
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Mint per block</dt><dd className="font-mono text-foreground">{cfg.mintPerBlockZbx.toLocaleString()} {cfg.symbol}</dd></div>
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Halving</dt><dd className="font-mono text-foreground">{cfg.halvingBlocks === 0 ? "none" : `${cfg.halvingBlocks.toLocaleString()} blocks`}</dd></div>
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Block time</dt><dd className="font-mono text-foreground">{cfg.blockTimeSecs} s</dd></div>
@@ -873,12 +911,17 @@ export default function ChainBuilderPage() {
                   <div className="text-xs uppercase tracking-wide text-amber-400 flex items-center gap-2"><Info className="w-3.5 h-3.5" /> Active vs declared</div>
                   <p className="text-xs text-muted-foreground">
                     Settings <strong className="text-emerald-400">sed-patched into the binary</strong>: chain ID, total supply, founder pre-mine, block time.
+                    The <strong className="text-emerald-400">founder/admin address</strong> is applied at chain-init time via <code className="bg-muted px-1 rounded">init --alloc</code> (deterministic, verified post-init against <code className="bg-muted px-1 rounded">genesis.json</code>).
                     Everything else is captured in <code className="bg-muted px-1 rounded">chain.config.yaml</code> and read by the node at startup where supported,
                     otherwise recorded for audit and upcoming binary releases.
                   </p>
                   <div className="pt-1 border-t border-amber-500/20 text-xs text-muted-foreground flex gap-2">
                     <KeyRound className="w-3.5 h-3.5 text-amber-400 mt-0.5 flex-shrink-0" />
-                    <span>The validator key is auto-generated on the VPS — its address holds your <strong className="text-foreground">{cfg.founderPremineZbx.toLocaleString()} {cfg.symbol}</strong> pre-mine at genesis. Back it up.</span>
+                    <span>
+                      {cfg.founderAddress
+                        ? <>Pre-mine of <strong className="text-foreground">{cfg.founderPremineZbx.toLocaleString()} {cfg.symbol}</strong> goes to your admin wallet <span className="font-mono text-foreground break-all">{cfg.founderAddress}</span> at genesis. The validator key auto-generated on the VPS is used for block production / staking only.</>
+                        : <>The validator key is auto-generated on the VPS — its address holds your <strong className="text-foreground">{cfg.founderPremineZbx.toLocaleString()} {cfg.symbol}</strong> pre-mine at genesis (because you left the founder address blank). Back it up, or set a founder address on Step 2 to send the pre-mine to a wallet you already control.</>}
+                    </span>
                   </div>
                 </div>
               </div>
