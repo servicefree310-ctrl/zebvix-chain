@@ -69,6 +69,12 @@ interface WalletCtx {
   addFromPrivateKey: (hex: string, label?: string) => StoredWallet;
   addFromMnemonic: (phrase: string, label?: string) => StoredWallet;
   remove: (addr: string) => void;
+  /**
+   * Rename an existing stored wallet's user-facing label.  No-op if the
+   * address is not in the local list.  Persists through whichever storage
+   * layer is active (vault or plaintext) — same write-path as `addToList`.
+   */
+  rename: (addr: string, label: string) => void;
   refresh: () => void;
   connectRemote: (info: Omit<RemoteWallet, "connectedAt">) => void;
   disconnectRemote: () => void;
@@ -197,6 +203,21 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     [refresh],
   );
 
+  const rename = useCallback(
+    (addr: string, label: string) => {
+      const target = addr.toLowerCase();
+      const next = loadWallets().map((w) =>
+        w.address.toLowerCase() === target ? { ...w, label } : w,
+      );
+      // Goes through the same encrypted-by-default write-path as `addToList`
+      // — propagates VAULT_NOT_READY for the caller to surface.
+      saveWallets(next);
+      setWallets(next);
+      sampleVaultState();
+    },
+    [sampleVaultState],
+  );
+
   const connectRemote = useCallback(
     (info: Omit<RemoteWallet, "connectedAt">) => {
       const r: RemoteWallet = {
@@ -263,6 +284,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       addFromPrivateKey,
       addFromMnemonic,
       remove,
+      rename,
       refresh,
       connectRemote,
       disconnectRemote,
@@ -279,6 +301,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       addFromPrivateKey,
       addFromMnemonic,
       remove,
+      rename,
       refresh,
       connectRemote,
       disconnectRemote,
