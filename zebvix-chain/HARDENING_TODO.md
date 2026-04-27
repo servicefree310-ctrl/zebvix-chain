@@ -17,6 +17,68 @@ own phase. This file tracks them honestly so they're not forgotten.
 
 ---
 
+## Roadmap Tier Index
+
+The remaining work is organised into three tiers by risk profile and
+deployment coordination cost. Each tier has a **distinct activation
+model**, so confusing them at deploy time has caused outages on other
+chains — this index exists to keep the boundaries clear.
+
+### Tier 1 — Consensus correctness (chain-breaking, height-gated)
+
+Items that change consensus rules or transaction validity. Every Tier-1
+item ships with an `ACTIVATION_HEIGHT` env (default `u64::MAX` = OFF) so
+a binary can ship with the code present but the new rule dormant until a
+coordinated operator flip. Wrong activation = chain fork. **Never flip
+two Tier-1 gates on the same restart.**
+
+| ID                      | Title                                          | Status               |
+|-------------------------|------------------------------------------------|----------------------|
+| **C1 / Phase B.3.2.x** | BFT consensus (round-robin → FSM-driven)       | Partial — see below |
+| ↳ B.3.2.2-5             | Round-robin + timeouts + BFT commit blob       | ✅ live VPS         |
+| ↳ B.3.2.6               | Pure-FSM module (`src/fsm.rs`, 20 tests)       | ✅ shipped dormant  |
+| ↳ B.3.2.7-F006.1        | FSM runtime adapter scaffold                   | ✅ shipped dormant  |
+| ↳ F006.2 → F006.7       | Vote-pool→event, action sink, recovery, etc.   | ⏳ planned (§B.3.2.7) |
+| **C2 / C2.1-C2.6**      | Keccak256 signing migration (EVM-native UX)    | ⏳ planned (§C2)     |
+| **C3 / C3.1-C3.7**      | M-of-N bridge oracle multisig                  | ⏳ planned (§C3)     |
+
+### Tier 2 — Production maturity (additive, no chain-break)
+
+Items that add operational capability *around* the chain without
+changing consensus rules. They can ship in any order, in parallel, by
+different operators, without coordinating restarts. No height-gated
+activation needed.
+
+| ID                      | Title                                          | Status               |
+|-------------------------|------------------------------------------------|----------------------|
+| **D1**                  | Multi-validator decentralisation (N≥3)         | ⏳ planned (§Phase D) |
+| **D2**                  | Slashing enforcement (equivocation evidence)   | ⏳ planned (§Phase D) |
+| **D3**                  | State-sync (snapshot offer/accept)             | ⏳ planned (§Phase D) |
+| **D4**                  | Monitoring stack (Prometheus + Grafana)        | ⏳ planned (§Phase D) |
+| **D5**                  | Backup & DR (highest residual risk)            | ⏳ planned (§Phase D) |
+| **D6**                  | Block explorer feature parity                  | ⏳ planned (§Phase D) |
+| **D7**                  | EIP-1559 fee market (height-gated, but additive) | ⏳ planned (§Phase D) |
+| **D8**                  | Operator runbook consolidation                 | ⏳ planned (§Phase D) |
+| **D9**                  | RPC pagination + range caps (DoS hardening)    | ⏳ planned (§Phase D) |
+| **D10**                 | CI gate (pre-tarball validation)               | ⏳ planned (§Phase D) |
+
+### Tier 3 — Performance & polish (deferred, no urgency)
+
+Items that improve throughput / robustness but are not security-critical
+and not blocking new functionality. They come after Tier 1 + Tier 2 are
+materially shipped.
+
+| ID                      | Title                                          | Status               |
+|-------------------------|------------------------------------------------|----------------------|
+| **H2 / H2.1-H2.6**      | Block-STM parallel transaction execution       | ⏳ planned (§H2)     |
+| **H5 / H5.1-H5.5**      | Gossipsub peer scoring + slashing hooks        | ⏳ planned (§H5)     |
+
+**Recommended global sequence:** Tier 1 (F006 → C2 → C3) **first**
+because every Tier 2/3 item assumes a correct chain. Then Tier 2 in the
+sequence given in the Phase D summary table. Tier 3 last.
+
+---
+
 ## C1 — Replace block-producer rotation with real BFT
 
 **Phase B.3.2.5 (April 2026, commit-persistence landed):** The full BFT
@@ -288,7 +350,8 @@ the SHA-256 ECDSA-secp256k1 scheme is a NIST standard.
 **Current state:** `BridgeOp::BridgeIn` is admin-only (single key — see
 `state.rs:1570`). H6 added a global pause flag as the immediate
 mitigation: if the admin key is compromised, the chain operator can
-freeze all bridge ops with one tx.
+freeze all bridge ops with one tx, but the bridge admin still has
+unilateral mint authority for in-flight ops up to the moment of pause.
 
 **Why deferred:** Real multi-sig oracles need:
 - A federation registry (separate from validator set, with thresholds
@@ -296,9 +359,10 @@ freeze all bridge ops with one tx.
 - A new `BridgeIn` carrying `Vec<(oracle_pubkey, sig)>` and a deterministic
   message hash that all signers sign.
 - Off-chain oracle coordination (gossip layer or shared message queue)
-  — out of scope for the chain crate itself.
+  — out of scope for the chain crate itself, but the on-chain spec must
+  be settled first so the off-chain implementation has a target.
 
-**Migration plan:**
+**Migration plan (high-level):**
 1. Add `BridgeFederation { asset_id, members: Vec<Address>, threshold: u8 }`.
 2. New variant `BridgeOp::BridgeInMultisig { ..., signatures: Vec<(Address, [u8; 64])> }`.
 3. Verify `signatures.len() ≥ federation.threshold` and each sig is by a
@@ -306,49 +370,394 @@ freeze all bridge ops with one tx.
 4. Keep single-admin `BridgeIn` available behind a feature flag for
    small / testnet deployments; deprecate post-activation.
 
+**Concrete sub-tasks:**
+
+- **C3.1 — `BridgeFederation` registry struct + RocksDB persistence.**
+  In `state.rs`:
+  ```rust
+  pub struct BridgeFederation {
+      pub asset_id: u32,           // 0 = native ZBX, 1+ = registered ERC-20-ish
+      pub src_chain_id: u64,       // BSC = 56, ETH = 1, etc.
+      pub members: Vec<Address>,   // sorted ascending for canonical hash
+      pub threshold: u8,           // M in M-of-N
+      pub nonce: u64,              // monotonic, bumped on every update
+  }
+  ```
+  Store under `CF_META` with key
+  `bridge/federation/{src_chain_id}/{asset_id}` (bincode-serialised).
+  Add `pub fn get_bridge_federation(...)` / `pub fn
+  put_bridge_federation(...)` API on `State`. **Acceptance:**
+  RocksDB round-trip test; canonical-hash test (members reordered →
+  same hash because we sort before hashing).
+
+- **C3.2 — Admin RPC for federation lifecycle.** In `rpc.rs`:
+  - `zvb_addBridgeFederation(src_chain_id, asset_id, members,
+    threshold, admin_token)` — creates new federation if absent;
+    rejects if members.len() < threshold or threshold == 0.
+  - `zvb_updateBridgeFederation(...)` — replaces members + threshold;
+    bumps nonce. Used for member rotation.
+  - `zvb_removeBridgeFederation(src_chain_id, asset_id, admin_token)`
+    — soft-delete (sets threshold = 255 = unreachable, preserves
+    history for audit).
+  - All three gated on `ADMIN_TOKEN` env (already in env per
+    `<available_secrets>`). **Acceptance:** integration test
+    creates → updates → removes a federation; wrong token returns
+    HTTP 403.
+
+- **C3.3 — `BridgeOp::BridgeInMultisig` variant + canonical message
+  hash spec.** In `bridge.rs`:
+  ```rust
+  pub enum BridgeOp {
+      BridgeIn { ... },                    // legacy, kept for migration
+      BridgeInMultisig {
+          src_chain_id: u64,
+          asset_id: u32,
+          src_tx_hash: [u8; 32],
+          recipient: Address,
+          amount: u128,
+          federation_nonce: u64,           // must match current federation
+          signatures: Vec<(Address, [u8; 64])>,
+      },
+      BridgeOut { ... },                   // unchanged
+  }
+  ```
+  Canonical message digest:
+  ```
+  keccak256(b"ZVB_BRIDGE_IN_MULTISIG_V1" ||
+            src_chain_id.to_be_bytes() ||
+            asset_id.to_be_bytes() ||
+            src_tx_hash ||
+            recipient.0 ||
+            amount.to_be_bytes() ||
+            federation_nonce.to_be_bytes())
+  ```
+  The `V1` domain-separator string makes this deliberately
+  incompatible with any other signature scheme — even if a
+  member's key is reused for another product, signatures cannot
+  cross-replay. **Acceptance:** golden-vector test pinning the
+  exact bytes for a known input; cross-tx replay test rejects.
+
+- **C3.4 — Verification path in `apply_block`.** In `state::
+  apply_block` (or `bridge::apply_op`):
+  ```
+  let fed = state.get_bridge_federation(src_chain_id, asset_id)?;
+  ensure!(op.federation_nonce == fed.nonce, "stale federation");
+  let unique_signers: HashSet<Address> = op.signatures.iter()
+      .map(|(addr, _)| *addr).collect();
+  ensure!(unique_signers.len() == op.signatures.len(),
+          "duplicate signer");
+  ensure!(unique_signers.len() >= fed.threshold as usize,
+          "insufficient signatures");
+  let digest = canonical_digest(&op);
+  for (addr, sig) in &op.signatures {
+      ensure!(fed.members.contains(addr), "non-member signer");
+      verify_signature_keccak(&digest, sig, addr)?;
+  }
+  ```
+  Replay protection: track committed `src_tx_hash` per
+  `(src_chain_id, asset_id)` in `CF_META` under key
+  `bridge/seen/{src_chain_id}/{asset_id}/{src_tx_hash}` so the same
+  source tx cannot be minted twice. **Acceptance:** under-threshold
+  → reject; duplicate signer → reject; non-member signer → reject;
+  stale nonce → reject; replay of committed tx → reject; happy path
+  with exactly threshold sigs → accept.
+
+- **C3.5 — Off-chain oracle coordination spec.** Document in
+  `docs/BRIDGE_ORACLE.md` (out of crate scope, but spec ships with
+  source so future implementers have a target):
+  - Each oracle node watches BSC/ETH for `Deposited` events.
+  - On confirmation depth ≥ 12, oracle computes the canonical
+    digest (C3.3) and signs it.
+  - Oracles gossip signatures via a shared NATS / Redis stream OR
+    a libp2p sub-channel.
+  - Once threshold sigs collected, any oracle can submit the
+    `BridgeInMultisig` tx to the Zebvix RPC.
+  - Recommended starter federations: native ZBX bridge from BSC
+    (3-of-5), each major asset gets its own federation so a
+    compromise of one asset's key set does not affect others.
+
+- **C3.6 — Migration window: legacy `BridgeIn` deprecation.** Add
+  env `ZEBVIX_BRIDGE_MULTISIG_ACTIVATION_HEIGHT` (default
+  `u64::MAX`):
+  - Below activation height: both `BridgeIn` (single-admin) and
+    `BridgeInMultisig` accepted.
+  - At/above activation height: `BridgeIn` rejected with
+    `"legacy bridge path deprecated, use BridgeInMultisig"`.
+  H6's global pause flag remains as an emergency kill-switch
+  independent of activation height. **Acceptance:** integration test
+  feeds a `BridgeIn` at `activation - 1` (accepts) and at
+  `activation` (rejects).
+
+- **C3.7 — Operator activation procedure.** Add to `docs/RUNBOOK.md`
+  (see D8):
+  1. Pre-flight: oracles online, members configured, threshold
+     agreed (recommend 3-of-5 for BSC native, 2-of-3 for testnet).
+  2. Day-T: chain operator runs `zvb_addBridgeFederation` for each
+     `(src_chain_id, asset_id)` pair. Validators of federation
+     verify the on-chain federation matches their known set.
+  3. Day-T+1: oracles start producing `BridgeInMultisig` txs in
+     parallel with the legacy admin path. Both work.
+  4. Day-T+7 (after soak): operator computes
+     `ACTIVATION = current_tip + 100`, sets
+     `ZEBVIX_BRIDGE_MULTISIG_ACTIVATION_HEIGHT=NNNN` via
+     `systemctl edit zebvix`, restarts.
+  5. Post-activation monitoring: alert if any `BridgeIn` (legacy)
+     attempt is rejected — indicates a stale oracle or wallet not
+     yet upgraded.
+
 **Risk if not done:** Oracle key compromise = full bridge mint authority.
-**H6 pause flag is the kill-switch** until C3 ships.
+**H6 pause flag is the kill-switch** until C3 ships, but pause is a
+reactive (post-detection) defence — C3 is the proactive (pre-mint)
+defence.
+
+**Estimated effort:** 4 sessions (C3.1+C3.2 in 1 session; C3.3+C3.4 in
+1 session because the verification logic needs careful test design;
+C3.5 docs in 0.5 session; C3.6+C3.7 activation in 1.5 sessions).
+
+**Dependencies:** none at code level. **Highest-priority Tier-1 item
+after F006 ships** because bridge volume grows superlinearly with
+chain adoption — single-admin risk grows with it.
 
 ---
 
 ## H2 — Block-STM parallel transaction execution
 
-**Current state:** `block_stm.rs` is a doc-comment-only scaffold; apply_block
-runs txs serially. Throughput is sender-serialized.
+**Current state:** `block_stm.rs` is a doc-comment-only scaffold;
+`state::apply_block` runs txs serially via a single `for tx in
+block.txs` loop. Throughput is sender-serialised: independent txs from
+different senders can't run in parallel, and the per-block latency
+floor is `sum(tx_apply_time)`.
 
-**Why deferred:** A real Block-STM needs deterministic MVCC (multi-version
-concurrency control), per-tx read/write set tracking, conflict detection,
-and re-execution — same model as Aptos. ~1k LoC + extensive testing.
+**Why deferred:** A real Block-STM needs deterministic MVCC
+(multi-version concurrency control), per-tx read/write set tracking,
+conflict detection, and re-execution — same model as Aptos. ~1k LoC
+core + extensive correctness testing. Until Tier 1 + the most-impactful
+Tier 2 items ship, the throughput ceiling has not been hit; serial
+execution is fine at current TPS.
 
-**Migration plan:** Implement Aptos-style `Scheduler { task_queue, version_map }`
-in `block_stm.rs`. Wire into apply_block behind `--enable-parallel-exec`
-flag for safe rollout.
+**Migration plan (high-level):** Implement Aptos-style `Scheduler {
+task_queue, version_map }` in `block_stm.rs`. Wire into apply_block
+behind `--enable-parallel-exec` CLI flag for safe rollout.
 
-**Risk if not done:** Throughput ceiling. Not a security issue.
+**Concrete sub-tasks:**
+
+- **H2.1 — MVCC version map + per-tx read/write set struct.** In
+  `block_stm.rs`:
+  ```rust
+  pub struct VersionedKey { key: Vec<u8>, tx_idx: usize }
+  pub struct VersionMap {
+      // key → (tx_idx, value) — readers see the latest write
+      // strictly before their own tx_idx
+      writes: BTreeMap<Vec<u8>, BTreeMap<usize, Vec<u8>>>,
+  }
+  pub struct TxReadSet { reads: Vec<(Vec<u8>, Option<usize>)> }
+  pub struct TxWriteSet { writes: Vec<(Vec<u8>, Vec<u8>)> }
+  ```
+  `Option<usize>` in reads represents "what version did I see, or
+  None for genesis-pre-block". This is the input to conflict
+  detection in H2.3. **Acceptance:** unit test writes at idx=3,
+  reads at idx=5 → returns the idx=3 value; reads at idx=2 →
+  returns None (concurrent / before-write).
+
+- **H2.2 — Scheduler with task queue.** Aptos-style state machine
+  with `(tx_idx, incarnation)` tasks. States: `ReadyToExecute`,
+  `Executing`, `Executed`, `Aborted`, `Validating`. The scheduler
+  hands out tasks to a worker pool (rayon thread pool, sized to
+  `num_cpus::get()`) and ensures: (a) a tx that aborts is retried
+  with bumped incarnation, (b) validation runs in tx_idx order so
+  conflicts are detected deterministically. **Acceptance:** unit
+  test with 100 independent txs runs in parallel; with 100
+  serially-dependent txs (each writes a counter the next reads)
+  collapses to serial throughput.
+
+- **H2.3 — Conflict detection + re-execution loop.** When tx_i
+  finishes Execute, validate by re-reading every entry in its
+  `TxReadSet` against the version map. If any read's seen version
+  has changed (some tx_j with j < i wrote after our last read),
+  abort + re-execute with a fresh incarnation. The re-execution
+  cost is the price of optimistic concurrency. **Acceptance:**
+  designed-conflict test (10 txs all writing the same account)
+  runs to completion with 10 successful incarnations + N failed
+  ones; final state matches serial execution byte-for-byte.
+
+- **H2.4 — Wire into apply_block behind `--enable-parallel-exec`
+  flag.** In `state::apply_block`:
+  ```rust
+  if cli_args.enable_parallel_exec {
+      block_stm::execute_parallel(&block.txs, &mut self.versioned)?
+  } else {
+      // existing serial loop
+  }
+  ```
+  Default OFF. The CLI flag, not an env var, because operators
+  may want to A/B test on the same VPS by restarting with
+  different flags. **Acceptance:** parallel and serial modes
+  produce byte-identical state-root over a 10K-block replay (the
+  determinism gate).
+
+- **H2.5 — Determinism test suite.** Build a corpus of 10K
+  recorded blocks from the live VPS chain (height 0 → 10000).
+  Replay each block under both modes, assert state-root
+  equivalence after every block. Any single-block divergence is
+  a critical bug — never ship until this gate is green over the
+  full corpus. **Acceptance:** all 10K blocks produce identical
+  state-roots; CI rejects PRs that introduce a divergence.
+
+- **H2.6 — Benchmark harness + go/no-go criteria.** Add
+  `benches/parallel_apply.rs` using `criterion`:
+  - Synthetic workload A: 100% independent txs (different senders,
+    different recipients) — expect ~Nx speedup with N cores.
+  - Synthetic workload B: 100% conflicting txs (all writing one
+    counter) — expect parallel mode to be SLOWER (re-execution
+    overhead). This is acceptable; documents the worst case.
+  - Real workload C: 24h of recorded mainnet blocks replayed —
+    measure actual speedup. **Go criterion:** workload C delivers
+    ≥ 2.5x speedup on a 4-core VPS without changing state-root.
+    **No-go:** any block produces divergent state, OR speedup
+    is < 1.5x (not worth the complexity).
+
+**Risk if not done:** Throughput ceiling at the sequential apply rate
+(currently ~300 tx/s on a 4-core VPS at 5s blocks; floor on parallel
+gain is ~3x = ~900 tx/s for typical workloads). Not a security issue —
+chain stays correct, just bounded.
+
+**Estimated effort:** 5 sessions (H2.1+H2.2 in 2 sessions because
+the scheduler state machine is fiddly; H2.3 in 1 session; H2.4 in
+0.5 session; H2.5 corpus build + replay infra in 1 session; H2.6
+benchmark harness in 0.5 session). **Largest individual item in this
+TODO.**
+
+**Dependencies:** none, but most useful AFTER D7 (fee market) since
+parallel execution incentivises fee-prioritised tx ordering.
 
 ---
 
 ## H5 — Gossipsub peer scoring + slashing hooks
 
-**Current state:** `p2p.rs` uses `gossipsub::ValidationMode::Strict` and
-hashes messages for dedupe, but has no `peer_score_params` configured.
-Misbehaving peers (spammy txs, invalid blocks) are not penalized at the
-transport layer.
+**Current state:** `p2p.rs` uses `gossipsub::ValidationMode::Strict`
+and hashes messages for dedupe, but has no `peer_score_params`
+configured. Misbehaving peers (spammy txs, invalid blocks) are not
+penalised at the transport layer — they only get rejected on a
+per-message basis, with no cumulative cost to the misbehaver. A
+sustained-attack peer can keep retrying.
 
-**Why deferred:** libp2p's `PeerScoreParams` has 12+ tunable knobs that
-need empirical baseline from real-network traffic. Tuning before live
-data risks accidentally banning honest peers.
+**Why deferred:** libp2p's `PeerScoreParams` has 12+ tunable knobs
+(`time_in_mesh_quantum`, `topic_score_cap`, `behaviour_penalty_*`,
+`mesh_message_deliveries_*`, etc.) that need empirical baseline from
+real-network traffic. Tuning before live data risks accidentally
+banning honest peers — false positives can wreck network
+connectivity faster than the peers we're trying to ban.
 
-**Migration plan:**
-1. Add `gossipsub::ConfigBuilder::peer_score_params(...)` with conservative
-   thresholds (`gossip_threshold = -10.0`, `publish_threshold = -50.0`,
-   `graylist_threshold = -80.0`).
+**Migration plan (high-level):**
+1. Add `gossipsub::ConfigBuilder::peer_score_params(...)` with
+   conservative thresholds (`gossip_threshold = -10.0`,
+   `publish_threshold = -50.0`, `graylist_threshold = -80.0`).
 2. Hook gossipsub `peer_score` events into staking-module `jail` for
    validators that drop below the graylist threshold.
 3. Bake on testnet for ≥ 1 week, then ship.
 
+**Concrete sub-tasks:**
+
+- **H5.1 — Conservative `PeerScoreParams` baseline.** In `p2p.rs`:
+  ```rust
+  PeerScoreParams {
+      topics: HashMap::from([
+          (TopicHash::from_raw("zvb/blocks"),  TopicScoreParams { ... }),
+          (TopicHash::from_raw("zvb/votes"),   TopicScoreParams { ... }),
+          (TopicHash::from_raw("zvb/txs"),     TopicScoreParams { ... }),
+      ]),
+      topic_score_cap: 100.0,
+      app_specific_weight: 0.0,           // we don't compute app scores yet
+      ip_colocation_factor_weight: -5.0,
+      ip_colocation_factor_threshold: 5.0, // tolerate VPS clusters
+      behaviour_penalty_weight: -10.0,
+      behaviour_penalty_threshold: 6.0,
+      behaviour_penalty_decay: 0.999,
+      decay_interval: Duration::from_secs(1),
+      decay_to_zero: 0.01,
+      retain_score: Duration::from_secs(60 * 60 * 6), // 6 hours
+  }
+  PeerScoreThresholds {
+      gossip_threshold: -10.0,
+      publish_threshold: -50.0,
+      graylist_threshold: -80.0,
+      accept_px_threshold: 100.0,
+      opportunistic_graft_threshold: 5.0,
+  }
+  ```
+  All numbers picked to match what Lighthouse / Prysm ship for
+  Ethereum (closest neighbour with similar topology). **Acceptance:**
+  module compiles + unit test asserts no panic on a synthetic
+  100-peer mesh.
+
+- **H5.2 — Peer-score event listener task.** In `p2p::run_swarm`,
+  capture `SwarmEvent::Behaviour(Gossipsub(Event::PeerScore { ... }))`
+  and forward to a new `tokio::sync::broadcast::Sender<PeerScoreEvent>`
+  channel. Subscribers (H5.4 staking hook + monitoring exporter)
+  consume independently. **Acceptance:** integration test triggers
+  a synthetic score below `graylist_threshold`, asserts the event
+  reaches a test subscriber within 100ms.
+
+- **H5.3 — Cross-reference peer_id → validator address.** Add a
+  `peer_validator_map: Arc<RwLock<HashMap<PeerId, Address>>>`
+  populated by parsing the validator-handshake message exchanged on
+  connection (a new message type `ZvbHello { peer_id, validator_addr,
+  signature_over_peer_id }` proving the peer controls the address).
+  Without this map, score events can't be tied back to economic
+  identity. **Acceptance:** handshake replay-attack test (signing a
+  different peer_id) is rejected; happy-path handshake populates the
+  map.
+
+- **H5.4 — Hook into `staking::jail` for validators below
+  graylist.** New task in `main.rs` subscribed to the H5.2 channel:
+  ```rust
+  while let Ok(ev) = score_rx.recv().await {
+      if ev.score < GRAYLIST_THRESHOLD {
+          if let Some(addr) = peer_validator_map.read().get(&ev.peer_id) {
+              staking::jail(*addr, current_height + JAIL_HEIGHTS_GOSSIP)
+                  .await;
+              tracing::warn!("⚠ p2p-jail validator={addr} \
+                              score={} peer_id={}", ev.score, ev.peer_id);
+          }
+      }
+  }
+  ```
+  Jail duration shorter than D2's slashing-jail (~6h vs ~3 days)
+  because gossip misbehaviour is recoverable (might be a network
+  hiccup) whereas equivocation is provable byzantine intent. No
+  stake burn at this stage — jail-only. **Acceptance:** integration
+  test forces a peer below threshold, asserts the corresponding
+  validator's `jailed = true` in state.
+
+- **H5.5 — Testnet bake-in procedure + tuning checklist.** Add to
+  `docs/RUNBOOK.md` (D8):
+  1. Deploy with peer scoring ENABLED on the dev VPS only.
+  2. Watch for 7 days minimum. Track:
+     - False-positive jails (honest validator briefly graylisted —
+       should be ZERO; if non-zero, raise `graylist_threshold`).
+     - True-positive jails (a deliberately-misbehaving test peer
+       gets jailed within ≤ 30s — should be > 80% capture rate).
+     - Score distribution histogram (export via D4 monitoring).
+  3. After 7 clean days, deploy to mainnet with the same
+     parameters. Continue monitoring score histogram.
+  4. Tuning checklist: if peer-count drops > 20% post-deploy,
+     revert immediately (tuning too aggressive). If misbehaving
+     peers persist > 5 min, tighten `behaviour_penalty_threshold`
+     by 1 unit and re-bake.
+
 **Risk if not done:** A noisy peer can degrade gossip latency. Not
-exploitable for funds, just liveness pressure.
+exploitable for funds, just liveness pressure. With D2 slashing, an
+attacker who can flood the gossip layer gets economic feedback only
+on equivocation, not on bandwidth abuse — H5 closes that gap.
+
+**Estimated effort:** 2.5 sessions (H5.1 in 0.5 session; H5.2+H5.3
+handshake + score channel in 1 session; H5.4 jail hook in 0.5
+session; H5.5 bake-in procedure in 0.5 session). Smallest
+non-trivial item in this TODO.
+
+**Dependencies:** D2 (slashing primitives) for the jail hook to be
+meaningful; D4 (monitoring) for the score histogram; D1
+(multi-validator) so there are >1 peers worth scoring.
 
 ---
 
