@@ -1,0 +1,38 @@
+root@srv1266996:/home/zebvix-chain# # 1. Naya binary tmp me copy karo (running binary se conflict nahi)
+sudo cp /home/zebvix-chain/target/release/zebvix-node /tmp/zebvix-node.new
+sudo chmod 755 /tmp/zebvix-node.new
+
+# 2. Atomic rename — `mv` running binary ko bhi replace kar sakta hai (inode swap)
+sudo mv /tmp/zebvix-node.new /usr/local/bin/zebvix-node
+
+# 3. Restart so kernel naya binary load kare
+sudo systemctl restart zebvix
+sleep 6
+
+# 4. Status + side-table marker check
+sudo systemctl status zebvix --no-pager | head -10
+echo "---"
+sudo journalctl -u zebvix --no-pager -n 30 | grep -iE "format-version|legacy DB|stamped|tip"
+echo "---"
+
+# 5. Chain tip — pichli height (~48210 ke aas-paas) intact rehni chahiye
+curl -s -X POST http://localhost:8545 -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}'
+echo
+# 6. Validators (sahi method ka naam)
+curl -s -X POST http://localhost:8545 -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"zbx_listValidators","params":[]}'
+echo
+● zebvix.service - Zebvix L1 Blockchain Node
+     Loaded: loaded (/etc/systemd/system/zebvix.service; enabled; preset: enabled)
+     Active: activating (auto-restart) (Result: exit-code) since Mon 2026-04-27 14:11:42 UTC; 750ms ago
+    Process: 979035 ExecStart=/usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333 (code=exited, status=1/FAILURE)
+   Main PID: 979035 (code=exited, status=1/FAILURE)
+        CPU: 32ms
+---
+Apr 27 14:11:37 srv1266996.hstgr.cloud zebvix-node[978950]: Error: legacy DB at height 48231 has no format-version marker; this binary is Phase B.3.2.4 (format v2), which added bincode-incompatible BlockHeader/Block fields. The pre-existing chain CANNOT be read. Stop the node and wipe the data directory (/root/.zebvix/data), then restart to begin a fresh chain. Documented in HARDENING_TODO.md → C1.
+Apr 27 14:11:42 srv1266996.hstgr.cloud zebvix-node[979035]: Error: legacy DB at height 48231 has no format-version marker; this binary is Phase B.3.2.4 (format v2), which added bincode-incompatible BlockHeader/Block fields. The pre-existing chain CANNOT be read. Stop the node and wipe the data directory (/root/.zebvix/data), then restart to begin a fresh chain. Documented in HARDENING_TODO.md → C1.
+---
+
+
+root@srv1266996:/home/zebvix-chain# 
