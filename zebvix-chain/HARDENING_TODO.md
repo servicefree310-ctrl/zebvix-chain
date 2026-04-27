@@ -38,7 +38,8 @@ two Tier-1 gates on the same restart.**
 | ↳ B.3.2.2-5             | Round-robin + timeouts + BFT commit blob       | ✅ live VPS         |
 | ↳ B.3.2.6               | Pure-FSM module (`src/fsm.rs`, 20 tests)       | ✅ shipped dormant  |
 | ↳ B.3.2.7-F006.1        | FSM runtime adapter scaffold                   | ✅ shipped dormant  |
-| ↳ F006.2 → F006.7       | Vote-pool→event, action sink, recovery, etc.   | ⏳ planned (§B.3.2.7) |
+| ↳ B.3.2.7-F006.2        | Vote-pool tally APIs (FSM event source primitives) | ✅ shipped dormant  |
+| ↳ F006.3 → F006.7       | Action sink, recovery, observability, N=1 cadence | ⏳ planned (§B.3.2.7) |
 | **C2 / C2.1-C2.6**      | Keccak256 signing migration (EVM-native UX)    | ⏳ planned (§C2)     |
 | **C3 / C3.1-C3.7**      | M-of-N bridge oracle multisig                  | ⏳ planned (§C3)     |
 
@@ -52,15 +53,15 @@ activation needed.
 | ID                      | Title                                          | Status               |
 |-------------------------|------------------------------------------------|----------------------|
 | **D1**                  | Multi-validator decentralisation (N≥3)         | ⏳ planned (§Phase D) |
-| **D2**                  | Slashing enforcement (equivocation evidence)   | ⏳ planned (§Phase D) |
+| **D2**                  | Slashing enforcement (equivocation evidence)   | 🟡 verifier shipped, jail/burn ⏳ |
 | **D3**                  | State-sync (snapshot offer/accept)             | ⏳ planned (§Phase D) |
-| **D4**                  | Monitoring stack (Prometheus + Grafana)        | ⏳ planned (§Phase D) |
+| **D4**                  | Monitoring stack (Prometheus + Grafana)        | 🟡 exporter module shipped, hookups + scrape route ⏳ |
 | **D5**                  | Backup & DR (highest residual risk)            | ⏳ planned (§Phase D) |
 | **D6**                  | Block explorer feature parity                  | ⏳ planned (§Phase D) |
 | **D7**                  | EIP-1559 fee market (height-gated, but additive) | ⏳ planned (§Phase D) |
 | **D8**                  | Operator runbook consolidation                 | ⏳ planned (§Phase D) |
 | **D9**                  | RPC pagination + range caps (DoS hardening)    | ⏳ planned (§Phase D) |
-| **D10**                 | CI gate (pre-tarball validation)               | ⏳ planned (§Phase D) |
+| **D10**                 | CI gate (pre-tarball validation)               | 🟡 `scripts/ci-check.sh` shipped, tarball-handler stale-check ⏳ |
 
 ### Tier 3 — Performance & polish (deferred, no urgency)
 

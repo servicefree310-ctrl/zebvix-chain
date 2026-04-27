@@ -280,6 +280,118 @@ impl VotePool {
         out
     }
 
+    /// **Phase B.3.2.7 — F006.2** Tally prevote power per target hash at
+    /// `(height, round)`. Returns `HashMap<target, total_voting_power>`
+    /// where `target = None` means a nil prevote (no block endorsed).
+    ///
+    /// Used by the FSM runtime adapter to detect:
+    /// - 2/3+ prevotes for a specific target → step to Precommit
+    /// - 2/3+ nil prevotes → bump round
+    /// - f+1 prevotes split across >1 target → POL conflict (no quorum yet)
+    ///
+    /// Cheaper than calling `power_for(...)` per candidate because it walks
+    /// the slot exactly once and indexes by target. Important when the FSM
+    /// runtime polls every tick (twice per second).
+    pub fn tally_prevotes_for(
+        &self,
+        height: u64,
+        round: u32,
+        validator_set: &[Validator],
+    ) -> HashMap<Option<Hash>, u64> {
+        self.tally_for(height, round, VoteType::Prevote, validator_set)
+    }
+
+    /// **Phase B.3.2.7 — F006.2** Tally precommit power per target hash at
+    /// `(height, round)`. Same semantics as [`tally_prevotes_for`] but for
+    /// precommits. Drives the Commit step transition.
+    pub fn tally_precommits_for(
+        &self,
+        height: u64,
+        round: u32,
+        validator_set: &[Validator],
+    ) -> HashMap<Option<Hash>, u64> {
+        self.tally_for(height, round, VoteType::Precommit, validator_set)
+    }
+
+    /// Internal helper for the two `tally_*` APIs. Walks one `(h, r, vt)`
+    /// slot exactly once, indexes votes by `block_hash`, and sums voting
+    /// power per target. Saturating add prevents overflow on pathological
+    /// validator sets.
+    ///
+    /// **Perf note (deferred — see HARDENING_TODO.md Tier-3):** the
+    /// per-vote `validator_set.iter().find(...)` is O(N). Combined with
+    /// the outer slot walk this is O(N²) per call, mirrored from the
+    /// pre-existing `add()` / `power_for()` shape. For target N≤21
+    /// validators (Zebvix's near-term decentralisation target per D1)
+    /// this is ~441 ops per call — negligible. A future caching pass
+    /// (`HashMap<Address, u64>` built once per FSM tick at the runtime
+    /// adapter) reduces this to O(N) without touching the API surface.
+    fn tally_for(
+        &self,
+        height: u64,
+        round: u32,
+        vote_type: VoteType,
+        validator_set: &[Validator],
+    ) -> HashMap<Option<Hash>, u64> {
+        let pool = self.inner.read();
+        let mut out: HashMap<Option<Hash>, u64> = HashMap::new();
+        let Some(slot) = pool.get(&(height, round, vote_type)) else { return out };
+        for v in slot.values() {
+            if let Some(val) = validator_set.iter().find(|x| x.address == v.validator_address) {
+                let entry = out.entry(v.data.block_hash).or_insert(0);
+                *entry = entry.saturating_add(val.voting_power);
+            }
+        }
+        out
+    }
+
+    /// **Phase B.3.2.7 — F006.2** Highest round seen for `height` in the
+    /// pool across either vote type. The FSM runtime uses this for the
+    /// catch-up heuristic: "if I see f+1 votes at round r > my_round, jump
+    /// to round r" — see fsm.rs `Step::handle_round_catchup`.
+    pub fn max_round_seen(&self, height: u64) -> Option<u32> {
+        let pool = self.inner.read();
+        pool.keys()
+            .filter(|(h, _, _)| *h == height)
+            .map(|(_, r, _)| *r)
+            .max()
+    }
+
+    /// **Phase B.3.2.7 — F006.2** Total voting power that voted at any
+    /// `(height, r > my_round, vote_type)`, regardless of target. Used by
+    /// the FSM runtime to detect "f+1 votes at some r > my_round" — that
+    /// is the BFT catch-up signal that bumps the local round past a
+    /// network majority that has already moved on.
+    ///
+    /// Note: counts each unique validator at most once, even if they have
+    /// votes at multiple rounds > my_round. This matches the f+1
+    /// definition (validators, not vote-events).
+    pub fn power_above_round(
+        &self,
+        height: u64,
+        my_round: u32,
+        vote_type: VoteType,
+        validator_set: &[Validator],
+    ) -> u64 {
+        let pool = self.inner.read();
+        let mut seen: HashSet<Address> = HashSet::new();
+        for ((h, r, vt), slot) in pool.iter() {
+            if *h != height || *r <= my_round || *vt != vote_type {
+                continue;
+            }
+            for addr in slot.keys() {
+                seen.insert(*addr);
+            }
+        }
+        let mut p: u64 = 0;
+        for addr in &seen {
+            if let Some(val) = validator_set.iter().find(|x| x.address == *addr) {
+                p = p.saturating_add(val.voting_power);
+            }
+        }
+        p
+    }
+
     /// Snapshot of all votes for a given height across all rounds and types.
     /// Used by RPC stats. Returns Vec<(round, type, votes)>.
     pub fn snapshot_height(&self, height: u64) -> Vec<(u32, VoteType, Vec<Vote>)> {
@@ -675,5 +787,130 @@ mod tests {
         }).unwrap();
         assert!(matches!(pool.add(vote.clone(), &set), AddVoteResult::Inserted { .. }));
         assert_eq!(pool.add(vote, &set), AddVoteResult::Duplicate);
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // F006.2 — VotePool tally APIs (tally_prevotes_for, tally_precommits_for,
+    // max_round_seen, power_above_round). These are the read-only signals
+    // the FSM runtime polls every tick to decide step transitions.
+    // ────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn tally_prevotes_indexes_by_target() {
+        let (sk1, pk1, v1) = mk_validator(10);
+        let (sk2, pk2, v2) = mk_validator(7);
+        let (sk3, pk3, v3) = mk_validator(3);
+        let set = vec![v1, v2, v3];
+        let pool = VotePool::new(7878);
+        let target_a = Some(Hash([0xA; 32]));
+        let target_b = Some(Hash([0xB; 32]));
+        let mk = |sk: &[u8;32], pk: [u8;33], t: Option<Hash>| sign_vote(sk, pk, VoteData {
+            chain_id: 7878, height: 1, round: 0,
+            vote_type: VoteType::Prevote, block_hash: t,
+        }).unwrap();
+        // v1 (10) → A; v2 (7) → A; v3 (3) → B
+        let _ = pool.add(mk(&sk1, pk1, target_a), &set);
+        let _ = pool.add(mk(&sk2, pk2, target_a), &set);
+        let _ = pool.add(mk(&sk3, pk3, target_b), &set);
+        let tally = pool.tally_prevotes_for(1, 0, &set);
+        assert_eq!(tally.get(&target_a).copied(), Some(17));
+        assert_eq!(tally.get(&target_b).copied(), Some(3));
+        assert_eq!(tally.get(&None).copied(), None);
+    }
+
+    #[test]
+    fn tally_precommits_includes_nil() {
+        let (sk1, pk1, v1) = mk_validator(5);
+        let (sk2, pk2, v2) = mk_validator(5);
+        let set = vec![v1, v2];
+        let pool = VotePool::new(7878);
+        let target = Some(Hash([0xC; 32]));
+        let mk = |sk: &[u8;32], pk: [u8;33], t: Option<Hash>| sign_vote(sk, pk, VoteData {
+            chain_id: 7878, height: 4, round: 2,
+            vote_type: VoteType::Precommit, block_hash: t,
+        }).unwrap();
+        let _ = pool.add(mk(&sk1, pk1, target), &set);
+        let _ = pool.add(mk(&sk2, pk2, None), &set);
+        let tally = pool.tally_precommits_for(4, 2, &set);
+        assert_eq!(tally.get(&target).copied(), Some(5));
+        assert_eq!(tally.get(&None).copied(), Some(5));
+    }
+
+    #[test]
+    fn tally_empty_slot_returns_empty_map() {
+        let (_, _, v) = mk_validator(1);
+        let set = vec![v];
+        let pool = VotePool::new(7878);
+        let tally = pool.tally_prevotes_for(99, 0, &set);
+        assert!(tally.is_empty());
+    }
+
+    #[test]
+    fn max_round_seen_returns_highest() {
+        let (sk1, pk1, v1) = mk_validator(1);
+        let set = vec![v1];
+        let pool = VotePool::new(7878);
+        let mk_round = |r: u32| sign_vote(&sk1, pk1, VoteData {
+            chain_id: 7878, height: 7, round: r,
+            vote_type: VoteType::Prevote, block_hash: Some(Hash([7u8; 32])),
+        }).unwrap();
+        assert_eq!(pool.max_round_seen(7), None);
+        let _ = pool.add(mk_round(0), &set);
+        assert_eq!(pool.max_round_seen(7), Some(0));
+        let _ = pool.add(mk_round(3), &set);
+        assert_eq!(pool.max_round_seen(7), Some(3));
+        let _ = pool.add(mk_round(1), &set); // out-of-order should not regress max
+        assert_eq!(pool.max_round_seen(7), Some(3));
+        // Other height untouched.
+        assert_eq!(pool.max_round_seen(8), None);
+    }
+
+    #[test]
+    fn power_above_round_dedupes_validators() {
+        // Same validator voting at multiple rounds > my_round must count
+        // once (f+1 is over validators, not vote-events).
+        let (sk1, pk1, v1) = mk_validator(10);
+        let (sk2, pk2, v2) = mk_validator(5);
+        let set = vec![v1, v2];
+        let pool = VotePool::new(7878);
+        let mk = |sk: &[u8;32], pk: [u8;33], r: u32| sign_vote(sk, pk, VoteData {
+            chain_id: 7878, height: 2, round: r,
+            vote_type: VoteType::Prevote, block_hash: Some(Hash([1u8; 32])),
+        }).unwrap();
+        // v1 at r=2, r=3, r=4; v2 at r=3 only. my_round = 1.
+        let _ = pool.add(mk(&sk1, pk1, 2), &set);
+        let _ = pool.add(mk(&sk1, pk1, 3), &set);
+        let _ = pool.add(mk(&sk1, pk1, 4), &set);
+        let _ = pool.add(mk(&sk2, pk2, 3), &set);
+        // Both validators counted once each → 10 + 5 = 15.
+        assert_eq!(pool.power_above_round(2, 1, VoteType::Prevote, &set), 15);
+        // my_round = 3 → only r=4 (v1 only) qualifies → 10.
+        assert_eq!(pool.power_above_round(2, 3, VoteType::Prevote, &set), 10);
+        // my_round = 4 → no rounds strictly greater → 0.
+        assert_eq!(pool.power_above_round(2, 4, VoteType::Prevote, &set), 0);
+        // Wrong vote_type → 0.
+        assert_eq!(pool.power_above_round(2, 1, VoteType::Precommit, &set), 0);
+    }
+
+    #[test]
+    fn tally_excludes_unknown_validator() {
+        // A vote in the pool from a validator no longer in the set
+        // (e.g. removed mid-height) must NOT contribute power.
+        let (sk1, pk1, v1) = mk_validator(100);
+        let (_, _, v2) = mk_validator(50);
+        let pool = VotePool::new(7878);
+        let mk = sign_vote(&sk1, pk1, VoteData {
+            chain_id: 7878, height: 1, round: 0,
+            vote_type: VoteType::Prevote, block_hash: Some(Hash([1u8; 32])),
+        }).unwrap();
+        let set_with = vec![v1.clone(), v2.clone()];
+        let _ = pool.add(mk, &set_with);
+        // Tally with v1 absent: no power for that target.
+        let set_without = vec![v2];
+        let tally = pool.tally_prevotes_for(1, 0, &set_without);
+        assert!(tally.is_empty(), "removed validator must not contribute: {tally:?}");
+        // Tally with v1 present: full power.
+        let tally_with = pool.tally_prevotes_for(1, 0, &set_with);
+        assert_eq!(tally_with.get(&Some(Hash([1u8; 32]))).copied(), Some(100));
     }
 }
