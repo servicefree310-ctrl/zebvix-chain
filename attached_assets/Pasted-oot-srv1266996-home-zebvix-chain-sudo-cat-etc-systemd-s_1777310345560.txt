@@ -1,0 +1,41 @@
+oot@srv1266996:/home/zebvix-chain# sudo cat /etc/systemd/system/zebvix.service.d/override.conf
+echo "---"
+sudo systemctl daemon-reload
+sudo systemctl restart zebvix
+sleep 5
+sudo systemctl status zebvix --no-pager | head -12
+echo "---"
+sudo journalctl -u zebvix -n 80 --no-pager | grep -iE "gate|activation|persisted" | tail -20
+[Service]
+Environment="ZEBVIX_BFT_COMMIT_GATE_ACTIVATION_HEIGHT=50159"
+---
+● zebvix.service - Zebvix L1 Blockchain Node
+     Loaded: loaded (/etc/systemd/system/zebvix.service; enabled; preset: enabled)
+    Drop-In: /etc/systemd/system/zebvix.service.d
+             └─override.conf
+     Active: active (running) since Mon 2026-04-27 17:18:43 UTC; 5s ago
+   Main PID: 1029540 (zebvix-node)
+      Tasks: 7 (limit: 9483)
+     Memory: 3.5M (peak: 4.0M)
+        CPU: 33ms
+     CGroup: /system.slice/zebvix.service
+             └─1029540 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333
+
+---
+Apr 27 17:17:17 srv1266996.hstgr.cloud zebvix-node[1027807]: 2026-04-27T17:17:17.633578Z  INFO zebvix_node: 📜 BFT commit persisted h=50082 hash=0xaaa548b9147e498679c74ff416b6f9b51044475ce5cc4efa0f7847709c51b4eb precommits=1 bytes=297
+Apr 27 17:17:23 srv1266996.hstgr.cloud zebvix-node[1027807]: 2026-04-27T17:17:23.633584Z  INFO zebvix_node: 📜 BFT commit persisted h=50083 hash=0x05d4beca3ca60ed3d7db1cb704a729bbf80b1f0e31e854c72547f7014999373d precommits=1 bytes=297
+Apr 27 17:17:29 srv1266996.hstgr.cloud zebvix-node[1027807]: 2026-04-27T17:17:29.633544Z  INFO zebvix_node: 📜 BFT commit persisted h=50084 hash=0xe0ab40c25f40b20c62c8e454e94b3534eda049da749db4862d4433c90db20a75 precommits=1 bytes=297
+Apr 27 17:17:35 srv1266996.hstgr.cloud zebvix-node[1027807]: 2026-04-27T17:17:35.633724Z  INFO zebvix_node: 📜 BFT commit persisted h=50085 hash=0x1d29ef0c37b40d81957e188e5c1c8ccff07178943db10b5bdfcc6a5faa737655 precommits=1 bytes=297
+Apr 27 17:17:41 srv1266996.hstgr.cloud zebvix-node[1027807]: 2026-04-27T17:17:41.633535Z  INFO zebvix_node: 📜 BFT commit persisted h=50086 hash=0x8864ba7b72d383f2d2abdf4e257dee81b9b313be484ba3a441f3e8fbee5c3521 precommits=1 bytes=297
+Apr 27 17:17:47 srv1266996.hstgr.cloud zebvix-node[1027807]: 2026-04-27T17:17:47.633656Z  INFO zebvix_node: 📜 BFT commit persisted h=50087 hash=0x946782ccbe52173752a44516467042341d3553a77ffc49567ef35090e48ebadf precommits=1 bytes=297
+Apr 27 17:17:53 srv1266996.hstgr.cloud zebvix-node[1027807]: 2026-04-27T17:17:53.633508Z  INFO zebvix_node: 📜 BFT commit persisted h=50088 hash=0x58fcf43592cd272ec9bfa1faf2e04d62133bdb8e78a580167b793ef52a9e2bd5 precommits=1 bytes=297
+Apr 27 17:17:59 srv1266996.hstgr.cloud zebvix-node[1027807]: 2026-04-27T17:17:59.133586Z  INFO zebvix_node: 📜 BFT commit persisted h=50089 hash=0x46cb0d16365bf3a5cfe0509c8ef0a95f83726bb514224aca1278b408cb0a79d8 precommits=1 bytes=297
+Apr 27 17:18:04 srv1266996.hstgr.cloud zebvix-node[1027807]: 2026-04-27T17:18:04.633234Z  INFO zebvix_node: 📜 BFT commit persisted h=50090 hash=0x71e20872e18add39bc5d478b67ef73f6b1419c075b7a3517ea56046481765377 precommits=1 bytes=297
+Apr 27 17:18:10 srv1266996.hstgr.cloud zebvix-node[1027807]: 2026-04-27T17:18:10.133035Z  INFO zebvix_node: 📜 BFT commit persisted h=50091 hash=0x4a9299720070c00e13e7f1ba63c1dcf2895dbd0f1db4b4db1938f0f32da3ec92 precommits=1 bytes=297
+Apr 27 17:18:15 srv1266996.hstgr.cloud zebvix-node[1027807]: 2026-04-27T17:18:15.633559Z  INFO zebvix_node: 📜 BFT commit persisted h=50092 hash=0xd8a52ea956a2babb0602cfc1565a363c479f6b0ef712dec76e47b08a09ef3cbf precommits=1 bytes=297
+Apr 27 17:18:21 srv1266996.hstgr.cloud zebvix-node[1027807]: 2026-04-27T17:18:21.634100Z  INFO zebvix_node: 📜 BFT commit persisted h=50093 hash=0x423bf108ad77203ea2d35ad7f236aef15b7cbeb22855d37d34318cf7ef6e01ec precommits=1 bytes=297
+Apr 27 17:18:27 srv1266996.hstgr.cloud zebvix-node[1027807]: 2026-04-27T17:18:27.633436Z  INFO zebvix_node: 📜 BFT commit persisted h=50094 hash=0x6ee23765522b972f47c3d27fe1555f355e49c0a39a1943dd0b5d660cacc97c71 precommits=1 bytes=297
+Apr 27 17:18:33 srv1266996.hstgr.cloud zebvix-node[1027807]: 2026-04-27T17:18:33.633552Z  INFO zebvix_node: 📜 BFT commit persisted h=50095 hash=0x0cadbdff13539d0bc52266b5b194a328c5beacf5136352f3fec42892b784c64c precommits=1 bytes=297
+Apr 27 17:18:39 srv1266996.hstgr.cloud zebvix-node[1027807]: 2026-04-27T17:18:39.134468Z  INFO zebvix_node: 📜 BFT commit persisted h=50096 hash=0xbc5ac3c47ce9aec608c53e305043bba45d06ad8e2c059220839cd52a4cddca1c precommits=1 bytes=297
+Apr 27 17:18:48 srv1266996.hstgr.cloud zebvix-node[1029540]: 2026-04-27T17:18:48.044244Z  INFO zebvix_node: 📜 BFT commit persisted h=50097 hash=0x84861c9b70e9128dd48b4db00023ec55299f14c45344dc244ba77f5b8226ffff precommits=1 bytes=297
+root@srv1266996:/home/zebvix-chain# 
