@@ -214,12 +214,68 @@ existing blocks (height 0 → tip) was signed under the SHA-256 path. A
 straight swap would invalidate the entire chain history on full-sync
 from genesis.
 
-**Migration plan:**
+**Migration plan (high-level):**
 1. Add `SIGN_HASH_ACTIVATION_HEIGHT` env (default `u64::MAX` = disabled).
 2. Implement `sign_tx_keccak` using `k256::ecdsa::SigningKey::sign_prehash`
    over `Keccak256(bincode(body))`.
 3. `verify_tx` chooses path based on `block_height_at_inclusion >= activation`.
 4. Coordinate testnet → mainnet activation via governance proposal.
+
+**Concrete sub-tasks (per the B.3.2.7 plan below):**
+
+- **C2.1 — Dual signing API.** In `crypto.rs`:
+  - Keep `sign_tx(...)` and `verify_tx(...)` byte-stable (do NOT touch
+    legacy SHA-256 path — chain history depends on it).
+  - Add `sign_tx_keccak(sk, body) -> Signature` using `SigningKey::
+    sign_prehash(&Keccak256::digest(bincode::serialize(body)?))`.
+  - Add `verify_tx_keccak(sig, body, addr) -> bool` mirroring it via
+    `VerifyingKey::verify_prehash`.
+  - Re-export both new functions from `lib.rs`.
+  - **Acceptance:** unit tests in `crypto::tests` cover round-trip for
+    both paths; cross-path verify MUST fail (sign-keccak / verify-sha →
+    error and vice-versa).
+
+- **C2.2 — Height-gated dispatch in transaction verification.** Locate
+  the single call site in `state::apply_block` (or wherever `verify_tx`
+  is invoked) and replace with:
+  ```
+  let use_keccak = block.header.height >= sign_hash_activation_height();
+  if use_keccak { verify_tx_keccak(...) } else { verify_tx(...) }
+  ```
+  - Add `pub fn sign_hash_activation_height() -> u64` reading
+    `ZEBVIX_SIGN_HASH_ACTIVATION_HEIGHT` env var (default
+    `u64::MAX`).
+  - **Acceptance:** integration test feeds a block at height
+    `activation - 1` with sha-signed tx (must verify) and a block at
+    `activation` with keccak-signed tx (must verify); both with the
+    "wrong" sig variant must fail.
+
+- **C2.3 — Mempool propagation.** `mempool::insert` ALSO verifies
+  signatures pre-insertion. Mirror the dispatch logic using the
+  *current tip* height (the height at which this tx will likely be
+  included) so a MetaMask-signed tx is accepted into the pool only
+  after the activation height passes locally.
+  - **Acceptance:** mempool unit test rejects keccak-signed tx
+    pre-activation, accepts post-activation; rejects sha-signed tx
+    post-activation.
+
+- **C2.4 — RPC submission path.** `eth_sendRawTransaction` and Zebvix's
+  native `zvb_submitTx` both feed the mempool — confirm both paths
+  hit the dispatch in C2.3 (no separate verify shortcut).
+
+- **C2.5 — Tooling: signing CLI + Flutter wallet.** Add a
+  `--keccak` flag to whichever CLI signs txs (e.g. `cli::tx::sign`
+  subcommand). Update the Flutter wallet's signing call site to flip
+  to keccak path once activation height is set in the wallet config.
+  Document in `replit.md` the exact upgrade order: chain
+  binary → activation env → wallet config → user-visible flip.
+
+- **C2.6 — Operator activation run-book.** Add to `replit.md` the
+  same procedure pattern as `ZEBVIX_BFT_COMMIT_GATE_ACTIVATION_HEIGHT`:
+  compute `ACTIVATION = current_tip + 100` (~8min buffer at 5s/block),
+  `sudo systemctl edit zebvix` to set
+  `Environment="ZEBVIX_SIGN_HASH_ACTIVATION_HEIGHT=NNNN"`, restart,
+  watch logs.
 
 **Risk if not done:** dApps signing intents in MetaMask need a Zebvix-aware
 relayer (the current Flutter wallet pattern). No security risk per se —
@@ -293,6 +349,145 @@ data risks accidentally banning honest peers.
 
 **Risk if not done:** A noisy peer can degrade gossip latency. Not
 exploitable for funds, just liveness pressure.
+
+---
+
+## Phase B.3.2.7 — Next Implementation Session Plan (F006 + C2)
+
+This is the consolidated, priority-ordered execution plan for the next
+session. Both items below are tracked above (F006 = C1.6 prerequisites
+checklist; C2 = §C2 sub-tasks). They are listed here together so the
+session has a single roadmap with explicit dependencies, sequencing,
+and risk profile.
+
+**Priority order:** F006 first (consensus-critical), then C2 (chain-
+breaking activation needs careful operator coordination, lower urgency).
+The two are independent — they touch different modules — so if a
+parallel pair-coding situation arises they can advance in parallel,
+but the deploy ordering MUST be: F006 ON in dev first, then C2 dev,
+then F006 mainnet, then C2 mainnet (never both height-gates flipping
+on the same restart).
+
+**Risk profile:** F006 is a runtime swap inside `Producer::run` —
+behaviour-altering even with the flag OFF if the wiring is wrong, so
+the test matrix must include "ENABLED=false produces byte-identical
+blocks to current legacy path" as the gating green-light. C2 is a
+pure addition (new functions + dispatch) and cannot break legacy
+because the activation env defaults to `u64::MAX`.
+
+### F006 — FSM runtime integration behind `ZEBVIX_FSM_ENABLED` flag
+
+**Pure-FSM module (`zebvix-chain/src/fsm.rs`) is already shipped and
+architect-passed.** This task wires it into the live producer loop.
+
+- **F006.1 — Adapter scaffold.** New file
+  `zebvix-chain/src/fsm_runtime.rs`. Owns:
+  - `pub struct FsmRuntime { fsm: FsmState, last_proposal_at:
+    Instant, ... }`
+  - `pub fn enabled() -> bool` reading `ZEBVIX_FSM_ENABLED` env
+    (default false).
+  - `pub async fn run(state: Arc<State>, pool: Arc<VotePool>,
+    mempool: Arc<Mempool>, broadcast: Sender<NetMsg>, my_addr:
+    Address) -> !` — the new producer loop body, only called when
+    `enabled()`.
+  - **Acceptance:** module compiles; `enabled()` returns false in
+    `cargo test` env.
+
+- **F006.2 — Vote-pool → `FsmEvent` translator.** In
+  `fsm_runtime.rs`:
+  - On every `Tick` (every 500ms): for current `(height, round)`
+    inspect `pool.tally_prevotes_for(height, round)` and
+    `pool.tally_precommits_for(height, round)`; emit
+    `FsmEvent::PrevoteQuorum { height, round, target }` /
+    `PrecommitQuorum` once a 2f+1 threshold crosses (with dedup —
+    do not re-emit the same quorum).
+  - Watch incoming proposals via a new `state.subscribe_proposals()`
+    channel; emit `FsmEvent::ProposalSeen { height, round,
+    block_hash }`.
+  - Watch `pool.max_round_seen(height)`; if it exceeds `fsm.round +
+    1` and a `f+1` threshold is crossed at that round, emit
+    `HigherRoundSeen { height, round }`.
+  - **Acceptance:** unit test wires a mock pool, fires a proposal +
+    quorum, asserts FSM advances to Commit.
+
+- **F006.3 — `FsmAction` → I/O sink.**
+  - `BroadcastPrevote { target }` → wraps in `Vote { ... }`, signs,
+    inserts into local pool (which triggers gossip) — same path the
+    legacy `vote_emit_task` uses today. Re-use, don't duplicate.
+  - `BroadcastPrecommit { target }` → same.
+  - `CommitBlock { height, hash }` → calls `state.apply_block(...)`
+    with the proposal stored in a side-buffer keyed by hash. On
+    success: feed `FsmEvent::BlockApplied { height, hash }` back
+    into the FSM. On error: structured `error!` log + retry counter;
+    after K=10 retries → fail-stop (panic with operator-readable
+    message).
+  - `BuildAndProposeBlock { height, round }` (NEW action variant —
+    add to `fsm.rs` if missing) → builds via existing
+    `Producer::build_block(...)` helper (refactored out of
+    `Producer::run`), broadcasts proposal, also emits local
+    `FsmEvent::ProposalSeen`.
+  - **Acceptance:** with a single validator and `enabled()=true`,
+    one full Tick cycle commits one block and the next height
+    starts.
+
+- **F006.4 — Startup recovery.** In `FsmRuntime::run` startup:
+  - Load `current_tip = state.tip()`. Construct
+    `FsmState::new(current_tip + 1, default_timeouts(), now)`.
+  - Inspect `state.get_bft_commit(&tip_hash)` for the tip:
+    - Present + valid → no recovery needed.
+    - Absent BUT a quorum exists in pool → re-emit
+      `PrecommitQuorum` synthetically so the FSM re-issues
+      `CommitBlock` then `BlockApplied` fires.
+  - **Acceptance:** kill `-9` the process during a `Step::Commit`,
+    restart, watch a single `[fsm-recover]` log line and chain
+    resumes from same height.
+
+- **F006.5 — Observability.** Add metrics-style structured INFO logs:
+  - `[fsm] tick height=N round=R step=S elapsed_ms=E` (every 5
+    seconds, not every tick — too noisy).
+  - `[fsm] dropped wrong-height event height=X self=Y kind=...`
+  - `[fsm] dropped wrong-hash BlockApplied ack hash=... expected=...`
+  - `[fsm] stuck-in-Commit duration_ms=X` (warn after 30s, error
+    after 5min).
+  - `[fsm] round_bump height=N old_round=A new_round=B reason=...`
+  - **Acceptance:** journalctl grep finds each log type after a
+    deliberate stress test.
+
+- **F006.6 — N=1 cadence preservation.** In the `BuildAndProposeBlock`
+  action handler (F006.3): rate-limit so consecutive proposals are
+  ≥ `BLOCK_TIME_SECS` (5s) apart; if FSM asks for an earlier
+  proposal, defer the action until the cadence window opens
+  (without losing the action). This keeps block timestamps stable
+  for downstream tooling on N=1.
+  - **Acceptance:** with N=1 + `ENABLED=true` over 100 blocks,
+    `(timestamp[i+1] - timestamp[i])` distribution centres on 5.0s
+    ± 0.5s (same as legacy).
+
+- **F006.7 — Test matrix + VPS deploy gate.**
+  - Local: `cargo test --features fsm-tests` runs F006.2/3/4/6
+    integration tests; all green.
+  - VPS dev rehearsal: deploy with `ENABLED=false`, observe 1000
+    blocks → byte-identical to legacy. Then flip
+    `ENABLED=true`, observe 1000 blocks → byte-identical (N=1
+    must produce identical blocks because 1/1 quorum is
+    trivially met every round).
+  - VPS mainnet: deploy with `ENABLED=false`. Wait 24h. Flip
+    `ENABLED=true` only after a calm period.
+
+### C2 — Keccak256 signing migration (sub-tasks above in §C2)
+
+After F006 ships and stays green for ≥ 7 days on mainnet, execute
+**C2.1 → C2.6** in order. Each sub-task has its own acceptance criterion
+in the §C2 section above; treat each as a separate commit. The
+activation env (`ZEBVIX_SIGN_HASH_ACTIVATION_HEIGHT`) defaults to
+`u64::MAX`, so the binary can ship with all the code and stay legacy-
+compatible until an operator-coordinated flip. Wallet flip happens
+last (C2.5) — never before chain code is live.
+
+**Cross-dependency between F006 and C2:** none at the code level. Both
+modify different modules (`producer.rs` / new `fsm_runtime.rs` for F006;
+`crypto.rs` / `state.rs::apply_block` / `mempool.rs` for C2). Deploy-
+ordering above is the only coordination requirement.
 
 ---
 
