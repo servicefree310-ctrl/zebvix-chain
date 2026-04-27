@@ -19,9 +19,9 @@ own phase. This file tracks them honestly so they're not forgotten.
 
 ## C1 — Replace block-producer rotation with real BFT
 
-**Phase B.3.2.4 (April 2026, side-table foundation landed):** The BFT
-commit gate is wired in but the round machine itself is still pending.
-Architecture choice: **side-table storage**, NOT in-block fields.
+**Phase B.3.2.5 (April 2026, commit-persistence landed):** The full BFT
+side-table pipeline is now wired and live. Architecture choice:
+**side-table storage**, NOT in-block fields.
 
 **Storage:** BFT commits are persisted at `bft/c/<32-byte block_hash>`
 in `CF_META` as `bincode::serialize(&Vec<Vote>)`. Helpers:
@@ -29,6 +29,23 @@ in `CF_META` as `bincode::serialize(&Vec<Vote>)`. Helpers:
 `State::get_bft_commit(&block_hash) -> Option<Vec<u8>>`. **`Block` and
 `BlockHeader` byte layouts are unchanged from chain inception.** Adding
 or removing BFT data NEVER requires a DB migration.
+
+**Persistence:** `main::try_persist_bft_commit_for(state, pool, height,
+target_hash)` runs from BOTH vote-handling tasks (local emit + p2p
+inbound) on every `AddVoteResult::Inserted { reached_quorum: true }`
+for a Precommit. It calls `pool.collect_precommits_for(...)` (which
+deterministically aggregates ALL Precommits for the (height, hash)
+pair across rounds, sorted by validator address), bincodes the result,
+and writes via `put_bft_commit`. Logged at INFO as `📜 BFT commit
+persisted h=N hash=0x... precommits=K bytes=B` — ops can grep this
+to confirm the pipeline is live.
+
+**Restart safety:** the local emit task initializes
+`last_emitted = tip.saturating_sub(1)` so a restart re-emits +
+re-persists the commit for the existing tip block on the very first
+tick. Without this, a restart that races a fresh tip would leave no
+side-table entry for that block, breaking the gate when the next
+height was produced.
 
 **Verifier:** `vote::verify_last_commit_for_parent(parent_hash,
 parent_height, last_commit_bytes, chain_id, validators)` enforces
@@ -48,29 +65,53 @@ unchanged. `EXPECTED_DB_FORMAT_VERSION = 1` matches all chain history;
 legacy DBs without the marker are auto-stamped v1 on first boot
 (logged at INFO). **No wipe required to upgrade to this binary.**
 
-**Deferred to Phase B.3.2.5 (round machine):**
+**Phase 3 ops procedure — flip the gate ON:**
+1. Deploy the Phase B.3.2.5 binary; verify `📜 BFT commit persisted`
+   appears in journalctl on every block (every ~5s on default pacing).
+2. Compute a future activation height: `ACTIVATION = current_tip + 100`
+   (gives ~8 minutes of buffer at 5s/block before enforcement).
+3. `sudo systemctl edit zebvix` and add:
+   ```
+   [Service]
+   Environment="ZEBVIX_BFT_COMMIT_GATE_ACTIVATION_HEIGHT=NNNN"
+   ```
+4. `sudo systemctl restart zebvix` — chain continues, side-table
+   commits keep being persisted.
+5. After height passes `ACTIVATION`, every `apply_block` enforces that
+   the parent's commit blob exists and verifies. Confirm no
+   `BFT commit gate REJECTED` lines in logs.
+
+**Status:**
 1. ~~Add `Vote { height, round, kind, hash, signer, signature }`~~ — done.
 2. ~~Add LastCommit verifier + side-table storage~~ — done (April 2026).
-3. Implement `ConsensusFsm`: `{ Propose, PreVote, PreCommit, Commit }`.
-4. Replace `Producer::run` self-apply with quorum-driven commit; on
-   commit, write the assembled commit blob via `put_bft_commit` BEFORE
-   building the next block at the new tip.
-5. Add equivocation evidence (`Evidence { vote_a, vote_b }`) → slash via
-   staking module's `jail` path.
-6. Flip `ZEBVIX_BFT_COMMIT_GATE_ACTIVATION_HEIGHT` to a future height
-   once Phase B.3.2.5 is deployed across all validators.
+3. ~~Persist commit blob via `put_bft_commit` on Precommit quorum~~ — done (Phase B.3.2.5).
+4. ~~Wire equivocation evidence → optional slash via staking `slash_double_sign`~~ — done (env-gated).
+5. **Operator step:** flip `ZEBVIX_BFT_COMMIT_GATE_ACTIVATION_HEIGHT`
+   to a future height once Phase 2 is deployed across all validators.
+6. Replace `Producer::run` round-robin self-apply with full quorum-driven
+   `ConsensusFsm { Propose, PreVote, PreCommit, Commit }` — pending,
+   not required for single-validator devnet (the current emit-after-tip
+   pattern is sufficient because the lone validator is also the lone
+   proposer; multi-validator without an FSM works ONLY if every node's
+   Precommits target the same canonical proposer's block per height).
 
 **Deferred to a future versioned `HeaderV2` (single coordinated upgrade):**
 - Proposer-signature binding to `commit_hash`. Today the side-table
   blob is trusted on its own merits (every signed precommit verifies
   independently); a byzantine proposer COULD serve different commit
-  blobs to different peers if Phase B.3.2.5 ever forwards them
-  unauthenticated. The fix is a single header-schema bump (height-gated)
-  paired with `EXPECTED_DB_FORMAT_VERSION=2` and migration code.
+  blobs to different peers. The fix is a single header-schema bump
+  (height-gated) paired with `EXPECTED_DB_FORMAT_VERSION=2` and
+  migration code.
 
-**Risk if not done:** A single malicious proposer can fork the chain.
-Currently mitigated by the small validator set being trusted operators
-AND single-validator-only deployment.
+**Risk profile:**
+- Pre-Phase 3 (gate OFF): identical to legacy single-validator PoA;
+  side-table fills but is not enforced.
+- Post-Phase 3 (gate ON), N=1 validator: no security improvement vs
+  PoA — the lone validator's signature IS the quorum (1/1 trivially
+  passes). The gate only hardens N≥4.
+- Post-Phase 3, N≥4 validators: forks require ≥1/3 byzantine power
+  to suppress quorum on an honest proposal, and equivocation by a
+  byzantine validator is detectable + slashable.
 
 ---
 

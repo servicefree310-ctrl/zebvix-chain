@@ -58,12 +58,14 @@ pub struct Producer {
     /// Optional P2P broadcast channel: when set, every successfully-mined block
     /// is bincode-serialized and pushed here for gossip propagation.
     block_broadcast: Option<UnboundedSender<Vec<u8>>>,
-    /// **Phase B.3.2.4** — Optional vote pool. Plumbed in but not yet
-    /// consulted by `build_block` itself: in the side-table architecture,
-    /// the BFT commit blob for a JUST-COMMITTED block is written to
-    /// `State::put_bft_commit` separately by the consensus driver (Phase 2
-    /// work). `Block` itself stays byte-stable (no LastCommit field), so
-    /// upgrading binaries does not break existing RocksDB data.
+    /// **Phase B.3.2.4** — Optional vote pool. Plumbed in but not consulted
+    /// by `build_block` itself: in the side-table architecture, the BFT
+    /// commit blob for a JUST-COMMITTED block is written to
+    /// `State::put_bft_commit` by the vote-handling tasks in `main.rs`
+    /// (`try_persist_bft_commit_for`) on every `Inserted { reached_quorum:
+    /// true }` for a Precommit. `Block` itself stays byte-stable (no
+    /// LastCommit field), so upgrading binaries does not break existing
+    /// RocksDB data — Phase 2 wiring is fully out-of-band.
     vote_pool: Option<Arc<VotePool>>,
 }
 
@@ -77,11 +79,11 @@ impl Producer {
         self
     }
 
-    /// Phase B.3.2.4 — wire a shared `VotePool`. In Phase 1 the producer
-    /// does not pack votes into the block (Block schema is byte-stable to
-    /// avoid forced DB wipes). The pool is held here for Phase 2, when the
-    /// full propose → prevote → precommit cycle drives `put_bft_commit`
-    /// after a 2/3+ Precommit quorum forms.
+    /// Phase B.3.2.4 — wire a shared `VotePool`. The producer does not pack
+    /// votes into the block (Block schema is byte-stable to avoid forced DB
+    /// wipes). The pool is held here for symmetry with future round-driven
+    /// proposal logic; per-block commit persistence happens in main.rs's
+    /// vote tasks via `try_persist_bft_commit_for` (Phase B.3.2.5 / Phase 2).
     pub fn with_vote_pool(mut self, vp: Arc<VotePool>) -> Self {
         self.vote_pool = Some(vp);
         self

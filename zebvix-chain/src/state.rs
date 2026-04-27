@@ -4516,8 +4516,14 @@ impl State {
     //   1. Iterate every (key, value) in CF_ACCOUNTS — domain-tag prefix `A`.
     //   2. Iterate every (key, value) in CF_META — domain-tag prefix `M` —
     //      EXCLUDING block-derived keys (META_HEIGHT, META_LAST_HASH —
-    //      already self-referenced by the block-hash chain) and
-    //      non-consensus indexes (META_RTX_*, META_EVIDENCE_*).
+    //      already self-referenced by the block-hash chain), non-consensus
+    //      indexes (META_RTX_*, META_EVIDENCE_*), and the BFT commit side-
+    //      table (META_BFT_COMMIT_*) whose blobs are written ASYNCHRONOUSLY
+    //      by the vote-handling tasks AFTER apply_block returns. Their
+    //      timing varies between nodes (vote gossip latency, late
+    //      precommits arriving), so including them would make the state
+    //      root non-deterministic and brick the chain the moment
+    //      STATE_ROOT_ACTIVATION_HEIGHT is flipped on.
     //   3. Each leaf = keccak256(domain_tag || key || value).
     //   4. Sort leaves lexicographically (defensive — RocksDB iteration is
     //      already sorted, but explicit sort guards against future CF
@@ -4553,6 +4559,10 @@ impl State {
             if k.as_ref() == META_EVIDENCE_SEQ { continue; }
             if k.starts_with(META_RTX_PREFIX) { continue; }
             if k.starts_with(META_EVIDENCE_PREFIX) { continue; }
+            // Phase B.3.2.5 — BFT commit blobs are async/non-deterministic
+            // across nodes; consensus correctness comes from the gate check
+            // in apply_block, not from baking them into the state root.
+            if k.starts_with(META_BFT_COMMIT_PREFIX) { continue; }
             let mut buf = Vec::with_capacity(k.len() + v.len() + 1);
             buf.push(b'M');
             buf.extend_from_slice(&k);

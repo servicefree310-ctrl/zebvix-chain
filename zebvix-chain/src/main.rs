@@ -976,6 +976,78 @@ fn cmd_init(home: PathBuf, validator_key: PathBuf, alloc: Vec<String>, no_defaul
     Ok(())
 }
 
+/// **Phase B.3.2.5 — persist BFT commit blob when Precommit quorum forms.**
+///
+/// Called from both vote-handling paths (local emit task + p2p inbound) on
+/// every `AddVoteResult::Inserted { reached_quorum: true }` for a Precommit.
+/// Aggregates ALL known Precommits for `(height, target_hash)` across rounds
+/// (deterministic via `collect_precommits_for`'s sort), bincodes the
+/// `Vec<Vote>`, and stores it under `bft/c/<target_hash>` in `CF_META`.
+///
+/// **Idempotent**: RocksDB put overwrites; `collect_precommits_for` is
+/// monotone (later calls return supersets), so re-persistence on a late
+/// vote arrival just promotes the blob to a stronger quorum proof.
+///
+/// **Side-table architecture**: `Block`/`BlockHeader` byte layouts are
+/// untouched; this commit blob lives entirely outside the block. Any
+/// future binary that drops the BFT gate (env unset) reads the existing
+/// chain unchanged.
+///
+/// Logs `📜 BFT commit persisted h=N hash=0x... precommits=K bytes=B`
+/// on success — operators grep this to verify Phase 2 wiring is live.
+fn try_persist_bft_commit_for(
+    state: &State,
+    pool: &VotePool,
+    height: u64,
+    target_hash: zebvix_node::types::Hash,
+) {
+    let precommits = pool.collect_precommits_for(height, target_hash);
+    if precommits.is_empty() {
+        // Defensive: caller saw reached_quorum=true so this should not fire.
+        // If it does (e.g. concurrent gc_below race for an already-pruned
+        // height), silently skip — the existing blob (if any) stays intact.
+        return;
+    }
+    let bytes = match bincode::serialize(&precommits) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!("📜 BFT commit serialize failed h={height}: {e}");
+            return;
+        }
+    };
+    // Defensive monotonicity guard (architect review, Phase B.3.2.5):
+    // if a blob already exists for this hash AND the existing one carries
+    // strictly more bytes (≈ more precommits), DO NOT overwrite. This
+    // prevents a late-arriving stale vote — or any future code path that
+    // reconstructs a partial vote set after gc_below() pruned the height
+    // — from accidentally weakening an already-persisted strong quorum
+    // proof. Equal-length writes are allowed (idempotent) and shorter
+    // writes are silently dropped.
+    if let Some(existing) = state.get_bft_commit(&target_hash) {
+        if existing.len() > bytes.len() {
+            tracing::debug!(
+                "📜 BFT commit skip-overwrite h={height} hash={target_hash} \
+                 existing={}B new={}B (existing is stronger)",
+                existing.len(), bytes.len(),
+            );
+            return;
+        }
+        if existing.len() == bytes.len() {
+            // Identical or equivalent blob — no-op, no log noise.
+            return;
+        }
+    }
+    if let Err(e) = state.put_bft_commit(&target_hash, &bytes) {
+        tracing::warn!("📜 BFT commit persist failed h={height} hash={target_hash}: {e}");
+        return;
+    }
+    tracing::info!(
+        "📜 BFT commit persisted h={height} hash={target_hash} precommits={} bytes={}",
+        precommits.len(),
+        bytes.len(),
+    );
+}
+
 async fn cmd_start(
     home: PathBuf,
     rpc_addr: String,
@@ -1088,10 +1160,20 @@ async fn cmd_start(
 
         // Background task: poll the chain tip; whenever it advances, this node's
         // validator (if registered) signs a Prevote AND a Precommit for the new
-        // tip and gossips both. Phase B.3 will drive votes from the actual
-        // Tendermint round state machine; here we just exercise the wire so
-        // votes are observable in `zbx_voteStats` and operators can see the
-        // pool filling. NOTE: a follower with no validator entry will skip.
+        // tip and gossips both.
+        //
+        // **Phase B.3.2.5 (Phase 2 wiring):** when the Precommit `add` reports
+        // `reached_quorum=true` (single-validator: every block; multi-validator:
+        // when 2/3+ power has voted), we persist the BFT commit blob to the
+        // side table at `bft/c/<block_hash>` via `try_persist_bft_commit_for`.
+        // Once the operator flips `ZEBVIX_BFT_COMMIT_GATE_ACTIVATION_HEIGHT`
+        // ON, `apply_block` reads this blob to verify the parent's commit
+        // before accepting the next block.
+        //
+        // NOTE: a follower with no validator entry will skip emit but still
+        // receives gossiped votes via the p2p inbound handler below — and
+        // THAT path also persists commits, so followers stay in sync with
+        // the side-table.
         let st_vote = state.clone();
         let pool_vote = vote_pool.clone();
         let out_vote = out_tx.clone();
@@ -1099,7 +1181,12 @@ async fn cmd_start(
         let vote_pubkey = pk;
         let self_addr = proposer;
         tokio::spawn(async move {
-            let mut last_emitted: u64 = st_vote.tip().0;
+            // Phase B.3.2.5: start one BELOW the current tip so a node restart
+            // re-emits + re-persists the commit for the existing tip block on
+            // the very first tick. Without this, a restart that races a fresh
+            // tip leaves no side-table entry for that block, breaking the gate
+            // when the next height is produced.
+            let mut last_emitted: u64 = st_vote.tip().0.saturating_sub(1);
             let mut tick = tokio::time::interval(tokio::time::Duration::from_millis(500));
             loop {
                 tick.tick().await;
@@ -1133,6 +1220,13 @@ async fn cmd_start(
                             tracing::info!("🗳  emitted {} h={} block={}{}",
                                 vt.as_str(), h, hash,
                                 if reached_quorum { "  ✅ QUORUM" } else { "" });
+                            // Phase B.3.2.5 — persist BFT commit blob on
+                            // Precommit quorum (side-table architecture).
+                            if reached_quorum && vt == VoteType::Precommit {
+                                try_persist_bft_commit_for(
+                                    &st_vote, &pool_vote, h, hash,
+                                );
+                            }
                         }
                         other => tracing::debug!("local vote add: {:?}", other),
                     }
@@ -1210,6 +1304,18 @@ async fn cmd_start(
                                         tracing::info!("🗳  vote {} h={} r={} from {}{}",
                                             vt.as_str(), h, r, voter,
                                             if reached_quorum { "  ✅ QUORUM" } else { "" });
+                                        // Phase B.3.2.5 — persist BFT commit
+                                        // blob on Precommit quorum from p2p.
+                                        // Skip nil-votes (block_hash=None) —
+                                        // a nil quorum is a "no-block-this-
+                                        // round" signal, not a parent commit.
+                                        if reached_quorum && vt == VoteType::Precommit {
+                                            if let Some(target) = vote_block_hash_for_evid {
+                                                try_persist_bft_commit_for(
+                                                    &st, &pool_in, h, target,
+                                                );
+                                            }
+                                        }
                                     }
                                     AddVoteResult::Duplicate => {
                                         tracing::debug!("vote dup from {voter}");
