@@ -2044,7 +2044,6 @@ function AddressResult({ addr, onCrossLink }: { addr: string; onCrossLink: (v: s
 // "0 ZBX / 0 zUSD" on the pool address and concludes the chain is broken.
 function PoolReservesPanel({ pool, onCrossLink }: { pool: PoolStateRes; onCrossLink: (v: string) => void }) {
   const initialized = pool.initialized !== false;
-  const loanRepaid = pool.loan_repaid === true;
   const spotPriceRaw = pool.spot_price_usd_per_zbx;
   const spotPriceDisplay = spotPriceRaw ? `$${spotPriceRaw}` : "—";
   const feePct = pool.fee_pct ?? "—";
@@ -2065,22 +2064,10 @@ function PoolReservesPanel({ pool, onCrossLink }: { pool: PoolStateRes; onCrossL
           <StatTile label="LP supply"    value={fmtWeiDec(pool.lp_supply, 6, "0")} accent="violet" />
           <StatTile label="Spot · USD/ZBX" value={spotPriceDisplay} accent="amber" />
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px]">
+        <div className="grid grid-cols-2 md:grid-cols-2 gap-2 text-[11px]">
           <PoolRow label="Swap fee" value={`${feePct}%`} />
-          <PoolRow label="Loan outstanding" value={`${fmtWeiDec(pool.loan_outstanding_zusd, 2, "0")} zUSD`} />
-          <PoolRow label="Loan status" value={loanRepaid ? "REPAID" : "ACTIVE"} tone={loanRepaid ? "emerald" : "amber"} />
           <PoolRow label="Init height" value={pool.init_height != null ? `#${pool.init_height.toLocaleString()}` : "—"} />
         </div>
-        {(pool.lifetime_fees_zusd || pool.lifetime_admin_paid_zusd || pool.lifetime_reinvested_zusd) && (
-          <div className="pt-2 border-t border-cyan-500/15">
-            <div className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Lifetime fee distribution</div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-[11px]">
-              <PoolRow label="Fees collected"   value={`${fmtWeiDec(pool.lifetime_fees_zusd, 4, "0")} zUSD`} />
-              <PoolRow label="Paid to admin"    value={`${fmtWeiDec(pool.lifetime_admin_paid_zusd, 4, "0")} zUSD`} />
-              <PoolRow label="Reinvested → LP" value={`${fmtWeiDec(pool.lifetime_reinvested_zusd, 4, "0")} zUSD`} />
-            </div>
-          </div>
-        )}
         {pool.last_update_height != null && (
           <div className="text-[10px] text-muted-foreground flex items-center gap-1">
             <Clock className="h-3 w-3" />
