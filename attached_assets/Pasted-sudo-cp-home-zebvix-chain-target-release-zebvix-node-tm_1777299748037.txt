@@ -1,0 +1,44 @@
+sudo cp /home/zebvix-chain/target/release/zebvix-node /tmp/zebvix-node.new
+sudo chmod 755 /tmp/zebvix-node.new
+sudo mv /tmp/zebvix-node.new /usr/local/bin/zebvix-node
+
+# ─── C. Start service ───
+sudo systemctl start zebvix
+sleep 8
+
+# ─── D. Status + log markers ───
+sudo systemctl status zebvix --no-pager | head -10
+echo "---LOGS (looking for legacy-DB stamp)---"
+sudo journalctl -u zebvix --no-pager -n 40 | grep -iE "format-version|legacy DB|stamped|tip=|Error"
+echo "---CHAIN TIP (should be 48230+ in hex)---"
+curl -s -X POST http://localhost:8545 -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}'
+echo
+echo "---VALIDATORS---"
+curl -s -X POST http://localhost:8545 -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"zbx_listValidators","params":[]}'
+echo
+block_stm.rs  consensus.rs  lib.rs   mempool.rs   p2p.rs   proposal.rs  staking.rs  token_pool.rs  transaction.rs  vote.rs  zvm_interp.rs       zvm_rlp.rs  zvm_state.rs
+bridge.rs     crypto.rs     main.rs  multisig.rs  pool.rs  rpc.rs       state.rs    tokenomics.rs  types.rs        zvm.rs   zvm_precompiles.rs  zvm_rpc.rs
+● zebvix.service - Zebvix L1 Blockchain Node
+     Loaded: loaded (/etc/systemd/system/zebvix.service; enabled; preset: enabled)
+     Active: active (running) since Mon 2026-04-27 14:22:02 UTC; 8s ago
+   Main PID: 986557 (zebvix-node)
+      Tasks: 7 (limit: 9483)
+     Memory: 3.5M (peak: 3.9M)
+        CPU: 58ms
+     CGroup: /system.slice/zebvix.service
+             └─986557 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333
+
+---LOGS (looking for legacy-DB stamp)---
+Apr 27 14:17:07 srv1266996.hstgr.cloud zebvix-node[984512]: Error: legacy DB at height 48231 has no format-version marker; this binary is Phase B.3.2.4 (format v2), which added bincode-incompatible BlockHeader/Block fields. The pre-existing chain CANNOT be read. Stop the node and wipe the data directory (/root/.zebvix/data), then restart to begin a fresh chain. Documented in HARDENING_TODO.md → C1.
+Apr 27 14:17:12 srv1266996.hstgr.cloud zebvix-node[984596]: Error: legacy DB at height 48231 has no format-version marker; this binary is Phase B.3.2.4 (format v2), which added bincode-incompatible BlockHeader/Block fields. The pre-existing chain CANNOT be read. Stop the node and wipe the data directory (/root/.zebvix/data), then restart to begin a fresh chain. Documented in HARDENING_TODO.md → C1.
+Apr 27 14:17:18 srv1266996.hstgr.cloud zebvix-node[984682]: Error: legacy DB at height 48231 has no format-version marker; this binary is Phase B.3.2.4 (format v2), which added bincode-incompatible BlockHeader/Block fields. The pre-existing chain CANNOT be read. Stop the node and wipe the data directory (/root/.zebvix/data), then restart to begin a fresh chain. Documented in HARDENING_TODO.md → C1.
+Apr 27 14:17:23 srv1266996.hstgr.cloud zebvix-node[984764]: Error: legacy DB at height 48231 has no format-version marker; this binary is Phase B.3.2.4 (format v2), which added bincode-incompatible BlockHeader/Block fields. The pre-existing chain CANNOT be read. Stop the node and wipe the data directory (/root/.zebvix/data), then restart to begin a fresh chain. Documented in HARDENING_TODO.md → C1.
+Apr 27 14:17:28 srv1266996.hstgr.cloud zebvix-node[984848]: Error: legacy DB at height 48231 has no format-version marker; this binary is Phase B.3.2.4 (format v2), which added bincode-incompatible BlockHeader/Block fields. The pre-existing chain CANNOT be read. Stop the node and wipe the data directory (/root/.zebvix/data), then restart to begin a fresh chain. Documented in HARDENING_TODO.md → C1.
+Apr 27 14:22:03 srv1266996.hstgr.cloud zebvix-node[986557]: 2026-04-27T14:22:03.002874Z  INFO zebvix_node::state: DB format-version marker missing at tip 48231 — stamped as v1 (legacy DB, no migration needed)
+---CHAIN TIP (should be 48230+ in hex)---
+{"jsonrpc":"2.0","id":1,"result":"0xbc68"}
+---VALIDATORS---
+{"jsonrpc":"2.0","id":1,"result":{"count":1,"quorum_threshold":1,"total_voting_power":1,"validators":[{"address":"0x40907000ac0a1a73e4cd89889b4d7ee8980c0315","pubkey":"0x035a3d7a0a8ce0607fa8a2ac3f36d4239ad9f582ca044a125d262f42eff3bcf9d3","voting_power":1}]}}
+root@srv1266996:/home/zebvix-chain# 
