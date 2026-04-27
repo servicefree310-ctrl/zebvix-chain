@@ -20,6 +20,49 @@ const FILES: Record<string, { file: string; name: string; mime: string }> = {
   },
 };
 
+// Phase D-10 — CI-pass staleness gate.
+//
+// The marker file `zebvix-chain/target/.last-ci-pass` is touched by
+// `scripts/ci-check.sh` after `cargo check` + `clippy -D warnings` +
+// `cargo test --lib --features zvm` all pass. We refuse to stream a
+// tarball whose backing source has not been validated by the gate within
+// the last 24 hours. This is the operator-side guarantee that prevents
+// "I forgot to run tests before pulling on the VPS" outages.
+//
+// Operator escape hatch: `?force=1` bypasses the gate but logs the
+// override loudly (audit trail). Use only when the dev environment
+// genuinely cannot run the gate (e.g. librocksdb-sys CPU budget on
+// shared CI). On the VPS itself the operator can always re-run
+// `bash scripts/ci-check.sh` after extraction to recover the marker.
+const CI_MARKER_REL = path.join("zebvix-chain", "target", ".last-ci-pass");
+const CI_GATE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+function checkCiGate(): { ok: true } | { ok: false; reason: string; remediation: string } {
+  const markerPath = path.join(WORKSPACE, CI_MARKER_REL);
+  if (!fs.existsSync(markerPath)) {
+    return {
+      ok: false,
+      reason: "ci_marker_missing",
+      remediation:
+        "Run `bash scripts/ci-check.sh` from /home/zebvix-chain on the dev " +
+        "host. The marker `target/.last-ci-pass` is created on green PASS.",
+    };
+  }
+  const age = Date.now() - fs.statSync(markerPath).mtimeMs;
+  if (age > CI_GATE_MAX_AGE_MS) {
+    const ageHours = (age / 3600_000).toFixed(1);
+    return {
+      ok: false,
+      reason: "ci_marker_stale",
+      remediation:
+        `Marker is ${ageHours}h old (max 24h). Re-run ` +
+        "`bash scripts/ci-check.sh` to refresh it before pulling a new " +
+        "tarball.",
+    };
+  }
+  return { ok: true };
+}
+
 // Serve a freshly-built tarball of the live zebvix-chain source + ops scripts
 // on every request. Guarantees the VPS always pulls the latest pool.rs /
 // state.rs / tokenomics.rs AND the latest deploy/admin scripts in one shot.
@@ -34,11 +77,34 @@ const FILES: Record<string, { file: string; name: string; mime: string }> = {
 // canonical VPS layout where the source root is `/home/zebvix-chain`, so a
 // plain `cd /home/zebvix-chain && tar -xzf newchain.tgz` extracts in-place
 // without nesting and without needing `--strip-components`.
-function streamFreshTar(_req: any, res: any) {
+function streamFreshTar(req: any, res: any) {
   const chainDir = path.join(WORKSPACE, "zebvix-chain");
   if (!fs.existsSync(chainDir)) {
     res.status(404).json({ error: "zebvix-chain source not found" });
     return;
+  }
+  // D-10 staleness gate. `?force=1` is an audited escape hatch.
+  const force =
+    req.query?.force === "1" ||
+    req.query?.force === "true" ||
+    req.query?.force === 1;
+  const gate = checkCiGate();
+  if (!gate.ok && !force) {
+    res.status(503).json({
+      error: "ci_gate_failed",
+      gate_reason: gate.reason,
+      remediation: gate.remediation,
+      override_hint:
+        "Re-run with `?force=1` to bypass (logged); only use when the gate " +
+        "cannot be run on the dev host.",
+    });
+    return;
+  }
+  if (!gate.ok && force) {
+    console.warn(
+      `[download/newchain] CI GATE BYPASSED via ?force=1 — reason=${gate.reason} ` +
+        `remediation="${gate.remediation}" ip=${req.ip ?? "?"} ua="${req.headers?.["user-agent"] ?? "?"}"`,
+    );
   }
   res.setHeader("Content-Type", "application/gzip");
   res.setHeader(

@@ -39,7 +39,8 @@ two Tier-1 gates on the same restart.**
 | ↳ B.3.2.6               | Pure-FSM module (`src/fsm.rs`, 20 tests)       | ✅ shipped dormant  |
 | ↳ B.3.2.7-F006.1        | FSM runtime adapter scaffold                   | ✅ shipped dormant  |
 | ↳ B.3.2.7-F006.2        | Vote-pool tally APIs (FSM event source primitives) | ✅ shipped dormant  |
-| ↳ F006.3 → F006.7       | Action sink, recovery, observability, N=1 cadence | ⏳ planned (§B.3.2.7) |
+| ↳ B.3.2.7-F006.3        | `FsmAction` → I/O sink (handle_action dispatch) | ✅ shipped dormant ¹ |
+| ↳ F006.4 → F006.7       | Recovery, observability, N=1 cadence, test matrix | ⏳ planned (§B.3.2.7) |
 | **C2 / C2.1-C2.6**      | Keccak256 signing migration (EVM-native UX)    | ⏳ planned (§C2)     |
 | **C3 / C3.1-C3.7**      | M-of-N bridge oracle multisig                  | ⏳ planned (§C3)     |
 
@@ -53,15 +54,57 @@ activation needed.
 | ID                      | Title                                          | Status               |
 |-------------------------|------------------------------------------------|----------------------|
 | **D1**                  | Multi-validator decentralisation (N≥3)         | ⏳ planned (§Phase D) |
-| **D2**                  | Slashing enforcement (equivocation evidence)   | 🟡 verifier shipped, jail/burn ⏳ |
+| **D2**                  | Slashing enforcement (equivocation evidence)   | 🟢 verifier + jail/burn apply path shipped ² |
 | **D3**                  | State-sync (snapshot offer/accept)             | ⏳ planned (§Phase D) |
-| **D4**                  | Monitoring stack (Prometheus + Grafana)        | 🟡 exporter module shipped, hookups + scrape route ⏳ |
+| **D4**                  | Monitoring stack (Prometheus + Grafana)        | 🟢 exporter + hookups + `/metrics` route shipped ³ |
 | **D5**                  | Backup & DR (highest residual risk)            | ⏳ planned (§Phase D) |
 | **D6**                  | Block explorer feature parity                  | ⏳ planned (§Phase D) |
 | **D7**                  | EIP-1559 fee market (height-gated, but additive) | ⏳ planned (§Phase D) |
 | **D8**                  | Operator runbook consolidation                 | ⏳ planned (§Phase D) |
 | **D9**                  | RPC pagination + range caps (DoS hardening)    | ⏳ planned (§Phase D) |
-| **D10**                 | CI gate (pre-tarball validation)               | 🟡 `scripts/ci-check.sh` shipped, tarball-handler stale-check ⏳ |
+| **D10**                 | CI gate (pre-tarball validation)               | 🟢 `scripts/ci-check.sh` + tarball-handler stale-check shipped |
+
+¹ **F006.3 footnote.** `FsmRuntime::handle_action` dispatches every
+`FsmAction` variant against the live `Producer`/`State`/`VotePool` —
+`BuildProposal` calls `producer.build_block()` and emits `ProposalSeen`,
+`CommitBlock` calls `state.apply_block()` and emits `BlockApplied`,
+`BroadcastPrevote`/`BroadcastPrecommit` sign + push the vote to the
+local pool (legacy gossip path), `EnteredRound`/`EnteredHeight` log
+only. The previous panic in `FsmRuntime::run` is replaced with a
+warn + sleep loop guard so flipping `ZEBVIX_FSM_ENABLED=true` without
+F006.4-7 shipped does NOT crash the node — it just runs the legacy
+producer alongside an inert FSM (safer than crash-on-startup). Three
+new tests cover dispatch of each variant. `enabled()` still defaults
+false; live VPS unaffected.
+
+² **D2 footnote.** Apply path is `State::apply_evidence(ev,
+current_height) → Result<u128>`: verify → 24h replay-window guard
+(`EVIDENCE_REPLAY_WINDOW_HEIGHTS = 17_280` blocks at 5s) →
+dedup-aware `staking::slash_for_evidence(offender, slot_h, slot_r)`
+→ `zvb_evidence_verified_total` + `zvb_validator_jailed_total`
+metric inc. Dedup uses a `BTreeSet<(Address, u64, u32)>` field on
+`StakingModule` (`#[serde(default)]` so on-disk staking blob stays
+backward-compatible). **What is NOT shipped this batch:** a
+`TxKind::SubmitEvidence` mempool variant — that would change
+consensus rules and requires height-gated activation, deferred to
+the next session. For now the apply path is reachable from gossip
+relayers and unit tests only; live VPS chain has nothing calling
+it yet, so D2 is fully dormant in practice (zero production-side
+risk).
+
+³ **D4 footnote.** `/metrics` is mounted on the existing RPC port
+instead of a separate `:9090` listener (see `rpc::router`'s
+`/metrics` route comment for rationale): avoids a new CLI flag /
+port-binding race with future operators, keeps the scrape contract
+identical for Prometheus, and lets `nginx`-fronted operators
+re-route `/metrics` traffic to a dedicated subdomain if they want
+isolation. Hookups landed at: `state::apply_block` (height gauge,
+applied counter, apply-time histogram numerator/denominator),
+`mempool::add` + `mempool::take` (depth + bytes gauges),
+`p2p::ConnectionEstablished`/`Closed` (peer-count gauge),
+`main::try_persist_bft_commit_for` success site
+(`zvb_bft_commit_persisted_total`), `consensus::Producer::run`
+round-bump branch (`zvb_proposer_round_bumps_total`).
 
 ### Tier 3 — Performance & polish (deferred, no urgency)
 

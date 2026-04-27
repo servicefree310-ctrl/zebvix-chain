@@ -65,6 +65,17 @@ const EXPECTED_DB_FORMAT_VERSION: u32 = 1;
 /// Block bytes so adding/removing BFT data NEVER requires a DB migration.
 const META_BFT_COMMIT_PREFIX: &[u8] = b"bft/c/";
 const META_POOL: &[u8] = b"pool";
+
+/// D2 — Evidence-replay window in **block heights**. Evidence whose
+/// `slot.height` is older than `current_height - WINDOW` is rejected
+/// at apply-time. 17_280 blocks ≈ 24 h at the 5 s `BLOCK_TIME_SECS`.
+///
+/// Why a 24h window: by the time a validator's offence is 24h old,
+/// the slashable stake has either already been slashed by an honest
+/// peer or has been unbonded out — slashing it now would cost honest
+/// re-delegators more than it costs the offender. This is the same
+/// window Cosmos and Tendermint use for the same reason.
+pub const EVIDENCE_REPLAY_WINDOW_HEIGHTS: u64 = 17_280;
 const META_LP_PREFIX: &[u8] = b"lp/";
 const META_ADMIN: &[u8] = b"admin";              // 20-byte current admin address (override)
 const META_ADMIN_CHANGES: &[u8] = b"admin_changes"; // u8 count of rotations performed
@@ -2745,6 +2756,10 @@ impl State {
     }
 
     pub fn apply_block(&self, block: &Block) -> Result<()> {
+        // D4 — Wall-clock timer for `zvb_block_apply_seconds_sum` metric.
+        // Captured at the very top so we measure end-to-end latency
+        // including the marker / fork-choice / signature checks below.
+        let _apply_t0 = std::time::Instant::now();
         // ── SECURITY: in-process fail-loud guard ──
         // If a previous apply_block aborted with an error, the
         // META_BLOCK_APPLYING marker is intentionally LEFT SET so the
@@ -3133,6 +3148,22 @@ impl State {
         self.db.write(wb)?;
         // Tip is in-memory only — safe to update after the durable batch.
         *self.tip.write() = (block.header.height, bh);
+
+        // ── D4 Prometheus metric hookups ──
+        // Pre-registered in `metrics.rs::Metrics::new()` so they appear in
+        // `/metrics` even before the first apply. Numbers are operator-
+        // visible via `curl http://<rpc>/metrics`.
+        crate::metrics::METRICS.set("zvb_block_height", block.header.height);
+        crate::metrics::METRICS.inc("zvb_blocks_applied_total");
+        crate::metrics::METRICS.inc("zvb_block_apply_count");
+        crate::metrics::METRICS.add(
+            "zvb_block_apply_seconds_sum",
+            // Store as millis-as-counter; downstream divide by 1000 for
+            // seconds. Avoids float in metric format and gives sub-second
+            // resolution which matters at 5s block time (would otherwise
+            // round to whole seconds).
+            _apply_t0.elapsed().as_millis() as u64,
+        );
         Ok(())
     }
 
@@ -4612,6 +4643,79 @@ impl State {
     }
 
     // ────────────────────────────────────────────────────────────────────
+    // D2 — Evidence apply path (verify → window-check → slash → metric)
+    // ────────────────────────────────────────────────────────────────────
+    //
+    // This is the single chokepoint that turns a verified
+    // `EquivocationEvidence` into an on-chain economic penalty. It is
+    // intentionally *not* exposed as a `TxKind` yet — wiring it into the
+    // mempool would change consensus rules (a new tx variant must be
+    // height-gated against an activation block to keep replay-from-
+    // genesis byte-identical) and that work is deferred to the next
+    // session per `HARDENING_TODO.md` §D2.
+    //
+    // For now, this entry-point is reachable from:
+    //   1. Future `TxKind::SubmitEvidence` (deferred).
+    //   2. P2P-sourced gossip (F006.5 observability of slashing path).
+    //   3. Direct unit tests below (the only live caller in this commit).
+    //
+    // Sequence:
+    //   1. `evidence::verify_evidence` — pure crypto + structural check.
+    //   2. Replay-window guard — reject evidence older than
+    //      `EVIDENCE_REPLAY_WINDOW_HEIGHTS` (~24h at 5s blocks). Prevents
+    //      an attacker from saving up old proofs and using them to slash
+    //      an unbonded-but-still-discoverable validator months later.
+    //   3. `staking.slash_for_evidence` — dedup-aware burn + jail.
+    //   4. Metric increments — `zvb_evidence_verified_total` AND
+    //      `zvb_validator_jailed_total` (latter only if dedup actually
+    //      slashed, i.e. burned > 0).
+    //
+    // Returns the burned wei amount (0 on dedup re-hit).
+    pub fn apply_evidence(&self, ev: &crate::evidence::Evidence, current_height: u64) -> Result<u128> {
+        // 1. Pure cryptographic verification.
+        let validators = self.validators();
+        crate::evidence::verify_evidence(ev, crate::tokenomics::CHAIN_ID, &validators)?;
+
+        // 2. Replay-window guard. The slot height MUST be within
+        //    [current_height - WINDOW, current_height]; future-slot
+        //    evidence is also a fail because it can only come from a
+        //    malicious or buggy submitter (we cannot have observed an
+        //    equivocation at a height we have not yet processed).
+        let (slot_h, _slot_r) = ev.slot();
+        if slot_h > current_height {
+            return Err(anyhow!(
+                "evidence: slot height {slot_h} > current height {current_height} (future-dated)"
+            ));
+        }
+        if current_height.saturating_sub(slot_h) > EVIDENCE_REPLAY_WINDOW_HEIGHTS {
+            return Err(anyhow!(
+                "evidence: stale (slot {slot_h}, current {current_height}, window {EVIDENCE_REPLAY_WINDOW_HEIGHTS})"
+            ));
+        }
+
+        // 3. Slash via dedup-aware staking helper.
+        let offender = ev.offender();
+        let (slot_h, slot_r) = ev.slot();
+        let mut sm = self.staking();
+        let burned = sm
+            .slash_for_evidence(offender, slot_h, slot_r)
+            .map_err(|e| anyhow!("slash_for_evidence: {:?}", e))?;
+        self.put_staking(&sm)?;
+
+        // 4. Metric hookup. Only count a `validator_jailed` event when
+        //    the slash actually burned (not a dedup no-op). The
+        //    `evidence_verified` counter still bumps for every accepted
+        //    proof so operators can correlate gossip volume vs. unique
+        //    slashes.
+        crate::metrics::METRICS.inc("zvb_evidence_verified_total");
+        if burned > 0 {
+            crate::metrics::METRICS.inc("zvb_validator_jailed_total");
+        }
+
+        Ok(burned)
+    }
+
+    // ────────────────────────────────────────────────────────────────────
     // Atomic combined slashing + evidence persistence
     // ────────────────────────────────────────────────────────────────────
     //
@@ -5307,5 +5411,112 @@ mod state_root_tests {
         assert!(res.is_err(), "non-creator mint must fail");
         assert_eq!(st.token_balance_of(tok.id, &bob), 0, "bob must not have minted");
         assert_eq!(st.get_token(tok.id).unwrap().total_supply, 100);
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // D2 — apply_evidence end-to-end tests (verify → window → slash)
+    // ────────────────────────────────────────────────────────────────────
+
+    use crate::evidence::{Evidence, EquivocationEvidence};
+    use crate::vote::{sign_vote, VoteData, VoteType};
+
+    /// Build an `Evidence::Equivocation` proof for `(sk,pk)` at the given
+    /// `(height, round)`, with two distinct block-hash targets so the
+    /// pure verifier accepts it. Both votes carry the live `CHAIN_ID`.
+    fn mk_equivocation(sk: &[u8; 32], pk: [u8; 33], h: u64, r: u32) -> Evidence {
+        let mk = |target: Hash| {
+            sign_vote(sk, pk, VoteData {
+                chain_id: crate::tokenomics::CHAIN_ID,
+                height: h,
+                round: r,
+                vote_type: VoteType::Precommit,
+                block_hash: Some(target),
+            })
+            .expect("sign_vote should not fail in test")
+        };
+        Evidence::Equivocation(EquivocationEvidence {
+            vote_a: mk(Hash([0xAAu8; 32])),
+            vote_b: mk(Hash([0xBBu8; 32])),
+        })
+    }
+
+    /// T-1 (happy): valid evidence, fresh slot → burn > 0, jailed,
+    /// dedup mark recorded.
+    #[test]
+    fn apply_evidence_happy_path_burns_and_jails() {
+        let (_td, st) = fresh_state();
+        let (sk, pk, addr) = install_validator(&st);
+        // Give the validator a self-bond so there's something to slash.
+        let mut sm = st.staking();
+        sm.create_validator(addr, pk, 500, crate::staking::MIN_SELF_BOND_WEI * 10, crate::staking::MIN_SELF_BOND_WEI)
+            .unwrap();
+        st.put_staking(&sm).unwrap();
+
+        let ev = mk_equivocation(&sk, pk, /*slot_h=*/ 5, /*slot_r=*/ 0);
+        let burned = st.apply_evidence(&ev, /*current_height=*/ 5).expect("happy path");
+        assert!(burned > 0, "must burn a non-zero amount");
+        let sm2 = st.staking();
+        assert!(sm2.validators.get(&addr).expect("validator").jailed, "must be jailed");
+        assert!(
+            sm2.applied_evidence.contains(&(addr, 5, 0)),
+            "dedup mark must be recorded"
+        );
+    }
+
+    /// T-2 (stale): slot older than `EVIDENCE_REPLAY_WINDOW_HEIGHTS`
+    /// must be rejected with a "stale" error and NOT mutate staking.
+    #[test]
+    fn apply_evidence_rejects_stale_slot() {
+        let (_td, st) = fresh_state();
+        let (sk, pk, addr) = install_validator(&st);
+        let mut sm = st.staking();
+        sm.create_validator(addr, pk, 500, crate::staking::MIN_SELF_BOND_WEI * 10, crate::staking::MIN_SELF_BOND_WEI)
+            .unwrap();
+        st.put_staking(&sm).unwrap();
+        let stake_before = st.staking().validators.get(&addr).unwrap().total_stake;
+
+        let ev = mk_equivocation(&sk, pk, /*slot_h=*/ 10, /*slot_r=*/ 0);
+        let current = 10 + EVIDENCE_REPLAY_WINDOW_HEIGHTS + 1;
+        let err = st.apply_evidence(&ev, current).expect_err("must reject stale");
+        assert!(format!("{err}").contains("stale"), "got: {err}");
+        let stake_after = st.staking().validators.get(&addr).unwrap().total_stake;
+        assert_eq!(stake_before, stake_after, "stake must NOT change on stale");
+        assert!(!st.staking().validators.get(&addr).unwrap().jailed, "must NOT be jailed");
+    }
+
+    /// T-3 (dedup): the SAME evidence applied twice burns once, second
+    /// call returns Ok(0). This is the gossip-replay safety property.
+    #[test]
+    fn apply_evidence_dedups_replayed_proof() {
+        let (_td, st) = fresh_state();
+        let (sk, pk, addr) = install_validator(&st);
+        let mut sm = st.staking();
+        sm.create_validator(addr, pk, 500, crate::staking::MIN_SELF_BOND_WEI * 10, crate::staking::MIN_SELF_BOND_WEI)
+            .unwrap();
+        st.put_staking(&sm).unwrap();
+
+        let ev = mk_equivocation(&sk, pk, 7, 0);
+        let first = st.apply_evidence(&ev, 7).unwrap();
+        let second = st.apply_evidence(&ev, 7).unwrap();
+        assert!(first > 0, "first apply must burn");
+        assert_eq!(second, 0, "replay must dedup to Ok(0)");
+    }
+
+    /// T-4 (unknown offender): pure verifier rejects evidence by an
+    /// address not in the active validator set. Staking blob untouched.
+    #[test]
+    fn apply_evidence_rejects_unknown_offender() {
+        let (_td, st) = fresh_state();
+        // Install validator A so the chain has SOME validator set, but
+        // build evidence for ghost B (NOT installed).
+        let (_sk_a, _pk_a, _addr_a) = install_validator(&st);
+        let (sk_b, pk_b) = generate_keypair();
+        let ev = mk_equivocation(&sk_b, pk_b, 3, 0);
+        let err = st.apply_evidence(&ev, 3).expect_err("must reject unknown offender");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("not in validator set") || msg.contains("offender"),
+            "error must call out unknown offender: {msg}"
+        );
     }
 }

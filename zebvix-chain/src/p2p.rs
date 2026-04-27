@@ -269,12 +269,20 @@ async fn handle_event(
         }
         SwarmEvent::ConnectionEstablished { peer_id, .. } => {
             tracing::info!("✅ p2p connected: {peer_id}");
+            // D4 — refresh peer-count gauge. `connected_peers()` is O(n)
+            // but n is small (typically < 100) and connection events
+            // are rare relative to vote / block traffic.
+            crate::metrics::METRICS
+                .set("zvb_peer_count", swarm.connected_peers().count() as u64);
             // Greet new peer with our tip via heartbeat-style direct check:
             // we'll catch their heartbeat within HEARTBEAT_SECS, no need to push.
         }
         SwarmEvent::ConnectionClosed { peer_id, cause, .. } => {
             tracing::debug!("p2p disconnected {peer_id}: {cause:?}");
             syncing_with.remove(&peer_id);
+            // D4 — peer-count gauge after disconnect.
+            crate::metrics::METRICS
+                .set("zvb_peer_count", swarm.connected_peers().count() as u64);
         }
         SwarmEvent::Behaviour(ZebvixBehaviourEvent::Gossipsub(gossipsub::Event::Message {
             propagation_source: peer,

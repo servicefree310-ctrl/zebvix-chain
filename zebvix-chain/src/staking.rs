@@ -262,6 +262,22 @@ pub struct StakingModule {
     /// Phase B.5 — last block height we credited locked rewards (for monitoring).
     #[serde(default)]
     pub last_epoch_height: u64,
+    /// Phase D — D2 evidence-replay dedup set.
+    ///
+    /// Records `(offender, height, round)` triples for evidence already
+    /// applied via [`Self::slash_for_evidence`]. Re-submitting the same
+    /// equivocation proof at the same slot becomes a no-op so a verified
+    /// proof can be gossiped multiple times by relayers without
+    /// double-burning the offender's stake. Pruned periodically (out-of-
+    /// scope this commit) once the slot drops out of the 24h replay
+    /// window enforced at the apply-block layer.
+    ///
+    /// `#[serde(default)]` keeps the on-disk staking blob backward-
+    /// compatible with binaries that pre-date this field — older blobs
+    /// deserialize with an empty dedup set, which is the desired
+    /// "no evidence applied yet" semantics.
+    #[serde(default)]
+    pub applied_evidence: BTreeSet<(Address, u64, u32)>,
 }
 
 /// Result of `end_epoch`: liquid wei to credit to each address.
@@ -493,6 +509,38 @@ impl StakingModule {
 
     pub fn slash_double_sign(&mut self, validator: Address) -> Result<u128, StakingError> {
         self.slash(validator, SLASH_DOUBLE_SIGN_BPS, JAIL_EPOCHS_DOUBLE_SIGN)
+    }
+
+    /// Phase D — D2 dedup-aware evidence slasher.
+    ///
+    /// Wraps [`Self::slash_double_sign`] with a `(offender, height,
+    /// round)` replay guard. The first call for a given slot performs
+    /// the burn + jail and records the slot in `applied_evidence`;
+    /// subsequent calls for the *same* slot return `Ok(0)` (no-op,
+    /// idempotent). This is critical because verified evidence is
+    /// gossipable — without dedup a single proof relayed by N peers
+    /// would slash the offender N times.
+    ///
+    /// Returns the burned wei amount (0 on dedup hit).
+    pub fn slash_for_evidence(
+        &mut self,
+        offender: Address,
+        slot_height: u64,
+        slot_round: u32,
+    ) -> Result<u128, StakingError> {
+        if !self.applied_evidence.insert((offender, slot_height, slot_round)) {
+            // Already slashed for this exact slot — idempotent.
+            return Ok(0);
+        }
+        let burned = self.slash_double_sign(offender)?;
+        // Architect-review note: we record the slot BEFORE the slash
+        // operation so a slash that errors out (e.g. ValidatorNotFound)
+        // still leaves the dedup mark in place — that's fine because
+        // re-attempts would error identically anyway, and storing a
+        // slot we never actually slashed wastes < 50 bytes per attempt.
+        // The alternative (rollback the insert on slash error) would
+        // race against concurrent callers without an outer mutex.
+        Ok(burned)
     }
 
     pub fn slash_downtime(&mut self, validator: Address) -> Result<u128, StakingError> {
@@ -1068,6 +1116,64 @@ mod tests {
             }
         }
         assert!(payout.get(&d).copied().unwrap_or(0) > 0, "no payout matured");
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // D2 — slash_for_evidence dedup tests
+    // ──────────────────────────────────────────────────────────────────
+
+    /// First call for an `(offender, height, round)` slot burns + jails;
+    /// subsequent calls for the SAME slot are no-ops returning Ok(0).
+    /// This is the gossip-replay safety property the dedup set exists for.
+    #[test]
+    fn slash_for_evidence_dedups_same_slot() {
+        let mut s = StakingModule::new();
+        let op = addr(1);
+        let v = make_validator(&mut s, op, 14, MIN_SELF_BOND_WEI * 10);
+        let before = s.validators.get(&v).unwrap().total_stake;
+
+        // First slash at slot (h=42, r=0): real burn.
+        let first = s.slash_for_evidence(v, 42, 0).unwrap();
+        assert!(first > 0, "first slash must burn a non-zero amount");
+        let after_first = s.validators.get(&v).unwrap().total_stake;
+        assert_eq!(before - after_first, first, "stake delta must equal burn");
+        assert!(s.validators.get(&v).unwrap().jailed, "must be jailed after first slash");
+
+        // Replay at SAME slot: no-op.
+        let second = s.slash_for_evidence(v, 42, 0).unwrap();
+        assert_eq!(second, 0, "replay at same slot must be Ok(0)");
+        let after_second = s.validators.get(&v).unwrap().total_stake;
+        assert_eq!(after_first, after_second, "replay must NOT modify stake");
+    }
+
+    /// A different `(height, round)` slot for the SAME offender bypasses
+    /// dedup — equivocating twice at distinct slots is two distinct
+    /// offences and must produce two distinct burns.
+    #[test]
+    fn slash_for_evidence_distinct_slot_burns_again() {
+        let mut s = StakingModule::new();
+        let op = addr(1);
+        let v = make_validator(&mut s, op, 15, MIN_SELF_BOND_WEI * 10);
+
+        let first = s.slash_for_evidence(v, 100, 0).unwrap();
+        let second = s.slash_for_evidence(v, 101, 0).unwrap();
+        assert!(first > 0 && second > 0, "distinct slots must both burn");
+        // Slashes are 5% of remaining each time so second < first.
+        assert!(
+            second < first,
+            "second burn must be strictly less than first (compounding)"
+        );
+    }
+
+    /// Unknown offender returns the underlying `slash` error, but we
+    /// still record the dedup mark — protects against burst-spam of
+    /// proofs against ghost addresses.
+    #[test]
+    fn slash_for_evidence_unknown_validator_errors() {
+        let mut s = StakingModule::new();
+        let ghost = addr(99);
+        let res = s.slash_for_evidence(ghost, 1, 0);
+        assert!(res.is_err(), "unknown validator must error");
     }
 
     #[test]

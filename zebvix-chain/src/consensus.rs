@@ -190,6 +190,11 @@ impl Producer {
                 tracing::warn!(
                     "⏰ propose timeout at h={current_height} r={prev_round} → bumping to r={current_round}"
                 );
+                // D4 — counter inc on every round bump. Operator alerts
+                // on `rate(zvb_proposer_round_bumps_total[5m]) > 0` to
+                // catch a stuck-proposer / liveness-degraded chain
+                // (under healthy N=1 this counter stays at 0 forever).
+                crate::metrics::METRICS.inc("zvb_proposer_round_bumps_total");
             }
 
             // ── 3. Re-read validator set every tick (live registry updates) ──

@@ -46,7 +46,7 @@ use crate::tokenomics::{
 };
 use crate::types::{Address, SignedTx};
 use crate::vote::VotePool;
-use axum::{extract::State as AxState, routing::post, Json, Router};
+use axum::{extract::State as AxState, routing::{get, post}, Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -2406,7 +2406,30 @@ pub fn router(ctx: RpcCtx) -> Router {
 
     Router::new()
         .route("/", post(handle))
+        // ── D4 — Prometheus scrape endpoint ──
+        // Mounted on the existing RPC port instead of a separate :9090
+        // listener (per HARDENING_TODO §D4 implementation note): avoids
+        // a new CLI flag / port-binding race with future operators, and
+        // keeps the scrape contract identical for Prometheus. Operators
+        // who want isolation can put nginx in front and rewrite scrape
+        // traffic to a dedicated `/metrics` path on a separate hostname.
+        // Returns Prometheus text exposition format v0.0.4. No state is
+        // captured by closure — handler reads from the static
+        // `metrics::METRICS` singleton.
+        .route("/metrics", get(metrics_handler))
         .layer(body_limit)
         .with_state(ctx)
         .layer(cors)
+}
+
+/// Prometheus scrape handler. Always returns 200 + text/plain. The
+/// underlying registry is in-memory and never errors, so this handler
+/// has no failure path other than process death.
+async fn metrics_handler() -> impl axum::response::IntoResponse {
+    let body = crate::metrics::METRICS.render();
+    (
+        axum::http::StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")],
+        body,
+    )
 }

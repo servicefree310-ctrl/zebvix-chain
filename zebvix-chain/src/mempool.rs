@@ -131,6 +131,14 @@ impl Mempool {
             }
         }
         g.insert(h, tx);
+        // D4 — depth gauge. Pre-registered in metrics.rs::Metrics::new().
+        // Bytes gauge intentionally not updated here on the hot insert
+        // path: computing bincode::serialized_size on every accepted tx
+        // would add ~µs of work to a function called thousands of
+        // times per second under flood. Bytes is recomputed in `take()`
+        // (≈ once per 5s block) which is plenty of resolution for a
+        // capacity-planning gauge.
+        crate::metrics::METRICS.set("zvb_mempool_depth", g.len() as u64);
         Ok(h)
     }
 
@@ -168,6 +176,15 @@ impl Mempool {
         for t in &out {
             g.remove(&tx_hash(t).0);
         }
+        // D4 — refresh depth + bytes gauges. Cost is bounded: pool is
+        // capped at `max_size` (default 50_000) and `take()` runs at most
+        // once per `BLOCK_TIME_SECS` (5s) under the legacy producer.
+        crate::metrics::METRICS.set("zvb_mempool_depth", g.len() as u64);
+        let total_bytes: u64 = g
+            .values()
+            .map(|t| bincode::serialized_size(t).unwrap_or(0))
+            .sum();
+        crate::metrics::METRICS.set("zvb_mempool_bytes", total_bytes);
         out
     }
 

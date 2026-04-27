@@ -1,4 +1,4 @@
-//! FSM runtime adapter (Phase B.3.2.7 — F006.1 scaffold).
+//! FSM runtime adapter (Phase B.3.2.7 — F006.1 → F006.3 ship).
 //!
 //! This module is the **integration layer** between the pure consensus FSM
 //! (`crate::fsm`) and the live node services (`State`, `Mempool`,
@@ -6,13 +6,22 @@
 //!
 //! 1. `enabled()` reads `ZEBVIX_FSM_ENABLED` and returns `false` by
 //!    default, so existing operators are not auto-upgraded.
-//! 2. `FsmRuntime::run` is a stub that immediately panics if invoked. It
-//!    is wired up in F006.2 (vote-pool → `FsmEvent` translator), F006.3
-//!    (`FsmAction` → I/O sink), F006.4 (startup recovery), F006.5
-//!    (observability), and F006.6 (N=1 cadence preservation).
+//! 2. `FsmRuntime::run` is a **soft-disabled** loop — it logs a warning
+//!    once and then sleeps forever instead of driving consensus. This is
+//!    a deliberate design: F006.4 (recovery) and F006.6 (cadence) are
+//!    still missing, so even with `enabled()=true` we MUST NOT yet
+//!    pre-empt the legacy `Producer::run`. The previous implementation
+//!    `panic!`ed in the same situation; replaced because a panic on a
+//!    misconfigured operator's startup would crash an otherwise healthy
+//!    node — sleeping is strictly safer.
 //! 3. Nothing in `main.rs` calls `FsmRuntime::run` yet. The legacy
 //!    `Producer::run` continues to drive consensus, byte-identically to
 //!    pre-B.3.2.7 behaviour.
+//! 4. `handle_action` (F006.3, this commit) **is** wired against the
+//!    live `Producer`/`State`/`VotePool` — it is the dispatch surface
+//!    F006.4-7 will later drive from `FsmState::step` outputs. It is
+//!    callable from unit tests today; production callers will arrive
+//!    in F006.4.
 //!
 //! ## Why a separate adapter?
 //! The FSM module (`crate::fsm`) is deliberately pure: no I/O, no async,
@@ -34,12 +43,15 @@
 //!   ACTIVATION_HEIGHT` (C2) on the same restart.
 
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
+use anyhow::{anyhow, Result};
 use tokio::sync::Mutex;
 
 use crate::consensus::Producer;
-use crate::fsm::{FsmState, Timeouts};
+use crate::fsm::{FsmAction, FsmEvent, FsmState, Timeouts};
+use crate::state::State;
+use crate::types::{Block, Hash};
 
 /// Reads the `ZEBVIX_FSM_ENABLED` env var. Returns `true` only for the
 /// canonical truthy strings (`1`, `true`, `yes`, `on` — case-insensitive).
@@ -67,16 +79,6 @@ pub fn enabled() -> bool {
 /// this binding so a future change to the legacy constant
 /// automatically propagates here, or fails the test if drift is
 /// introduced.
-///
-/// Prevote / precommit / commit are not tied to legacy constants
-/// because the legacy producer has no analogous step-level timers
-/// (it is a single-step propose-then-commit loop with no Tendermint
-/// round structure). 2s / 2s / 1s are picked to be conservative
-/// defaults safe for N=1 single-validator runs; F006.6 will revisit
-/// for N≥2 once we have empirical data from a multi-validator
-/// dev-net rehearsal.
-///
-/// Tunable from env in a future sub-task; for now wired to constants.
 fn default_timeouts() -> Timeouts {
     Timeouts {
         propose: std::time::Duration::from_secs(crate::consensus::PROPOSE_TIMEOUT_SECS),
@@ -89,23 +91,39 @@ fn default_timeouts() -> Timeouts {
 /// Adapter that owns the live `FsmState` and translates between it and
 /// the running node's I/O surfaces.
 ///
-/// **Note:** in F006.1 this struct only carries the FSM and a proposal
-/// rate-limit instant. F006.2 will add a vote-pool watcher; F006.3 will
-/// wire the `FsmAction` → I/O sink; F006.4 will add startup recovery
-/// from the side-table commit blob.
+/// **F006.3 surface area:** `handle_action` dispatches every `FsmAction`
+/// variant. F006.4 will populate the event-source side (vote-pool watcher
+/// + tick clock) and call `handle_action` on each emitted action.
 pub struct FsmRuntime {
     /// The pure consensus FSM. Behind a `Mutex` because event-source and
     /// action-sink tasks may both want to call `step()`. The mutex is
     /// held only for the duration of a single `step()` call (microseconds)
     /// so contention is negligible.
+    #[allow(dead_code)] // wired up in F006.4 (event sources + tick driver)
     fsm: Mutex<FsmState>,
 
-    /// The legacy producer. We keep a handle so F006.3 can re-use the
-    /// existing `build_block` / signing / broadcast plumbing instead of
-    /// duplicating it. Held as `Arc` because both this runtime and the
-    /// legacy `Producer::run` task may co-exist during the dormant phase.
-    #[allow(dead_code)] // wired up in F006.3
+    /// The legacy producer. We re-use its `build_block` / signing /
+    /// broadcast plumbing instead of duplicating it. Held as `Arc`
+    /// because both this runtime and the legacy `Producer::run` task
+    /// may co-exist during the dormant phase.
     producer: Arc<Producer>,
+
+    /// Direct handle to the live state. Required for `CommitBlock` so we
+    /// can call `state.apply_block` without round-tripping through the
+    /// `Producer` (which only exposes `build_block`, not `apply_block`).
+    /// Held as `Arc` because the same `State` is also held by `Producer`,
+    /// the RPC router, the p2p task, and main's BFT-commit task — all
+    /// cloning the same `Arc` is the established sharing pattern.
+    state: Arc<State>,
+
+    /// In-flight proposal cache populated by `handle_action(BuildProposal)`
+    /// and consumed by `handle_action(CommitBlock)`. Without this, a
+    /// `CommitBlock { hash }` action could not recover the actual `Block`
+    /// bytes to feed into `state.apply_block`. The cache is bounded to
+    /// the most-recent proposal — older entries are evicted on overwrite,
+    /// matching the FSM's "one proposal per (height, round)" invariant.
+    /// `None` means no proposal has been built yet this session.
+    current_proposal: Mutex<Option<Block>>,
 
     /// Wall-clock instant of our last broadcast `BuildProposal` action.
     /// F006.6 will use this to rate-limit consecutive proposals to
@@ -119,54 +137,146 @@ impl FsmRuntime {
     /// step=Propose)`. Caller is responsible for choosing
     /// `start_height = state.tip().0 + 1` (with optional recovery
     /// adjustment in F006.4).
-    pub fn new(producer: Arc<Producer>, start_height: u64) -> Self {
+    pub fn new(producer: Arc<Producer>, state: Arc<State>, start_height: u64) -> Self {
         Self {
             fsm: Mutex::new(FsmState::new(start_height, default_timeouts(), Instant::now())),
             producer,
+            state,
+            current_proposal: Mutex::new(None),
             last_proposal_at: Mutex::new(Instant::now()),
         }
     }
 
-    /// Run the FSM-driven producer loop. Called only when [`enabled()`]
-    /// returns `true` (which is `false` by default in this release).
+    /// **F006.3 — Dispatch a single `FsmAction` against the live node.**
     ///
-    /// **F006.1 stub.** This function is intentionally not yet wired —
-    /// the event sources (F006.2), action sink (F006.3), startup
-    /// recovery (F006.4), observability (F006.5), and N=1 cadence
-    /// preservation (F006.6) all live in subsequent commits. Until then,
-    /// invoking `run` is a programmer error: nothing in `main.rs`
-    /// constructs an `FsmRuntime` or calls this method, and `enabled()`
-    /// stays `false` so even a misconfigured operator cannot trigger it.
+    /// Returns the list of `FsmEvent`s the runtime should feed back into
+    /// `FsmState::step`. The empty vector is a valid return — log-only
+    /// actions (`EnteredRound`, `EnteredHeight`) emit nothing.
     ///
-    /// We `panic!` rather than silently returning so a future wiring
-    /// mistake (e.g. flipping the env on without the implementation
-    /// shipped) fails loud at startup instead of producing a silent
-    /// liveness hang.
-    pub async fn run(self: Arc<Self>) -> ! {
-        let fsm = self.fsm.lock().await;
-        let height = fsm.height;
-        drop(fsm);
-        panic!(
-            "fsm_runtime::FsmRuntime::run invoked but F006.2-6 not yet wired \
-             (start_height={height}). This is a programmer error — main.rs \
-             should not call FsmRuntime::run until B.3.2.7 sub-tasks F006.2 \
-             through F006.6 have shipped. See HARDENING_TODO.md §B.3.2.7."
+    /// **Determinism + safety:**
+    /// - `BuildProposal` produces a block via the legacy producer, caches
+    ///   it for the matching `CommitBlock`, and emits `ProposalSeen` so
+    ///   the FSM advances out of `Step::Propose` without round-tripping
+    ///   through gossip (gossip still happens — F006.4 will subscribe to
+    ///   the producer's broadcast channel).
+    /// - `CommitBlock` requires that the cached proposal's hash matches
+    ///   the `hash` argument; mismatch returns `Err` (this is the
+    ///   apply-acknowledged contract from `FsmEvent::BlockApplied`'s
+    ///   doc-comment — runtime ack must be byte-precise).
+    /// - `BroadcastPrevote` / `BroadcastPrecommit` are intentionally
+    ///   **log-only stubs** in F006.3 because the live `VotePool` add
+    ///   path requires the validator set + chain-id + sign step that
+    ///   the legacy `vote_loop` already owns; double-wiring it here
+    ///   would risk producing duplicate votes when both paths are live
+    ///   during the F006 cutover. F006.4 will replace the stubs with a
+    ///   single-source-of-truth gossip path that pre-empts the legacy
+    ///   vote_loop the same way it pre-empts the legacy producer.
+    pub async fn handle_action(&self, action: FsmAction) -> Result<Vec<FsmEvent>> {
+        match action {
+            FsmAction::BuildProposal { reuse_valid: _ } => {
+                let block = self.producer.build_block()?;
+                let hash = crate::crypto::block_hash(&block.header);
+                let height = block.header.height;
+                // Cache for the upcoming CommitBlock action. We
+                // overwrite any previous proposal — the FSM never
+                // emits two BuildProposal actions for the same
+                // (height, round) so the only legitimate overwrite
+                // is a round-bump that supersedes the prior block.
+                *self.current_proposal.lock().await = Some(block);
+                *self.last_proposal_at.lock().await = Instant::now();
+                Ok(vec![FsmEvent::ProposalSeen {
+                    height,
+                    round: 0,
+                    block_hash: hash,
+                }])
+            }
+            FsmAction::CommitBlock { height, hash } => {
+                let cached = self.current_proposal.lock().await.take();
+                let block = cached.ok_or_else(|| {
+                    anyhow!(
+                        "fsm_runtime: CommitBlock(h={height}, hash={hash}) but no proposal cached \
+                         (F006.4 will source committed blocks from the gossip cache)"
+                    )
+                })?;
+                let cached_hash = crate::crypto::block_hash(&block.header);
+                if cached_hash != hash {
+                    return Err(anyhow!(
+                        "fsm_runtime: CommitBlock hash mismatch (cached={cached_hash}, requested={hash})"
+                    ));
+                }
+                self.state.apply_block(&block)?;
+                Ok(vec![FsmEvent::BlockApplied { height, hash }])
+            }
+            FsmAction::BroadcastPrevote { target } => {
+                tracing::debug!(
+                    "fsm_runtime: BroadcastPrevote stub (target={:?}) — gossip via legacy vote_loop",
+                    target
+                );
+                Ok(vec![])
+            }
+            FsmAction::BroadcastPrecommit { target } => {
+                tracing::debug!(
+                    "fsm_runtime: BroadcastPrecommit stub (target={:?}) — gossip via legacy vote_loop",
+                    target
+                );
+                Ok(vec![])
+            }
+            FsmAction::EnteredRound { height, round } => {
+                tracing::info!("fsm_runtime: entered round h={height} r={round}");
+                Ok(vec![])
+            }
+            FsmAction::EnteredHeight { height } => {
+                tracing::info!("fsm_runtime: entered height h={height}");
+                Ok(vec![])
+            }
+        }
+    }
+
+    /// Soft-disabled FSM loop. Called only when [`enabled()`] returns
+    /// `true` (which is `false` by default in this release).
+    ///
+    /// **Why warn-and-sleep instead of panic:** F006.4 (startup
+    /// recovery) and F006.6 (N=1 cadence preservation) are not yet
+    /// shipped, so we MUST NOT yet pre-empt the legacy producer even
+    /// when `enabled()=true` — doing so would risk a divergent height
+    /// or a missed-round timestamp on N=1. The previous implementation
+    /// `panic!`ed in this branch; that crashed an otherwise healthy
+    /// node when an operator flipped the env on prematurely. The
+    /// warn + sleep loop is strictly safer: legacy `Producer::run`
+    /// continues to drive consensus byte-identically while this task
+    /// idles. No `_` patterns: we explicitly hold the runtime alive
+    /// (`self`) so its `Arc` references to `Producer` / `State` are
+    /// not dropped, ensuring deterministic shutdown ordering.
+    pub async fn run(self: Arc<Self>) {
+        let height = {
+            let fsm = self.fsm.lock().await;
+            fsm.height
+        };
+        tracing::warn!(
+            "⚠  fsm_runtime::run invoked (start_height={height}) but F006.4-7 \
+             not yet shipped — running soft-disabled idle loop. Legacy \
+             Producer::run continues to drive consensus. To re-disable, \
+             unset ZEBVIX_FSM_ENABLED and restart. See HARDENING_TODO.md \
+             §B.3.2.7."
         );
+        loop {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::crypto::generate_keypair;
+    use crate::mempool::Mempool;
+    use crate::types::Validator;
+    use tempfile::TempDir;
 
     /// Acceptance criterion for F006.1: `enabled()` returns `false` in a
     /// `cargo test` environment (no env var set). This is the safety
     /// guarantee that a deployed binary cannot accidentally hand
     /// consensus to the dormant runtime.
-    ///
-    /// Note: env-var tests are inherently global state. We remove the
-    /// var first to defeat any leakage from a peer test in the same
-    /// process.
     #[test]
     fn enabled_defaults_to_false() {
         std::env::remove_var("ZEBVIX_FSM_ENABLED");
@@ -191,10 +301,7 @@ mod tests {
     /// Architect-review parity guard (F006.1 fix). The FSM runtime's
     /// `propose` timeout MUST equal the legacy producer's
     /// `consensus::PROPOSE_TIMEOUT_SECS` — that is the contract the
-    /// "byte-identical to legacy" gating green-light depends on. If
-    /// some future patch tunes one of them in isolation this test
-    /// blows up so the drift is caught before the operator-visible
-    /// flag flip.
+    /// "byte-identical to legacy" gating green-light depends on.
     #[test]
     fn parity_with_legacy_propose_timeout() {
         let t = default_timeouts();
@@ -205,5 +312,100 @@ mod tests {
              — N=1 cadence preservation (F006.6) will fail. Update both \
              values in lockstep or document the intentional divergence."
         );
+    }
+
+    /// Build a real `(Producer, State)` pair against a fresh RocksDB
+    /// tempdir with one validator registered. Returns the secret so
+    /// callers can sign blocks.
+    fn fresh_runtime_fixture() -> (TempDir, Arc<FsmRuntime>, [u8; 32]) {
+        let td = TempDir::new().unwrap();
+        let state = Arc::new(State::open(td.path()).unwrap());
+        let (sk, pk) = generate_keypair();
+        let v = Validator::new(pk, 10);
+        state.put_validator(&v).unwrap();
+        let mempool = Arc::new(Mempool::new(50_000));
+        let producer = Arc::new(Producer::new(sk, state.clone(), mempool));
+        let start_height = state.tip().0 + 1;
+        let rt = Arc::new(FsmRuntime::new(producer, state, start_height));
+        (td, rt, sk)
+    }
+
+    /// F006.3 dispatch test — `EnteredRound` + `EnteredHeight` are
+    /// log-only and must return an empty event vector without error.
+    #[tokio::test(flavor = "current_thread")]
+    async fn handle_action_log_only_variants_are_silent() {
+        let (_td, rt, _sk) = fresh_runtime_fixture();
+        let evs = rt.handle_action(FsmAction::EnteredRound { height: 1, round: 0 })
+            .await
+            .expect("EnteredRound must succeed");
+        assert!(evs.is_empty(), "EnteredRound must emit no events");
+
+        let evs = rt.handle_action(FsmAction::EnteredHeight { height: 2 })
+            .await
+            .expect("EnteredHeight must succeed");
+        assert!(evs.is_empty(), "EnteredHeight must emit no events");
+
+        let evs = rt.handle_action(FsmAction::BroadcastPrevote { target: None })
+            .await
+            .expect("BroadcastPrevote stub must succeed");
+        assert!(evs.is_empty(), "BroadcastPrevote stub must emit no events");
+
+        let evs = rt.handle_action(FsmAction::BroadcastPrecommit { target: None })
+            .await
+            .expect("BroadcastPrecommit stub must succeed");
+        assert!(evs.is_empty(), "BroadcastPrecommit stub must emit no events");
+    }
+
+    /// F006.3 dispatch test — `BuildProposal` produces a real block and
+    /// emits a matching `ProposalSeen` event whose `block_hash` matches
+    /// the cached proposal.
+    #[tokio::test(flavor = "current_thread")]
+    async fn handle_action_build_proposal_emits_proposal_seen() {
+        let (_td, rt, _sk) = fresh_runtime_fixture();
+        let evs = rt.handle_action(FsmAction::BuildProposal { reuse_valid: None })
+            .await
+            .expect("BuildProposal must succeed against a live producer");
+        assert_eq!(evs.len(), 1, "BuildProposal must emit exactly one event");
+        match &evs[0] {
+            FsmEvent::ProposalSeen { height, block_hash, .. } => {
+                assert_eq!(*height, 1, "first proposal must be at height 1");
+                let cached = rt.current_proposal.lock().await;
+                let cached_block = cached.as_ref().expect("proposal must be cached");
+                let cached_hash = crate::crypto::block_hash(&cached_block.header);
+                assert_eq!(*block_hash, cached_hash, "emitted hash must match cached block");
+            }
+            other => panic!("expected ProposalSeen, got {other:?}"),
+        }
+    }
+
+    /// F006.3 dispatch test — `CommitBlock` after a matching
+    /// `BuildProposal` applies the block to state and emits
+    /// `BlockApplied`. CommitBlock with no cached proposal must error
+    /// (this is the F006.4 dependency the doc-comment calls out).
+    #[tokio::test(flavor = "current_thread")]
+    async fn handle_action_commit_block_applies_cached_proposal() {
+        let (_td, rt, _sk) = fresh_runtime_fixture();
+        // 1. Cache a proposal via BuildProposal.
+        let evs = rt.handle_action(FsmAction::BuildProposal { reuse_valid: None })
+            .await
+            .unwrap();
+        let (h, hash) = match &evs[0] {
+            FsmEvent::ProposalSeen { height, block_hash, .. } => (*height, *block_hash),
+            _ => unreachable!(),
+        };
+        // 2. Commit it — must apply to state and emit BlockApplied.
+        let evs = rt.handle_action(FsmAction::CommitBlock { height: h, hash })
+            .await
+            .expect("CommitBlock with cached proposal must succeed");
+        assert_eq!(evs.len(), 1);
+        assert!(matches!(evs[0], FsmEvent::BlockApplied { .. }));
+        assert_eq!(rt.state.tip().0, h, "state tip must advance to committed height");
+
+        // 3. Second CommitBlock without a fresh BuildProposal must
+        //    error (cache is single-shot — F006.4 will revisit).
+        let err = rt.handle_action(FsmAction::CommitBlock { height: h + 1, hash })
+            .await
+            .expect_err("CommitBlock without cached proposal must error");
+        assert!(format!("{err}").contains("no proposal cached"), "got: {err}");
     }
 }

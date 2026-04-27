@@ -1046,6 +1046,10 @@ fn try_persist_bft_commit_for(
         precommits.len(),
         bytes.len(),
     );
+    // D4 — counter inc on confirmed durable persist. We're past every
+    // early-return / overwrite-skip branch so this fires once per
+    // genuinely-new BFT commit blob written to the side table.
+    zebvix_node::metrics::METRICS.inc("zvb_bft_commit_persisted_total");
 }
 
 async fn cmd_start(
