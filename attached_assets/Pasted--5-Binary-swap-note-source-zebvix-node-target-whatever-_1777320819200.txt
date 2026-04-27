@@ -1,0 +1,66 @@
+
+# 5) Binary swap (note: source = zebvix-node, target = whatever systemd expects)
+#    If systemd ExecStart shows /usr/local/bin/zebvix-chain → keep that target name
+systemctl stop zebvix-chain && \
+  cp target/release/zebvix-node /usr/local/bin/zebvix-chain && \
+  systemctl start zebvix-chain && \
+  sleep 5 && \
+  systemctl status zebvix-chain --no-pager -l | head -15
+
+# 6) Liveness + height check
+sleep 10 && \
+  curl -s http://localhost:8545 -X POST -H "content-type: application/json" \
+    -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' && \
+  echo "" && \
+  journalctl -u zebvix-chain -n 25 --no-pager | tail -20
+--- verify all ship markers present ---
+src/staking.rs:1
+src/state.rs:1
+src/token_pool.rs:1
+src/zvm_interp.rs:2
+evidence.rs ✓
+metrics.rs ✓
+ci-check.sh ✓
+isqrt_u128 dead_code fix ✓
+▶ Phase D-10 CI gate
+  chain_root = /home/zebvix-chain
+  features   = zvm
+  timeout    = 600s per step
+  mode       = full
+
+── cargo check --features zvm ──
+✓ PASS: cargo check --features zvm
+
+── cargo clippy --features zvm (warnings denied) ──
+✓ PASS: cargo clippy --features zvm (warnings denied)
+
+── cargo test --lib --features zvm ──
+
+running 182 tests
+....................................................................................... 87/182
+....................................................................................... 174/182
+........
+test result: ok. 182 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+✓ PASS: cargo test --lib --features zvm
+
+
+✅ ALL CHECKS PASSED
+   target/.last-ci-pass updated → 2026-04-27T20:13:07Z
+   Tarball handler will accept fresh deploys for the next 24h.
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:393:4
+    |
+393 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 0.25s
+-rwxr-xr-x 2 root root 16410432 Apr 27 20:10 target/release/zebvix-node
+No files found for zebvix-chain.service.
+Failed to stop zebvix-chain.service: Unit zebvix-chain.service not loaded.
+{"jsonrpc":"2.0","id":1,"result":"0xcad9"}
+-- No entries --
+root@srv1266996:/home/zebvix-chain# 
