@@ -89,11 +89,97 @@ legacy DBs without the marker are auto-stamped v1 on first boot
 5. **Operator step:** flip `ZEBVIX_BFT_COMMIT_GATE_ACTIVATION_HEIGHT`
    to a future height once Phase 2 is deployed across all validators.
 6. Replace `Producer::run` round-robin self-apply with full quorum-driven
-   `ConsensusFsm { Propose, PreVote, PreCommit, Commit }` — pending,
-   not required for single-validator devnet (the current emit-after-tip
-   pattern is sufficient because the lone validator is also the lone
-   proposer; multi-validator without an FSM works ONLY if every node's
-   Precommits target the same canonical proposer's block per height).
+   `ConsensusFsm { Propose, PreVote, PreCommit, Commit }` — **module
+   shipped April 2026 (Phase B.3.2.6)**, runtime integration pending.
+   - **Module:** `zebvix-chain/src/fsm.rs` (~750 lines incl. tests).
+     Pure functions, no I/O, no async. Types: `Step`, `LockedBlock`,
+     `ValidBlock`, `Timeouts`, `FsmState`, `FsmEvent`, `FsmAction`.
+   - **Lock-on-precommit:** validator that broadcasts `Precommit(hash)`
+     in round R locks `(R, hash)` and may only re-prevote that hash
+     (or nil) until it observes 2/3+ Prevotes for a different block in
+     some round R' > R (POL release). Re-locks on the new block at the
+     new round when the FSM is at that round's Prevote/Propose step.
+   - **View-change:** propose/prevote/precommit timeouts each bump the
+     round; observing `f+1` votes at any round > self.round triggers
+     immediate fast-forward via `EnteredRound`. Late precommit quorums
+     from past rounds still commit.
+   - **Valid block tracking:** every prevote quorum updates
+     `valid = (round, hash)`; the next proposer reuses `valid.hash`
+     instead of building a fresh block (Tendermint convergence).
+   - **Tests:** 20 standalone tests cover happy path, propose timeout,
+     precommit timeout, lock-respect, lock-release-with-relock,
+     lock-release-without-relock, nil-prevote → nil-precommit,
+     nil-precommit → round bump, view-change up & no-op down,
+     proposal-from-higher-round jump, late-commit, valid-block reuse,
+     the two helper functions, plus 5 architect-review safety tests
+     (height-mismatch silent-drop, precommit-nil-on-unseen-hash,
+     precommit-non-nil-after-proposal-seen, BlockApplied-wrong-hash-
+     ignored, no-round-bump-while-committing). All pass via standalone
+     `rustc --test` (full `cargo test --lib` blocked by environment
+     build limits — see HARDENING_TODO note below).
+   - **Architect-review safety hardening (April 2026):** the first
+     architect pass returned FAIL with three critical findings, all
+     now fixed in the shipped module:
+     1. **Height binding on every event:** `FsmEvent` variants
+        (`ProposalSeen`, `PrevoteQuorum`, `PrecommitQuorum`,
+        `HigherRoundSeen`, `BlockApplied`) now carry an explicit
+        `height: u64`. `FsmState::step` silently drops events whose
+        height ≠ `self.height` so misrouted vote-pool signals can
+        never commit the wrong height's block.
+     2. **Precommit-only-on-seen-proposal:** non-nil precommit is
+        emitted only when `self.proposal == Some(quorum_target)`. If
+        a quorum forms on a hash we haven't validated locally, we
+        precommit nil. This prevents byzantine majorities (or buggy
+        plumbing) from forging our signature on unseen blocks.
+     3. **Apply-acknowledged height advance:** `Step::Commit` no
+        longer auto-advances on commit-timeout. The runtime must send
+        a new `FsmEvent::BlockApplied { height, hash }` event after
+        a successful state apply + side-table commit-blob persist;
+        only then does `enter_height` fire. Mismatched-hash acks are
+        refused. The new `committing: Option<Hash>` field on
+        `FsmState` tracks the in-flight commit and also blocks any
+        nil-quorum round-bump while the apply is outstanding.
+   - **Runtime integration:** DEFERRED to next session. New env flag
+     `ZEBVIX_FSM_ENABLED` (default OFF) will gate the swap-in. The
+     existing `Producer::run` PoA path stays unchanged on deploy so
+     the live VPS chain at h=50K+ keeps producing blocks identically.
+     With flag ON + N=1, the FSM walks every step trivially (1/1
+     quorum) and produces the same blocks; with N≥2 it delivers real
+     BFT safety + liveness. See `.local/session_plan.md` task F006.
+   - **F006 prerequisites flagged by architect re-review (must land in
+     the next session):**
+     a. **Durable, ordered commit-apply-ack plumbing:** the runtime
+        adapter that consumes `FsmAction::CommitBlock` and emits
+        `FsmEvent::BlockApplied` must be at-least-once with hash
+        binding (i.e. apply must complete + side-table commit blob
+        must persist BEFORE the ack fires). A lost ack is recoverable
+        (FSM retries CommitBlock on commit-timeout, apply is
+        idempotent at the State layer because applied-height is
+        checked first), but an ack-before-persist would be a safety
+        bug — never reorder.
+     b. **Startup recovery for in-flight commit:** on node restart
+        while the FSM was in `Step::Commit`, the adapter must inspect
+        the side-table for the height's commit blob; if present the
+        adapter immediately re-emits `BlockApplied { height, hash }`
+        so the FSM resumes; if absent it re-issues the apply and
+        waits. The FSM itself is in-memory only — it does not survive
+        restarts and must be reconstructed from on-disk state.
+     c. **Observability:** structured logs (or metrics) for
+        "stuck-in-Commit > N seconds", "dropped wrong-height event",
+        "dropped wrong-hash BlockApplied ack", and "round-bump count
+        per height". These let an operator detect a runtime/plumbing
+        regression that the FSM is silently absorbing.
+     d. **Permanent apply failure policy:** commit-timeout retry is
+        the right behaviour for transient failures, but a persistent
+        apply error must escalate (fail-stop the node + alert), NOT
+        spin forever. Decide policy: fail-stop after K retries, or
+        deterministic recovery via state rebuild from peers.
+     e. **N=1 cadence preservation:** when ENABLED with a single
+        validator the FSM proposes immediately on Tick; the runtime
+        adapter must rate-limit proposals to honour the legacy
+        `BLOCK_TIME_SECS` so block timestamps stay stable for tooling
+        that depends on a 5s cadence. Pure FSM intentionally has no
+        wall-clock cadence — that is a runtime concern.
 
 **Deferred to a future versioned `HeaderV2` (single coordinated upgrade):**
 - Proposer-signature binding to `commit_hash`. Today the side-table

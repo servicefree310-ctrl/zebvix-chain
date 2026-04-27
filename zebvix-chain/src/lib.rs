@@ -2,6 +2,7 @@ pub mod block_stm;
 pub mod bridge;
 pub mod consensus;
 pub mod crypto;
+pub mod fsm;
 pub mod mempool;
 pub mod multisig;
 pub mod p2p;
