@@ -1073,12 +1073,18 @@ async fn cmd_start(
             });
             tx
         };
-        let producer = Arc::new(
-            Producer::new(sk, state.clone(), mempool.clone()).with_broadcast(producer_send),
-        );
-
         // ── Phase B.2: shared vote pool + auto-emit votes after each new block ──
+        // Phase B.3.2.4: created BEFORE the producer so we can plumb it in
+        // via `.with_vote_pool(...)` — the producer needs the pool at
+        // build_block time to assemble each new block's LastCommit from
+        // the parent height's Precommits.
         let vote_pool = Arc::new(VotePool::new(CHAIN_ID));
+
+        let producer = Arc::new(
+            Producer::new(sk, state.clone(), mempool.clone())
+                .with_broadcast(producer_send)
+                .with_vote_pool(vote_pool.clone()),
+        );
 
         // Background task: poll the chain tip; whenever it advances, this node's
         // validator (if registered) signs a Prevote AND a Precommit for the new

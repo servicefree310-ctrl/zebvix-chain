@@ -29,6 +29,35 @@ const META_LAST_HASH: &[u8] = b"last_hash";
 /// from re-running on every restart (which would otherwise re-scan all
 /// tokens and risk wiping legitimate live-pool mirror reserves).
 const META_PHASE_H_BACKFILL_DONE: &[u8] = b"phaseh/backfill_done_v1";
+/// Phase B.3.2.4 — durable on-disk format-version marker.
+///
+/// Bumped to **2** when `BlockHeader.last_commit_hash` and
+/// `Block.last_commit` were added (April 2026). Stored as a single big-
+/// endian u32 in CF_META on the first successful boot of any binary that
+/// understands this version. On every subsequent boot, `State::open`
+/// reads this key and compares it to the binary's compile-time
+/// `EXPECTED_DB_FORMAT_VERSION`:
+///
+///   * Match (or freshly-created empty DB) → boot proceeds.
+///   * Missing AND tip > 0 → legacy DB written by a pre-Phase-B.3.2.4
+///     binary; refuse to boot with operator instructions.
+///   * Mismatch → forward-incompatible upgrade or accidental downgrade;
+///     refuse to boot.
+///
+/// The check runs BEFORE any block read, so the operator gets a clean
+/// error message instead of a confusing bincode-decode crash deep inside
+/// the chain-reload path.
+const META_DB_FORMAT_VERSION: &[u8] = b"db_format_version";
+
+/// Compile-time expected DB format version for THIS binary.
+///
+/// **Bump this whenever a bincode-incompatible field is added to any
+/// persisted struct (`Block`, `BlockHeader`, `Validator`, accounts, etc.).**
+/// Pair the bump with operator-facing release notes describing the
+/// migration (typically: stop node, wipe DB, restart). The constant lives
+/// in source so a binary CAN'T be silently mis-tagged: every release that
+/// understands version N must be compiled with this set to N.
+const EXPECTED_DB_FORMAT_VERSION: u32 = 2;
 const META_POOL: &[u8] = b"pool";
 const META_LP_PREFIX: &[u8] = b"lp/";
 const META_ADMIN: &[u8] = b"admin";              // 20-byte current admin address (override)
@@ -272,6 +301,60 @@ impl State {
             .get_cf(db.cf_handle(CF_META).unwrap(), META_LAST_HASH)?
             .map(|b| { let mut a = [0u8; 32]; a.copy_from_slice(&b); Hash(a) })
             .unwrap_or(Hash::ZERO);
+
+        // ── Phase B.3.2.4 — DB format-version guard ──
+        // Refuse to start when the on-disk layout is incompatible. This is
+        // the FIRST check after open so the operator gets a clean message
+        // before we attempt any block deserialization (which would otherwise
+        // crash with a confusing bincode error).
+        let cf_meta = db.cf_handle(CF_META).unwrap();
+        let stored_ver = db
+            .get_cf(cf_meta, META_DB_FORMAT_VERSION)?
+            .map(|b| {
+                let mut a = [0u8; 4];
+                if b.len() == 4 {
+                    a.copy_from_slice(&b);
+                    Some(u32::from_be_bytes(a))
+                } else {
+                    None
+                }
+            })
+            .flatten();
+        match stored_ver {
+            Some(v) if v == EXPECTED_DB_FORMAT_VERSION => { /* compatible */ }
+            Some(v) => {
+                anyhow::bail!(
+                    "DB format version mismatch: on-disk={v}, binary expects \
+                    {EXPECTED_DB_FORMAT_VERSION}. Refusing to boot to avoid \
+                    silent corruption. If you intended to migrate or \
+                    downgrade, stop the node and wipe the data directory \
+                    ({}), then restart.",
+                    path.display(),
+                );
+            }
+            None if height == 0 => {
+                // Fresh DB — stamp the current version. First write wins;
+                // if two processes race, the second sees the same value
+                // and proceeds. Crash mid-stamp simply re-runs next boot.
+                db.put_cf(
+                    cf_meta,
+                    META_DB_FORMAT_VERSION,
+                    EXPECTED_DB_FORMAT_VERSION.to_be_bytes(),
+                )?;
+            }
+            None => {
+                anyhow::bail!(
+                    "legacy DB at height {height} has no format-version marker; \
+                    this binary is Phase B.3.2.4 (format v{EXPECTED_DB_FORMAT_VERSION}), \
+                    which added bincode-incompatible BlockHeader/Block fields. \
+                    The pre-existing chain CANNOT be read. Stop the node and \
+                    wipe the data directory ({}), then restart to begin a \
+                    fresh chain. Documented in HARDENING_TODO.md → C1.",
+                    path.display(),
+                );
+            }
+        }
+
         let st = Self {
             db: Arc::new(db),
             tip: RwLock::new((height, last)),
@@ -2718,6 +2801,26 @@ impl State {
             ));
         }
 
+        // ── Phase B.3.2.4 — BFT commit gate ──
+        // At and above the activation height, every block MUST carry a
+        // valid LastCommit (2/3+ Precommits for parent_hash from the
+        // current validator set). Below the activation height, LastCommit
+        // is accepted as advisory only. Default activation = u64::MAX (OFF)
+        // for backward compat with the single-validator devnet.
+        if block.header.height >= *BFT_COMMIT_GATE_ACTIVATION_HEIGHT {
+            let validators = self.validators();
+            if let Err(e) = crate::vote::verify_last_commit_for_parent(
+                block,
+                crate::tokenomics::CHAIN_ID,
+                &validators,
+            ) {
+                return Err(anyhow!(
+                    "block #{}: BFT commit gate REJECTED — {e}",
+                    block.header.height,
+                ));
+            }
+        }
+
         // Phase B.12 — expose block timestamp to apply_tx (Bridge arm reads it).
         self.current_block_ts_ms.store(block.header.timestamp_ms, Ordering::SeqCst);
         if block.txs.len() >= 4 {
@@ -4287,6 +4390,28 @@ pub static STATE_ROOT_ACTIVATION_HEIGHT: Lazy<u64> = Lazy::new(|| {
         .unwrap_or(u64::MAX)
 });
 
+/// **Phase B.3.2.4 — BFT commit gate activation height.**
+///
+/// At and above this height, `apply_block` ENFORCES that
+/// `block.last_commit` carries valid Precommits from 2/3+ of the current
+/// validator set's voting power for `block.header.parent_hash`. Below this
+/// height, `last_commit` is accepted as advisory only (legacy single-
+/// validator PoA blocks).
+///
+/// Default = `u64::MAX` (OFF). Operators flip ON for a future height once
+/// Phase B.3.2.5 (vote-driven commit cycle) is deployed across all
+/// validators in the set. Set via env `ZEBVIX_BFT_COMMIT_GATE_ACTIVATION_HEIGHT`.
+///
+/// ⚠ Multi-validator networks running BELOW this activation height are
+/// CONSENSUS-UNSAFE: any two validators that propose the same height
+/// concurrently will silently fork. See `BFT_ROADMAP.md` Phase B.3.2.
+pub static BFT_COMMIT_GATE_ACTIVATION_HEIGHT: Lazy<u64> = Lazy::new(|| {
+    std::env::var("ZEBVIX_BFT_COMMIT_GATE_ACTIVATION_HEIGHT")
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(u64::MAX)
+});
+
 /// Master switch for the Phase B.3.3 slashing pipeline.
 ///
 /// **SECURITY HARDENING (C/H audit):** default flipped to **TRUE** so any
@@ -4767,9 +4892,14 @@ mod state_root_tests {
             tx_root: Hash::ZERO,
             timestamp_ms: 1_700_000_000_000,
             proposer,
+            // Phase B.3.2.4: tests run with BFT commit gate OFF (default
+            // activation = u64::MAX), so the empty-LastCommit shortcut is
+            // accepted at every height. The genesis-adjacent rule
+            // (h <= 1 → must be ZERO) is also satisfied.
+            last_commit_hash: Hash::ZERO,
         };
         let sig = sign_bytes(signing_secret, &header_signing_bytes(&header)).unwrap();
-        Block { header, txs: Vec::new(), signature: sig }
+        Block { header, txs: Vec::new(), last_commit: Vec::new(), signature: sig }
     }
 
     #[test]
@@ -4984,9 +5114,10 @@ mod state_root_tests {
             tx_root: Hash::ZERO,
             timestamp_ms: 1_700_000_000_000,
             proposer: addr_v,
+            last_commit_hash: Hash::ZERO,
         };
         let sig = sign_bytes(&sk_v, &header_signing_bytes(&header)).unwrap();
-        let blk = Block { header, txs: vec![bad_tx], signature: sig };
+        let blk = Block { header, txs: vec![bad_tx], last_commit: Vec::new(), signature: sig };
 
         let res = st.apply_block(&blk);
         assert!(res.is_err(), "block with creator-only mint by non-creator must abort");
@@ -5013,9 +5144,10 @@ mod state_root_tests {
             tx_root: Hash::ZERO,
             timestamp_ms: 1_700_000_001_000,
             proposer: addr_v,
+            last_commit_hash: Hash::ZERO,
         };
         let sig2 = sign_bytes(&sk_v, &header_signing_bytes(&header2)).unwrap();
-        let blk2 = Block { header: header2, txs: vec![], signature: sig2 };
+        let blk2 = Block { header: header2, txs: vec![], last_commit: Vec::new(), signature: sig2 };
         let res2 = st.apply_block(&blk2);
         assert!(res2.is_err(), "apply_block must refuse while marker is stuck");
         let msg = format!("{:?}", res2.err().unwrap());
@@ -5046,9 +5178,10 @@ mod state_root_tests {
             height: h0 + 1, parent_hash: parent,
             state_root: Hash::ZERO, tx_root: Hash::ZERO,
             timestamp_ms: 1_700_000_000_000, proposer: addr_v,
+            last_commit_hash: Hash::ZERO,
         };
         let sig = sign_bytes(&sk_v, &header_signing_bytes(&header)).unwrap();
-        let blk = Block { header, txs: vec![], signature: sig };
+        let blk = Block { header, txs: vec![], last_commit: Vec::new(), signature: sig };
         st.apply_block(&blk).unwrap();
         let (tip_h, tip_hash) = st.tip();
         assert_eq!(tip_h, h0 + 1);
@@ -5062,9 +5195,10 @@ mod state_root_tests {
             height: tip_h + 1, parent_hash: tip_hash,
             state_root: Hash::ZERO, tx_root: Hash::ZERO,
             timestamp_ms: 1_700_000_001_000, proposer: addr_v,
+            last_commit_hash: Hash::ZERO,
         };
         let sig2 = sign_bytes(&sk_v, &header_signing_bytes(&header2)).unwrap();
-        let blk2 = Block { header: header2, txs: vec![], signature: sig2 };
+        let blk2 = Block { header: header2, txs: vec![], last_commit: Vec::new(), signature: sig2 };
         st.apply_block(&blk2).expect("auto-clear path should allow valid block");
         let (tip_h2, _) = st.tip();
         assert_eq!(tip_h2, tip_h + 1);

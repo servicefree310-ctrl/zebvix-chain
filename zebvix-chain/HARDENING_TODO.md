@@ -19,30 +19,57 @@ own phase. This file tracks them honestly so they're not forgotten.
 
 ## C1 — Replace block-producer rotation with real BFT
 
-**Current state:** `consensus.rs` uses round-robin proposer selection over
-the validator set with single-validator finality. There is no PBFT-style
-prepare/commit voting; a single Byzantine proposer can equivocate (sign
-two blocks at the same height) and the chain has no detection mechanism.
+**Phase B.3.2.4 (April 2026, partial):** Wire skeleton + commit-gate
+landed. Block headers now carry a proposer-signed `last_commit_hash`
+binding the body's `last_commit` Vec<Vote> payload. New verifier
+`vote::verify_last_commit_for_parent(block, chain_id, validators)`
+enforces hash-binding, per-vote sanity (chain_id/height/type/target/sig),
+dedup, validator-set membership, and a 2/3+ voting-power quorum, plus the
+genesis-adjacent rule. The gate is wired into `apply_block` behind
+`ZEBVIX_BFT_COMMIT_GATE_ACTIVATION_HEIGHT` (default `u64::MAX` = OFF).
+Producer now takes an `Option<Arc<VotePool>>` and packs parent precommits
+into every block. 12 dedicated unit tests in `vote.rs::tests` cover the
+verifier surface. **The single-validator devnet behavior is unchanged
+until an operator sets the env var.**
 
-**Why deferred:** A real BFT round-machine (Tendermint / HotStuff / Aura)
-is multi-week work — propose / pre-vote / pre-commit phases, view-change
-on timeout, equivocation evidence + slashing, gossip-based vote
-aggregation, deterministic timeouts. It also needs a testnet bake-in
-period before any mainnet rollout.
+**Still single-validator-PoA in practice:** Despite the new commit gate,
+the round machine itself is **not yet implemented** — `consensus.rs`
+still self-applies via `Producer::run`. Phase 2 (next session) will
+restructure that into a real propose / prevote / precommit / commit
+cycle wired through P2P, with a separate `ProposedBlock` gossip variant
+and quorum-driven commit decisions. Until then, multi-validator networks
+WILL silently fork at concurrent proposals — the gate detects bad
+LastCommit but has nothing to feed it from a peer.
 
-**Migration plan:**
-1. Implement `ConsensusFsm` enum: `{ Propose, PreVote, PreCommit, Commit }`.
-2. Add `Vote { height, round, kind, hash, signer, signature }` over
-   `vote.rs` (skeleton already present).
-3. Replace `apply_block` direct path with a `commit_block` that fires
+**Why fully deferred:** A real BFT round-machine (Tendermint / HotStuff /
+Aura) is multi-week work — propose / pre-vote / pre-commit phases,
+view-change on timeout, equivocation evidence + slashing, gossip-based
+vote aggregation, deterministic timeouts. It also needs a testnet
+bake-in period before any mainnet rollout.
+
+**Migration plan (remaining):**
+1. ~~Add `Vote { height, round, kind, hash, signer, signature }` over
+   `vote.rs`~~ — already present.
+2. ~~Add LastCommit binding to BlockHeader + verifier~~ — Phase B.3.2.4
+   done (April 2026).
+3. Implement `ConsensusFsm` enum: `{ Propose, PreVote, PreCommit, Commit }`
+   — Phase B.3.2.5 (next).
+4. Replace `apply_block` direct path with a `commit_block` that fires
    only after ⅔+ pre-commits collected by the consensus task.
-4. Add equivocation evidence (`Evidence { vote_a, vote_b }`) → slash via
+5. Add equivocation evidence (`Evidence { vote_a, vote_b }`) → slash via
    staking module's `jail` path.
-5. Activate at `BFT_ACTIVATION_HEIGHT` (env-driven), same pattern as
-   `STATE_ROOT_ACTIVATION_HEIGHT`.
+6. Flip `ZEBVIX_BFT_COMMIT_GATE_ACTIVATION_HEIGHT` to a future height
+   once Phase B.3.2.5 is deployed across all validators.
 
 **Risk if not done:** A single malicious proposer can fork the chain.
-Currently mitigated by the small validator set being trusted operators.
+Currently mitigated by the small validator set being trusted operators
+AND single-validator-only deployment.
+
+**Bincode migration note:** The BlockHeader/Block layout changed in
+Phase B.3.2.4 (added `last_commit_hash` and `last_commit` fields).
+Existing devnet RocksDB databases CANNOT be read by the new binary —
+operators must wipe `~/.zebvix/data` (or equivalent home dir) before
+restarting. Acceptable for testnet-only deployment as of April 2026.
 
 ---
 
