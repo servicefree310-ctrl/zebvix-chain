@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { rpc, weiHexToZbx, shortAddr, weiToUsd, fmtUsd } from "@/lib/zbx-rpc";
+import { useFeatureFlags, type FeatureFlags } from "@/lib/use-brand-config";
 import {
   Activity, Box, Users, Coins, ArrowLeftRight, Wifi, ShieldCheck, Hash,
   TrendingUp, Layers, Cpu, Sparkles, Search, Wallet, ArrowUpDown, AtSign,
@@ -43,6 +44,7 @@ interface BurnStats {
 // Mission Control (Home)
 // ─────────────────────────────────────────────────────────────────────────────
 export default function Home() {
+  const flags = useFeatureFlags();
   const [tip, setTip] = useState<BlockInfo | null>(null);
   const [recent, setRecent] = useState<BlockInfo[]>([]);
   const [price, setPrice] = useState<PriceInfo | null>(null);
@@ -201,8 +203,8 @@ export default function Home() {
         </div>
       )}
 
-      {/* POOL BOOTSTRAP BANNER — only when pool is uninitialized */}
-      {poolUninit && <PoolBootstrapBanner />}
+      {/* POOL BOOTSTRAP BANNER — only when pool is uninitialized AND DEX is on */}
+      {poolUninit && flags.featuresDexEnabled !== false && <PoolBootstrapBanner />}
 
       {/* PHASE STATUS BANNER */}
       <PhaseBanner />
@@ -590,21 +592,32 @@ function RecentBlocksRibbon({ recent }: { recent: BlockInfo[] }) {
 // Quick Access Grid
 // ─────────────────────────────────────────────────────────────────────────────
 function QuickAccessGrid() {
-  const items = [
+  const flags = useFeatureFlags();
+  // `feature` ties a tile to a feature flag — when the flag is false the tile
+  // is hidden. Tiles without a `feature` are always shown.
+  const allItems: Array<{
+    href: string;
+    icon: typeof Activity;
+    title: string;
+    desc: string;
+    tone: string;
+    feature?: keyof FeatureFlags;
+  }> = [
     { href: "/live-chain", icon: Activity, title: "Live Chain", desc: "Real-time telemetry, blocks, validators, economy", tone: "emerald" },
     { href: "/zvm-explorer", icon: Cpu, title: "ZVM Explorer", desc: "Live zbx_* / eth_* JSON-RPC playground for the Zebvix Virtual Machine.", tone: "violet" },
-    { href: "/pool-explorer", icon: Droplets, title: "Pool / AMM", desc: "ZBX/zUSD reserves, spot price, swaps", tone: "cyan" },
+    { href: "/pool-explorer", icon: Droplets, title: "Pool / AMM", desc: "ZBX/zUSD reserves, spot price, swaps", tone: "cyan", feature: "featuresDexEnabled" },
     { href: "/block-explorer", icon: Search, title: "Block Explorer", desc: "Browse blocks, txs, addresses", tone: "cyan" },
-    { href: "/wallet", icon: Wallet, title: "ZBX Wallet", desc: "Web wallet — send, receive, sign", tone: "amber" },
-    { href: "/swap", icon: ArrowUpDown, title: "Swap", desc: "AMM ZBX/zUSD trading", tone: "emerald" },
-    { href: "/staking", icon: TrendingUp, title: "Staking", desc: "Delegate ZBX, earn rewards", tone: "violet" },
-    { href: "/bridge", icon: ArrowLeftRight, title: "BSC Bridge", desc: "Bridge ZBX between Zebvix L1 and BSC", tone: "cyan" },
-    { href: "/multisig-explorer", icon: Shield, title: "Multisig", desc: "On-chain m-of-n vault management", tone: "amber" },
-    { href: "/payid-resolver", icon: AtSign, title: "Pay-ID", desc: "Human-readable address resolver", tone: "emerald" },
-    { href: "/faucet", icon: Droplets, title: "Faucet", desc: "Testnet ZBX dispenser", tone: "violet" },
-    { href: "/connect-wallet", icon: Smartphone, title: "Mobile Wallet", desc: "Flutter wallet pairing & QR", tone: "cyan" },
+    { href: "/wallet", icon: Wallet, title: "ZBX Wallet", desc: "Web wallet — send, receive, sign", tone: "amber", feature: "featuresWalletEnabled" },
+    { href: "/swap", icon: ArrowUpDown, title: "Swap", desc: "AMM ZBX/zUSD trading", tone: "emerald", feature: "featuresDexEnabled" },
+    { href: "/staking", icon: TrendingUp, title: "Staking", desc: "Delegate ZBX, earn rewards", tone: "violet", feature: "featuresStakingEnabled" },
+    { href: "/bridge", icon: ArrowLeftRight, title: "BSC Bridge", desc: "Bridge ZBX between Zebvix L1 and BSC", tone: "cyan", feature: "featuresBridgeEnabled" },
+    { href: "/multisig-explorer", icon: Shield, title: "Multisig", desc: "On-chain m-of-n vault management", tone: "amber", feature: "featuresMultisigEnabled" },
+    { href: "/payid-resolver", icon: AtSign, title: "Pay-ID", desc: "Human-readable address resolver", tone: "emerald", feature: "featuresPayidEnabled" },
+    { href: "/faucet", icon: Droplets, title: "Faucet", desc: "Testnet ZBX dispenser", tone: "violet", feature: "featuresFaucetEnabled" },
+    { href: "/connect-wallet", icon: Smartphone, title: "Mobile Wallet", desc: "Flutter wallet pairing & QR", tone: "cyan", feature: "featuresWalletEnabled" },
     { href: "/balance-lookup", icon: Search, title: "Balance Check", desc: "Inspect any address state", tone: "amber" },
   ];
+  const items = allItems.filter((it) => !it.feature || flags[it.feature] !== false);
   const toneRing: Record<string, string> = {
     emerald: "hover:border-emerald-500/50 hover:bg-emerald-500/5",
     violet: "hover:border-violet-500/50 hover:bg-violet-500/5",

@@ -2,7 +2,7 @@ import React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { WalletPicker } from "@/components/ui/wallet-picker";
 import { Smartphone } from "lucide-react";
-import { useBrandConfig } from "@/lib/use-brand-config";
+import { useBrandConfig, useFeatureFlags } from "@/lib/use-brand-config";
 
 type ChainStatus = {
   height?: number | string;
@@ -24,6 +24,7 @@ async function fetchStatus(): Promise<ChainStatus | null> {
 
 export function Topbar() {
   const brand = useBrandConfig();
+  const flags = useFeatureFlags();
   const { data } = useQuery({
     queryKey: ["topbar-chain-status"],
     queryFn: fetchStatus,
@@ -80,16 +81,18 @@ export function Topbar() {
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <a
-          href="/api/mobile/"
-          target="_blank" rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-card/60 px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-card transition-colors"
-          data-testid="topbar-mobile-link"
-        >
-          <Smartphone className="h-3.5 w-3.5" />
-          <span>Mobile Wallet</span>
-        </a>
-        <WalletPicker />
+        {flags.featuresWalletEnabled !== false && (
+          <a
+            href="/api/mobile/"
+            target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-card/60 px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-card transition-colors"
+            data-testid="topbar-mobile-link"
+          >
+            <Smartphone className="h-3.5 w-3.5" />
+            <span>Mobile Wallet</span>
+          </a>
+        )}
+        {flags.featuresWalletEnabled !== false && <WalletPicker />}
       </div>
     </div>
   );

@@ -57,6 +57,36 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { iconFor } from "@/lib/icon-map";
 import { adminApi, type NavItem } from "@/lib/admin-client";
+import { useFeatureFlags, type FeatureFlags } from "@/lib/use-brand-config";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Feature-flag → href predicate. Pages whose href matches a DISABLED feature
+// flag get hidden from the sidebar. Admin Panel + core build/docs always stay
+// visible — admins should never lock themselves out by toggling a flag.
+// ─────────────────────────────────────────────────────────────────────────────
+function featureForHref(href: string): keyof FeatureFlags | null {
+  const h = href.toLowerCase();
+  if (h === "/admin") return null;
+  if (h.startsWith("/dex") || h.startsWith("/swap") || h.startsWith("/token-trade") || h.startsWith("/token-liquidity") || h.startsWith("/pool-explorer"))
+    return "featuresDexEnabled";
+  if (h.startsWith("/bridge")) return "featuresBridgeEnabled";
+  if (h.startsWith("/staking")) return "featuresStakingEnabled";
+  if (h.startsWith("/faucet")) return "featuresFaucetEnabled";
+  if (h.startsWith("/governance")) return "featuresGovernanceEnabled";
+  if (
+    h.startsWith("/wallet") ||
+    h.startsWith("/import-wallet") ||
+    h.startsWith("/connect-wallet") ||
+    h.startsWith("/api/mobile") ||
+    h.startsWith("/mobile")
+  )
+    return "featuresWalletEnabled";
+  if (h.startsWith("/multisig")) return "featuresMultisigEnabled";
+  if (h.startsWith("/payid")) return "featuresPayidEnabled";
+  if (h.startsWith("/token-create")) return "featuresTokenCreateEnabled";
+  if (h.startsWith("/chain-builder")) return "featuresChainBuilderEnabled";
+  return null;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Nav data — `badge` is optional and renders as a small pill next to the label.
@@ -160,9 +190,21 @@ function useEffectiveSections(): SidebarSection[] {
     staleTime: 15_000,
     retry: 1,
   });
+  const flags = useFeatureFlags();
   return useMemo(() => {
+    const filterByFlags = (link: NavLink): boolean => {
+      const flagKey = featureForHref(link.href);
+      if (!flagKey) return true;
+      return flags[flagKey] !== false;
+    };
+
     const items = data?.items ?? [];
-    if (items.length === 0) return FALLBACK_SECTIONS;
+    if (items.length === 0) {
+      return FALLBACK_SECTIONS.map((s) => ({
+        ...s,
+        items: s.items.filter(filterByFlags),
+      }));
+    }
     const buckets: Record<string, NavLink[]> = { core: [], live: [], addons: [] };
     for (const it of items) {
       const section = (it.section in buckets ? it.section : "addons") as keyof typeof buckets;
@@ -173,6 +215,7 @@ function useEffectiveSections(): SidebarSection[] {
         badge: (it.badge ?? undefined) as NavBadge | undefined,
         external: it.openInNewTab || /^https?:\/\//i.test(it.href),
       };
+      if (!filterByFlags(link)) continue;
       buckets[section].push(link);
     }
     // Always make sure the Admin Panel itself is reachable from the sidebar
@@ -192,7 +235,7 @@ function useEffectiveSections(): SidebarSection[] {
       { id: "live", title: "Live VPS RPC", icon: Radio, accent: "text-emerald-400", items: buckets.live },
       { id: "addons", title: "Add-ons & Tools", icon: Sparkles, accent: "text-violet-400", items: buckets.addons },
     ];
-  }, [data]);
+  }, [data, flags]);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

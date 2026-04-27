@@ -182,6 +182,10 @@ adminRouter.get("/admin/settings/catalog", (_req, res) => {
       defaultValue: d.defaultValue,
       isPublic: d.isPublic,
       isSensitive: d.isSensitive ?? false,
+      // Render hints — frontend uses these to build select/range inputs.
+      ...(d.options ? { options: d.options } : {}),
+      ...(typeof d.min === "number" ? { min: d.min } : {}),
+      ...(typeof d.max === "number" ? { max: d.max } : {}),
     })),
   });
 });
@@ -240,19 +244,59 @@ function validateSettings(
     // Normalise strings.
     if (typeof v === "string") v = v.trim();
     if (v === "" || v === null || v === undefined) {
-      // Allow clearing optional fields back to default. Numbers stay required.
-      if (def.kind === "number") {
+      // Allow clearing optional fields back to default. Numbers/bps stay
+      // required (must be explicit) — except enum, which falls back to default.
+      if (def.kind === "number" || def.kind === "bps") {
         errors.push({ key: k, reason: "must be a number" });
         continue;
       }
-      out[k] = def.kind === "boolean" ? Boolean(def.defaultValue) : "";
+      if (def.kind === "boolean") out[k] = Boolean(def.defaultValue);
+      else if (def.kind === "enum") out[k] = String(def.defaultValue);
+      else out[k] = "";
       continue;
     }
     switch (def.kind) {
       case "number": {
-        const n = typeof v === "number" ? v : Number(v);
+        // Type-strict: only real numbers or strict numeric strings. Booleans
+        // and arrays/objects must NOT silently coerce (Number(true) === 1,
+        // Number([1]) === 1) — that would be a type-confusion bypass.
+        let n: number;
+        if (typeof v === "number") {
+          n = v;
+        } else if (typeof v === "string" && /^-?\d+(?:\.\d+)?$/.test(v)) {
+          n = Number(v);
+        } else {
+          errors.push({ key: k, reason: "must be a number" });
+          continue;
+        }
         if (!Number.isFinite(n) || n < 0 || n > 2 ** 53 - 1) {
           errors.push({ key: k, reason: "must be a non-negative finite number" });
+          continue;
+        }
+        if (typeof def.min === "number" && n < def.min) {
+          errors.push({ key: k, reason: `must be >= ${def.min}` });
+          continue;
+        }
+        if (typeof def.max === "number" && n > def.max) {
+          errors.push({ key: k, reason: `must be <= ${def.max}` });
+          continue;
+        }
+        out[k] = n;
+        break;
+      }
+      case "bps": {
+        // Same type-strict policy as `number` — basis points are integer-only.
+        let n: number;
+        if (typeof v === "number") {
+          n = v;
+        } else if (typeof v === "string" && /^\d+$/.test(v)) {
+          n = Number(v);
+        } else {
+          errors.push({ key: k, reason: "must be an integer 0..10000 (basis points)" });
+          continue;
+        }
+        if (!Number.isInteger(n) || n < 0 || n > 10_000) {
+          errors.push({ key: k, reason: "must be an integer 0..10000 (basis points)" });
           continue;
         }
         out[k] = n;
@@ -280,6 +324,45 @@ function validateSettings(
           continue;
         }
         out[k] = v.toLowerCase();
+        break;
+      }
+      case "enum": {
+        const opts = def.options ?? [];
+        if (typeof v !== "string" || !opts.includes(v)) {
+          errors.push({ key: k, reason: `must be one of: ${opts.join(", ")}` });
+          continue;
+        }
+        out[k] = v;
+        break;
+      }
+      case "csv": {
+        if (typeof v !== "string") {
+          errors.push({ key: k, reason: "must be a string (comma-separated)" });
+          continue;
+        }
+        if (v.length > 4096) {
+          errors.push({ key: k, reason: "csv too long (max 4096 chars)" });
+          continue;
+        }
+        // Normalise: split, trim, drop empties, dedupe, alphanumeric+_- only.
+        const items = Array.from(
+          new Set(
+            v
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean),
+          ),
+        );
+        const bad = items.find((it) => !/^[A-Za-z0-9_.\-]{1,64}$/.test(it));
+        if (bad) {
+          errors.push({ key: k, reason: `invalid token "${bad}" — letters, digits, _-. only, max 64 chars` });
+          continue;
+        }
+        if (items.length > 200) {
+          errors.push({ key: k, reason: "too many entries (max 200)" });
+          continue;
+        }
+        out[k] = items.join(",");
         break;
       }
       case "string":

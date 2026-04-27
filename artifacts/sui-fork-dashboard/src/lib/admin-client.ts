@@ -79,15 +79,38 @@ async function adminFetch<T>(path: string, opts: FetchOpts = {}): Promise<T> {
 }
 
 // ── Types ──────────────────────────────────────────────────────────────────
+// Mirrors artifacts/api-server/src/lib/admin-settings.ts. Keep in sync.
+export type SettingKind =
+  | "string"
+  | "number"
+  | "url"
+  | "color"
+  | "boolean"
+  | "bps"
+  | "enum"
+  | "csv";
+
+export type SettingGroup =
+  | "chain"
+  | "branding"
+  | "links"
+  | "features"
+  | "dex"
+  | "faucet"
+  | "system";
+
 export interface SettingDef {
   key: string;
-  group: "chain" | "branding" | "links";
+  group: SettingGroup;
   label: string;
   hint: string | null;
-  kind: "string" | "number" | "url" | "color" | "boolean";
+  kind: SettingKind;
   defaultValue: string | number | boolean;
   isPublic: boolean;
   isSensitive: boolean;
+  options?: string[];
+  min?: number;
+  max?: number;
 }
 
 export interface NavItem {

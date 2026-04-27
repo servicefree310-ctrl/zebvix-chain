@@ -1,7 +1,7 @@
 import express, { type Express, type Request } from "express";
 import cors from "cors";
 import helmet from "helmet";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import pinoHttp from "pino-http";
 import { clerkMiddleware } from "@clerk/express";
 import path from "path";
@@ -124,7 +124,9 @@ app.use(
 );
 
 // Rate-limit: tighter on mutating / relay endpoints, looser elsewhere.
-const keyByIp = (req: Request) => req.ip ?? "unknown";
+// IPv6-safe key derivation — ipKeyGenerator collapses /64 prefixes so a single
+// IPv6 user cannot bypass the limiter by rotating the lower 64 bits.
+const keyByIp = (req: Request) => ipKeyGenerator(req.ip ?? "unknown");
 
 const tightLimiter = rateLimit({
   windowMs: 60_000,

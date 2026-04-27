@@ -25,6 +25,50 @@ export type BrandConfig = {
   docsUrl: string;
 };
 
+export type FeatureFlags = {
+  featuresDexEnabled: boolean;
+  featuresBridgeEnabled: boolean;
+  featuresStakingEnabled: boolean;
+  featuresFaucetEnabled: boolean;
+  featuresGovernanceEnabled: boolean;
+  featuresWalletEnabled: boolean;
+  featuresMultisigEnabled: boolean;
+  featuresPayidEnabled: boolean;
+  featuresTokenCreateEnabled: boolean;
+  featuresChainBuilderEnabled: boolean;
+};
+
+export type DexConfig = {
+  dexFeeBps: number;
+  dexDefaultSlippageBps: number;
+  dexMinLiquidityWarn: number;
+  dexBaseToken: string;
+  dexAllowedTokens: string;
+  dexBlockedTokens: string;
+  dexQuoteRefreshSec: number;
+};
+
+export type FaucetConfig = {
+  faucetAmount: number;
+  faucetCooldownSec: number;
+  faucetMessage: string;
+};
+
+export type SystemConfig = {
+  maintenanceMode: boolean;
+  maintenanceMessage: string;
+  announcementEnabled: boolean;
+  announcementText: string;
+  announcementLevel: "info" | "success" | "warn" | "critical";
+  announcementUrl: string;
+};
+
+export type AdminPublicConfig = BrandConfig &
+  FeatureFlags &
+  DexConfig &
+  FaucetConfig &
+  SystemConfig;
+
 export const DEFAULT_BRAND: BrandConfig = {
   chainId: 7878,
   chainName: "Zebvix L1",
@@ -46,22 +90,89 @@ export const DEFAULT_BRAND: BrandConfig = {
   docsUrl: "",
 };
 
-function coerce(values: Record<string, unknown>): BrandConfig {
-  const out: BrandConfig = { ...DEFAULT_BRAND };
-  for (const k of Object.keys(out) as (keyof BrandConfig)[]) {
+const DEFAULT_FEATURES: FeatureFlags = {
+  featuresDexEnabled: true,
+  featuresBridgeEnabled: true,
+  featuresStakingEnabled: true,
+  featuresFaucetEnabled: true,
+  featuresGovernanceEnabled: true,
+  featuresWalletEnabled: true,
+  featuresMultisigEnabled: true,
+  featuresPayidEnabled: true,
+  featuresTokenCreateEnabled: true,
+  featuresChainBuilderEnabled: true,
+};
+
+const DEFAULT_DEX: DexConfig = {
+  dexFeeBps: 30,
+  dexDefaultSlippageBps: 50,
+  dexMinLiquidityWarn: 1000,
+  dexBaseToken: "ZBX",
+  dexAllowedTokens: "",
+  dexBlockedTokens: "",
+  dexQuoteRefreshSec: 6,
+};
+
+const DEFAULT_FAUCET: FaucetConfig = {
+  faucetAmount: 1,
+  faucetCooldownSec: 86_400,
+  faucetMessage: "",
+};
+
+const DEFAULT_SYSTEM: SystemConfig = {
+  maintenanceMode: false,
+  maintenanceMessage: "We'll be back shortly.",
+  announcementEnabled: false,
+  announcementText: "",
+  announcementLevel: "info",
+  announcementUrl: "",
+};
+
+export const DEFAULT_PUBLIC_CONFIG: AdminPublicConfig = {
+  ...DEFAULT_BRAND,
+  ...DEFAULT_FEATURES,
+  ...DEFAULT_DEX,
+  ...DEFAULT_FAUCET,
+  ...DEFAULT_SYSTEM,
+};
+
+const ALLOWED_LEVELS: SystemConfig["announcementLevel"][] = [
+  "info",
+  "success",
+  "warn",
+  "critical",
+];
+
+function coerce(values: Record<string, unknown>): AdminPublicConfig {
+  const out: AdminPublicConfig = { ...DEFAULT_PUBLIC_CONFIG };
+  for (const k of Object.keys(out) as (keyof AdminPublicConfig)[]) {
     const v = values[k];
-    if (v === undefined || v === null || v === "") continue;
-    if (typeof out[k] === "number") {
+    if (v === undefined || v === null) continue;
+    const cur = out[k];
+    if (typeof cur === "boolean") {
+      if (typeof v === "boolean") (out[k] as boolean) = v;
+      else if (typeof v === "string")
+        (out[k] as boolean) = v === "true" || v === "1";
+      continue;
+    }
+    if (typeof cur === "number") {
+      if (v === "") continue;
       const n = Number(v);
       if (Number.isFinite(n)) (out[k] as number) = n;
-    } else if (typeof v === "string") {
-      (out[k] as string) = v;
+      continue;
     }
+    if (k === "announcementLevel") {
+      if (typeof v === "string" && (ALLOWED_LEVELS as string[]).includes(v)) {
+        out.announcementLevel = v as SystemConfig["announcementLevel"];
+      }
+      continue;
+    }
+    if (typeof v === "string") (out[k] as string) = v;
   }
   return out;
 }
 
-export function useBrandConfig(): BrandConfig {
+function usePublicConfig(): AdminPublicConfig {
   const { data } = useQuery({
     queryKey: ["public-settings"],
     queryFn: () => adminApi.publicSettings(),
@@ -69,6 +180,30 @@ export function useBrandConfig(): BrandConfig {
     refetchInterval: 60_000,
     retry: 1,
   });
-  if (!data?.values) return DEFAULT_BRAND;
+  if (!data?.values) return DEFAULT_PUBLIC_CONFIG;
   return coerce(data.values as Record<string, unknown>);
+}
+
+export function useBrandConfig(): BrandConfig {
+  return usePublicConfig();
+}
+
+export function useFeatureFlags(): FeatureFlags {
+  return usePublicConfig();
+}
+
+export function useDexConfig(): DexConfig {
+  return usePublicConfig();
+}
+
+export function useFaucetConfig(): FaucetConfig {
+  return usePublicConfig();
+}
+
+export function useSystemConfig(): SystemConfig {
+  return usePublicConfig();
+}
+
+export function usePublicAdminConfig(): AdminPublicConfig {
+  return usePublicConfig();
 }

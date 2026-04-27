@@ -20,6 +20,10 @@ import {
   ChevronUp,
   ChevronDown,
   RotateCcw,
+  ToggleLeft,
+  ArrowDownUp,
+  Droplets,
+  Wrench,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -178,11 +182,11 @@ function SettingsForm({
     setSaving(true);
     setErr(null);
     try {
-      // Coerce numbers from string inputs.
+      // Coerce numbers/bps from string inputs.
       const out: Record<string, unknown> = {};
       for (const d of defs) {
         let v = draft[d.key];
-        if (d.kind === "number" && typeof v === "string") {
+        if ((d.kind === "number" || d.kind === "bps") && typeof v === "string") {
           const n = Number(v);
           v = Number.isFinite(n) ? n : d.defaultValue;
         }
@@ -241,6 +245,46 @@ function SettingsForm({
                     className="font-mono text-xs"
                     placeholder="#10b981"
                   />
+                </div>
+              ) : d.kind === "enum" && Array.isArray(d.options) ? (
+                <select
+                  id={`fld-${d.key}`}
+                  value={typeof display === "string" ? display : String(d.defaultValue)}
+                  onChange={(e) => setDraft((p) => ({ ...p, [d.key]: e.target.value }))}
+                  className="w-full bg-background border border-border rounded-md px-3 py-2 text-xs font-mono focus:outline-none focus:border-primary"
+                  data-testid={`fld-${d.key}`}
+                >
+                  {d.options.map((opt) => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                </select>
+              ) : d.kind === "csv" ? (
+                <textarea
+                  id={`fld-${d.key}`}
+                  value={typeof display === "string" ? display : ""}
+                  onChange={(e) => setDraft((p) => ({ ...p, [d.key]: e.target.value }))}
+                  placeholder={String(d.defaultValue) || "ZBX, USDC, USDT"}
+                  rows={2}
+                  className="w-full bg-background border border-border rounded-md px-3 py-2 text-xs font-mono focus:outline-none focus:border-primary resize-y"
+                  data-testid={`fld-${d.key}`}
+                />
+              ) : d.kind === "bps" ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    id={`fld-${d.key}`}
+                    type="number"
+                    min={0}
+                    max={10000}
+                    step={1}
+                    value={typeof display === "string" || typeof display === "number" ? String(display) : ""}
+                    onChange={(e) => setDraft((p) => ({ ...p, [d.key]: e.target.value }))}
+                    placeholder={String(d.defaultValue)}
+                    className="font-mono text-xs"
+                    data-testid={`fld-${d.key}`}
+                  />
+                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                    = {((Number(display) || 0) / 100).toFixed(2)}%
+                  </span>
                 </div>
               ) : (
                 <Input
@@ -846,10 +890,17 @@ function AdminShell({ onSignOut }: { onSignOut: () => void }) {
   };
 
   const defs = catalog.data?.defs ?? [];
-  const grouped: Record<"chain" | "branding" | "links", SettingDef[]> = {
+  const grouped: Record<
+    "chain" | "branding" | "links" | "features" | "dex" | "faucet" | "system",
+    SettingDef[]
+  > = {
     chain: defs.filter((d) => d.group === "chain"),
     branding: defs.filter((d) => d.group === "branding"),
     links: defs.filter((d) => d.group === "links"),
+    features: defs.filter((d) => d.group === "features"),
+    dex: defs.filter((d) => d.group === "dex"),
+    faucet: defs.filter((d) => d.group === "faucet"),
+    system: defs.filter((d) => d.group === "system"),
   };
   const values = settings.data?.values ?? {};
 
@@ -933,6 +984,18 @@ function AdminShell({ onSignOut }: { onSignOut: () => void }) {
           <TabsTrigger value="links" data-testid="tab-links">
             <LinkIcon className="h-3.5 w-3.5 mr-1.5" /> Social Links
           </TabsTrigger>
+          <TabsTrigger value="features" data-testid="tab-features">
+            <ToggleLeft className="h-3.5 w-3.5 mr-1.5" /> Features
+          </TabsTrigger>
+          <TabsTrigger value="dex" data-testid="tab-dex">
+            <ArrowDownUp className="h-3.5 w-3.5 mr-1.5" /> DEX
+          </TabsTrigger>
+          <TabsTrigger value="faucet" data-testid="tab-faucet">
+            <Droplets className="h-3.5 w-3.5 mr-1.5" /> Faucet
+          </TabsTrigger>
+          <TabsTrigger value="system" data-testid="tab-system">
+            <Wrench className="h-3.5 w-3.5 mr-1.5" /> System
+          </TabsTrigger>
           <TabsTrigger value="nav" data-testid="tab-nav">
             <ListChecks className="h-3.5 w-3.5 mr-1.5" /> Pages & Services
           </TabsTrigger>
@@ -998,6 +1061,104 @@ function AdminShell({ onSignOut }: { onSignOut: () => void }) {
               ) : (
                 <SettingsForm
                   defs={grouped.links}
+                  values={values}
+                  onSave={handleSettingsSave}
+                />
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="features" className="pt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Feature flags</CardTitle>
+              <CardDescription>
+                Toggle entire dashboard sections on or off. Disabled features are
+                hidden from the sidebar; the underlying pages remain reachable
+                via direct URL so admins can preview them. Combine with the
+                Pages & Services tab for a hard hide.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {settings.isLoading || catalog.isLoading ? (
+                <p className="text-sm text-muted-foreground">Loading…</p>
+              ) : (
+                <SettingsForm
+                  defs={grouped.features}
+                  values={values}
+                  onSave={handleSettingsSave}
+                />
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="dex" className="pt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">DEX & trading</CardTitle>
+              <CardDescription>
+                Defaults consumed by the swap, token-trade and pool pages. Fees
+                and slippage are in basis points (100 bps = 1%). Allow / block
+                lists accept comma-separated token symbols and apply on top of
+                the on-chain registry.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {settings.isLoading || catalog.isLoading ? (
+                <p className="text-sm text-muted-foreground">Loading…</p>
+              ) : (
+                <SettingsForm
+                  defs={grouped.dex}
+                  values={values}
+                  onSave={handleSettingsSave}
+                />
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="faucet" className="pt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Testnet faucet</CardTitle>
+              <CardDescription>
+                Drip amount, per-address cooldown and an optional message shown
+                to faucet users.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {settings.isLoading || catalog.isLoading ? (
+                <p className="text-sm text-muted-foreground">Loading…</p>
+              ) : (
+                <SettingsForm
+                  defs={grouped.faucet}
+                  values={values}
+                  onSave={handleSettingsSave}
+                />
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="system" className="pt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">System controls</CardTitle>
+              <CardDescription>
+                Maintenance mode shows a full-page overlay to all visitors — the
+                Admin Panel itself is always exempt so you can switch it back
+                off. The announcement banner appears at the top of every
+                non-admin page when enabled.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {settings.isLoading || catalog.isLoading ? (
+                <p className="text-sm text-muted-foreground">Loading…</p>
+              ) : (
+                <SettingsForm
+                  defs={grouped.system}
                   values={values}
                   onSave={handleSettingsSave}
                 />
