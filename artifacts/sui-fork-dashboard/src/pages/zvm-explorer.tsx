@@ -5,7 +5,7 @@ import {
   Check, Copy, AlertCircle, ChevronRight, Layers, Activity, Sparkles,
   AtSign, Compass, FileText, ExternalLink, X, BookOpen, Terminal,
   Radio, Network, Filter, RotateCw, Clock, History, Trash2, Play,
-  ArrowUpRight, Pause, Eye, EyeOff, Coins, ShieldCheck, Server,
+  ArrowUpRight, Pause, Eye, EyeOff, Coins, ShieldCheck, Server, Info,
 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
@@ -1659,6 +1659,83 @@ function fmtTimestamp(hex: unknown): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Magic / protocol-reserved addresses — mirrored from
+// zebvix-chain/src/tokenomics.rs (POOL_ADDRESS_HEX, REWARDS_POOL_ADDRESS_HEX,
+// BURN_ADDRESS_HEX, BRIDGE_LOCK_ADDRESS_HEX). All comparisons lowercase.
+// These accounts have NO private key — they are controlled entirely by chain
+// logic. Their LEDGER balance (zbx_getBalance) may legitimately be 0 even
+// when they "hold" assets, because the assets are tracked in a separate
+// chain struct (e.g. AMM pool reserves, reward-lock vault, burn sink).
+// ─────────────────────────────────────────────────────────────────────────────
+const AMM_POOL_ADDRESS     = "0x7a73776170000000000000000000000000000000"; // "zswap"
+const REWARDS_POOL_ADDRESS = "0x7277647300000000000000000000000000000000"; // "rwds"
+const BURN_ADDRESS         = "0x6275726e0000000000000000000000000000dead"; // "burn..dead"
+const BRIDGE_LOCK_ADDRESS  = "0x7a62726467000000000000000000000000000000"; // "zbrdg"
+
+type MagicTone = "cyan" | "amber" | "rose" | "violet";
+function magicAddrInfo(addr: string): { label: string; tone: MagicTone; note: string } | null {
+  const a = (addr || "").toLowerCase();
+  if (a === AMM_POOL_ADDRESS) return {
+    label: "AMM POOL", tone: "cyan",
+    note: "Permissionless x*y=k pool. Reserves & LP supply live in the chain's pool struct (see below) — the address ledger balance is correctly 0 by design.",
+  };
+  if (a === REWARDS_POOL_ADDRESS) return {
+    label: "REWARDS POOL", tone: "amber",
+    note: "Block-reward distribution sink. Funds are released by chain logic, not by spending from the address ledger.",
+  };
+  if (a === BURN_ADDRESS) return {
+    label: "BURN SINK", tone: "rose",
+    note: "Tokens sent here are permanently destroyed. The ledger balance reflects cumulative burned supply.",
+  };
+  if (a === BRIDGE_LOCK_ADDRESS) return {
+    label: "BRIDGE LOCK", tone: "violet",
+    note: "Cross-chain bridge custody address. Locked funds back wrapped representations on other chains.",
+  };
+  return null;
+}
+
+interface PoolStateRes {
+  initialized?: boolean;
+  pool_address?: string;
+  zbx_reserve_wei?: string;
+  zusd_reserve?: string;
+  lp_supply?: string;
+  spot_price_zusd_per_zbx_q18?: string;
+  spot_price_usd_per_zbx?: string;
+  fee_pct?: string;
+  loan_outstanding_zusd?: string;
+  loan_repaid?: boolean;
+  init_height?: number;
+  last_update_height?: number;
+  permissionless?: boolean;
+  lp_locked_to_pool?: boolean;
+  lifetime_fees_zusd?: string;
+  lifetime_admin_paid_zusd?: string;
+  lifetime_reinvested_zusd?: string;
+}
+
+// Format a wei-decimal string (not 0x-hex) to a fixed-decimal display, eg
+// "20000124990057300000000000" → "20,000,124.99005730". Used for pool
+// reserves which the chain returns as base-10 strings, not 0x-hex.
+function fmtWeiDec(s: string | null | undefined, decimals = 6, fallback = "—"): string {
+  if (!s) return fallback;
+  let raw = s;
+  // tolerate accidental 0x prefix
+  if (raw.startsWith("0x") || raw.startsWith("0X")) {
+    try { raw = BigInt(raw).toString(); } catch { return fallback; }
+  }
+  let big: bigint;
+  try { big = BigInt(raw); } catch { return fallback; }
+  const denom = 10n ** 18n;
+  const whole = big / denom;
+  const frac = big % denom;
+  const wholeStr = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  if (frac === 0n) return wholeStr;
+  const fracStr = frac.toString().padStart(18, "0").slice(0, decimals).replace(/0+$/, "");
+  return fracStr ? `${wholeStr}.${fracStr}` : wholeStr;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SmartSearch — unified address / hash / block / contract / Pay-ID lookup
 // ─────────────────────────────────────────────────────────────────────────────
 type DetectKind =
@@ -1817,39 +1894,50 @@ function SmartResult({ query, kind, onCrossLink }: { query: string; kind: Detect
 
 // — Address result ────────────────────────────────────────────────────────────
 function AddressResult({ addr, onCrossLink }: { addr: string; onCrossLink: (v: string) => void }) {
+  const magic = useMemo(() => magicAddrInfo(addr), [addr]);
+  const isAmm = magic?.label === "AMM POOL";
+
   const [data, setData] = useState<{
     balance: string | null; nonce: string | null; code: string | null;
     zusd: string | null; lp: string | null;
+    pool: PoolStateRes | null;
     err: string | null; loading: boolean;
-  }>({ balance: null, nonce: null, code: null, zusd: null, lp: null, err: null, loading: true });
+  }>({ balance: null, nonce: null, code: null, zusd: null, lp: null, pool: null, err: null, loading: true });
 
   useEffect(() => {
     let mounted = true;
-    setData({ balance: null, nonce: null, code: null, zusd: null, lp: null, err: null, loading: true });
+    setData({ balance: null, nonce: null, code: null, zusd: null, lp: null, pool: null, err: null, loading: true });
     (async () => {
       try {
-        // All four primary calls use the always-on zbx_* / aliased-zbx
+        // All five primary calls use the always-on zbx_* / aliased-zbx
         // namespace: zbx_getBalance is a same-handler alias of eth_getBalance
         // (rpc.rs:141), and zbx_getNonce is the native nonce accessor
         // (rpc.rs:148). eth_getCode requires --features zvm so we wrap
         // with .catch(() => null) and let the UI render "EOA" gracefully
         // when the chain doesn't expose code-checking.
-        const [bal, non, c, zu, lp] = await Promise.all([
+        //
+        // Sixth call (zbx_getPool) only fires when the address matches the
+        // AMM pool — ledger zbx/zusd are correctly 0 there because reserves
+        // are stored in a separate chain struct (rpc.rs:872 zbx_getPool).
+        // Without this enrichment, the user sees "0 ZBX / 0 zUSD" on a
+        // pool with 20M ZBX + 10M zUSD and is rightfully confused.
+        const [bal, non, c, zu, lp, poolRes] = await Promise.all([
           rpc<string>("zbx_getBalance", [addr, "latest"]).catch((e) => { throw e; }),
           rpc<unknown>("zbx_getNonce", [addr]).catch(() => 0),
           rpc<string>("eth_getCode", [addr, "latest"]).catch(() => null),
           rpc<any>("zbx_getZusdBalance", [addr]).catch(() => null),
           rpc<any>("zbx_getLpBalance", [addr]).catch(() => null),
+          isAmm ? rpc<PoolStateRes>("zbx_getPool", []).catch(() => null) : Promise.resolve<PoolStateRes | null>(null),
         ]);
         if (!mounted) return;
         const nonceNum = parseNonceLocal(non);
-        setData({ balance: bal, nonce: String(nonceNum), code: c, zusd: zu, lp, err: null, loading: false });
+        setData({ balance: bal, nonce: String(nonceNum), code: c, zusd: zu, lp, pool: poolRes, err: null, loading: false });
       } catch (e: any) {
         if (mounted) setData((d) => ({ ...d, err: e?.message ?? String(e), loading: false }));
       }
     })();
     return () => { mounted = false; };
-  }, [addr]);
+  }, [addr, isAmm]);
 
   const isContract = !!data.code && data.code !== "0x" && data.code !== "0x0";
   const codeBytes = data.code && data.code !== "0x" ? (data.code.length - 2) / 2 : 0;
@@ -1858,13 +1946,37 @@ function AddressResult({ addr, onCrossLink }: { addr: string; onCrossLink: (v: s
   const zusdRaw: string | null = zusdAny ? (typeof zusdAny === "string" ? zusdAny : (zusdAny.balance ?? zusdAny.zusd ?? null)) : null;
   const lpRaw: string | null = lpAny ? (typeof lpAny === "string" ? lpAny : (lpAny.balance ?? lpAny.lp ?? null)) : null;
 
+  // Magic-tone → Tailwind class maps. Kept inline to avoid a runtime util
+  // and to keep the magic palette colocated with magicAddrInfo above.
+  const toneBorder: Record<MagicTone, string> = {
+    cyan:   "border-cyan-500/40",   amber:  "border-amber-500/40",
+    rose:   "border-rose-500/40",   violet: "border-violet-500/40",
+  };
+  const toneBg: Record<MagicTone, string> = {
+    cyan:   "bg-cyan-500/10",   amber:  "bg-amber-500/10",
+    rose:   "bg-rose-500/10",   violet: "bg-violet-500/10",
+  };
+  const toneText: Record<MagicTone, string> = {
+    cyan:   "text-cyan-300",   amber:  "text-amber-300",
+    rose:   "text-rose-300",   violet: "text-violet-300",
+  };
+
   return (
     <div className="rounded-xl border border-emerald-500/30 bg-card overflow-hidden">
       <div className="p-3 border-b border-border bg-emerald-500/5 flex items-center gap-2 flex-wrap">
         <Wallet className="h-4 w-4 text-emerald-400" />
         <span className="text-sm font-bold">Account</span>
+        {magic && (
+          <span
+            title={magic.note}
+            className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${toneBorder[magic.tone]} ${toneBg[magic.tone]} ${toneText[magic.tone]}`}
+            data-testid={`badge-magic-${magic.label.toLowerCase().replace(/\s+/g, "-")}`}
+          >
+            {magic.label}
+          </span>
+        )}
         {isContract && <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-violet-500/40 bg-violet-500/10 text-violet-300">CONTRACT</span>}
-        {!data.loading && !isContract && data.code !== null && <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-emerald-500/40 bg-emerald-500/10 text-emerald-300">EOA</span>}
+        {!data.loading && !isContract && data.code !== null && !magic && <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-emerald-500/40 bg-emerald-500/10 text-emerald-300">EOA</span>}
         {!data.loading && data.code === null && <span title="eth_getCode unavailable — node likely built without --features zvm" className="px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-amber-500/40 bg-amber-500/10 text-amber-300">ACCOUNT · code-check off</span>}
         <code className="ml-auto text-[11px] font-mono text-muted-foreground break-all">{addr}</code>
       </div>
@@ -1873,12 +1985,32 @@ function AddressResult({ addr, onCrossLink }: { addr: string; onCrossLink: (v: s
         {data.loading && <div className="text-xs text-muted-foreground">loading account…</div>}
         {!data.loading && !data.err && (
           <>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-              <StatTile label="ZBX balance" value={data.balance ? fmtZbx(data.balance, 6, "0") : "—"} accent="emerald" />
-              <StatTile label="zUSD balance" value={zusdRaw ? fmtZbx(zusdRaw, 4, "0") : "0"} accent="cyan" />
-              <StatTile label="LP balance"   value={lpRaw ? fmtZbx(lpRaw, 6, "0") : "0"} accent="violet" />
-              <StatTile label="nonce"        value={data.nonce ? fmtBig(data.nonce, "0") : "0"} accent="amber" />
+            {magic && (
+              <div className={`p-2 rounded border ${toneBorder[magic.tone]} ${toneBg[magic.tone]} flex items-start gap-2`}>
+                <Info className={`h-3.5 w-3.5 mt-0.5 flex-shrink-0 ${toneText[magic.tone]}`} />
+                <div className="text-[11px] leading-snug text-muted-foreground">{magic.note}</div>
+              </div>
+            )}
+            <div>
+              <div className="text-[10px] uppercase font-bold text-muted-foreground mb-1.5">
+                Ledger balances <span className="font-normal normal-case opacity-60">· from zbx_getBalance / zbx_getZusdBalance / zbx_getLpBalance</span>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <StatTile label="ZBX balance" value={data.balance ? fmtZbx(data.balance, 6, "0") : "—"} accent="emerald" />
+                <StatTile label="zUSD balance" value={zusdRaw ? fmtZbx(zusdRaw, 4, "0") : "0"} accent="cyan" />
+                <StatTile label="LP balance"   value={lpRaw ? fmtZbx(lpRaw, 6, "0") : "0"} accent="violet" />
+                <StatTile label="nonce"        value={data.nonce ? fmtBig(data.nonce, "0") : "0"} accent="amber" />
+              </div>
             </div>
+            {isAmm && data.pool && (
+              <PoolReservesPanel pool={data.pool} onCrossLink={onCrossLink} />
+            )}
+            {isAmm && !data.pool && (
+              <div className="p-2 rounded border border-amber-500/30 bg-amber-500/5 text-[11px] text-amber-300 flex items-center gap-2">
+                <AlertCircle className="h-3.5 w-3.5" />
+                Pool state RPC (zbx_getPool) unavailable — only ledger balances shown above.
+              </div>
+            )}
             {isContract && (
               <div className="space-y-1">
                 <div className="text-[10px] uppercase font-bold text-muted-foreground">Bytecode · {codeBytes.toLocaleString()} bytes</div>
@@ -1901,6 +2033,79 @@ function AddressResult({ addr, onCrossLink }: { addr: string; onCrossLink: (v: s
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// AMM pool reserves panel — rendered only when the looked-up address is the
+// pool's magic address. Surfaces the assets that live in the chain's pool
+// struct (via zbx_getPool, rpc.rs:872) — zbx_reserve_wei, zusd_reserve, lp
+// supply, spot price, fees, loan status. Without this panel the user sees
+// "0 ZBX / 0 zUSD" on the pool address and concludes the chain is broken.
+function PoolReservesPanel({ pool, onCrossLink }: { pool: PoolStateRes; onCrossLink: (v: string) => void }) {
+  const initialized = pool.initialized !== false;
+  const loanRepaid = pool.loan_repaid === true;
+  const spotPriceRaw = pool.spot_price_usd_per_zbx;
+  const spotPriceDisplay = spotPriceRaw ? `$${spotPriceRaw}` : "—";
+  const feePct = pool.fee_pct ?? "—";
+  return (
+    <div className="rounded-lg border border-cyan-500/30 bg-cyan-500/5 overflow-hidden">
+      <div className="px-3 py-2 border-b border-cyan-500/20 bg-cyan-500/5 flex items-center gap-2 flex-wrap">
+        <Coins className="h-3.5 w-3.5 text-cyan-300" />
+        <span className="text-[11px] font-bold uppercase tracking-wide text-cyan-300">Pool reserves · zbx_getPool</span>
+        {initialized
+          ? <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border border-emerald-500/40 bg-emerald-500/10 text-emerald-300">INITIALIZED</span>
+          : <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border border-amber-500/40 bg-amber-500/10 text-amber-300">NOT INITIALIZED</span>}
+        {pool.permissionless && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase border border-cyan-500/40 bg-cyan-500/10 text-cyan-300" title="No admin can withdraw seed liquidity — LP is locked to pool address">PERMISSIONLESS</span>}
+      </div>
+      <div className="p-3 space-y-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <StatTile label="ZBX reserve"  value={fmtWeiDec(pool.zbx_reserve_wei, 4, "0")} accent="emerald" />
+          <StatTile label="zUSD reserve" value={fmtWeiDec(pool.zusd_reserve, 4, "0")} accent="cyan" />
+          <StatTile label="LP supply"    value={fmtWeiDec(pool.lp_supply, 6, "0")} accent="violet" />
+          <StatTile label="Spot · USD/ZBX" value={spotPriceDisplay} accent="amber" />
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px]">
+          <PoolRow label="Swap fee" value={`${feePct}%`} />
+          <PoolRow label="Loan outstanding" value={`${fmtWeiDec(pool.loan_outstanding_zusd, 2, "0")} zUSD`} />
+          <PoolRow label="Loan status" value={loanRepaid ? "REPAID" : "ACTIVE"} tone={loanRepaid ? "emerald" : "amber"} />
+          <PoolRow label="Init height" value={pool.init_height != null ? `#${pool.init_height.toLocaleString()}` : "—"} />
+        </div>
+        {(pool.lifetime_fees_zusd || pool.lifetime_admin_paid_zusd || pool.lifetime_reinvested_zusd) && (
+          <div className="pt-2 border-t border-cyan-500/15">
+            <div className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Lifetime fee distribution</div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-[11px]">
+              <PoolRow label="Fees collected"   value={`${fmtWeiDec(pool.lifetime_fees_zusd, 4, "0")} zUSD`} />
+              <PoolRow label="Paid to admin"    value={`${fmtWeiDec(pool.lifetime_admin_paid_zusd, 4, "0")} zUSD`} />
+              <PoolRow label="Reinvested → LP" value={`${fmtWeiDec(pool.lifetime_reinvested_zusd, 4, "0")} zUSD`} />
+            </div>
+          </div>
+        )}
+        {pool.last_update_height != null && (
+          <div className="text-[10px] text-muted-foreground flex items-center gap-1">
+            <Clock className="h-3 w-3" />
+            Last pool mutation: block
+            <button
+              onClick={() => onCrossLink(String(pool.last_update_height))}
+              className="ml-1 text-cyan-300 hover:underline inline-flex items-center gap-0.5"
+              data-testid="link-pool-last-update"
+              aria-label={`Inspect block ${pool.last_update_height}`}
+            >
+              #{pool.last_update_height.toLocaleString()} <ChevronRight className="h-3 w-3" />
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PoolRow({ label, value, tone }: { label: string; value: React.ReactNode; tone?: "emerald" | "amber" | "rose" }) {
+  const toneClass = tone === "emerald" ? "text-emerald-300" : tone === "amber" ? "text-amber-300" : tone === "rose" ? "text-rose-300" : "text-foreground";
+  return (
+    <div className="flex flex-col gap-0.5 p-1.5 rounded bg-background/40 border border-border/60">
+      <span className="text-[9px] uppercase font-bold text-muted-foreground tracking-wide">{label}</span>
+      <span className={`font-mono ${toneClass}`}>{value}</span>
     </div>
   );
 }
