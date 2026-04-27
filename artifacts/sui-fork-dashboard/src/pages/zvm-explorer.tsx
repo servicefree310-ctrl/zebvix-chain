@@ -1802,8 +1802,14 @@ function SmartSearch({ seed, onSeed }: { seed: string; onSeed: (v: string) => vo
 
 function SmartResult({ query, kind, onCrossLink }: { query: string; kind: DetectKind; onCrossLink: (v: string) => void }) {
   if (kind === "address")                              return <AddressResult addr={query.toLowerCase()} onCrossLink={onCrossLink} />;
-  if (kind === "block_number" || kind === "block_tag") return <BlockResult tag={query.toLowerCase()} onCrossLink={onCrossLink} />;
-  if (kind === "hash")                                 return <HashResult hash={query.toLowerCase()} onCrossLink={onCrossLink} />;
+  if (kind === "block_number" || kind === "block_tag") {
+    const t = query.toLowerCase();
+    // key forces a fresh BlockResult instance per tag — eliminates the brief
+    // stale-render window between effect cleanup and re-fetch when the user
+    // clicks prev/next or types a new height.
+    return <BlockResult key={t} tag={t} onCrossLink={onCrossLink} />;
+  }
+  if (kind === "hash")                                 return <HashResult key={query.toLowerCase()} hash={query.toLowerCase()} onCrossLink={onCrossLink} />;
   if (kind === "pay_id")                               return <PayIdResult alias={query.replace(/^@/, "")} onCrossLink={onCrossLink} />;
   if (kind === "unknown")                              return <ErrorBox msg={`Cannot detect type for "${query}". Expected: 0x-address (40 hex), 0x-hash (64 hex), block number, 'latest', or Pay-ID alias.`} />;
   return null;
@@ -1899,31 +1905,98 @@ function AddressResult({ addr, onCrossLink }: { addr: string; onCrossLink: (v: s
   );
 }
 
+// — Hash line — full hash with copy + optional cross-link to verify round-trip
+function HashLine({
+  label, value, onCrossLink, derived, accent = "muted",
+}: {
+  label: string;
+  value: string | null | undefined;
+  onCrossLink?: (v: string) => void;
+  derived?: boolean;
+  accent?: "cyan" | "emerald" | "amber" | "violet" | "muted";
+}) {
+  const [copied, setCopied] = useState(false);
+  const accentTone: Record<string, string> = {
+    cyan:    "border-cyan-500/30 bg-cyan-500/5",
+    emerald: "border-emerald-500/30 bg-emerald-500/5",
+    amber:   "border-amber-500/30 bg-amber-500/5",
+    violet:  "border-violet-500/30 bg-violet-500/5",
+    muted:   "border-border bg-background/30",
+  };
+  if (!value) {
+    return (
+      <div className={`rounded-md border p-2 ${accentTone.muted}`}>
+        <div className="text-[9px] uppercase font-mono text-muted-foreground tracking-wide flex items-center gap-1">
+          {label}
+        </div>
+        <div className="text-[11px] font-mono text-muted-foreground/60 italic mt-0.5">—</div>
+      </div>
+    );
+  }
+  async function copy() {
+    try { await navigator.clipboard.writeText(value!); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {}
+  }
+  return (
+    <div className={`rounded-md border p-2 ${accentTone[accent]}`}>
+      <div className="text-[9px] uppercase font-mono text-muted-foreground tracking-wide flex items-center gap-1.5 mb-1">
+        <span>{label}</span>
+        {derived && (
+          <span title="Derived from the next block's parent_hash via the Merkle property — eth_getBlockByNumber on this chain does not return own hash."
+            className="px-1 py-px rounded text-[8px] font-bold uppercase border border-amber-500/40 bg-amber-500/10 text-amber-300">
+            derived
+          </span>
+        )}
+        <div className="ml-auto flex items-center gap-1">
+          {onCrossLink && (
+            <button onClick={() => onCrossLink(value!)} title="Search this hash"
+              className="p-0.5 rounded hover:bg-muted/40 text-muted-foreground hover:text-foreground">
+              <Search className="h-3 w-3" />
+            </button>
+          )}
+          <button onClick={copy} title="Copy"
+            className="p-0.5 rounded hover:bg-muted/40 text-muted-foreground hover:text-foreground">
+            {copied ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+          </button>
+        </div>
+      </div>
+      <code className="text-[10.5px] font-mono leading-relaxed break-all block">{value}</code>
+    </div>
+  );
+}
+
 // — Block result ──────────────────────────────────────────────────────────────
 // Block fetch uses TWO sources because the on-chain `eth_getBlockByNumber`
 // currently ignores the height parameter and always returns the tip — only
 // tags like `latest` / `earliest` / `pending` work via the ZVM passthrough.
 // For numeric heights we fall back to the native `zbx_getBlockByNumber`
 // which respects the requested height and returns the canonical block.
+//
+// Own block hash is NOT directly returned by either eth_* or zbx_* paths
+// (incomplete RPC impl), so we derive it via the Merkle property:
+//   * if requested height is the chain tip → zbx_blockNumber.hash
+//   * else → zbx_getBlockByNumber(h+1).header.parent_hash
+// (a child header always commits to its parent's hash by definition).
 function BlockResult({ tag, onCrossLink }: { tag: string; onCrossLink: (v: string) => void }) {
   const [data, setData] = useState<{
     height: number | null;
+    tipHeight: number | null;
     display: any | null;        // normalised view-model
-    rawSource: "eth" | "zbx" | null;
+    rawSource: "eth" | "zbx" | "eth+zbx" | null;
+    hashDerived: boolean;
     blockTxs: any[] | null;     // native txs filtered to this height
     err: string | null;
     loading: boolean;
-  }>({ height: null, display: null, rawSource: null, blockTxs: null, err: null, loading: true });
+  }>({ height: null, tipHeight: null, display: null, rawSource: null, hashDerived: false, blockTxs: null, err: null, loading: true });
 
   useEffect(() => {
     let mounted = true;
-    setData({ height: null, display: null, rawSource: null, blockTxs: null, err: null, loading: true });
+    setData({ height: null, tipHeight: null, display: null, rawSource: null, hashDerived: false, blockTxs: null, err: null, loading: true });
     (async () => {
       try {
         const isNumeric = /^\d+$/.test(tag) || /^0x[0-9a-f]+$/i.test(tag);
         let display: any = null;
         let height: number | null = null;
-        let rawSource: "eth" | "zbx" = "eth";
+        let rawSource: "eth" | "zbx" | "eth+zbx" = "eth";
 
         if (isNumeric) {
           // Native path — respects the requested height.
@@ -1940,6 +2013,7 @@ function BlockResult({ tag, onCrossLink }: { tag: string; onCrossLink: (v: strin
           display = {
             number: targetHeight,
             timestampDate: native.header.timestamp_ms ? new Date(native.header.timestamp_ms).toLocaleString() : "—",
+            timestampMs: native.header.timestamp_ms ?? null,
             proposer: native.header.proposer ?? null,
             parentHash: native.header.parent_hash ?? null,
             txRoot: native.header.tx_root ?? null,
@@ -1958,21 +2032,63 @@ function BlockResult({ tag, onCrossLink }: { tag: string; onCrossLink: (v: strin
             return;
           }
           rawSource = "eth";
-          height = Number(hexToBigInt(b.number) ?? 0n);
+          // Pending or unmined tags can return b.number = null; in that case
+          // height stays null and we skip native enrichment / hash derivation
+          // / prev-next nav rather than silently treating it as block 0.
+          const heightBI = hexToBigInt(b.number);
+          height = heightBI === null ? null : Number(heightBI);
+          // Enrich with native header for proposer / parent / tx-state roots —
+          // eth_getBlockByNumber on this chain leaves those fields null/zero.
+          const native = height !== null
+            ? await rpc<any>("zbx_getBlockByNumber", [height]).catch(() => null)
+            : null;
+          if (native?.header) rawSource = "eth+zbx";
           display = {
             number: height,
             timestampDate: fmtTimestamp(b.timestamp),
-            proposer: b.miner ?? null,
-            parentHash: b.parentHash ?? null,
-            txRoot: b.transactionsRoot ?? null,
-            stateRoot: b.stateRoot ?? null,
-            txCount: Array.isArray(b.transactions) ? b.transactions.length : 0,
+            timestampMs: native?.header?.timestamp_ms ?? null,
+            proposer: native?.header?.proposer ?? b.miner ?? null,
+            parentHash: native?.header?.parent_hash ?? b.parentHash ?? null,
+            txRoot: native?.header?.tx_root ?? b.transactionsRoot ?? null,
+            stateRoot: native?.header?.state_root ?? b.stateRoot ?? null,
+            txCount: Array.isArray(b.transactions) ? b.transactions.length : (Array.isArray(native?.txs) ? native.txs.length : 0),
             gasUsedDisplay: fmtBig(b.gasUsed),
             gasLimitDisplay: fmtBig(b.gasLimit),
             baseFeeDisplay: b.baseFeePerGas ? `${fmtBig(b.baseFeePerGas)} wei` : "—",
-            hash: b.hash ?? null,
+            hash: b.hash && b.hash !== "0x" ? b.hash : null,
           };
         }
+
+        // Single tip fetch — reused for both hash derivation and prev/next
+        // bounds. Avoids a race where the tip advances between calls and the
+        // TIP badge stops matching the height we just fetched.
+        const tipInfo = await rpc<any>("zbx_blockNumber").catch(() => null);
+        const tipHeight = typeof tipInfo?.height === "number" ? tipInfo.height : null;
+
+        // Derive own block hash via Merkle property — eth_getBlockByNumber on
+        // this chain does not return own hash, so we ask the next block's
+        // parent_hash (always === this block's hash by definition), or use
+        // zbx_blockNumber.hash if this is the tip.
+        let hashDerived = false;
+        if (height !== null && !display.hash) {
+          // Prefer the tip-direct path when applicable — it's a hash returned
+          // by the node (no derivation needed) and skips an extra RPC call.
+          if (tipHeight !== null && tipHeight === height && typeof tipInfo?.hash === "string") {
+            display.hash = tipInfo.hash;
+            // Tip hash is direct from zbx_blockNumber, not derived → no badge.
+          } else {
+            const nextNative = await rpc<any>("zbx_getBlockByNumber", [height + 1]).catch(() => null);
+            if (nextNative?.header?.parent_hash) {
+              display.hash = nextNative.header.parent_hash;
+              hashDerived = true;
+            }
+          }
+        }
+
+        // Treat literal "latest" / "pending" tags as TIP regardless of tip
+        // race — the user explicitly asked for the head.
+        const isLatestTag = tag === "latest" || tag === "pending";
+        const effectiveTipHeight = isLatestTag && height !== null ? height : tipHeight;
 
         // Native tx index for richer per-block browsing (1000-tx cap).
         const recent = await rpc<any>("zbx_recentTxs", [1000]).catch(() => null);
@@ -1980,7 +2096,7 @@ function BlockResult({ tag, onCrossLink }: { tag: string; onCrossLink: (v: strin
           ? recent.txs.filter((t: any) => Number(t.height) === height)
           : [];
 
-        if (mounted) setData({ height, display, rawSource, blockTxs, err: null, loading: false });
+        if (mounted) setData({ height, tipHeight: effectiveTipHeight, display, rawSource, hashDerived, blockTxs, err: null, loading: false });
       } catch (e: any) {
         if (mounted) setData((d) => ({ ...d, err: e?.message ?? String(e), loading: false }));
       }
@@ -1989,14 +2105,41 @@ function BlockResult({ tag, onCrossLink }: { tag: string; onCrossLink: (v: strin
   }, [tag]);
 
   const d = data.display;
+  const h = data.height;
+  const tip = data.tipHeight;
+  const canPrev = h !== null && h > 0;
+  const canNext = h !== null && tip !== null && h < tip;
+
   return (
     <div className="rounded-xl border border-cyan-500/30 bg-card overflow-hidden">
       <div className="p-3 border-b border-border bg-cyan-500/5 flex items-center gap-2 flex-wrap">
         <Box className="h-4 w-4 text-cyan-400" />
         <span className="text-sm font-bold">Block</span>
-        {d && <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-cyan-500/40 bg-cyan-500/10 text-cyan-300">#{d.number}</span>}
+        {d && d.number !== null && <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-cyan-500/40 bg-cyan-500/10 text-cyan-300">#{d.number}</span>}
+        {d && d.number === null && <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-amber-500/40 bg-amber-500/10 text-amber-300" title="block tag has no canonical height yet">PENDING</span>}
+        {tip !== null && h !== null && h === tip && <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-emerald-500/40 bg-emerald-500/10 text-emerald-300">TIP</span>}
         {data.rawSource && <span className="px-2 py-0.5 rounded text-[10px] font-mono uppercase border border-border bg-muted/30 text-muted-foreground">via {data.rawSource}_*</span>}
-        <code className="ml-auto text-[11px] font-mono text-muted-foreground">tag: {tag}</code>
+        <div className="ml-auto flex items-center gap-1">
+          <button
+            onClick={() => canPrev && onCrossLink(String(h! - 1))}
+            disabled={!canPrev}
+            title={canPrev ? `Block #${h! - 1}` : "no previous block"}
+            aria-label={canPrev ? `View previous block #${h! - 1}` : "previous block (disabled)"}
+            className="p-1 rounded border border-border hover:bg-muted/30 disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            <ChevronRight className="h-3 w-3 rotate-180" />
+          </button>
+          <button
+            onClick={() => canNext && onCrossLink(String(h! + 1))}
+            disabled={!canNext}
+            title={canNext ? `Block #${h! + 1}` : "already at tip"}
+            aria-label={canNext ? `View next block #${h! + 1}` : "next block (disabled — already at tip)"}
+            className="p-1 rounded border border-border hover:bg-muted/30 disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            <ChevronRight className="h-3 w-3" />
+          </button>
+          <code className="text-[11px] font-mono text-muted-foreground ml-1">tag: {tag}</code>
+        </div>
       </div>
       <div className="p-4 space-y-3">
         {data.err && <ErrorBox msg={data.err} />}
@@ -2010,18 +2153,32 @@ function BlockResult({ tag, onCrossLink }: { tag: string; onCrossLink: (v: strin
               <StatTile label="gasUsed / Limit" value={`${d.gasUsedDisplay} / ${d.gasLimitDisplay}`} accent="amber" />
               <StatTile label="baseFee" value={d.baseFeeDisplay} accent="violet" />
             </div>
+
+            <div className="grid md:grid-cols-2 gap-2">
+              <HashLine label="block hash" value={d.hash} accent="cyan" derived={data.hashDerived} onCrossLink={onCrossLink} />
+              <HashLine label="parent hash" value={d.parentHash} accent="muted" onCrossLink={canPrev ? onCrossLink : undefined} />
+              <HashLine label="tx root (merkle)" value={d.txRoot} accent="amber" />
+              <HashLine label="state root" value={d.stateRoot} accent="violet" />
+            </div>
+
             <div className="grid md:grid-cols-2 gap-2 text-xs">
-              <Kv label="hash" value={short(d.hash)} mono />
-              <Kv label="parentHash" value={short(d.parentHash)} mono />
               <Kv label="proposer / miner" value={
                 d.proposer
                   ? <button onClick={() => onCrossLink(d.proposer)} className="text-emerald-300 hover:underline font-mono">{short(d.proposer)}</button>
                   : "—"
               } />
               <Kv label="tx count" value={d.txCount} highlight />
-              <Kv label="txRoot" value={short(d.txRoot)} mono />
-              <Kv label="stateRoot" value={short(d.stateRoot)} mono />
             </div>
+
+            {!d.hash && !data.loading && (
+              <div className="px-2.5 py-1.5 rounded-md border border-amber-500/40 bg-amber-500/5 text-[11px] text-amber-200/90 flex items-start gap-1.5">
+                <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
+                <span>
+                  Own hash could not be derived (no child block yet & not the tip). It will become available once block #{(d.number ?? 0) + 1} is produced.
+                </span>
+              </div>
+            )}
+
             {data.blockTxs && data.blockTxs.length > 0 && (
               <div className="border-t border-border pt-3">
                 <div className="text-[10px] uppercase font-bold text-muted-foreground mb-2 flex items-center gap-1">
@@ -2060,6 +2217,10 @@ function BlockResult({ tag, onCrossLink }: { tag: string; onCrossLink: (v: strin
 const isHexAddress = (s: unknown): s is string =>
   typeof s === "string" && /^0x[0-9a-f]{40}$/i.test(s);
 
+// How many recent blocks to scan when resolving a block-hash via the Merkle
+// property (eth_getBlockByHash is not reliably wired on this chain).
+const BLOCK_HASH_SCAN_WINDOW = 50;
+
 function HashResult({ hash, onCrossLink }: { hash: string; onCrossLink: (v: string) => void }) {
   const [data, setData] = useState<{
     tx: any | null;
@@ -2074,13 +2235,51 @@ function HashResult({ hash, onCrossLink }: { hash: string; onCrossLink: (v: stri
     setData({ tx: null, blockTag: null, err: null, loading: true, scanned: 0 });
     (async () => {
       try {
-        // 1) Block-hash lookup
+        // 1) Block-hash lookup via eth_getBlockByHash (best-effort — this
+        //    chain's RPC may not implement it; we fall through on null).
         const block = await rpc<any>("eth_getBlockByHash", [hash, false]).catch(() => null);
         if (block && block.number) {
           const heightHex = block.number as string;
-          const heightDec = Number(hexToBigInt(heightHex) ?? 0n);
-          if (mounted) setData({ tx: null, blockTag: String(heightDec), err: null, loading: false, scanned: 0 });
-          return;
+          const heightBI = hexToBigInt(heightHex);
+          if (heightBI !== null) {
+            if (mounted) setData({ tx: null, blockTag: String(Number(heightBI)), err: null, loading: false, scanned: 0 });
+            return;
+          }
+        }
+        // 1b) Block-hash backscan via Merkle property — own hash of block h
+        //     equals block (h+1)'s parent_hash. We scan the last
+        //     BLOCK_HASH_SCAN_WINDOW blocks in parallel + check the chain tip
+        //     so cross-link round-trips from BlockResult resolve even without
+        //     eth_getBlockByHash.
+        const tipInfo = await rpc<any>("zbx_blockNumber").catch(() => null);
+        const tipHeight = typeof tipInfo?.height === "number" ? tipInfo.height : null;
+        if (tipHeight !== null) {
+          // Tip's own hash comes directly from zbx_blockNumber.hash.
+          if (typeof tipInfo?.hash === "string" && tipInfo.hash.toLowerCase() === hash) {
+            if (mounted) setData({ tx: null, blockTag: String(tipHeight), err: null, loading: false, scanned: 1 });
+            return;
+          }
+          // Scan a recent window. For each height i in [tipHeight - W, tipHeight],
+          // fetch its native header. Then own_hash[i] = header[i+1].parent_hash.
+          const start = Math.max(0, tipHeight - BLOCK_HASH_SCAN_WINDOW);
+          const heights: number[] = [];
+          for (let i = start; i <= tipHeight; i++) heights.push(i);
+          const headers = await Promise.all(
+            heights.map((i) => rpc<any>("zbx_getBlockByNumber", [i]).catch(() => null)),
+          );
+          // Map: parent_hash of block (i+1) → own_hash of block i.
+          let foundHeight: number | null = null;
+          for (let idx = 1; idx < headers.length; idx++) {
+            const ph = headers[idx]?.header?.parent_hash;
+            if (typeof ph === "string" && ph.toLowerCase() === hash) {
+              foundHeight = heights[idx] - 1;
+              break;
+            }
+          }
+          if (foundHeight !== null) {
+            if (mounted) setData({ tx: null, blockTag: String(foundHeight), err: null, loading: false, scanned: heights.length });
+            return;
+          }
         }
         // 2) Native eth_* tx lookup
         const [ethTx, ethRcpt] = await Promise.all([
@@ -2099,7 +2298,8 @@ function HashResult({ hash, onCrossLink }: { hash: string; onCrossLink: (v: stri
           if (found) setData({ tx: { ...found, source: "zbx_recentTxs" }, blockTag: null, err: null, loading: false, scanned: list.length });
           else setData({
             tx: null, blockTag: null, scanned: list.length, loading: false,
-            err: `Hash not found in the recent tx window (${list.length} scanned). Try a block number, an address, or a more recent transaction hash.`,
+            err: `Hash not found. Scanned the last ${BLOCK_HASH_SCAN_WINDOW} block headers and ${list.length} recent txs. ` +
+                 `For older block hashes, look up the block number directly; for older tx hashes, fetch the parent block.`,
           });
         }
       } catch (e: any) {
