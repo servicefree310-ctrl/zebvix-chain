@@ -1,0 +1,64 @@
+root@srv1266996:/home/zebvix-chain# # ─── 0. Service stop + clean any garbage from broken prior extract ───
+sudo systemctl stop zebvix
+cd /home/zebvix-chain
+ls *.rs 2>/dev/null   # broken-extract se loose files pade ho to dikhayega (warn karo agar mile)
+
+# ─── 1. Fresh download with cache-bust ───
+TS=$(date +%s)
+curl -fsSL "https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/api/download/newchain?t=${TS}" -o /tmp/newchain.tar.gz
+ls -la /tmp/newchain.tar.gz
+echo "--- tar contents preview (paths should look like 'src/state.rs', 'Cargo.toml') ---"
+tar -tzf /tmp/newchain.tar.gz | head -10
+
+# ─── 2. Extract WITHOUT --strip-components (paths already correct) ───
+tar -xzf /tmp/newchain.tar.gz -C /home/zebvix-chain
+rm /tmp/newchain.tar.gz
+
+# ─── 3. Verify source is now side-table ───
+echo "=== should be: const EXPECTED_DB_FORMAT_VERSION: u32 = 1 ==="
+grep -n "EXPECTED_DB_FORMAT_VERSION: u32" src/state.rs
+echo "=== should be > 0 ==="
+grep -c "put_bft_commit" src/state.rs
+echo "=== should be 0 ==="
+grep -rn "last_commit_hash" src/ | wc -l
+
+# ─── 4. Force fresh build (delete stale v2 binary) ───
+rm -f target/release/zebvix-node
+cargo build --release 2>&1 | tail -10
+
+# ─── 5. Atomic install ───
+sudo cp target/release/z
+block_stm.rs  consensus.rs  lib.rs   mempool.rs   p2p.rs   proposal.rs  staking.rs  token_pool.rs  transaction.rs  vote.rs  zvm_interp.rs       zvm_rlp.rs  zvm_state.rs
+bridge.rs     crypto.rs     main.rs  multisig.rs  pool.rs  rpc.rs       state.rs    tokenomics.rs  types.rs        zvm.rs   zvm_precompiles.rs  zvm_rpc.rs
+-rw-r--r-- 1 root root 285306 Apr 27 14:17 /tmp/newchain.tar.gz
+--- tar contents preview (paths should look like 'src/state.rs', 'Cargo.toml') ---
+./
+src/
+src/bin/
+src/bin/zbx.rs
+src/block_stm.rs
+src/p2p.rs
+src/pool.rs
+src/multisig.rs
+src/proposal.rs
+src/staking.rs
+tar: stdout: write error
+=== should be: const EXPECTED_DB_FORMAT_VERSION: u32 = 1 ===
+58:const EXPECTED_DB_FORMAT_VERSION: u32 = 1;
+=== should be > 0 ===
+1
+=== should be 0 ===
+0
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:393:4
+    |
+393 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `zebvix-node` (lib) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 1m 33s
+cp: missing destination file operand after 'target/release/z'
+Try 'cp --help' for more information.
+root@srv1266996:/home/zebvix-chain# 
