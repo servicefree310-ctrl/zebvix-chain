@@ -380,18 +380,46 @@ because the activation env defaults to `u64::MAX`.
 **Pure-FSM module (`zebvix-chain/src/fsm.rs`) is already shipped and
 architect-passed.** This task wires it into the live producer loop.
 
-- **F006.1 — Adapter scaffold.** New file
-  `zebvix-chain/src/fsm_runtime.rs`. Owns:
-  - `pub struct FsmRuntime { fsm: FsmState, last_proposal_at:
-    Instant, ... }`
-  - `pub fn enabled() -> bool` reading `ZEBVIX_FSM_ENABLED` env
-    (default false).
-  - `pub async fn run(state: Arc<State>, pool: Arc<VotePool>,
-    mempool: Arc<Mempool>, broadcast: Sender<NetMsg>, my_addr:
-    Address) -> !` — the new producer loop body, only called when
-    `enabled()`.
-  - **Acceptance:** module compiles; `enabled()` returns false in
-    `cargo test` env.
+- **F006.1 — Adapter scaffold. ✅ SHIPPED (Phase B.3.2.7 commit 1).**
+  New file `zebvix-chain/src/fsm_runtime.rs` (~165 lines including
+  doc-block + tests) and `pub mod fsm_runtime;` registered in
+  `lib.rs`. Owns:
+  - `pub struct FsmRuntime { fsm: Mutex<FsmState>, producer:
+    Arc<Producer>, last_proposal_at: Mutex<Instant> }` —
+    `tokio::sync::Mutex` for cross-task safety, only held for the
+    duration of a `step()` call. `producer` and `last_proposal_at`
+    annotated `#[allow(dead_code)]` until F006.3/F006.6 wire them.
+  - `pub fn enabled() -> bool` — reads `ZEBVIX_FSM_ENABLED`,
+    accepts `1|true|yes|on` (case-insensitive), default + anything
+    else = `false`. Bias toward legacy producer staying in charge.
+  - `fn default_timeouts() -> Timeouts` (private) — `propose` is
+    bound at compile time to `crate::consensus::PROPOSE_TIMEOUT_SECS`
+    (= 8s on the live VPS), so a future operator flipping
+    `ZEBVIX_FSM_ENABLED` cannot silently change the chain's
+    round-bump cadence. **Architect-review fix:** the initial draft
+    used a hard-coded `3s` which would have broken N=1 cadence
+    parity; replaced with the const reference + a
+    `parity_with_legacy_propose_timeout` test that fails loud on
+    drift. `prevote=2s`, `precommit=2s`, `commit=1s` are conservative
+    defaults with no legacy analogue — F006.6 will tune for N≥2.
+  - `pub fn FsmRuntime::new(producer, start_height) -> Self` —
+    initialises FSM at `(start_height, round=0, step=Propose)` with
+    `Instant::now()`.
+  - `pub async fn run(self: Arc<Self>) -> !` — **stub that
+    `panic!`s** with a clear "F006.2-6 not yet wired" message. No
+    caller in `main.rs` constructs an `FsmRuntime` or invokes
+    `run`, and `enabled()` stays `false` by default. Fail-loud
+    chosen over silent-return so a future operator who flips the
+    env without the implementation shipped gets an immediate crash
+    instead of a liveness hang.
+  - **Acceptance verified:** `cargo check --features zvm` clean (only
+    pre-existing dead-code warning); standalone rustc test of the
+    `enabled()` logic — 3 tests pass (default-false, truthy
+    `1/true/TRUE/Yes/on/ON` → true, falsy `""/0/false/no/off/garbage/2`
+    → false). Run via standalone `rustc --test` because
+    `cargo test --lib` triggers a `librocksdb-sys` rebuild that
+    exceeds the dev-environment per-command CPU budget (same
+    pattern used for `fsm.rs` tests in B.3.2.6).
 
 - **F006.2 — Vote-pool → `FsmEvent` translator.** In
   `fsm_runtime.rs`:

@@ -3,6 +3,7 @@ pub mod bridge;
 pub mod consensus;
 pub mod crypto;
 pub mod fsm;
+pub mod fsm_runtime;
 pub mod mempool;
 pub mod multisig;
 pub mod p2p;
