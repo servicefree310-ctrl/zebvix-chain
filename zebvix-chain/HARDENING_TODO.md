@@ -19,57 +19,58 @@ own phase. This file tracks them honestly so they're not forgotten.
 
 ## C1 — Replace block-producer rotation with real BFT
 
-**Phase B.3.2.4 (April 2026, partial):** Wire skeleton + commit-gate
-landed. Block headers now carry a proposer-signed `last_commit_hash`
-binding the body's `last_commit` Vec<Vote> payload. New verifier
-`vote::verify_last_commit_for_parent(block, chain_id, validators)`
-enforces hash-binding, per-vote sanity (chain_id/height/type/target/sig),
-dedup, validator-set membership, and a 2/3+ voting-power quorum, plus the
-genesis-adjacent rule. The gate is wired into `apply_block` behind
-`ZEBVIX_BFT_COMMIT_GATE_ACTIVATION_HEIGHT` (default `u64::MAX` = OFF).
-Producer now takes an `Option<Arc<VotePool>>` and packs parent precommits
-into every block. 12 dedicated unit tests in `vote.rs::tests` cover the
-verifier surface. **The single-validator devnet behavior is unchanged
-until an operator sets the env var.**
+**Phase B.3.2.4 (April 2026, side-table foundation landed):** The BFT
+commit gate is wired in but the round machine itself is still pending.
+Architecture choice: **side-table storage**, NOT in-block fields.
 
-**Still single-validator-PoA in practice:** Despite the new commit gate,
-the round machine itself is **not yet implemented** — `consensus.rs`
-still self-applies via `Producer::run`. Phase 2 (next session) will
-restructure that into a real propose / prevote / precommit / commit
-cycle wired through P2P, with a separate `ProposedBlock` gossip variant
-and quorum-driven commit decisions. Until then, multi-validator networks
-WILL silently fork at concurrent proposals — the gate detects bad
-LastCommit but has nothing to feed it from a peer.
+**Storage:** BFT commits are persisted at `bft/c/<32-byte block_hash>`
+in `CF_META` as `bincode::serialize(&Vec<Vote>)`. Helpers:
+`State::put_bft_commit(&block_hash, blob)` and
+`State::get_bft_commit(&block_hash) -> Option<Vec<u8>>`. **`Block` and
+`BlockHeader` byte layouts are unchanged from chain inception.** Adding
+or removing BFT data NEVER requires a DB migration.
 
-**Why fully deferred:** A real BFT round-machine (Tendermint / HotStuff /
-Aura) is multi-week work — propose / pre-vote / pre-commit phases,
-view-change on timeout, equivocation evidence + slashing, gossip-based
-vote aggregation, deterministic timeouts. It also needs a testnet
-bake-in period before any mainnet rollout.
+**Verifier:** `vote::verify_last_commit_for_parent(parent_hash,
+parent_height, last_commit_bytes, chain_id, validators)` enforces
+per-vote sanity (chain_id / height / type / target / sig), dedup,
+validator-set membership, the 2/3+ voting-power quorum, and the
+genesis-adjacent rule (parent_height==0 → must be empty). 11 dedicated
+unit tests in `vote.rs::tests` cover the verifier surface.
 
-**Migration plan (remaining):**
-1. ~~Add `Vote { height, round, kind, hash, signer, signature }` over
-   `vote.rs`~~ — already present.
-2. ~~Add LastCommit binding to BlockHeader + verifier~~ — Phase B.3.2.4
-   done (April 2026).
-3. Implement `ConsensusFsm` enum: `{ Propose, PreVote, PreCommit, Commit }`
-   — Phase B.3.2.5 (next).
-4. Replace `apply_block` direct path with a `commit_block` that fires
-   only after ⅔+ pre-commits collected by the consensus task.
+**Gate:** `state::apply_block` reads `get_bft_commit(parent_hash)` and
+runs the verifier when `block.header.height >=
+ZEBVIX_BFT_COMMIT_GATE_ACTIVATION_HEIGHT` (default `u64::MAX` = OFF).
+Below the activation height, no check runs and `Producer::run` continues
+as the single-validator-PoA driver.
+
+**DB compatibility:** Existing RocksDB devnet/VPS databases boot
+unchanged. `EXPECTED_DB_FORMAT_VERSION = 1` matches all chain history;
+legacy DBs without the marker are auto-stamped v1 on first boot
+(logged at INFO). **No wipe required to upgrade to this binary.**
+
+**Deferred to Phase B.3.2.5 (round machine):**
+1. ~~Add `Vote { height, round, kind, hash, signer, signature }`~~ — done.
+2. ~~Add LastCommit verifier + side-table storage~~ — done (April 2026).
+3. Implement `ConsensusFsm`: `{ Propose, PreVote, PreCommit, Commit }`.
+4. Replace `Producer::run` self-apply with quorum-driven commit; on
+   commit, write the assembled commit blob via `put_bft_commit` BEFORE
+   building the next block at the new tip.
 5. Add equivocation evidence (`Evidence { vote_a, vote_b }`) → slash via
    staking module's `jail` path.
 6. Flip `ZEBVIX_BFT_COMMIT_GATE_ACTIVATION_HEIGHT` to a future height
    once Phase B.3.2.5 is deployed across all validators.
 
+**Deferred to a future versioned `HeaderV2` (single coordinated upgrade):**
+- Proposer-signature binding to `commit_hash`. Today the side-table
+  blob is trusted on its own merits (every signed precommit verifies
+  independently); a byzantine proposer COULD serve different commit
+  blobs to different peers if Phase B.3.2.5 ever forwards them
+  unauthenticated. The fix is a single header-schema bump (height-gated)
+  paired with `EXPECTED_DB_FORMAT_VERSION=2` and migration code.
+
 **Risk if not done:** A single malicious proposer can fork the chain.
 Currently mitigated by the small validator set being trusted operators
 AND single-validator-only deployment.
-
-**Bincode migration note:** The BlockHeader/Block layout changed in
-Phase B.3.2.4 (added `last_commit_hash` and `last_commit` fields).
-Existing devnet RocksDB databases CANNOT be read by the new binary —
-operators must wipe `~/.zebvix/data` (or equivalent home dir) before
-restarting. Acceptable for testnet-only deployment as of April 2026.
 
 ---
 

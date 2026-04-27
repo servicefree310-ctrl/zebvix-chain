@@ -13,7 +13,7 @@
 //!
 //! 2/3+ commit gate (B.3.2.3) and `LastCommit` (B.3.2.4) come next.
 
-use crate::crypto::{address_from_pubkey, block_hash, header_signing_bytes, keccak256, keypair_from_secret, sign_bytes};
+use crate::crypto::{address_from_pubkey, block_hash, header_signing_bytes, keypair_from_secret, sign_bytes};
 use crate::mempool::Mempool;
 use crate::state::State;
 use crate::tokenomics::BLOCK_TIME_SECS;
@@ -58,14 +58,12 @@ pub struct Producer {
     /// Optional P2P broadcast channel: when set, every successfully-mined block
     /// is bincode-serialized and pushed here for gossip propagation.
     block_broadcast: Option<UnboundedSender<Vec<u8>>>,
-    /// **Phase B.3.2.4** — Optional vote pool. When `Some`, `build_block`
-    /// queries it for Precommits at the parent height matching `parent_hash`,
-    /// and packs them into `Block.last_commit` (with `last_commit_hash` in
-    /// the header for proposer-signature binding). When `None` or when no
-    /// matching Precommits exist yet (e.g. the very first block of a fresh
-    /// chain), the block is built with an empty LastCommit — this is
-    /// accepted by `apply_block` only while the BFT commit gate is below
-    /// activation height (legacy single-validator devnet).
+    /// **Phase B.3.2.4** — Optional vote pool. Plumbed in but not yet
+    /// consulted by `build_block` itself: in the side-table architecture,
+    /// the BFT commit blob for a JUST-COMMITTED block is written to
+    /// `State::put_bft_commit` separately by the consensus driver (Phase 2
+    /// work). `Block` itself stays byte-stable (no LastCommit field), so
+    /// upgrading binaries does not break existing RocksDB data.
     vote_pool: Option<Arc<VotePool>>,
 }
 
@@ -79,11 +77,11 @@ impl Producer {
         self
     }
 
-    /// Phase B.3.2.4 — wire a shared `VotePool` so produced blocks carry a
-    /// proof of parent-commit (LastCommit). Without this, blocks are built
-    /// with an empty LastCommit and will be REJECTED by any node running
-    /// with `ZEBVIX_BFT_COMMIT_GATE_ACTIVATION_HEIGHT` below the current
-    /// height. Plumbed in by `cmd_start` in `main.rs`.
+    /// Phase B.3.2.4 — wire a shared `VotePool`. In Phase 1 the producer
+    /// does not pack votes into the block (Block schema is byte-stable to
+    /// avoid forced DB wipes). The pool is held here for Phase 2, when the
+    /// full propose → prevote → precommit cycle drives `put_bft_commit`
+    /// after a 2/3+ Precommit quorum forms.
     pub fn with_vote_pool(mut self, vp: Arc<VotePool>) -> Self {
         self.vote_pool = Some(vp);
         self
@@ -128,29 +126,9 @@ impl Producer {
             Hash::ZERO
         };
 
-        // ── Phase B.3.2.4 — assemble LastCommit from the vote pool ──
-        // For the parent height, collect 2/3+ Precommits matching `parent`.
-        // Returns (raw bincode bytes, keccak256 of those bytes). At
-        // genesis-adjacent heights (next_height <= 1) or when no vote pool
-        // is wired, returns (empty, ZERO) — accepted only while the BFT
-        // commit gate is below activation height (legacy single-validator
-        // devnet) per the gate logic in `state.rs::apply_block`.
-        let (last_commit_bytes, last_commit_hash) = if next_height <= 1 {
-            (Vec::new(), Hash::ZERO)
-        } else if let Some(vp) = &self.vote_pool {
-            let precommits = vp.collect_precommits_for(height, parent);
-            if precommits.is_empty() {
-                (Vec::new(), Hash::ZERO)
-            } else {
-                let bytes = bincode::serialize(&precommits)
-                    .map_err(|e| anyhow::anyhow!("LastCommit serialize: {e}"))?;
-                let hash = keccak256(&bytes);
-                (bytes, hash)
-            }
-        } else {
-            (Vec::new(), Hash::ZERO)
-        };
-
+        // Phase B.3.2.4 — Block schema stays byte-stable. The parent's
+        // BFT commit (when produced) lives in the side table at
+        // `bft/c/<parent_hash>` in CF_META, not inside this Block.
         let header = BlockHeader {
             height: next_height,
             parent_hash: parent,
@@ -158,11 +136,9 @@ impl Producer {
             tx_root,
             timestamp_ms: Self::now_ms(),
             proposer: self.proposer_address(),
-            last_commit_hash,
         };
         let sig = sign_bytes(&self.secret, &header_signing_bytes(&header))?;
-        let block = Block { header, txs, last_commit: last_commit_bytes, signature: sig };
-        // Sanity: hash check
+        let block = Block { header, txs, signature: sig };
         let _ = block_hash(&block.header);
         Ok(block)
     }

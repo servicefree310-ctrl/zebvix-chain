@@ -31,33 +31,39 @@ const META_LAST_HASH: &[u8] = b"last_hash";
 const META_PHASE_H_BACKFILL_DONE: &[u8] = b"phaseh/backfill_done_v1";
 /// Phase B.3.2.4 — durable on-disk format-version marker.
 ///
-/// Bumped to **2** when `BlockHeader.last_commit_hash` and
-/// `Block.last_commit` were added (April 2026). Stored as a single big-
-/// endian u32 in CF_META on the first successful boot of any binary that
-/// understands this version. On every subsequent boot, `State::open`
-/// reads this key and compares it to the binary's compile-time
-/// `EXPECTED_DB_FORMAT_VERSION`:
+/// Stored as a single big-endian u32 in CF_META. The current value is
+/// **1** — the same byte layout used by Block/BlockHeader since chain
+/// inception. The marker exists so a future bincode-incompatible upgrade
+/// can refuse to boot on an old DB instead of crashing on the first
+/// block read with a confusing bincode error.
 ///
-///   * Match (or freshly-created empty DB) → boot proceeds.
-///   * Missing AND tip > 0 → legacy DB written by a pre-Phase-B.3.2.4
-///     binary; refuse to boot with operator instructions.
-///   * Mismatch → forward-incompatible upgrade or accidental downgrade;
-///     refuse to boot.
-///
-/// The check runs BEFORE any block read, so the operator gets a clean
-/// error message instead of a confusing bincode-decode crash deep inside
-/// the chain-reload path.
+/// Open behavior:
+///   * Marker present and equals `EXPECTED_DB_FORMAT_VERSION` → boot.
+///   * Marker present but mismatches → refuse with operator-facing
+///     migration instructions.
+///   * Marker absent → either fresh DB or legacy DB (pre-marker era).
+///     Block schema in v1 has been byte-stable since chain inception, so
+///     legacy DBs are stamped v1 and proceed without migration. THIS IS
+///     SAFE for the side-table BFT architecture: BFT commits live at
+///     `bft/c/<block_hash>` in CF_META and do not touch the Block bytes.
 const META_DB_FORMAT_VERSION: &[u8] = b"db_format_version";
 
 /// Compile-time expected DB format version for THIS binary.
 ///
-/// **Bump this whenever a bincode-incompatible field is added to any
+/// **Bump this only when a bincode-incompatible field is added to any
 /// persisted struct (`Block`, `BlockHeader`, `Validator`, accounts, etc.).**
-/// Pair the bump with operator-facing release notes describing the
-/// migration (typically: stop node, wipe DB, restart). The constant lives
-/// in source so a binary CAN'T be silently mis-tagged: every release that
-/// understands version N must be compiled with this set to N.
-const EXPECTED_DB_FORMAT_VERSION: u32 = 2;
+/// Phase B.3.2.4 deliberately keeps Block byte-stable by using a
+/// side-table for BFT commits, so this stays at **1**. A future versioned
+/// `HeaderV2` will bump to 2 and ship paired migration code.
+const EXPECTED_DB_FORMAT_VERSION: u32 = 1;
+
+/// Phase B.3.2.4 — BFT commit side-table prefix.
+///
+/// Stored at `CF_META` key `bft/c/<32-byte block_hash>` →
+/// `bincode::serialize(&Vec<Vote>)` of the 2/3+ Precommits that justified
+/// committing that block. Lookup is O(1). The blob is independent of the
+/// Block bytes so adding/removing BFT data NEVER requires a DB migration.
+const META_BFT_COMMIT_PREFIX: &[u8] = b"bft/c/";
 const META_POOL: &[u8] = b"pool";
 const META_LP_PREFIX: &[u8] = b"lp/";
 const META_ADMIN: &[u8] = b"admin";              // 20-byte current admin address (override)
@@ -324,34 +330,32 @@ impl State {
             Some(v) if v == EXPECTED_DB_FORMAT_VERSION => { /* compatible */ }
             Some(v) => {
                 anyhow::bail!(
-                    "DB format version mismatch: on-disk={v}, binary expects \
-                    {EXPECTED_DB_FORMAT_VERSION}. Refusing to boot to avoid \
-                    silent corruption. If you intended to migrate or \
-                    downgrade, stop the node and wipe the data directory \
-                    ({}), then restart.",
+                    "DB format version mismatch: on-disk=v{v}, binary expects \
+                    v{EXPECTED_DB_FORMAT_VERSION}. Refusing to boot. If you \
+                    intended a migration or downgrade, follow the operator \
+                    runbook (HARDENING_TODO.md → C1) — typically: stop node, \
+                    snapshot data dir ({}), restart appropriate binary.",
                     path.display(),
                 );
             }
-            None if height == 0 => {
-                // Fresh DB — stamp the current version. First write wins;
-                // if two processes race, the second sees the same value
-                // and proceeds. Crash mid-stamp simply re-runs next boot.
+            None => {
+                // No marker → either fresh DB OR legacy DB from before the
+                // marker was introduced. Block schema in v1 has been
+                // byte-stable since chain inception, so legacy DBs are
+                // safe to stamp v1 and proceed without any migration.
+                // Side-table BFT commits (added in Phase B.3.2.4) live at
+                // a separate key prefix and don't touch existing block bytes.
                 db.put_cf(
                     cf_meta,
                     META_DB_FORMAT_VERSION,
                     EXPECTED_DB_FORMAT_VERSION.to_be_bytes(),
                 )?;
-            }
-            None => {
-                anyhow::bail!(
-                    "legacy DB at height {height} has no format-version marker; \
-                    this binary is Phase B.3.2.4 (format v{EXPECTED_DB_FORMAT_VERSION}), \
-                    which added bincode-incompatible BlockHeader/Block fields. \
-                    The pre-existing chain CANNOT be read. Stop the node and \
-                    wipe the data directory ({}), then restart to begin a \
-                    fresh chain. Documented in HARDENING_TODO.md → C1.",
-                    path.display(),
-                );
+                if height > 0 {
+                    tracing::info!(
+                        "DB format-version marker missing at tip {height} — \
+                         stamped as v{EXPECTED_DB_FORMAT_VERSION} (legacy DB, no migration needed)",
+                    );
+                }
             }
         }
 
@@ -2801,16 +2805,25 @@ impl State {
             ));
         }
 
-        // ── Phase B.3.2.4 — BFT commit gate ──
-        // At and above the activation height, every block MUST carry a
-        // valid LastCommit (2/3+ Precommits for parent_hash from the
-        // current validator set). Below the activation height, LastCommit
-        // is accepted as advisory only. Default activation = u64::MAX (OFF)
-        // for backward compat with the single-validator devnet.
+        // ── Phase B.3.2.4 — BFT commit gate (side-table architecture) ──
+        // At and above the activation height, the side-table commit for
+        // `parent_hash` (written by the consensus driver upon 2/3+
+        // Precommit quorum) MUST exist and verify against the current
+        // validator set. Below the activation height, no check runs.
+        // Default activation = u64::MAX (OFF) for backward compat with
+        // the single-validator devnet. Block bytes are unaffected — this
+        // never breaks DB compatibility, even when the gate is later
+        // enabled or disabled.
         if block.header.height >= *BFT_COMMIT_GATE_ACTIVATION_HEIGHT {
+            let parent_height = block.header.height.saturating_sub(1);
+            let last_commit_bytes = self
+                .get_bft_commit(&block.header.parent_hash)
+                .unwrap_or_default();
             let validators = self.validators();
             if let Err(e) = crate::vote::verify_last_commit_for_parent(
-                block,
+                block.header.parent_hash,
+                parent_height,
+                &last_commit_bytes,
                 crate::tokenomics::CHAIN_ID,
                 &validators,
             ) {
@@ -3958,6 +3971,39 @@ impl State {
             .and_then(|b| bincode::deserialize(&b).ok())
     }
 
+    // ── Phase B.3.2.4 — BFT commit side-table helpers ──
+    //
+    // The "commit" for a block is the bincode of the 2/3+ Precommits that
+    // committed it. Stored at `bft/c/<block_hash>` in CF_META. The blob is
+    // independent of `Block` bytes so adding/removing this data NEVER
+    // requires a DB migration. Read by `apply_block` when the BFT commit
+    // gate is active; written by the consensus driver (Phase 2) after a
+    // 2/3+ Precommit quorum forms for the just-applied block.
+
+    fn bft_commit_key(block_hash: &Hash) -> Vec<u8> {
+        let mut k = Vec::with_capacity(META_BFT_COMMIT_PREFIX.len() + 32);
+        k.extend_from_slice(META_BFT_COMMIT_PREFIX);
+        k.extend_from_slice(&block_hash.0);
+        k
+    }
+
+    /// Persist the BFT commit blob for `block_hash`. The blob MUST be
+    /// `bincode::serialize(&Vec<Vote>)` of valid Precommits. Caller is
+    /// responsible for verifying quorum BEFORE writing.
+    pub fn put_bft_commit(&self, block_hash: &Hash, votes_bincode: &[u8]) -> Result<()> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.put_cf(cf, Self::bft_commit_key(block_hash), votes_bincode)?;
+        Ok(())
+    }
+
+    /// Fetch the BFT commit blob for `block_hash`, or None if missing
+    /// (which is the legacy/single-validator case at all heights below
+    /// `BFT_COMMIT_GATE_ACTIVATION_HEIGHT`).
+    pub fn get_bft_commit(&self, block_hash: &Hash) -> Option<Vec<u8>> {
+        let cf = self.db.cf_handle(CF_META).unwrap();
+        self.db.get_cf(cf, Self::bft_commit_key(block_hash)).ok().flatten()
+    }
+
     /// Return the full active validator set, sorted by address (deterministic).
     pub fn validators(&self) -> Vec<Validator> {
         let cf = self.db.cf_handle(CF_META).unwrap();
@@ -4392,11 +4438,11 @@ pub static STATE_ROOT_ACTIVATION_HEIGHT: Lazy<u64> = Lazy::new(|| {
 
 /// **Phase B.3.2.4 — BFT commit gate activation height.**
 ///
-/// At and above this height, `apply_block` ENFORCES that
-/// `block.last_commit` carries valid Precommits from 2/3+ of the current
-/// validator set's voting power for `block.header.parent_hash`. Below this
-/// height, `last_commit` is accepted as advisory only (legacy single-
-/// validator PoA blocks).
+/// At and above this height, `apply_block` ENFORCES that the side-table
+/// commit blob at `bft/c/<parent_hash>` (read via `get_bft_commit`)
+/// proves 2/3+ Precommits from the current validator set's voting power
+/// for `block.header.parent_hash`. Below this height, no check runs and
+/// the side-table is ignored (legacy single-validator PoA blocks).
 ///
 /// Default = `u64::MAX` (OFF). Operators flip ON for a future height once
 /// Phase B.3.2.5 (vote-driven commit cycle) is deployed across all
@@ -4892,14 +4938,9 @@ mod state_root_tests {
             tx_root: Hash::ZERO,
             timestamp_ms: 1_700_000_000_000,
             proposer,
-            // Phase B.3.2.4: tests run with BFT commit gate OFF (default
-            // activation = u64::MAX), so the empty-LastCommit shortcut is
-            // accepted at every height. The genesis-adjacent rule
-            // (h <= 1 → must be ZERO) is also satisfied.
-            last_commit_hash: Hash::ZERO,
         };
         let sig = sign_bytes(signing_secret, &header_signing_bytes(&header)).unwrap();
-        Block { header, txs: Vec::new(), last_commit: Vec::new(), signature: sig }
+        Block { header, txs: Vec::new(), signature: sig }
     }
 
     #[test]
@@ -5114,10 +5155,9 @@ mod state_root_tests {
             tx_root: Hash::ZERO,
             timestamp_ms: 1_700_000_000_000,
             proposer: addr_v,
-            last_commit_hash: Hash::ZERO,
         };
         let sig = sign_bytes(&sk_v, &header_signing_bytes(&header)).unwrap();
-        let blk = Block { header, txs: vec![bad_tx], last_commit: Vec::new(), signature: sig };
+        let blk = Block { header, txs: vec![bad_tx], signature: sig };
 
         let res = st.apply_block(&blk);
         assert!(res.is_err(), "block with creator-only mint by non-creator must abort");
@@ -5144,10 +5184,9 @@ mod state_root_tests {
             tx_root: Hash::ZERO,
             timestamp_ms: 1_700_000_001_000,
             proposer: addr_v,
-            last_commit_hash: Hash::ZERO,
         };
         let sig2 = sign_bytes(&sk_v, &header_signing_bytes(&header2)).unwrap();
-        let blk2 = Block { header: header2, txs: vec![], last_commit: Vec::new(), signature: sig2 };
+        let blk2 = Block { header: header2, txs: vec![], signature: sig2 };
         let res2 = st.apply_block(&blk2);
         assert!(res2.is_err(), "apply_block must refuse while marker is stuck");
         let msg = format!("{:?}", res2.err().unwrap());
@@ -5178,10 +5217,9 @@ mod state_root_tests {
             height: h0 + 1, parent_hash: parent,
             state_root: Hash::ZERO, tx_root: Hash::ZERO,
             timestamp_ms: 1_700_000_000_000, proposer: addr_v,
-            last_commit_hash: Hash::ZERO,
         };
         let sig = sign_bytes(&sk_v, &header_signing_bytes(&header)).unwrap();
-        let blk = Block { header, txs: vec![], last_commit: Vec::new(), signature: sig };
+        let blk = Block { header, txs: vec![], signature: sig };
         st.apply_block(&blk).unwrap();
         let (tip_h, tip_hash) = st.tip();
         assert_eq!(tip_h, h0 + 1);
@@ -5195,10 +5233,9 @@ mod state_root_tests {
             height: tip_h + 1, parent_hash: tip_hash,
             state_root: Hash::ZERO, tx_root: Hash::ZERO,
             timestamp_ms: 1_700_000_001_000, proposer: addr_v,
-            last_commit_hash: Hash::ZERO,
         };
         let sig2 = sign_bytes(&sk_v, &header_signing_bytes(&header2)).unwrap();
-        let blk2 = Block { header: header2, txs: vec![], last_commit: Vec::new(), signature: sig2 };
+        let blk2 = Block { header: header2, txs: vec![], signature: sig2 };
         st.apply_block(&blk2).expect("auto-clear path should allow valid block");
         let (tip_h2, _) = st.tip();
         assert_eq!(tip_h2, tip_h + 1);

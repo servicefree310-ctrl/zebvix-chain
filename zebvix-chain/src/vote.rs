@@ -23,9 +23,7 @@
 //! the domain tag `"zebvix-vote/v1\0"` to prevent cross-protocol replay.
 
 use crate::crypto::{address_from_pubkey, sign_bytes, verify_signature};
-use crate::types::{Address, Block, Hash, Validator};
-#[cfg(test)]
-use crate::types::BlockHeader;
+use crate::types::{Address, Hash, Validator};
 use anyhow::{anyhow, bail, Result};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -245,10 +243,10 @@ impl VotePool {
     /// at `height` whose `block_hash == Some(target_hash)`.
     ///
     /// **Determinism contract** (CRITICAL for byzantine safety): two honest
-    /// proposers building on the same parent at different physical times must
-    /// produce byte-identical `Block.last_commit` payloads, otherwise their
-    /// header `last_commit_hash` values diverge and the network can't agree on
-    /// any single valid block. To meet this:
+    /// nodes assembling the side-table commit blob for the same `(height,
+    /// target_hash)` pair must produce byte-identical `Vec<Vote>` outputs,
+    /// otherwise the same block ends up with different commit blobs at
+    /// `bft/c/<block_hash>` across nodes. To meet this:
     ///
     ///   1. Outer iteration over `inner` is `BTreeMap<(height, round, type), …>`
     ///      → already sorted by `(h, r, vt)`. Higher rounds visited last.
@@ -299,33 +297,39 @@ impl VotePool {
     }
 }
 
-/// **Phase B.3.2.4 — verify a block's LastCommit proves 2/3+ Precommits
-/// for its parent.**
+/// **Phase B.3.2.4 — verify a stored LastCommit proves 2/3+ Precommits
+/// for `parent_hash` at `parent_height`.**
 ///
-/// This is the heart of the BFT commit gate. A block at height H>=2 must
-/// carry, in `Block.last_commit` (raw bincode of `Vec<Vote>`), a set of
-/// Precommit votes such that:
+/// This is the heart of the BFT commit gate. The commit blob is the raw
+/// `bincode::serialize(&Vec<Vote>)` retrieved from the side table
+/// (`State::get_bft_commit(parent_hash)`). On success, the blob proves
+/// that the canonical validator set placed >2/3 voting power behind
+/// `parent_hash` at `parent_height`.
 ///
-///   1. **Hash binding** — `keccak256(block.last_commit) == header.last_commit_hash`.
-///      This is the only field tying the body's LastCommit to the proposer's
-///      signature (which signs over the header). Without this check a
-///      byzantine proposer could equivocate by gossiping different bodies
-///      with the same header.
-///   2. **Per-vote sanity** — every vote MUST have:
+/// Checks performed:
+///
+///   1. **Per-vote sanity** — every vote MUST have:
 ///        - matching `chain_id`
-///        - `height == block.height - 1`
+///        - `height == parent_height`
 ///        - `vote_type == Precommit`
-///        - `block_hash == Some(block.parent_hash)` (no nil votes count
+///        - `block_hash == Some(parent_hash)` (no nil votes count
 ///          toward parent commitment)
 ///        - valid signature (via `verify_vote_sig`)
-///   3. **Membership** — every voter MUST be in `validators` with
+///   2. **Membership** — every voter MUST be in `validators` with
 ///      `voting_power > 0`.
-///   4. **Dedup** — at most one vote per validator address is counted.
-///   5. **Quorum** — sum of voting power across counted votes MUST be
+///   3. **Dedup** — at most one vote per validator address is counted.
+///   4. **Quorum** — sum of voting power across counted votes MUST be
 ///      `>= (total_power * 2) / 3 + 1`.
 ///
-/// **Genesis-adjacent rule** (height 0 / 1): `last_commit` MUST be empty
-/// AND `last_commit_hash` MUST be `Hash::ZERO`. There is no parent commit.
+/// **Genesis-adjacent rule**: when `parent_height == 0` the parent IS
+/// genesis and no commit can exist; `last_commit_bytes` MUST be empty.
+///
+/// **No header binding**: unlike a single-header design, this side-table
+/// architecture does not authenticate the commit blob via the proposer
+/// signature. The blob is trusted as cryptographic evidence on its own
+/// merits (every signed precommit independently verifies). A future
+/// versioned `HeaderV2` activated at a specific height will add explicit
+/// proposer-signature binding to the commit hash.
 ///
 /// **Validator set**: caller passes the CURRENT (post-parent) validator
 /// set. For the typical case (validator set changes are rare and
@@ -333,47 +337,31 @@ impl VotePool {
 /// hardening (Phase B.4) will pin the parent-height set explicitly via
 /// `validator_set_hash` in the parent header.
 pub fn verify_last_commit_for_parent(
-    block: &Block,
+    parent_hash: Hash,
+    parent_height: u64,
+    last_commit_bytes: &[u8],
     chain_id: u64,
     validators: &[Validator],
 ) -> Result<()> {
-    let h = block.header.height;
-    let parent_hash = block.header.parent_hash;
-
-    // ── Genesis-adjacent: no parent commit ──
-    if h <= 1 {
-        if !block.last_commit.is_empty() {
-            bail!("LastCommit must be empty at height {h} (no parent commit)");
-        }
-        if block.header.last_commit_hash != Hash::ZERO {
-            bail!("last_commit_hash must be ZERO at height {h} (no parent commit)");
+    // ── Genesis-adjacent: no parent commit possible ──
+    if parent_height == 0 {
+        if !last_commit_bytes.is_empty() {
+            bail!("LastCommit must be empty when parent is genesis (parent_height=0)");
         }
         return Ok(());
     }
 
-    // ── 1. Hash binding (proposer signature → body authentication) ──
-    let computed_hash = if block.last_commit.is_empty() {
-        Hash::ZERO
-    } else {
-        crate::crypto::keccak256(&block.last_commit)
-    };
-    if computed_hash != block.header.last_commit_hash {
-        bail!(
-            "LastCommit hash mismatch at h={h}: header={} computed={}",
-            block.header.last_commit_hash,
-            computed_hash,
-        );
+    if last_commit_bytes.is_empty() {
+        bail!("LastCommit empty for parent_height={parent_height} but commit required");
     }
 
-    // ── 2. Decode the votes ──
-    let votes: Vec<Vote> = bincode::deserialize(&block.last_commit)
-        .map_err(|e| anyhow!("LastCommit bincode decode failed at h={h}: {e}"))?;
+    let votes: Vec<Vote> = bincode::deserialize(last_commit_bytes)
+        .map_err(|e| anyhow!("LastCommit bincode decode failed for parent_height={parent_height}: {e}"))?;
 
     if votes.is_empty() {
-        bail!("LastCommit empty at h={h} but parent commit required");
+        bail!("LastCommit decoded to zero votes for parent_height={parent_height}");
     }
 
-    let parent_height = h - 1;
     let mut seen: HashSet<Address> = HashSet::new();
     let mut counted_power: u64 = 0;
 
@@ -443,7 +431,7 @@ pub fn verify_last_commit_for_parent(
     let quorum = (total * 2) / 3 + 1;
     if counted_power < quorum {
         bail!(
-            "LastCommit: insufficient power at h={h}: counted {counted_power} < quorum {quorum} (total {total})",
+            "LastCommit: insufficient power for parent_height={parent_height}: counted {counted_power} < quorum {quorum} (total {total})",
         );
     }
 
@@ -504,39 +492,9 @@ mod tests {
     // and the 2/3+ quorum threshold.
     // ────────────────────────────────────────────────────────────────────
 
-    /// Helper: build a Block whose body carries the given Precommits, with
-    /// `last_commit_hash` correctly bound. Header is signed by `proposer_sk`.
-    fn build_block_with_commit(
-        height: u64,
-        parent_hash: Hash,
-        precommits: &[Vote],
-        proposer_addr: Address,
-        proposer_sk: &[u8; 32],
-    ) -> Block {
-        let last_commit_bytes = if precommits.is_empty() {
-            Vec::new()
-        } else {
-            bincode::serialize(precommits).unwrap()
-        };
-        let last_commit_hash = if last_commit_bytes.is_empty() {
-            Hash::ZERO
-        } else {
-            crate::crypto::keccak256(&last_commit_bytes)
-        };
-        let header = BlockHeader {
-            height,
-            parent_hash,
-            state_root: Hash::ZERO,
-            tx_root: Hash::ZERO,
-            timestamp_ms: 1_700_000_000_000,
-            proposer: proposer_addr,
-            last_commit_hash,
-        };
-        let sig = crate::crypto::sign_bytes(
-            proposer_sk,
-            &crate::crypto::header_signing_bytes(&header),
-        ).unwrap();
-        Block { header, txs: Vec::new(), last_commit: last_commit_bytes, signature: sig }
+    /// Helper: bincode-encode a slice of Precommits as the side-table blob.
+    fn encode_commit(precommits: &[Vote]) -> Vec<u8> {
+        if precommits.is_empty() { Vec::new() } else { bincode::serialize(precommits).unwrap() }
     }
 
     fn precommit_for(
@@ -555,20 +513,20 @@ mod tests {
 
     #[test]
     fn verify_last_commit_genesis_must_be_empty() {
-        let (sk, _pk, v) = mk_validator(1);
-        let blk = build_block_with_commit(1, Hash::ZERO, &[], v.address, &sk);
-        verify_last_commit_for_parent(&blk, 7878, &[v]).expect("h=1 with empty LC must pass");
+        let (_sk, _pk, v) = mk_validator(1);
+        let bytes = encode_commit(&[]);
+        verify_last_commit_for_parent(Hash::ZERO, 0, &bytes, 7878, &[v])
+            .expect("parent_height=0 with empty LC must pass");
     }
 
     #[test]
     fn verify_last_commit_genesis_rejects_nonempty_payload() {
         let (sk1, pk1, v1) = mk_validator(1);
         let parent = Hash([0xAAu8; 32]);
-        // A non-empty commit at h=1 must be rejected outright.
         let bogus_pre = precommit_for(&sk1, pk1, 0, parent, 7878);
-        let blk = build_block_with_commit(1, Hash::ZERO, &[bogus_pre], v1.address, &sk1);
-        let err = verify_last_commit_for_parent(&blk, 7878, &[v1]).unwrap_err();
-        assert!(format!("{err}").contains("must be empty at height 1"), "got: {err}");
+        let bytes = encode_commit(&[bogus_pre]);
+        let err = verify_last_commit_for_parent(Hash::ZERO, 0, &bytes, 7878, &[v1]).unwrap_err();
+        assert!(format!("{err}").contains("must be empty when parent is genesis"), "got: {err}");
     }
 
     #[test]
@@ -579,12 +537,12 @@ mod tests {
         let (_,   _,   v4) = mk_validator(1);
         let set = vec![v1.clone(), v2.clone(), v3.clone(), v4];
         let parent = Hash([0xC0u8; 32]);
-        // Parent committed at height 5; child block at height 6.
         let pre1 = precommit_for(&sk1, pk1, 5, parent, 7878);
         let pre2 = precommit_for(&sk2, pk2, 5, parent, 7878);
         let pre3 = precommit_for(&sk3, pk3, 5, parent, 7878);
-        let blk = build_block_with_commit(6, parent, &[pre1, pre2, pre3], v1.address, &sk1);
-        verify_last_commit_for_parent(&blk, 7878, &set).expect("3/4 power must reach quorum");
+        let bytes = encode_commit(&[pre1, pre2, pre3]);
+        verify_last_commit_for_parent(parent, 5, &bytes, 7878, &set)
+            .expect("3/4 power must reach quorum");
     }
 
     #[test]
@@ -597,22 +555,9 @@ mod tests {
         let parent = Hash([0xC1u8; 32]);
         let pre1 = precommit_for(&sk1, pk1, 5, parent, 7878);
         let pre2 = precommit_for(&sk2, pk2, 5, parent, 7878);
-        let blk = build_block_with_commit(6, parent, &[pre1, pre2], v1.address, &sk1);
-        let err = verify_last_commit_for_parent(&blk, 7878, &set).unwrap_err();
+        let bytes = encode_commit(&[pre1, pre2]);
+        let err = verify_last_commit_for_parent(parent, 5, &bytes, 7878, &set).unwrap_err();
         assert!(format!("{err}").contains("insufficient power"), "got: {err}");
-    }
-
-    #[test]
-    fn verify_last_commit_hash_binding_rejected_on_tamper() {
-        let (sk1, pk1, v1) = mk_validator(1);
-        let parent = Hash([0xC2u8; 32]);
-        let pre = precommit_for(&sk1, pk1, 5, parent, 7878);
-        let mut blk = build_block_with_commit(6, parent, &[pre], v1.address, &sk1);
-        // Tamper the body — flip one byte. Header.last_commit_hash now
-        // mismatches keccak256(blk.last_commit).
-        blk.last_commit[0] ^= 0xFF;
-        let err = verify_last_commit_for_parent(&blk, 7878, &[v1]).unwrap_err();
-        assert!(format!("{err}").contains("hash mismatch"), "got: {err}");
     }
 
     #[test]
@@ -620,10 +565,9 @@ mod tests {
         let (sk1, pk1, v1) = mk_validator(1);
         let parent = Hash([0xC3u8; 32]);
         let other = Hash([0xDEu8; 32]);
-        // Vote was for `other`, but block claims `parent` is the parent.
         let pre = precommit_for(&sk1, pk1, 5, other, 7878);
-        let blk = build_block_with_commit(6, parent, &[pre], v1.address, &sk1);
-        let err = verify_last_commit_for_parent(&blk, 7878, &[v1]).unwrap_err();
+        let bytes = encode_commit(&[pre]);
+        let err = verify_last_commit_for_parent(parent, 5, &bytes, 7878, &[v1]).unwrap_err();
         assert!(format!("{err}").contains("target"), "got: {err}");
     }
 
@@ -631,10 +575,9 @@ mod tests {
     fn verify_last_commit_rejects_wrong_height() {
         let (sk1, pk1, v1) = mk_validator(1);
         let parent = Hash([0xC4u8; 32]);
-        // Vote at height 4, but block at height 6 expects parent height 5.
         let pre = precommit_for(&sk1, pk1, 4, parent, 7878);
-        let blk = build_block_with_commit(6, parent, &[pre], v1.address, &sk1);
-        let err = verify_last_commit_for_parent(&blk, 7878, &[v1]).unwrap_err();
+        let bytes = encode_commit(&[pre]);
+        let err = verify_last_commit_for_parent(parent, 5, &bytes, 7878, &[v1]).unwrap_err();
         assert!(format!("{err}").contains("height"), "got: {err}");
     }
 
@@ -642,10 +585,9 @@ mod tests {
     fn verify_last_commit_rejects_wrong_chain_id() {
         let (sk1, pk1, v1) = mk_validator(1);
         let parent = Hash([0xC5u8; 32]);
-        // Vote signed for chain_id 9999, but block verifier checks 7878.
         let pre = precommit_for(&sk1, pk1, 5, parent, 9999);
-        let blk = build_block_with_commit(6, parent, &[pre], v1.address, &sk1);
-        let err = verify_last_commit_for_parent(&blk, 7878, &[v1]).unwrap_err();
+        let bytes = encode_commit(&[pre]);
+        let err = verify_last_commit_for_parent(parent, 5, &bytes, 7878, &[v1]).unwrap_err();
         assert!(format!("{err}").contains("chain_id"), "got: {err}");
     }
 
@@ -653,13 +595,12 @@ mod tests {
     fn verify_last_commit_rejects_prevote_in_lastcommit_slot() {
         let (sk1, pk1, v1) = mk_validator(1);
         let parent = Hash([0xC6u8; 32]);
-        // Sign a Prevote (not Precommit) and try to use it for the commit.
         let prevote = sign_vote(&sk1, pk1, VoteData {
             chain_id: 7878, height: 5, round: 0,
             vote_type: VoteType::Prevote, block_hash: Some(parent),
         }).unwrap();
-        let blk = build_block_with_commit(6, parent, &[prevote], v1.address, &sk1);
-        let err = verify_last_commit_for_parent(&blk, 7878, &[v1]).unwrap_err();
+        let bytes = encode_commit(&[prevote]);
+        let err = verify_last_commit_for_parent(parent, 5, &bytes, 7878, &[v1]).unwrap_err();
         assert!(format!("{err}").contains("not a Precommit"), "got: {err}");
     }
 
@@ -670,22 +611,20 @@ mod tests {
         let set = vec![v1.clone(), v2];
         let parent = Hash([0xC7u8; 32]);
         let pre = precommit_for(&sk1, pk1, 5, parent, 7878);
-        // Pass the SAME vote twice — dedup must reject.
-        let blk = build_block_with_commit(6, parent, &[pre.clone(), pre], v1.address, &sk1);
-        let err = verify_last_commit_for_parent(&blk, 7878, &set).unwrap_err();
+        let bytes = encode_commit(&[pre.clone(), pre]);
+        let err = verify_last_commit_for_parent(parent, 5, &bytes, 7878, &set).unwrap_err();
         assert!(format!("{err}").contains("duplicate"), "got: {err}");
     }
 
     #[test]
     fn verify_last_commit_rejects_non_validator() {
-        let (sk1, _pk1, v1) = mk_validator(2);
-        // Attacker is NOT in the set.
+        let (_sk1, _pk1, v1) = mk_validator(2);
         let (sk_x, pk_x, _v_x) = mk_validator(0);
         let set = vec![v1.clone()];
         let parent = Hash([0xC8u8; 32]);
         let pre_attacker = precommit_for(&sk_x, pk_x, 5, parent, 7878);
-        let blk = build_block_with_commit(6, parent, &[pre_attacker], v1.address, &sk1);
-        let err = verify_last_commit_for_parent(&blk, 7878, &set).unwrap_err();
+        let bytes = encode_commit(&[pre_attacker]);
+        let err = verify_last_commit_for_parent(parent, 5, &bytes, 7878, &set).unwrap_err();
         assert!(format!("{err}").contains("non-validator"), "got: {err}");
     }
 
@@ -694,35 +633,17 @@ mod tests {
         let (sk1, pk1, v1) = mk_validator(1);
         let parent = Hash([0xC9u8; 32]);
         let mut pre = precommit_for(&sk1, pk1, 5, parent, 7878);
-        // Flip a byte in the signature.
         pre.signature[0] ^= 0xFF;
-        let blk = build_block_with_commit(6, parent, &[pre], v1.address, &sk1);
-        let err = verify_last_commit_for_parent(&blk, 7878, &[v1]).unwrap_err();
+        let bytes = encode_commit(&[pre]);
+        let err = verify_last_commit_for_parent(parent, 5, &bytes, 7878, &[v1]).unwrap_err();
         assert!(format!("{err}").contains("bad signature"), "got: {err}");
     }
 
     #[test]
     fn verify_last_commit_rejects_empty_lastcommit_post_genesis() {
-        let (sk1, _pk1_unused, v1) = mk_validator(1);
+        let (_sk1, _pk1, v1) = mk_validator(1);
         let parent = Hash([0xCAu8; 32]);
-        // Empty LastCommit at height >= 2 fails the hash-binding check
-        // (header.last_commit_hash defaults to ZERO so binding "passes",
-        // but then bincode-decode of empty bytes yields Err -> bail).
-        // We construct via raw manual write to make this explicit.
-        let header = BlockHeader {
-            height: 6,
-            parent_hash: parent,
-            state_root: Hash::ZERO,
-            tx_root: Hash::ZERO,
-            timestamp_ms: 1_700_000_000_000,
-            proposer: v1.address,
-            last_commit_hash: Hash::ZERO,
-        };
-        let sig = crate::crypto::sign_bytes(&sk1, &crate::crypto::header_signing_bytes(&header)).unwrap();
-        let blk = Block { header, txs: Vec::new(), last_commit: Vec::new(), signature: sig };
-        let err = verify_last_commit_for_parent(&blk, 7878, &[v1]).unwrap_err();
-        // Empty bytes successfully bincode-decode to an empty Vec<Vote>,
-        // which then trips the explicit "empty but parent commit required" guard.
+        let err = verify_last_commit_for_parent(parent, 5, &[], 7878, &[v1]).unwrap_err();
         assert!(format!("{err}").contains("empty"), "got: {err}");
     }
 
