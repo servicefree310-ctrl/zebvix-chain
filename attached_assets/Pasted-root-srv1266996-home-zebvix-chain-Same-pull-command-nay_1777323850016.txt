@@ -1,0 +1,51 @@
+root@srv1266996:/home/zebvix-chain# # Same pull command — naya tarball aayega fix ke saath
+curl -fsSL "https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/api/download/newchain" \
+  -o /tmp/newchain.tar.gz \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+
+# Extract over (backup pehle se hai pichle attempt se)
+tar xzf /tmp/newchain.tar.gz -C /home/zebvix-chain
+
+# Verify fix landed — line 57 mein sirf Block hona chahiye, Hash nahi
+sed -n '54,58p' /home/zebvix-chain/src/fsm_runtime.rs
+
+# CI dobara
+cd /home/zebvix-chain && bash scripts/ci-check.sh
+use crate::types::Block;
+
+/// Reads the `ZEBVIX_FSM_ENABLED` env var. Returns `true` only for the
+/// canonical truthy strings (`1`, `true`, `yes`, `on` — case-insensitive).
+/// Anything else — including unset, empty, malformed, `0`, `false` — is
+▶ Phase D-10 CI gate
+  chain_root = /home/zebvix-chain
+  features   = zvm
+  timeout    = 600s per step
+  mode       = full
+
+── cargo check --features zvm ──
+✓ PASS: cargo check --features zvm
+
+── cargo clippy --features zvm (warnings denied) ──
+✓ PASS: cargo clippy --features zvm (warnings denied)
+
+── cargo test --lib --features zvm ──
+error[E0061]: this function takes 2 arguments but 1 argument was supplied
+   --> src/fsm_runtime.rs:326:32
+    |
+326 |         let mempool = Arc::new(Mempool::new(50_000));
+    |                                ^^^^^^^^^^^^ ------ argument #1 of type `std::sync::Arc<state::State>` is missing
+    |
+note: associated function defined here
+   --> src/mempool.rs:58:12
+    |
+ 58 |     pub fn new(state: Arc<State>, max_size: usize) -> Self {
+    |            ^^^ -----------------
+help: provide the argument
+    |
+326 |         let mempool = Arc::new(Mempool::new(/* std::sync::Arc<state::State> */, 50_000));
+    |                                             +++++++++++++++++++++++++++++++++++
+
+For more information about this error, try `rustc --explain E0061`.
+error: could not compile `zebvix-node` (lib test) due to 1 previous error
+✗ FAIL: cargo test --lib --features zvm (rc=101)
+root@srv1266996:/home/zebvix-chain# 

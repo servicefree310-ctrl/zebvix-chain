@@ -323,7 +323,7 @@ mod tests {
         let (sk, pk) = generate_keypair();
         let v = Validator::new(pk, 10);
         state.put_validator(&v).unwrap();
-        let mempool = Arc::new(Mempool::new(50_000));
+        let mempool = Arc::new(Mempool::new(state.clone(), 50_000));
         let producer = Arc::new(Producer::new(sk, state.clone(), mempool));
         let start_height = state.tip().0 + 1;
         let rt = Arc::new(FsmRuntime::new(producer, state, start_height));
