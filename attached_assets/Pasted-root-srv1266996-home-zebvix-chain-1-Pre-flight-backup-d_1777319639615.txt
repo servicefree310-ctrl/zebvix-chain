@@ -1,0 +1,127 @@
+root@srv1266996:/home/zebvix-chain# # ─── 1) Pre-flight: backup + download fresh tarball ───
+cd /home/zebvix-chain && \
+  cp -r src src.bak.$(date +%s) && \
+  curl -fsSL "https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/api/download/newchain" \
+    -o newchain.tgz && \
+  ls -la newchain.tgz
+
+# ─── 2) Preview kya extract hoga (sanity check, koi file overwrite nahi hoti yet) ───
+tar -tzf newchain.tgz | head -30
+tar -tzf newchain.tgz | wc -l
+
+# ─── 3) Extract in-place (paths already relative to /home/zebvix-chain) ───
+cd /home/zebvix-chain && tar -xzf newchain.tgz
+
+# ─── 4) Verify naye modules mojud hai (is session ke 4 items) ───
+ls -la src/evidence.rs src/metrics.rs scripts/ci-check.sh && \
+  echo "✓ evidence.rs + metrics.rs + ci-check.sh present" && \
+  grep -c "tally_prevotes_for\|tally_precommits_for\|max_round_seen\|power_above_round" src/vote.rs && \
+  echo "✓ F006.2 tally APIs in vote.rs (expect 4+ matches)"
+
+# ─── 5) D10 CI gate (NEW — pehli baar use karenge) ───
+# --quick mode pehle (sirf cargo check, ~30s):
+chmod +x scripts/ci-check.sh && bash scripts/ci-check.sh --quick
+
+# Agar quick pass ho gaya, full gate (cargo check + clippy + tests, 5-10 min):
+bash scripts/ci-check.sh
+
+# ─── 6) Production build (zvm feature ON) ───
+cargo build --release --features zvm 2>&1 | tail -20
+
+# ─── 7) Binary verify + chain restart ───
+ls -la target/release/zebvix-chain && \
+  systemctl stop zebvix-chain && \
+  cp target/release/zebvix-chain /usr/local/bin/zebvix-chain && \
+  systemctl start zebvix-chain && \
+  sleep 3 && \
+  journalctl -u zebvix-chain -n 30 --no-pager | grep -E "height|applied|prevote"
+-rw-r--r-- 1 root root 335208 Apr 27 19:52 newchain.tgz
+./
+src/
+src/bin/
+src/bin/zbx.rs
+src/block_stm.rs
+src/p2p.rs
+src/pool.rs
+src/multisig.rs
+src/proposal.rs
+src/staking.rs
+src/zvm_rlp.rs
+src/tokenomics.rs
+src/token_pool.rs
+src/crypto.rs
+src/bridge.rs
+src/mempool.rs
+src/rpc.rs
+src/zvm_interp.rs
+src/zvm.rs
+src/transaction.rs
+src/zvm_state.rs
+src/zvm_rpc.rs
+src/zvm_precompiles.rs
+src/types.rs
+src/consensus.rs
+src/state.rs
+src/main.rs
+src/fsm.rs
+src/fsm_runtime.rs
+src/evidence.rs
+tar: stdout: write error
+68
+-rwxr-xr-x 1 ubuntu ubuntu  4318 Apr 27 19:44 scripts/ci-check.sh
+-rw-r--r-- 1 ubuntu ubuntu 13601 Apr 27 19:38 src/evidence.rs
+-rw-r--r-- 1 ubuntu ubuntu 12017 Apr 27 19:38 src/metrics.rs
+✓ evidence.rs + metrics.rs + ci-check.sh present
+23
+✓ F006.2 tally APIs in vote.rs (expect 4+ matches)
+▶ Phase D-10 CI gate
+  chain_root = /home/zebvix-chain
+  features   = zvm
+  timeout    = 600s per step
+  mode       = quick
+
+── cargo check --features zvm ──
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:393:4
+    |
+393 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+✓ PASS: cargo check --features zvm
+
+
+✅ ALL CHECKS PASSED
+   target/.last-ci-pass updated → 2026-04-27T19:52:56Z
+   Tarball handler will accept fresh deploys for the next 24h.
+▶ Phase D-10 CI gate
+  chain_root = /home/zebvix-chain
+  features   = zvm
+  timeout    = 600s per step
+  mode       = full
+
+── cargo check --features zvm ──
+warning: function `isqrt_u128` is never used
+   --> src/pool.rs:393:4
+    |
+393 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+✓ PASS: cargo check --features zvm
+
+── cargo clippy --features zvm (warnings denied) ──
+error: function `isqrt_u128` is never used
+   --> src/pool.rs:393:4
+    |
+393 | fn isqrt_u128(n: u128) -> u128 {
+    |    ^^^^^^^^^^
+    |
+    = note: `-D dead-code` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[expect(dead_code)]` or `#[allow(dead_code)]`
+
+error: could not compile `zebvix-node` (lib) due to 1 previous error
+✗ FAIL: cargo clippy --features zvm (warnings denied) (rc=101)
+Connection to 93.127.213.192:10000 closed.

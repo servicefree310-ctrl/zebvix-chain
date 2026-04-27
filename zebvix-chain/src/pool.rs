@@ -390,6 +390,11 @@ pub fn fee_bounds_wei(
     }
 }
 
+// Reserved utility — paired with isqrt_u256 below. Kept as the canonical
+// u128 integer-sqrt helper for upcoming pool-math code paths (concentrated
+// liquidity tick math, K-invariant rebalancing). Annotated to satisfy the
+// D10 CI gate's `clippy -D warnings` without deleting reusable code.
+#[allow(dead_code)]
 fn isqrt_u128(n: u128) -> u128 {
     if n < 2 { return n; }
     // Initial guess: 2^ceil(bit_length/2). Avoids the (n+1)/2 overflow
