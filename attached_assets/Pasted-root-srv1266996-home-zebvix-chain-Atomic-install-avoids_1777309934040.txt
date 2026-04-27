@@ -1,0 +1,31 @@
+root@srv1266996:/home/zebvix-chain# # Atomic install (avoids "Text file busy" while service running)
+cp /home/zebvix-chain/target/release/zebvix-node /tmp/zebvix-node.new
+chmod 755 /tmp/zebvix-node.new
+sudo mv /tmp/zebvix-node.new /usr/local/bin/zebvix-node
+
+# Verify binary updated (check timestamp)
+ls -la /usr/local/bin/zebvix-node
+
+# Restart service
+sudo systemctl restart zebvix
+
+# Wait 5 sec, check status
+sleep 5
+sudo systemctl status zebvix --no-pager | head -15
+-rwxr-xr-x 1 root root 16434808 Apr 27 17:11 /usr/local/bin/zebvix-node
+● zebvix.service - Zebvix L1 Blockchain Node
+     Loaded: loaded (/etc/systemd/system/zebvix.service; enabled; preset: enabled)
+     Active: active (running) since Mon 2026-04-27 17:11:54 UTC; 5s ago
+   Main PID: 1027807 (zebvix-node)
+      Tasks: 7 (limit: 9483)
+     Memory: 4.8M (peak: 6.4M)
+        CPU: 78ms
+     CGroup: /system.slice/zebvix.service
+             └─1027807 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333
+
+Apr 27 17:11:54 srv1266996.hstgr.cloud zebvix-node[1027807]: 2026-04-27T17:11:54.630149Z  INFO zebvix_node:    rpc       : http://0.0.0.0:8545
+Apr 27 17:11:54 srv1266996.hstgr.cloud zebvix-node[1027807]: 2026-04-27T17:11:54.630728Z  INFO zebvix_node:    p2p       : tcp/30333  peer_id=12D3KooWAHuxvckipgBhCEwJo5xP2kigXHuw1kqmqZCr7g8k6As4
+Apr 27 17:11:54 srv1266996.hstgr.cloud zebvix-node[1027807]: 2026-04-27T17:11:54.630749Z  INFO zebvix_node:    mdns      : DISABLED (default — pass --enable-mdns to opt in)
+Apr 27 17:11:54 srv1266996.hstgr.cloud zebvix-node[1027807]: 2026-04-27T17:11:54.630769Z  INFO zebvix_node::rpc: 🛡  RPC CORS: localhost-only (default). Set ZEBVIX_RPC_CORS_ORIGINS=<csv> to add public origins, or ZEBVIX_RPC_CORS_ORIGINS=* to allow any.
+Apr 27 17:11:54 srv1266996.hstgr.cloud zebvix-node[1027807]: 2026-04-27T17:11:54.631577Z  INFO zebvix_node::consensus: ⛏  producer started: my_address=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315, mode=ROUND_ROBIN+TIMEOUTS (B.3.2.2) pacing=5s propose_timeout=8s tick=500ms
+root@srv1266996:/home/zebvix-chain# 
