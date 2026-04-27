@@ -122,6 +122,7 @@ const ADDON_NAV: NavLink[] = [
   { href: "/fabric-layer", label: "Zebvix Fabric Layer", icon: Layers },
   { href: "/code-review", label: "Code Review — What Changed", icon: FileCode2 },
   { href: "/chain-code", label: "Chain Source Code", icon: Code2 },
+  { href: "/service-code", label: "Service & Page Code", icon: Code2, badge: "NEW" },
   { href: "/chain-status", label: "Chain Features", icon: Sparkles },
   { href: "/consensus-roadmap", label: "Consensus Roadmap (DAG-BFT)", icon: GitBranch },
   { href: "/downloads", label: "Downloads", icon: Download },

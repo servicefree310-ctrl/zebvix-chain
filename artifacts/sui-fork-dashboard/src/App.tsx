@@ -40,6 +40,7 @@ import Downloads from "@/pages/downloads";
 import SdkPage from "@/pages/sdk";
 import ChainBuilder from "@/pages/chain-builder";
 import ChainCode from "@/pages/chain-code";
+import ServiceCode from "@/pages/service-code";
 import ChainStatus from "@/pages/chain-status";
 import ConsensusRoadmap from "@/pages/consensus-roadmap";
 import LiveChain from "@/pages/live-chain";
@@ -117,6 +118,7 @@ function Router() {
         <Route path="/code-review" component={CodeReview} />
         <Route path="/downloads" component={Downloads} />
         <Route path="/chain-code" component={ChainCode} />
+        <Route path="/service-code" component={ServiceCode} />
         <Route path="/chain-status" component={ChainStatus} />
         <Route path="/consensus-roadmap" component={ConsensusRoadmap} />
         <Route path="/live-chain" component={LiveChain} />
