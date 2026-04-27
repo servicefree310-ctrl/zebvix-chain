@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
+import { rateLimit, ipKeyGenerator } from "express-rate-limit";
 import { db, adminNavItemsTable } from "@workspace/db";
 import { asc, eq } from "drizzle-orm";
 import {
@@ -18,6 +19,35 @@ import {
 import { logger } from "../lib/logger";
 
 const adminRouter = Router();
+
+// Brute-force protection: cap admin-token attempts to 10/min per IP. Counts
+// ONLY failed (non-2xx) responses, so legitimate users hitting GET /settings
+// or GET /nav repeatedly are not throttled. Applied to /admin/auth/check
+// AND every requireAdmin-protected route so an attacker can't bypass the cap
+// by hammering the 401 oracle on /admin/settings or /admin/nav. Combined with
+// the existing global /api limiter (600/min) and timingSafeEqual check, this
+// gives static-token auth meaningful brute-force resistance.
+const adminAuthLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 10,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req.ip ?? "unknown"),
+  message: { error: "rate_limited", retryAfterSec: 60 },
+  skipSuccessfulRequests: true,
+});
+
+// Lighter cap on mutating admin endpoints — generous for normal use, but
+// blocks anyone who somehow obtains a token from hammering the API. Counts
+// every request regardless of outcome.
+const adminMutateLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 120,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req.ip ?? "unknown"),
+  message: { error: "rate_limited", retryAfterSec: 60 },
+});
 
 // ── Default nav seed ────────────────────────────────────────────────────────
 // Mirrors the hardcoded arrays in
@@ -121,7 +151,7 @@ adminRouter.get("/admin/auth/status", (_req, res) => {
 });
 
 const checkSchema = z.object({ token: z.string().min(1).max(512) });
-adminRouter.post("/admin/auth/check", (req, res) => {
+adminRouter.post("/admin/auth/check", adminAuthLimiter, (req, res) => {
   if (!adminTokenConfigured()) {
     res.status(503).json({ ok: false, error: "admin_not_configured" });
     return;
@@ -171,7 +201,7 @@ adminRouter.get("/admin/settings/public", async (_req, res) => {
 });
 
 // ── Full settings (auth) ────────────────────────────────────────────────────
-adminRouter.get("/admin/settings", requireAdmin, async (_req, res) => {
+adminRouter.get("/admin/settings", adminAuthLimiter, requireAdmin, async (_req, res) => {
   try {
     const values = await getAllSettings();
     res.json({ values });
@@ -190,21 +220,100 @@ const settingsBodySchema = z
   })
   .strict();
 
-adminRouter.put("/admin/settings", requireAdmin, async (req, res) => {
+const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
+const URL_RE = /^https?:\/\/[^\s]+$/i;
+
+type FieldError = { key: string; reason: string };
+
+// Per-key validation that mirrors SETTING_DEFS.kind. Returns either a
+// sanitised, ready-to-write record or a list of field errors. Empty strings
+// are allowed for optional inputs (urls/colors) and treated as "clear".
+function validateSettings(
+  input: Record<string, unknown>,
+): { ok: true; values: Record<string, unknown> } | { ok: false; errors: FieldError[] } {
+  const out: Record<string, unknown> = {};
+  const errors: FieldError[] = [];
+  for (const [k, raw] of Object.entries(input)) {
+    if (!isKnownKey(k)) continue;
+    const def = SETTING_DEFS.find((d) => d.key === k)!;
+    let v: unknown = raw;
+    // Normalise strings.
+    if (typeof v === "string") v = v.trim();
+    if (v === "" || v === null || v === undefined) {
+      // Allow clearing optional fields back to default. Numbers stay required.
+      if (def.kind === "number") {
+        errors.push({ key: k, reason: "must be a number" });
+        continue;
+      }
+      out[k] = def.kind === "boolean" ? Boolean(def.defaultValue) : "";
+      continue;
+    }
+    switch (def.kind) {
+      case "number": {
+        const n = typeof v === "number" ? v : Number(v);
+        if (!Number.isFinite(n) || n < 0 || n > 2 ** 53 - 1) {
+          errors.push({ key: k, reason: "must be a non-negative finite number" });
+          continue;
+        }
+        out[k] = n;
+        break;
+      }
+      case "boolean": {
+        if (typeof v !== "boolean") {
+          errors.push({ key: k, reason: "must be true or false" });
+          continue;
+        }
+        out[k] = v;
+        break;
+      }
+      case "url": {
+        if (typeof v !== "string" || !URL_RE.test(v) || v.length > 1024) {
+          errors.push({ key: k, reason: "must be a http(s) URL under 1024 chars" });
+          continue;
+        }
+        out[k] = v;
+        break;
+      }
+      case "color": {
+        if (typeof v !== "string" || !COLOR_RE.test(v)) {
+          errors.push({ key: k, reason: "must be a #rrggbb hex color" });
+          continue;
+        }
+        out[k] = v.toLowerCase();
+        break;
+      }
+      case "string":
+      default: {
+        if (typeof v !== "string") {
+          errors.push({ key: k, reason: "must be a string" });
+          continue;
+        }
+        if (v.length > 4096) {
+          errors.push({ key: k, reason: "string too long (max 4096)" });
+          continue;
+        }
+        out[k] = v;
+        break;
+      }
+    }
+  }
+  if (errors.length) return { ok: false, errors };
+  return { ok: true, values: out };
+}
+
+adminRouter.put("/admin/settings", adminAuthLimiter, adminMutateLimiter, requireAdmin, async (req, res) => {
   const parsed = settingsBodySchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "invalid_body" });
     return;
   }
-  // Filter to known keys only — silently drop anything else.
-  const filtered: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(parsed.data.values)) {
-    if (!isKnownKey(k)) continue;
-    if (typeof v === "string" && v.length > 4096) continue;
-    filtered[k] = v;
+  const validated = validateSettings(parsed.data.values);
+  if (!validated.ok) {
+    res.status(400).json({ error: "invalid_values", fields: validated.errors });
+    return;
   }
   try {
-    await upsertSettings(filtered);
+    await upsertSettings(validated.values);
     const values = await getAllSettings();
     res.json({ ok: true, values });
   } catch (err) {
@@ -217,7 +326,7 @@ adminRouter.put("/admin/settings", requireAdmin, async (req, res) => {
 });
 
 const deleteBodySchema = z.object({ keys: z.array(z.string()).max(100) });
-adminRouter.delete("/admin/settings", requireAdmin, async (req, res) => {
+adminRouter.delete("/admin/settings", adminAuthLimiter, adminMutateLimiter, requireAdmin, async (req, res) => {
   const parsed = deleteBodySchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "invalid_body" });
@@ -273,7 +382,7 @@ adminRouter.get("/admin/nav/public", async (_req, res) => {
   }
 });
 
-adminRouter.get("/admin/nav", requireAdmin, async (_req, res) => {
+adminRouter.get("/admin/nav", adminAuthLimiter, requireAdmin, async (_req, res) => {
   try {
     await ensureSeeded();
     const rows = await db
@@ -303,7 +412,7 @@ const navCreateSchema = z.object({
   openInNewTab: z.boolean().default(false),
 });
 
-adminRouter.post("/admin/nav", requireAdmin, async (req, res) => {
+adminRouter.post("/admin/nav", adminAuthLimiter, adminMutateLimiter, requireAdmin, async (req, res) => {
   const parsed = navCreateSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "invalid_body", detail: parsed.error.flatten() });
@@ -349,7 +458,7 @@ const navUpdateSchema = z.object({
   section: z.enum(SECTION_VALUES).optional(),
 });
 
-adminRouter.put("/admin/nav/:id", requireAdmin, async (req, res) => {
+adminRouter.put("/admin/nav/:id", adminAuthLimiter, adminMutateLimiter, requireAdmin, async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) {
     res.status(400).json({ error: "invalid_id" });
@@ -381,7 +490,7 @@ adminRouter.put("/admin/nav/:id", requireAdmin, async (req, res) => {
   }
 });
 
-adminRouter.delete("/admin/nav/:id", requireAdmin, async (req, res) => {
+adminRouter.delete("/admin/nav/:id", adminAuthLimiter, adminMutateLimiter, requireAdmin, async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) {
     res.status(400).json({ error: "invalid_id" });
@@ -417,7 +526,7 @@ adminRouter.delete("/admin/nav/:id", requireAdmin, async (req, res) => {
   }
 });
 
-adminRouter.post("/admin/nav/reset", requireAdmin, async (_req, res) => {
+adminRouter.post("/admin/nav/reset", adminAuthLimiter, adminMutateLimiter, requireAdmin, async (_req, res) => {
   try {
     // Wipe and re-seed the built-in entries; preserve custom items.
     await db.delete(adminNavItemsTable).where(eq(adminNavItemsTable.isCustom, false));

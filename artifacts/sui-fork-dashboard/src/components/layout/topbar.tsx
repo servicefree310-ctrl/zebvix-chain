@@ -2,6 +2,7 @@ import React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { WalletPicker } from "@/components/ui/wallet-picker";
 import { Smartphone } from "lucide-react";
+import { useBrandConfig } from "@/lib/use-brand-config";
 
 type ChainStatus = {
   height?: number | string;
@@ -22,6 +23,7 @@ async function fetchStatus(): Promise<ChainStatus | null> {
 }
 
 export function Topbar() {
+  const brand = useBrandConfig();
   const { data } = useQuery({
     queryKey: ["topbar-chain-status"],
     queryFn: fetchStatus,
@@ -54,9 +56,11 @@ export function Topbar() {
           {live ? "Live" : "Connecting"}
         </span>
         <div className="hidden sm:flex items-center gap-2 text-[11px] uppercase tracking-widest text-muted-foreground">
-          <span>Zebvix L1</span>
+          <span data-testid="topbar-chain-name">{brand.chainName}</span>
           <span className="font-mono text-primary/70">·</span>
-          <span className="font-mono text-primary/70">chain 7878</span>
+          <span className="font-mono text-primary/70" data-testid="topbar-chain-id">
+            chain {brand.chainId}
+          </span>
           {height ? (
             <>
               <span className="font-mono text-primary/70">·</span>

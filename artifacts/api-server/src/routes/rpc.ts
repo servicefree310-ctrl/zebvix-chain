@@ -166,15 +166,20 @@ function rateLimit(ip: string): boolean {
   return true;
 }
 
+// Public info endpoint. We DO NOT leak the resolved upstream URL because the
+// admin can override it with a private hostname/IP that should not be
+// disclosed publicly. Anyone holding the admin token can read the real value
+// from /api/admin/settings.
 rpcRouter.get("/rpc/info", async (_req, res) => {
-  let upstream = VPS_RPC_URL;
+  let configured = false;
   try {
-    upstream = await getEffectiveRpcUrl();
+    const url = await getEffectiveRpcUrl();
+    configured = Boolean(url);
   } catch {
-    // fall back to env default
+    configured = Boolean(VPS_RPC_URL);
   }
   res.json({
-    upstream,
+    upstream_configured: configured,
     rate_limit_per_min: RATE_MAX_REQS,
     allowed_methods: Array.from(ALLOWED_METHODS).sort(),
   });

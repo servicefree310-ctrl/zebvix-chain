@@ -9,6 +9,7 @@ import {
   Shield,
   ExternalLink,
 } from "lucide-react";
+import { useBrandConfig } from "@/lib/use-brand-config";
 
 const VERSION = "v1.0.0";
 const YEAR = new Date().getFullYear();
@@ -77,6 +78,7 @@ function Col({ title, items }: { title: string; items: LinkDef[] }) {
 }
 
 export function Footer() {
+  const brand = useBrandConfig();
   return (
     <footer className="mt-16 border-t border-border/60 bg-card/30">
       <div className="max-w-7xl mx-auto px-6 md:px-8 py-10">
@@ -86,15 +88,34 @@ export function Footer() {
               <div className="w-6 h-6 rounded bg-primary flex items-center justify-center shadow-[0_0_15px_rgba(34,197,94,0.35)]">
                 <div className="w-2.5 h-2.5 bg-background rounded-sm" />
               </div>
-              <span className="font-bold text-foreground">Zebvix</span>
+              <span className="font-bold text-foreground" data-testid="footer-brand-name">
+                {brand.brandName}
+              </span>
             </div>
-            <p className="text-xs text-muted-foreground leading-relaxed mb-3">
-              Zebvix L1 — high-throughput, EVM-compatible Layer-1 with
-              built-in DEX, bridge, and pay-id native primitives.
+            <p
+              className="text-xs text-muted-foreground leading-relaxed mb-3"
+              data-testid="footer-brand-tagline"
+            >
+              {brand.brandTagline}
             </p>
             <div className="text-[11px] font-mono text-muted-foreground space-y-0.5">
-              <div>Chain ID <span className="text-primary/80">7878</span></div>
-              <div>Build <span className="text-primary/80">{VERSION}</span></div>
+              <div>
+                Chain ID{" "}
+                <span className="text-primary/80" data-testid="footer-chain-id">
+                  {brand.chainId}
+                </span>
+              </div>
+              <div>
+                Build <span className="text-primary/80">{VERSION}</span>
+              </div>
+              {brand.brandDomain && (
+                <div>
+                  Domain{" "}
+                  <span className="text-primary/80" data-testid="footer-brand-domain">
+                    {brand.brandDomain}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
           <Col title="Network" items={NETWORK} />
@@ -103,7 +124,7 @@ export function Footer() {
         </div>
         <div className="mt-8 pt-6 border-t border-border/50 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-[11px] text-muted-foreground">
           <div>
-            © {YEAR} Zebvix Technologies Pvt Ltd. All rights reserved.
+            © {YEAR} {brand.brandName} Technologies. All rights reserved.
           </div>
           <div className="flex items-center gap-3 font-mono">
             <span className="inline-flex items-center gap-1.5">
