@@ -12,6 +12,7 @@ import bridgeRouter from "./bridge";
 import wcRouter from "./wc";
 import tokensRouter from "./tokens";
 import sitesRouter from "./sites";
+import adminRouter from "./admin";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,6 @@ router.use(bridgeRouter);
 router.use(wcRouter);
 router.use(tokensRouter);
 router.use(sitesRouter);
+router.use(adminRouter);
 
 export default router;

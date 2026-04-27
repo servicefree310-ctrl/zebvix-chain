@@ -1,7 +1,13 @@
 import { Router } from "express";
+import { getEffectiveRpcUrl } from "../lib/admin-settings";
 
 const rpcRouter = Router();
 
+// Default upstream — used by the rate-limit info endpoint and as the ultimate
+// fallback if both the admin override and the env var are missing. The actual
+// proxied call resolves the URL per-request through getEffectiveRpcUrl() which
+// is cached for 5 seconds so admin changes take effect almost immediately
+// without slamming the database on every RPC call.
 const VPS_RPC_URL =
   process.env["ZEBVIX_VPS_RPC"] ?? "http://93.127.213.192:8545";
 
@@ -160,9 +166,15 @@ function rateLimit(ip: string): boolean {
   return true;
 }
 
-rpcRouter.get("/rpc/info", (_req, res) => {
+rpcRouter.get("/rpc/info", async (_req, res) => {
+  let upstream = VPS_RPC_URL;
+  try {
+    upstream = await getEffectiveRpcUrl();
+  } catch {
+    // fall back to env default
+  }
   res.json({
-    upstream: VPS_RPC_URL,
+    upstream,
     rate_limit_per_min: RATE_MAX_REQS,
     allowed_methods: Array.from(ALLOWED_METHODS).sort(),
   });
@@ -226,10 +238,17 @@ rpcRouter.post("/rpc", async (req, res) => {
     params: body.params ?? [],
   };
 
+  let upstreamUrl = VPS_RPC_URL;
+  try {
+    upstreamUrl = await getEffectiveRpcUrl();
+  } catch {
+    // keep the env default if the settings cache miss + DB read both fail
+  }
+
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 8_000);
-    const r = await fetch(VPS_RPC_URL, {
+    const r = await fetch(upstreamUrl, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(upstream),

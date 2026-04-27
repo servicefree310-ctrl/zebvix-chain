@@ -55,6 +55,8 @@ import { useChecklist } from "@/hooks/useChecklist";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { iconFor } from "@/lib/icon-map";
+import { adminApi, type NavItem } from "@/lib/admin-client";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Nav data — `badge` is optional and renders as a small pill next to the label.
@@ -126,19 +128,72 @@ const ADDON_NAV: NavLink[] = [
   { href: "/chain-status", label: "Chain Features", icon: Sparkles },
   { href: "/consensus-roadmap", label: "Consensus Roadmap (DAG-BFT)", icon: GitBranch },
   { href: "/downloads", label: "Downloads", icon: Download },
+  { href: "/admin", label: "Admin Panel", icon: Shield, badge: "PRO" },
 ];
 
-const SECTIONS: {
+type SidebarSection = {
   id: string;
   title: string;
   icon: React.ElementType;
   accent: string;
   items: NavLink[];
-}[] = [
+};
+
+const FALLBACK_SECTIONS: SidebarSection[] = [
   { id: "core", title: "Build & Configure", icon: Settings, accent: "text-primary", items: CORE_NAV },
   { id: "live", title: "Live VPS RPC", icon: Radio, accent: "text-emerald-400", items: LIVE_NAV },
   { id: "addons", title: "Add-ons & Tools", icon: Sparkles, accent: "text-violet-400", items: ADDON_NAV },
 ];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Admin-managed nav overlay. We poll /api/admin/nav/public best-effort. If the
+// API responds with at least one item, we use it as the source of truth so the
+// admin panel actually controls what shows up. If the API is unreachable or
+// returns nothing, we fall back to the hardcoded FALLBACK_SECTIONS so the app
+// keeps working in any environment.
+// ─────────────────────────────────────────────────────────────────────────────
+function useEffectiveSections(): SidebarSection[] {
+  const { data } = useQuery({
+    queryKey: ["public-nav"],
+    queryFn: () => adminApi.publicNav(),
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+    retry: 1,
+  });
+  return useMemo(() => {
+    const items = data?.items ?? [];
+    if (items.length === 0) return FALLBACK_SECTIONS;
+    const buckets: Record<string, NavLink[]> = { core: [], live: [], addons: [] };
+    for (const it of items) {
+      const section = (it.section in buckets ? it.section : "addons") as keyof typeof buckets;
+      const link: NavLink = {
+        href: it.href,
+        label: it.label,
+        icon: iconFor(it.iconName),
+        badge: (it.badge ?? undefined) as NavBadge | undefined,
+        external: it.openInNewTab || /^https?:\/\//i.test(it.href),
+      };
+      buckets[section].push(link);
+    }
+    // Always make sure the Admin Panel itself is reachable from the sidebar
+    // even if the admin disabled it by mistake (otherwise they'd be locked out
+    // unless they remember the /admin URL). Append silently if missing.
+    const allHrefs = new Set(items.map((i: NavItem) => i.href));
+    if (!allHrefs.has("/admin")) {
+      buckets.addons.push({
+        href: "/admin",
+        label: "Admin Panel",
+        icon: Shield,
+        badge: "PRO",
+      });
+    }
+    return [
+      { id: "core", title: "Build & Configure", icon: Settings, accent: "text-primary", items: buckets.core },
+      { id: "live", title: "Live VPS RPC", icon: Radio, accent: "text-emerald-400", items: buckets.live },
+      { id: "addons", title: "Add-ons & Tools", icon: Sparkles, accent: "text-violet-400", items: buckets.addons },
+    ];
+  }, [data]);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Live chain status — reuses the same `/api/chain/status` endpoint that the
@@ -234,6 +289,7 @@ export function Sidebar() {
   const [rail, setRail] = useLocalState<boolean>("zbx-sidebar-rail", false);
   const [query, setQuery] = useState("");
   const { favs, toggle: toggleFav } = useFavourites();
+  const SECTIONS = useEffectiveSections();
 
   // Cmd/Ctrl+K to focus search.
   useEffect(() => {
@@ -250,7 +306,7 @@ export function Sidebar() {
 
   const allItems = useMemo(
     () => SECTIONS.flatMap((s) => s.items.map((i) => ({ ...i, section: s.id }))),
-    [],
+    [SECTIONS],
   );
 
   const filtered = useMemo(() => {
