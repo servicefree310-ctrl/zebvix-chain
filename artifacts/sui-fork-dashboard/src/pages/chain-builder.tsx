@@ -2,28 +2,72 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Hammer, Rocket, CheckCircle2, AlertCircle, Settings, Coins, Network,
   Terminal, Download, Copy, Check, ArrowRight, ArrowLeft, Loader2, Zap, Shield,
-  FileCode2, Server, Package, RefreshCw, KeyRound,
+  FileCode2, Server, Package, RefreshCw, KeyRound, Landmark, Sliders, Gauge,
+  Flame, Layers, Cog, Info,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import { CodeBlock } from "@/components/ui/code-block";
 
 const API_BASE = (import.meta as any).env?.BASE_URL?.replace(/\/+$/, "") || "";
 
+type FeatureKey =
+  | "evm" | "zvm" | "smartContracts" | "mempool" | "snapshots"
+  | "archiveMode" | "txIndex" | "websocket" | "metrics" | "txBurn" | "eip1559";
+
+type FeatureFlags = Record<FeatureKey, boolean>;
+
 type ChainConfig = {
+  // identity
   chainName: string;
   chainId: number;
   symbol: string;
   decimals: number;
+  description: string;
+  // tokenomics
   totalSupplyZbx: number;
+  fixedSupply: boolean;
   founderPremineZbx: number;
+  mintPerBlockZbx: number;
+  halvingBlocks: number;
   blockTimeSecs: number;
+  // consensus / PoS
+  consensus: "pos" | "poa";
+  minValidatorStakeZbx: number;
+  maxValidators: number;
+  slashPercent: number;
+  unbondingDays: number;
+  // governance
+  governanceEnabled: boolean;
+  votingPeriodBlocks: number;
+  quorumPercent: number;
+  proposalThresholdZbx: number;
+  executionDelayBlocks: number;
+  // network
   rpcPort: number;
   p2pPort: number;
-  description: string;
+  // features
+  features: FeatureFlags;
+};
+
+const DEFAULT_FEATURES: FeatureFlags = {
+  evm: true,
+  zvm: true,
+  smartContracts: true,
+  mempool: true,
+  snapshots: true,
+  archiveMode: false,
+  txIndex: true,
+  websocket: true,
+  metrics: true,
+  txBurn: false,
+  eip1559: true,
 };
 
 const DEFAULT_CFG: ChainConfig = {
@@ -31,19 +75,35 @@ const DEFAULT_CFG: ChainConfig = {
   chainId: 9999,
   symbol: "MYC",
   decimals: 18,
+  description: "",
   totalSupplyZbx: 150_000_000,
+  fixedSupply: true,
   founderPremineZbx: 9_990_000,
+  mintPerBlockZbx: 0,
+  halvingBlocks: 0,
   blockTimeSecs: 5,
+  consensus: "pos",
+  minValidatorStakeZbx: 10_000,
+  maxValidators: 100,
+  slashPercent: 5,
+  unbondingDays: 21,
+  governanceEnabled: true,
+  votingPeriodBlocks: 100_800,
+  quorumPercent: 25,
+  proposalThresholdZbx: 100_000,
+  executionDelayBlocks: 7_200,
   rpcPort: 8545,
   p2pPort: 30303,
-  description: "",
+  features: { ...DEFAULT_FEATURES },
 };
 
 const STEPS = [
   { id: 1, label: "Identity",   icon: Coins,    blurb: "Name, chain ID, symbol, decimals" },
-  { id: 2, label: "Tokenomics", icon: Coins,    blurb: "Supply, pre-mine, block time" },
-  { id: 3, label: "Network",    icon: Network,  blurb: "RPC + P2P ports" },
-  { id: 4, label: "Build",      icon: Hammer,   blurb: "Generate & download bundle" },
+  { id: 2, label: "Tokenomics", icon: Sliders,  blurb: "Supply model, pre-mine, emission" },
+  { id: 3, label: "Consensus",  icon: Shield,   blurb: "PoS validators, slashing, unbonding" },
+  { id: 4, label: "Governance", icon: Landmark, blurb: "On-chain voting, quorum, execution" },
+  { id: 5, label: "Features",   icon: Cog,      blurb: "Feature matrix + RPC / P2P ports" },
+  { id: 6, label: "Build",      icon: Hammer,   blurb: "Review & generate setup bundle" },
 ] as const;
 
 const SLUG_RE = /^[a-z][a-z0-9-]{1,30}$/;
@@ -98,6 +158,68 @@ function StepPill({
   );
 }
 
+function SectionHeader({ icon: Icon, title, hint }: {
+  icon: React.ElementType; title: string; hint?: string;
+}) {
+  return (
+    <div className="flex items-start gap-2 pt-1">
+      <Icon className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+      <div>
+        <div className="text-sm font-semibold text-foreground">{title}</div>
+        {hint && <div className="text-xs text-muted-foreground">{hint}</div>}
+      </div>
+    </div>
+  );
+}
+
+function ToggleRow({
+  id, label, hint, checked, onChange, badge,
+}: {
+  id: string; label: string; hint?: string; checked: boolean;
+  onChange: (v: boolean) => void; badge?: string;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3 p-3 border border-border rounded-md bg-card/40">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Label htmlFor={id} className="text-sm font-medium text-foreground cursor-pointer">{label}</Label>
+          {badge && <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-muted-foreground border-border">{badge}</Badge>}
+        </div>
+        {hint && <p className="text-xs text-muted-foreground mt-1">{hint}</p>}
+      </div>
+      <Switch id={id} checked={checked} onCheckedChange={onChange} data-testid={`toggle-${id}`} />
+    </div>
+  );
+}
+
+function NumberField({
+  id, label, hint, value, onChange, min, max, suffix, error, mono,
+}: {
+  id: string; label: string; hint?: string; value: number;
+  onChange: (n: number) => void; min?: number; max?: number;
+  suffix?: string; error?: boolean; mono?: boolean;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id} className="flex items-center gap-2">
+        {label}
+        {suffix && <span className="text-xs text-muted-foreground font-normal">({suffix})</span>}
+      </Label>
+      <Input
+        id={id}
+        data-testid={`input-${id}`}
+        type="number"
+        min={min}
+        max={max}
+        value={Number.isFinite(value) ? value : 0}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className={[mono ? "font-mono" : "", error ? "border-rose-500/60 focus-visible:ring-rose-500/40" : ""].join(" ")}
+      />
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
 function validateStep(step: number, c: ChainConfig): { field?: string; message: string } | null {
   if (step === 1) {
     if (!SLUG_RE.test(c.chainName))
@@ -106,33 +228,87 @@ function validateStep(step: number, c: ChainConfig): { field?: string; message: 
       return { field: "chainId", message: "Chain ID must be a positive integer ≤ 2,147,483,647." };
     if (!/^[A-Z]{2,8}$/.test(c.symbol))
       return { field: "symbol", message: "Symbol must be 2-8 uppercase letters." };
-    if (c.decimals < 0 || c.decimals > 36)
-      return { field: "decimals", message: "Decimals must be between 0 and 36." };
+    if (!Number.isInteger(c.decimals) || c.decimals < 0 || c.decimals > 36)
+      return { field: "decimals", message: "Decimals must be an integer between 0 and 36." };
   }
   if (step === 2) {
     if (!Number.isInteger(c.totalSupplyZbx) || c.totalSupplyZbx < 1 || c.totalSupplyZbx > 1_000_000_000_000)
       return { field: "totalSupplyZbx", message: "Total supply must be 1..1,000,000,000,000 whole tokens." };
-    if (!Number.isInteger(c.founderPremineZbx) || c.founderPremineZbx < 0 || c.founderPremineZbx > c.totalSupplyZbx)
-      return { field: "founderPremineZbx", message: "Founder pre-mine must be 0..total supply." };
+    if (!Number.isInteger(c.founderPremineZbx) || c.founderPremineZbx < 0 || c.founderPremineZbx > 1_000_000_000_000)
+      return { field: "founderPremineZbx", message: "Founder pre-mine must be 0..1,000,000,000,000 whole tokens." };
+    if (c.fixedSupply && c.founderPremineZbx > c.totalSupplyZbx)
+      return { field: "founderPremineZbx", message: "On a fixed-supply chain, pre-mine cannot exceed total supply." };
+    if (!Number.isInteger(c.mintPerBlockZbx) || c.mintPerBlockZbx < 0 || c.mintPerBlockZbx > 1_000_000)
+      return { field: "mintPerBlockZbx", message: "Mint per block must be 0..1,000,000 tokens." };
+    if (c.fixedSupply && c.mintPerBlockZbx > 0)
+      return { field: "mintPerBlockZbx", message: "Fixed-supply chains cannot mint per block. Disable fixed supply or set mint to 0." };
+    if (!Number.isInteger(c.halvingBlocks) || c.halvingBlocks < 0 || c.halvingBlocks > 100_000_000)
+      return { field: "halvingBlocks", message: "Halving interval must be 0..100,000,000 blocks (0 = no halving)." };
     if (!Number.isInteger(c.blockTimeSecs) || c.blockTimeSecs < 1 || c.blockTimeSecs > 60)
       return { field: "blockTimeSecs", message: "Block time must be 1..60 seconds." };
   }
   if (step === 3) {
-    if (c.rpcPort < 1024 || c.rpcPort > 65535)
-      return { field: "rpcPort", message: "RPC port must be 1024..65535." };
-    if (c.p2pPort < 1024 || c.p2pPort > 65535)
-      return { field: "p2pPort", message: "P2P port must be 1024..65535." };
+    if (c.consensus !== "pos" && c.consensus !== "poa")
+      return { field: "consensus", message: "Consensus must be PoS or PoA." };
+    if (!Number.isInteger(c.minValidatorStakeZbx) || c.minValidatorStakeZbx < 0 || c.minValidatorStakeZbx > 1_000_000_000_000)
+      return { field: "minValidatorStakeZbx", message: "Min validator stake must be 0..1,000,000,000,000 whole tokens." };
+    if (c.fixedSupply && c.minValidatorStakeZbx > c.totalSupplyZbx)
+      return { field: "minValidatorStakeZbx", message: "Min stake cannot exceed total supply." };
+    if (!Number.isInteger(c.maxValidators) || c.maxValidators < 1 || c.maxValidators > 1000)
+      return { field: "maxValidators", message: "Max validators must be 1..1000." };
+    if (!Number.isInteger(c.slashPercent) || c.slashPercent < 0 || c.slashPercent > 100)
+      return { field: "slashPercent", message: "Slash percent must be 0..100." };
+    if (!Number.isInteger(c.unbondingDays) || c.unbondingDays < 0 || c.unbondingDays > 365)
+      return { field: "unbondingDays", message: "Unbonding period must be 0..365 days." };
+  }
+  if (step === 4) {
+    if (c.governanceEnabled) {
+      if (!Number.isInteger(c.votingPeriodBlocks) || c.votingPeriodBlocks < 1 || c.votingPeriodBlocks > 100_000_000)
+        return { field: "votingPeriodBlocks", message: "Voting period must be 1..100,000,000 blocks." };
+      if (!Number.isInteger(c.quorumPercent) || c.quorumPercent < 0 || c.quorumPercent > 100)
+        return { field: "quorumPercent", message: "Quorum must be 0..100 percent." };
+      if (!Number.isInteger(c.proposalThresholdZbx) || c.proposalThresholdZbx < 0 || c.proposalThresholdZbx > 1_000_000_000_000)
+        return { field: "proposalThresholdZbx", message: "Proposal threshold must be 0..1,000,000,000,000 whole tokens." };
+      if (c.fixedSupply && c.proposalThresholdZbx > c.totalSupplyZbx)
+        return { field: "proposalThresholdZbx", message: "Proposal threshold cannot exceed total supply." };
+      if (!Number.isInteger(c.executionDelayBlocks) || c.executionDelayBlocks < 0 || c.executionDelayBlocks > 10_000_000)
+        return { field: "executionDelayBlocks", message: "Execution delay must be 0..10,000,000 blocks." };
+    }
+  }
+  if (step === 5) {
+    if (!Number.isInteger(c.rpcPort) || c.rpcPort < 1024 || c.rpcPort > 65535)
+      return { field: "rpcPort", message: "RPC port must be an integer 1024..65535." };
+    if (!Number.isInteger(c.p2pPort) || c.p2pPort < 1024 || c.p2pPort > 65535)
+      return { field: "p2pPort", message: "P2P port must be an integer 1024..65535." };
     if (c.rpcPort === c.p2pPort)
       return { field: "p2pPort", message: "RPC and P2P ports must differ." };
+    if (!c.features.evm && !c.features.zvm)
+      return { field: "features", message: "At least one VM (EVM or ZVM) must remain enabled." };
   }
   return null;
 }
 
 const STEP_FOR_FIELD: Record<string, number> = {
   chainName: 1, chainId: 1, symbol: 1, decimals: 1,
-  totalSupplyZbx: 2, founderPremineZbx: 2, blockTimeSecs: 2,
-  rpcPort: 3, p2pPort: 3,
+  totalSupplyZbx: 2, founderPremineZbx: 2, mintPerBlockZbx: 2, halvingBlocks: 2, blockTimeSecs: 2,
+  consensus: 3, minValidatorStakeZbx: 3, maxValidators: 3, slashPercent: 3, unbondingDays: 3,
+  votingPeriodBlocks: 4, quorumPercent: 4, proposalThresholdZbx: 4, executionDelayBlocks: 4,
+  rpcPort: 5, p2pPort: 5, features: 5,
 };
+
+const FEATURE_META: Array<{ key: FeatureKey; label: string; hint: string; badge?: string }> = [
+  { key: "evm",            label: "EVM execution",        hint: "Solidity 0.8+, MetaMask, Hardhat, Foundry, ethers, viem.", badge: "core" },
+  { key: "zvm",            label: "ZVM (Zebvix VM)",      hint: "Native Zebvix bytecode + zbx_ namespace methods.",         badge: "core" },
+  { key: "smartContracts", label: "Smart contracts",      hint: "Allow contract deploy + call. Disable for payments-only L1." },
+  { key: "mempool",        label: "Public mempool",       hint: "Accept and gossip pending tx. Off = private/permissioned tx flow." },
+  { key: "snapshots",      label: "State snapshots",      hint: "Periodic chain snapshots for fast-sync of new nodes." },
+  { key: "archiveMode",    label: "Archive mode",         hint: "Keep full historical state. Heavy disk; needed for explorers.", badge: "heavy" },
+  { key: "txIndex",        label: "Tx index",             hint: "Index transactions by hash for instant lookup." },
+  { key: "websocket",      label: "WebSocket RPC",        hint: "Push subscriptions on the same RPC port (eth_subscribe)." },
+  { key: "metrics",        label: "Prometheus metrics",   hint: "/metrics endpoint for Grafana / Prometheus scraping." },
+  { key: "txBurn",         label: "Tx fee burn",          hint: "Burn a fraction of base fee (deflationary, EIP-1559 style)." },
+  { key: "eip1559",        label: "EIP-1559 fees",        hint: "Base fee + priority tip pricing instead of legacy gasPrice." },
+];
 
 export default function ChainBuilderPage() {
   const [step, setStep] = useState<number>(1);
@@ -148,6 +324,8 @@ export default function ChainBuilderPage() {
   const [copied, setCopied] = useState<string | null>(null);
 
   const update = (patch: Partial<ChainConfig>) => setCfg((c) => ({ ...c, ...patch }));
+  const updateFeature = (k: FeatureKey, v: boolean) =>
+    setCfg((c) => ({ ...c, features: { ...c.features, [k]: v } }));
 
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -180,6 +358,12 @@ export default function ChainBuilderPage() {
     if (target) setStep(target);
   }
 
+  const enabledFeatureCount = useMemo(
+    () => Object.values(cfg.features).filter(Boolean).length,
+    [cfg.features],
+  );
+  const totalFeatureCount = Object.keys(cfg.features).length;
+
   async function build() {
     setLogs([]);
     setDownloadUrl(null);
@@ -188,7 +372,7 @@ export default function ChainBuilderPage() {
     appendLog({ kind: "info", text: `Validating configuration...` });
     await new Promise((r) => setTimeout(r, 300));
 
-    for (const s of [1, 2, 3] as const) {
+    for (const s of [1, 2, 3, 4, 5] as const) {
       const e = validateStep(s, cfg);
       if (e) {
         setStage("error");
@@ -201,13 +385,24 @@ export default function ChainBuilderPage() {
     appendLog({ kind: "ok", text: `  ✓ chain name      ${cfg.chainName}` });
     appendLog({ kind: "ok", text: `  ✓ chain ID        ${cfg.chainId}  (0x${cfg.chainId.toString(16)})` });
     appendLog({ kind: "ok", text: `  ✓ symbol          ${cfg.symbol}` });
-    appendLog({ kind: "ok", text: `  ✓ supply          ${cfg.totalSupplyZbx.toLocaleString()} ${cfg.symbol}` });
-    appendLog({ kind: "ok", text: `  ✓ pre-mine        ${cfg.founderPremineZbx.toLocaleString()} ${cfg.symbol} (to validator)` });
+    appendLog({ kind: "ok", text: `  ✓ supply model    ${cfg.fixedSupply ? "fixed" : "inflationary"}` });
+    appendLog({ kind: "ok", text: `  ✓ supply          ${cfg.totalSupplyZbx.toLocaleString()} ${cfg.symbol}${cfg.fixedSupply ? "" : "  (initial)"}` });
+    appendLog({ kind: "ok", text: `  ✓ pre-mine        ${cfg.founderPremineZbx.toLocaleString()} ${cfg.symbol}` });
+    if (cfg.mintPerBlockZbx > 0) {
+      appendLog({ kind: "ok", text: `  ✓ mint per block  ${cfg.mintPerBlockZbx.toLocaleString()} ${cfg.symbol}${cfg.halvingBlocks > 0 ? `  (halving every ${cfg.halvingBlocks.toLocaleString()} blocks)` : ""}` });
+    }
     appendLog({ kind: "ok", text: `  ✓ block time      ${cfg.blockTimeSecs} s` });
+    appendLog({ kind: "ok", text: `  ✓ consensus       ${cfg.consensus.toUpperCase()}  (max ${cfg.maxValidators} validators, ${cfg.slashPercent}% slash, ${cfg.unbondingDays}d unbond)` });
+    if (cfg.governanceEnabled) {
+      appendLog({ kind: "ok", text: `  ✓ governance      voting=${cfg.votingPeriodBlocks}b · quorum=${cfg.quorumPercent}% · exec-delay=${cfg.executionDelayBlocks}b` });
+    } else {
+      appendLog({ kind: "warn", text: `  ! governance      disabled` });
+    }
+    appendLog({ kind: "ok", text: `  ✓ features        ${enabledFeatureCount}/${totalFeatureCount} enabled` });
     appendLog({ kind: "ok", text: `  ✓ RPC / P2P       ${cfg.rpcPort} / ${cfg.p2pPort}` });
 
     setStage("generating");
-    appendLog({ kind: "info", text: `Generating install.sh, systemd unit, README.md...` });
+    appendLog({ kind: "info", text: `Generating install.sh, systemd unit, chain.config.yaml, README.md...` });
     await new Promise((r) => setTimeout(r, 350));
 
     try {
@@ -261,6 +456,7 @@ export default function ChainBuilderPage() {
     setLogs([]);
     setStage("idle");
     setStep(1);
+    setCfg(DEFAULT_CFG);
   }
 
   async function copyText(text: string, key: string) {
@@ -279,6 +475,8 @@ export default function ChainBuilderPage() {
   const fieldErrClass = (name: string) =>
     stepError?.field === name ? "border-rose-500/60 focus-visible:ring-rose-500/40" : "";
 
+  const StepIcon = STEPS[step - 1].icon;
+
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Hero */}
@@ -288,28 +486,29 @@ export default function ChainBuilderPage() {
           <Badge variant="outline" className="text-emerald-400 border-emerald-500/40">≈ 15-min setup</Badge>
           <Badge variant="outline" className="text-amber-400 border-amber-500/40">No-code wizard</Badge>
           <Badge variant="outline" className="text-violet-400 border-violet-500/40">Self-hosted</Badge>
+          <Badge variant="outline" className="text-cyan-400 border-cyan-500/40">PoS · governance · features</Badge>
+          <Badge variant="outline" className="text-fuchsia-400 border-fuchsia-500/40">Pro</Badge>
         </div>
         <h1 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-3">
           <Hammer className="w-7 h-7 text-primary" />
           Build Your Own Chain
         </h1>
         <p className="text-lg text-muted-foreground max-w-3xl">
-          Fork the Zebvix base node into your own L1 in four steps — name it, set the supply &
-          pre-mine, pick the ports, and we generate a one-shot installer that patches the source,
-          builds the binary, generates a validator key, initializes genesis, and starts the
-          systemd service on a fresh Ubuntu/Debian VPS.
+          Fork the Zebvix base node into your own L1 with full control: identity, supply model
+          (fixed or inflationary), per-block emission, PoS validators with slashing, on-chain
+          governance, and a feature matrix you can toggle on or off. We package everything into a
+          one-shot installer for a fresh Ubuntu/Debian VPS.
         </p>
 
         <div className="border-l-4 border-l-emerald-500/50 bg-emerald-500/5 p-3 rounded-md flex gap-3 max-w-3xl">
           <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
           <div className="text-xs text-muted-foreground space-y-1">
-            <div className="text-foreground font-semibold">What you get</div>
+            <div className="text-foreground font-semibold">What's in the bundle</div>
             <ul className="list-disc pl-4 space-y-0.5">
-              <li><strong className="text-emerald-400">install.sh</strong> — patches <code className="bg-muted px-1 rounded">src/tokenomics.rs</code> with your chain ID, supply, pre-mine and block time, then builds + initializes + starts the node</li>
-              <li><strong className="text-emerald-400">systemd unit</strong> — production-grade service that runs <code className="bg-muted px-1 rounded">{`<chain>`}-node start</code> with auto-restart and journald logging</li>
-              <li><strong className="text-emerald-400">README.md</strong> — operator runbook with status / logs / RPC test / pre-mine transfer commands</li>
-              <li>Validator key is auto-generated on your VPS during install — its address holds your founder pre-mine at genesis</li>
-              <li>Bundle stays under 30 KB; the heavy ~88 MB Zebvix base source is fetched by the installer only once</li>
+              <li><strong className="text-emerald-400">install.sh</strong> — sed-patches <code className="bg-muted px-1 rounded">src/tokenomics.rs</code> with chain ID / supply / pre-mine / block time, then <code className="bg-muted px-1 rounded">cargo build</code> + init + systemd start</li>
+              <li><strong className="text-emerald-400">chain.config.yaml</strong> — the full advanced config (PoS, governance, mint, halving, feature matrix). The current binary reads what it supports; the rest is recorded for upcoming releases and audit</li>
+              <li><strong className="text-emerald-400">systemd unit</strong> — production service with auto-restart and journald logging</li>
+              <li><strong className="text-emerald-400">README.md</strong> — operator runbook with status / logs / RPC test / pre-mine transfer commands and a clear "active vs declared" table</li>
             </ul>
           </div>
         </div>
@@ -318,13 +517,13 @@ export default function ChainBuilderPage() {
       {/* Stat tiles */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatTile icon={Zap}        label="Setup time"   value="≈ 15 min" sub="on a 4 vCPU / 8 GB VPS" />
-        <StatTile icon={FileCode2}  label="Files"        value="3"        sub="installer + unit + readme" />
+        <StatTile icon={FileCode2}  label="Files"        value="4"        sub="installer + unit + yaml + readme" />
         <StatTile icon={Server}     label="Bundle size"  value="< 30 KB"  sub="tarball, instant download" />
         <StatTile icon={Shield}     label="Hardening"    value="systemd"  sub="auto-restart + journald" />
       </div>
 
       {/* Step tracker */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         {STEPS.map((s) => (
           <StepPill key={s.id} step={s} current={step === s.id} completed={step > s.id} />
         ))}
@@ -334,41 +533,39 @@ export default function ChainBuilderPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            {step === 1 && <Coins className="w-5 h-5 text-primary" />}
-            {step === 2 && <Coins className="w-5 h-5 text-primary" />}
-            {step === 3 && <Network className="w-5 h-5 text-primary" />}
-            {step === 4 && <Hammer className="w-5 h-5 text-primary" />}
+            <StepIcon className="w-5 h-5 text-primary" />
             Step {step} — {STEPS[step - 1].label}
           </CardTitle>
           <CardDescription>{STEPS[step - 1].blurb}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
+          {/* ── Step 1: Identity ── */}
           {step === 1 && (
             <div className="grid md:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label htmlFor="chainName">Chain name (slug)</Label>
-                <Input id="chainName" value={cfg.chainName}
+                <Input id="chainName" data-testid="input-chainName" value={cfg.chainName}
                   onChange={(e) => update({ chainName: e.target.value.toLowerCase() })}
                   placeholder="mychain" className={fieldErrClass("chainName")} />
                 <p className="text-xs text-muted-foreground">Used as binary name (<code>{cfg.chainName}-node</code>), data dir, systemd unit.</p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="chainId">Chain ID (numeric)</Label>
-                <Input id="chainId" type="number" value={cfg.chainId}
+                <Input id="chainId" data-testid="input-chainId" type="number" value={cfg.chainId}
                   onChange={(e) => update({ chainId: Number(e.target.value) })}
                   placeholder="9999" className={fieldErrClass("chainId")} />
                 <p className="text-xs text-muted-foreground">EVM chain ID. Pick something unique to avoid conflicts (e.g. 9999, 5555, 31337).</p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="symbol">Token symbol</Label>
-                <Input id="symbol" value={cfg.symbol}
+                <Input id="symbol" data-testid="input-symbol" value={cfg.symbol}
                   onChange={(e) => update({ symbol: e.target.value.toUpperCase() })}
                   placeholder="MYC" maxLength={8} className={fieldErrClass("symbol")} />
                 <p className="text-xs text-muted-foreground">2-8 uppercase letters. Shown in wallets, explorers, RPC.</p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="decimals">Decimals</Label>
-                <Input id="decimals" type="number" value={cfg.decimals}
+                <Input id="decimals" data-testid="input-decimals" type="number" value={cfg.decimals}
                   onChange={(e) => update({ decimals: Number(e.target.value) })}
                   placeholder="18" className={fieldErrClass("decimals")} />
                 <p className="text-xs text-muted-foreground">Standard EVM is 18 — keep this unless you have a strong reason.</p>
@@ -383,101 +580,277 @@ export default function ChainBuilderPage() {
             </div>
           )}
 
+          {/* ── Step 2: Tokenomics ── */}
           {step === 2 && (
-            <div className="space-y-4">
+            <div className="space-y-5">
               <div className="border-l-4 border-l-cyan-500/50 bg-cyan-500/5 p-3 rounded-md flex gap-3 text-xs">
                 <Coins className="w-4 h-4 text-cyan-400 flex-shrink-0 mt-0.5" />
                 <div className="text-muted-foreground">
                   <strong className="text-foreground">Whole-token units.</strong> Enter values
-                  in <strong className="text-cyan-400">{cfg.symbol || "TOKEN"}</strong> (1 = 10<sup>{cfg.decimals}</sup> raw wei). The installer
-                  patches these into <code className="bg-muted px-1 rounded">src/tokenomics.rs</code> as
-                  <code className="bg-muted px-1 rounded">TOTAL_SUPPLY_ZBX</code> + <code className="bg-muted px-1 rounded">FOUNDER_PREMINE_ZBX</code> before
-                  <code className="bg-muted px-1 rounded">cargo build</code>.
+                  in <strong className="text-cyan-400">{cfg.symbol || "TOKEN"}</strong> (1 = 10<sup>{cfg.decimals}</sup> raw wei).
+                  Total supply, pre-mine, and block time are <strong className="text-emerald-400">sed-patched into <code className="bg-muted px-1 rounded">src/tokenomics.rs</code></strong> before
+                  <code className="bg-muted px-1 rounded">cargo build</code>. Mint-per-block and halving are recorded in <code className="bg-muted px-1 rounded">chain.config.yaml</code>.
                 </div>
               </div>
 
+              <SectionHeader icon={Layers} title="Supply model" hint="Choose between a hard-capped (Bitcoin-style) or inflationary (Ethereum-style) economy." />
+              <div className="grid md:grid-cols-2 gap-3">
+                <ToggleRow id="fixedSupply" label="Fixed total supply"
+                  hint="ON = hard cap, no minting after genesis. OFF = inflationary; mint-per-block continues forever (or until halving exhausts it)."
+                  checked={cfg.fixedSupply}
+                  onChange={(v) => update({ fixedSupply: v, ...(v ? { mintPerBlockZbx: 0 } : {}) })}
+                  badge={cfg.fixedSupply ? "fixed" : "inflationary"} />
+                <div className="border border-border rounded-md p-3 bg-card/40 text-xs text-muted-foreground space-y-1">
+                  <div className="font-semibold text-foreground">Currently selected</div>
+                  <div className="font-mono">
+                    {cfg.fixedSupply
+                      ? <>Hard-capped at <span className="text-foreground">{cfg.totalSupplyZbx.toLocaleString()} {cfg.symbol}</span>.</>
+                      : <>Initial <span className="text-foreground">{cfg.totalSupplyZbx.toLocaleString()} {cfg.symbol}</span>, then +{cfg.mintPerBlockZbx.toLocaleString()} {cfg.symbol}/block{cfg.halvingBlocks > 0 ? `, halving every ${cfg.halvingBlocks.toLocaleString()} blocks` : ", no halving"}.</>}
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              <SectionHeader icon={Coins} title="Supply numbers" />
               <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="totalSupplyZbx">Total supply ({cfg.symbol || "TOKEN"})</Label>
-                  <Input id="totalSupplyZbx" type="number" min={1} value={cfg.totalSupplyZbx}
-                    onChange={(e) => update({ totalSupplyZbx: Number(e.target.value) })}
-                    className={`font-mono ${fieldErrClass("totalSupplyZbx")}`} />
-                  <p className="text-xs text-muted-foreground font-mono">
-                    = {cfg.totalSupplyZbx.toLocaleString()} {cfg.symbol}
-                  </p>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="founderPremineZbx">Founder pre-mine ({cfg.symbol || "TOKEN"})</Label>
-                  <Input id="founderPremineZbx" type="number" min={0} value={cfg.founderPremineZbx}
-                    onChange={(e) => update({ founderPremineZbx: Number(e.target.value) })}
-                    className={`font-mono ${fieldErrClass("founderPremineZbx")}`} />
-                  <p className="text-xs text-muted-foreground font-mono">
-                    = {cfg.founderPremineZbx.toLocaleString()} {cfg.symbol}
-                    {cfg.totalSupplyZbx > 0 && (
-                      <span className="text-muted-foreground/60"> · {((cfg.founderPremineZbx / cfg.totalSupplyZbx) * 100).toFixed(2)}% of supply</span>
-                    )}
-                  </p>
-                </div>
-                <div className="space-y-1.5 md:col-span-2">
-                  <Label htmlFor="blockTimeSecs">Block time (seconds)</Label>
-                  <Input id="blockTimeSecs" type="number" min={1} max={60} value={cfg.blockTimeSecs}
-                    onChange={(e) => update({ blockTimeSecs: Number(e.target.value) })}
-                    className={fieldErrClass("blockTimeSecs")} />
-                  <p className="text-xs text-muted-foreground">
-                    1 s = very fast, more bandwidth. 5 s = Zebvix default, balanced. 10+ s = lighter, slower finality.
-                  </p>
-                </div>
+                <NumberField id="totalSupplyZbx" label={`${cfg.fixedSupply ? "Total" : "Initial"} supply`}
+                  suffix={cfg.symbol || "TOKEN"} mono
+                  hint={`= ${cfg.totalSupplyZbx.toLocaleString()} ${cfg.symbol}`}
+                  value={cfg.totalSupplyZbx} min={1}
+                  error={stepError?.field === "totalSupplyZbx"}
+                  onChange={(n) => update({ totalSupplyZbx: n })} />
+                <NumberField id="founderPremineZbx" label="Founder pre-mine"
+                  suffix={cfg.symbol || "TOKEN"} mono
+                  hint={cfg.totalSupplyZbx > 0
+                    ? `= ${cfg.founderPremineZbx.toLocaleString()} ${cfg.symbol} · ${((cfg.founderPremineZbx / cfg.totalSupplyZbx) * 100).toFixed(2)}% of supply`
+                    : `= ${cfg.founderPremineZbx.toLocaleString()} ${cfg.symbol}`}
+                  value={cfg.founderPremineZbx} min={0}
+                  error={stepError?.field === "founderPremineZbx"}
+                  onChange={(n) => update({ founderPremineZbx: n })} />
+              </div>
+
+              <Separator />
+
+              <SectionHeader icon={Flame} title="Block emission" hint="Inflationary chains only — fixed-supply chains keep these at 0." />
+              <div className="grid md:grid-cols-3 gap-4">
+                <NumberField id="mintPerBlockZbx" label="Mint per block"
+                  suffix={cfg.symbol || "TOKEN"} mono
+                  hint={cfg.fixedSupply ? "Disabled — fixed supply is on." : `≈ ${(cfg.mintPerBlockZbx * Math.floor(86400 / Math.max(cfg.blockTimeSecs, 1))).toLocaleString()} ${cfg.symbol}/day`}
+                  value={cfg.mintPerBlockZbx} min={0}
+                  error={stepError?.field === "mintPerBlockZbx"}
+                  onChange={(n) => update({ mintPerBlockZbx: n })} />
+                <NumberField id="halvingBlocks" label="Halving interval"
+                  suffix="blocks" mono
+                  hint={cfg.halvingBlocks === 0 ? "0 = no halving (constant emission)." : `≈ every ${((cfg.halvingBlocks * cfg.blockTimeSecs) / 86400).toFixed(1)} days`}
+                  value={cfg.halvingBlocks} min={0}
+                  error={stepError?.field === "halvingBlocks"}
+                  onChange={(n) => update({ halvingBlocks: n })} />
+                <NumberField id="blockTimeSecs" label="Block time"
+                  suffix="seconds" mono
+                  hint="1 s = very fast; 5 s = balanced default; 10+ s = lighter."
+                  value={cfg.blockTimeSecs} min={1} max={60}
+                  error={stepError?.field === "blockTimeSecs"}
+                  onChange={(n) => update({ blockTimeSecs: n })} />
               </div>
             </div>
           )}
 
+          {/* ── Step 3: Consensus / PoS ── */}
           {step === 3 && (
-            <div className="space-y-4">
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="rpcPort">RPC port</Label>
-                  <Input id="rpcPort" type="number" value={cfg.rpcPort}
-                    onChange={(e) => update({ rpcPort: Number(e.target.value) })}
-                    className={fieldErrClass("rpcPort")} />
-                  <p className="text-xs text-muted-foreground">8545 is the EVM convention. Open this in your firewall for external access.</p>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="p2pPort">P2P port</Label>
-                  <Input id="p2pPort" type="number" value={cfg.p2pPort}
-                    onChange={(e) => update({ p2pPort: Number(e.target.value) })}
-                    className={fieldErrClass("p2pPort")} />
-                  <p className="text-xs text-muted-foreground">30303 is the EVM convention. Other validators / followers connect here.</p>
+            <div className="space-y-5">
+              <div className="border-l-4 border-l-violet-500/50 bg-violet-500/5 p-3 rounded-md flex gap-3 text-xs">
+                <Shield className="w-4 h-4 text-violet-400 flex-shrink-0 mt-0.5" />
+                <div className="text-muted-foreground">
+                  <strong className="text-foreground">Consensus & validator economics.</strong> Captured into <code className="bg-muted px-1 rounded">chain.config.yaml</code>.
+                  The current Zebvix base node ships with PoS using these defaults; tweaking them takes effect on the next start. PoA is reserved for the next builder release.
                 </div>
               </div>
 
-              <div className="border-l-4 border-l-cyan-500/50 bg-cyan-500/5 p-3 rounded-md flex gap-3 text-xs">
-                <Settings className="w-4 h-4 text-cyan-400 flex-shrink-0 mt-0.5" />
-                <div className="text-muted-foreground">
-                  <strong className="text-foreground">Final review.</strong> On the next step we
-                  generate <code className="bg-muted px-1 rounded">{cfg.chainName}-setup.tar.gz</code> and
-                  show the install command. You can come back and tweak any setting before downloading.
+              <SectionHeader icon={Shield} title="Consensus algorithm" />
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="consensus">Algorithm</Label>
+                  <Select value={cfg.consensus} onValueChange={(v) => update({ consensus: v as "pos" | "poa" })}>
+                    <SelectTrigger id="consensus" data-testid="select-consensus">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pos">Proof of Stake (PoS)</SelectItem>
+                      <SelectItem value="poa">Proof of Authority (PoA)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">PoS = open validator set, stake-weighted. PoA = whitelisted authorities, deterministic block production.</p>
                 </div>
+                <NumberField id="maxValidators" label="Max validator set size"
+                  suffix="validators" mono
+                  hint="Top N by stake (PoS) or by whitelist (PoA). 100-150 is a healthy default."
+                  value={cfg.maxValidators} min={1} max={1000}
+                  error={stepError?.field === "maxValidators"}
+                  onChange={(n) => update({ maxValidators: n })} />
+              </div>
+
+              <Separator />
+
+              <SectionHeader icon={Coins} title="Stake & slashing" />
+              <div className="grid md:grid-cols-3 gap-4">
+                <NumberField id="minValidatorStakeZbx" label="Min validator stake"
+                  suffix={cfg.symbol || "TOKEN"} mono
+                  hint={`= ${cfg.minValidatorStakeZbx.toLocaleString()} ${cfg.symbol}`}
+                  value={cfg.minValidatorStakeZbx} min={0}
+                  error={stepError?.field === "minValidatorStakeZbx"}
+                  onChange={(n) => update({ minValidatorStakeZbx: n })} />
+                <NumberField id="slashPercent" label="Double-sign slash"
+                  suffix="%" mono
+                  hint="Percent of stake destroyed on equivocation (5% is a strong but recoverable default)."
+                  value={cfg.slashPercent} min={0} max={100}
+                  error={stepError?.field === "slashPercent"}
+                  onChange={(n) => update({ slashPercent: n })} />
+                <NumberField id="unbondingDays" label="Unbonding period"
+                  suffix="days" mono
+                  hint="Days a withdrawing validator's stake remains slashable. 21 days matches Cosmos."
+                  value={cfg.unbondingDays} min={0} max={365}
+                  error={stepError?.field === "unbondingDays"}
+                  onChange={(n) => update({ unbondingDays: n })} />
               </div>
             </div>
           )}
 
+          {/* ── Step 4: Governance ── */}
           {step === 4 && (
+            <div className="space-y-5">
+              <div className="border-l-4 border-l-fuchsia-500/50 bg-fuchsia-500/5 p-3 rounded-md flex gap-3 text-xs">
+                <Landmark className="w-4 h-4 text-fuchsia-400 flex-shrink-0 mt-0.5" />
+                <div className="text-muted-foreground">
+                  <strong className="text-foreground">On-chain governance.</strong> Captured into <code className="bg-muted px-1 rounded">chain.config.yaml</code>.
+                  Token holders submit proposals (parameter change, software upgrade, treasury spend),
+                  vote within the voting period, and proposals execute after the delay if quorum is met.
+                </div>
+              </div>
+
+              <ToggleRow id="governanceEnabled" label="Enable on-chain governance"
+                hint="OFF = parameters are immutable post-genesis. Validators can still upgrade via coordinated restart."
+                checked={cfg.governanceEnabled}
+                onChange={(v) => update({ governanceEnabled: v })}
+                badge={cfg.governanceEnabled ? "active" : "off"} />
+
+              {cfg.governanceEnabled && (
+                <>
+                  <Separator />
+                  <SectionHeader icon={Gauge} title="Voting parameters" />
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <NumberField id="votingPeriodBlocks" label="Voting period"
+                      suffix="blocks" mono
+                      hint={`≈ ${((cfg.votingPeriodBlocks * cfg.blockTimeSecs) / 86400).toFixed(1)} days at ${cfg.blockTimeSecs}s blocks`}
+                      value={cfg.votingPeriodBlocks} min={1} max={100_000_000}
+                      error={stepError?.field === "votingPeriodBlocks"}
+                      onChange={(n) => update({ votingPeriodBlocks: n })} />
+                    <NumberField id="quorumPercent" label="Quorum"
+                      suffix="%" mono
+                      hint="Fraction of total voting power that must participate for a vote to be valid."
+                      value={cfg.quorumPercent} min={0} max={100}
+                      error={stepError?.field === "quorumPercent"}
+                      onChange={(n) => update({ quorumPercent: n })} />
+                    <NumberField id="proposalThresholdZbx" label="Proposal deposit threshold"
+                      suffix={cfg.symbol || "TOKEN"} mono
+                      hint={`= ${cfg.proposalThresholdZbx.toLocaleString()} ${cfg.symbol} required to submit a proposal (anti-spam)`}
+                      value={cfg.proposalThresholdZbx} min={0}
+                      error={stepError?.field === "proposalThresholdZbx"}
+                      onChange={(n) => update({ proposalThresholdZbx: n })} />
+                    <NumberField id="executionDelayBlocks" label="Execution delay"
+                      suffix="blocks" mono
+                      hint={`≈ ${((cfg.executionDelayBlocks * cfg.blockTimeSecs) / 3600).toFixed(1)} hours after a passed vote, before changes take effect`}
+                      value={cfg.executionDelayBlocks} min={0} max={10_000_000}
+                      error={stepError?.field === "executionDelayBlocks"}
+                      onChange={(n) => update({ executionDelayBlocks: n })} />
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ── Step 5: Features + Network ── */}
+          {step === 5 && (
+            <div className="space-y-5">
+              <div className="border-l-4 border-l-cyan-500/50 bg-cyan-500/5 p-3 rounded-md flex gap-3 text-xs">
+                <Cog className="w-4 h-4 text-cyan-400 flex-shrink-0 mt-0.5" />
+                <div className="text-muted-foreground">
+                  <strong className="text-foreground">Feature matrix.</strong> Captured in <code className="bg-muted px-1 rounded">chain.config.yaml</code>.
+                  The current binary honours <code className="bg-muted px-1 rounded">evm</code>, <code className="bg-muted px-1 rounded">zvm</code>, <code className="bg-muted px-1 rounded">mempool</code>, <code className="bg-muted px-1 rounded">snapshots</code>, <code className="bg-muted px-1 rounded">txIndex</code>, <code className="bg-muted px-1 rounded">websocket</code>, and <code className="bg-muted px-1 rounded">metrics</code> at startup; the rest are recorded for upcoming releases.
+                </div>
+              </div>
+
+              <SectionHeader icon={Cog} title={`Feature toggles  (${enabledFeatureCount}/${totalFeatureCount} enabled)`} />
+              {stepError?.field === "features" && (
+                <div className="text-xs text-rose-400 -mt-2">{stepError.message}</div>
+              )}
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {FEATURE_META.map((f) => (
+                  <ToggleRow key={f.key} id={`feat-${f.key}`} label={f.label} hint={f.hint}
+                    badge={f.badge}
+                    checked={cfg.features[f.key]}
+                    onChange={(v) => updateFeature(f.key, v)} />
+                ))}
+              </div>
+
+              <Separator />
+
+              <SectionHeader icon={Network} title="Network ports" />
+              <div className="grid md:grid-cols-2 gap-4">
+                <NumberField id="rpcPort" label="RPC port"
+                  hint="8545 is the EVM convention. Open this in your firewall for external access."
+                  value={cfg.rpcPort} min={1024} max={65535}
+                  error={stepError?.field === "rpcPort"}
+                  onChange={(n) => update({ rpcPort: n })} />
+                <NumberField id="p2pPort" label="P2P port"
+                  hint="30303 is the EVM convention. Other validators / followers connect here."
+                  value={cfg.p2pPort} min={1024} max={65535}
+                  error={stepError?.field === "p2pPort"}
+                  onChange={(n) => update({ p2pPort: n })} />
+              </div>
+            </div>
+          )}
+
+          {/* ── Step 6: Build ── */}
+          {step === 6 && (
             <div className="space-y-5">
               <div className="grid md:grid-cols-2 gap-4">
                 <div className="border border-border rounded-lg p-4 bg-card/60 space-y-2">
-                  <div className="text-xs uppercase tracking-wide text-muted-foreground">Identity & tokenomics</div>
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground flex items-center gap-2"><Coins className="w-3.5 h-3.5" /> Identity & tokenomics</div>
                   <dl className="text-sm space-y-1.5">
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Chain</dt><dd className="font-mono text-foreground truncate">{cfg.chainName}</dd></div>
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Chain ID</dt><dd className="font-mono text-foreground">{cfg.chainId}  (0x{cfg.chainId.toString(16)})</dd></div>
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Symbol</dt><dd className="font-mono text-foreground">{cfg.symbol}</dd></div>
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Decimals</dt><dd className="font-mono text-foreground">{cfg.decimals}</dd></div>
-                    <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Total supply</dt><dd className="font-mono text-foreground">{cfg.totalSupplyZbx.toLocaleString()} {cfg.symbol}</dd></div>
+                    <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Supply model</dt><dd className="font-mono text-foreground">{cfg.fixedSupply ? "fixed" : "inflationary"}</dd></div>
+                    <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{cfg.fixedSupply ? "Total" : "Initial"} supply</dt><dd className="font-mono text-foreground">{cfg.totalSupplyZbx.toLocaleString()} {cfg.symbol}</dd></div>
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Founder pre-mine</dt><dd className="font-mono text-foreground">{cfg.founderPremineZbx.toLocaleString()} {cfg.symbol}</dd></div>
+                    <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Mint per block</dt><dd className="font-mono text-foreground">{cfg.mintPerBlockZbx.toLocaleString()} {cfg.symbol}</dd></div>
+                    <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Halving</dt><dd className="font-mono text-foreground">{cfg.halvingBlocks === 0 ? "none" : `${cfg.halvingBlocks.toLocaleString()} blocks`}</dd></div>
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Block time</dt><dd className="font-mono text-foreground">{cfg.blockTimeSecs} s</dd></div>
                   </dl>
                 </div>
                 <div className="border border-border rounded-lg p-4 bg-card/60 space-y-2">
-                  <div className="text-xs uppercase tracking-wide text-muted-foreground">Network & runtime</div>
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground flex items-center gap-2"><Shield className="w-3.5 h-3.5" /> Consensus & governance</div>
+                  <dl className="text-sm space-y-1.5">
+                    <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Consensus</dt><dd className="font-mono text-foreground uppercase">{cfg.consensus}</dd></div>
+                    <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Max validators</dt><dd className="font-mono text-foreground">{cfg.maxValidators}</dd></div>
+                    <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Min stake</dt><dd className="font-mono text-foreground">{cfg.minValidatorStakeZbx.toLocaleString()} {cfg.symbol}</dd></div>
+                    <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Slash</dt><dd className="font-mono text-foreground">{cfg.slashPercent}%</dd></div>
+                    <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Unbonding</dt><dd className="font-mono text-foreground">{cfg.unbondingDays} days</dd></div>
+                    <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Governance</dt><dd className="font-mono text-foreground">{cfg.governanceEnabled ? "enabled" : "disabled"}</dd></div>
+                    {cfg.governanceEnabled && (
+                      <>
+                        <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Voting period</dt><dd className="font-mono text-foreground">{cfg.votingPeriodBlocks.toLocaleString()} blocks</dd></div>
+                        <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Quorum</dt><dd className="font-mono text-foreground">{cfg.quorumPercent}%</dd></div>
+                        <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Proposal threshold</dt><dd className="font-mono text-foreground">{cfg.proposalThresholdZbx.toLocaleString()} {cfg.symbol}</dd></div>
+                        <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Exec delay</dt><dd className="font-mono text-foreground">{cfg.executionDelayBlocks.toLocaleString()} blocks</dd></div>
+                      </>
+                    )}
+                  </dl>
+                </div>
+                <div className="border border-border rounded-lg p-4 bg-card/60 space-y-2">
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground flex items-center gap-2"><Cog className="w-3.5 h-3.5" /> Features & runtime</div>
                   <dl className="text-sm space-y-1.5">
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">RPC</dt><dd className="font-mono text-foreground">0.0.0.0:{cfg.rpcPort}</dd></div>
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">P2P</dt><dd className="font-mono text-foreground">0.0.0.0:{cfg.p2pPort}</dd></div>
@@ -485,10 +858,27 @@ export default function ChainBuilderPage() {
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Data dir</dt><dd className="font-mono text-foreground text-xs">/var/lib/{cfg.chainName}</dd></div>
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Validator key</dt><dd className="font-mono text-foreground text-xs">/etc/{cfg.chainName}/validator.key</dd></div>
                     <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Service</dt><dd className="font-mono text-foreground text-xs">{cfg.chainName}-node.service</dd></div>
+                    <div className="flex justify-between gap-4"><dt className="text-muted-foreground">Features on</dt><dd className="font-mono text-foreground">{enabledFeatureCount}/{totalFeatureCount}</dd></div>
                   </dl>
-                  <div className="pt-2 border-t border-border text-xs text-muted-foreground flex gap-2">
+                  <div className="pt-1 flex flex-wrap gap-1">
+                    {FEATURE_META.filter((f) => cfg.features[f.key]).map((f) => (
+                      <Badge key={f.key} variant="outline" className="text-[10px] px-1.5 py-0 text-emerald-400 border-emerald-500/30">{f.key}</Badge>
+                    ))}
+                    {FEATURE_META.filter((f) => !cfg.features[f.key]).map((f) => (
+                      <Badge key={f.key} variant="outline" className="text-[10px] px-1.5 py-0 text-muted-foreground/60 border-border line-through">{f.key}</Badge>
+                    ))}
+                  </div>
+                </div>
+                <div className="border border-amber-500/30 rounded-lg p-4 bg-amber-500/5 space-y-2">
+                  <div className="text-xs uppercase tracking-wide text-amber-400 flex items-center gap-2"><Info className="w-3.5 h-3.5" /> Active vs declared</div>
+                  <p className="text-xs text-muted-foreground">
+                    Settings <strong className="text-emerald-400">sed-patched into the binary</strong>: chain ID, total supply, founder pre-mine, block time.
+                    Everything else is captured in <code className="bg-muted px-1 rounded">chain.config.yaml</code> and read by the node at startup where supported,
+                    otherwise recorded for audit and upcoming binary releases.
+                  </p>
+                  <div className="pt-1 border-t border-amber-500/20 text-xs text-muted-foreground flex gap-2">
                     <KeyRound className="w-3.5 h-3.5 text-amber-400 mt-0.5 flex-shrink-0" />
-                    <span>The validator key is auto-generated on the VPS. Its address holds your <strong className="text-foreground">{cfg.founderPremineZbx.toLocaleString()} {cfg.symbol}</strong> pre-mine at genesis — back it up.</span>
+                    <span>The validator key is auto-generated on the VPS — its address holds your <strong className="text-foreground">{cfg.founderPremineZbx.toLocaleString()} {cfg.symbol}</strong> pre-mine at genesis. Back it up.</span>
                   </div>
                 </div>
               </div>
@@ -497,6 +887,7 @@ export default function ChainBuilderPage() {
               <div className="flex flex-wrap items-center gap-3">
                 <Button
                   onClick={build}
+                  data-testid="button-build"
                   disabled={stage === "validating" || stage === "generating" || stage === "packaging"}
                   size="lg"
                 >
@@ -510,7 +901,7 @@ export default function ChainBuilderPage() {
                 </Button>
                 {stage === "ready" && downloadUrl && (
                   <a href={downloadUrl} download={downloadName}>
-                    <Button variant="outline" size="lg" className="border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10">
+                    <Button variant="outline" size="lg" className="border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10" data-testid="button-download">
                       <Download className="w-4 h-4 mr-2" />
                       Download {downloadName} ({(downloadBytes / 1024).toFixed(1)} KB)
                     </Button>
@@ -588,12 +979,10 @@ export default function ChainBuilderPage() {
                     <ol className="list-decimal pl-5 space-y-0.5">
                       <li>Install system deps (apt) and Rust toolchain if missing</li>
                       <li>Fetch the Zebvix base node source (~88 MB)</li>
-                      <li><strong className="text-foreground">Sed-patch <code className="bg-muted px-1 rounded">src/tokenomics.rs</code></strong> with your chain ID, supply, pre-mine, block time</li>
+                      <li><strong className="text-foreground">Sed-patch <code className="bg-muted px-1 rounded">src/tokenomics.rs</code></strong> with chain ID, supply, pre-mine, block time</li>
+                      <li>Install <code className="bg-muted px-1 rounded">chain.config.yaml</code> at <code className="bg-muted px-1 rounded">/etc/{cfg.chainName}/chain.config.yaml</code> for runtime parameters (PoS, governance, mint, features)</li>
                       <li><code className="bg-muted px-1 rounded">cargo build --release --bin zebvix-node</code> and install as <code className="bg-muted px-1 rounded">{cfg.chainName}-node</code></li>
-                      <li>Generate validator key at <code className="bg-muted px-1 rounded">/etc/{cfg.chainName}/validator.key</code></li>
-                      <li>Run <code className="bg-muted px-1 rounded">{cfg.chainName}-node init</code> to write genesis at <code className="bg-muted px-1 rounded">/var/lib/{cfg.chainName}</code></li>
-                      <li>Install + enable the systemd unit, open firewall ports, start the service</li>
-                      <li>Run a health check and print the RPC endpoint + validator address</li>
+                      <li>Generate validator key + run <code className="bg-muted px-1 rounded">init</code> + start systemd service + health check</li>
                     </ol>
                   </div>
                   <div className="pt-2 border-t border-emerald-500/20">
@@ -621,11 +1010,11 @@ export default function ChainBuilderPage() {
 
           {/* Nav */}
           <div className="flex items-center justify-between pt-2 border-t border-border">
-            <Button variant="ghost" onClick={prev} disabled={step === 1}>
+            <Button variant="ghost" onClick={prev} disabled={step === 1} data-testid="button-prev">
               <ArrowLeft className="w-4 h-4 mr-2" /> Back
             </Button>
             {step < STEPS.length ? (
-              <Button onClick={next}>
+              <Button onClick={next} data-testid="button-next">
                 Continue <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             ) : (
@@ -652,7 +1041,8 @@ export default function ChainBuilderPage() {
             </div>
             <ul className="text-muted-foreground text-xs space-y-1 list-disc pl-5">
               <li>Forks the Zebvix base node into your own L1 with a custom chain ID</li>
-              <li>Patches supply, pre-mine, and block time into the Rust source before build</li>
+              <li>Sed-patches supply, pre-mine, block time into the Rust source before build</li>
+              <li>Captures PoS, governance, emission, and feature toggles into <code>chain.config.yaml</code> for runtime read</li>
               <li>EVM-compatible — Solidity 0.8+, MetaMask, Hardhat, Foundry, ethers, viem all work</li>
               <li>Production systemd unit with auto-restart and journald logs</li>
               <li>Free — open source, MIT license</li>
@@ -663,7 +1053,8 @@ export default function ChainBuilderPage() {
               <AlertCircle className="w-4 h-4" /> Not yet
             </div>
             <ul className="text-muted-foreground text-xs space-y-1 list-disc pl-5">
-              <li>Multi-validator genesis — you start with one validator, add more via governance later</li>
+              <li>Multi-validator genesis — you start with one validator, add more after launch</li>
+              <li>Full PoA whitelist editor — PoA is reserved for the next builder release</li>
               <li>In-browser node hosting — you bring your own VPS</li>
               <li>Block explorer + faucet UI — coming as the next builder modules</li>
               <li>Bridges to other chains — wire up after launch using <code className="bg-muted px-1 rounded">/bridge</code></li>

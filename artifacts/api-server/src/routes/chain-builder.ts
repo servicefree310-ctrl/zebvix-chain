@@ -38,20 +38,63 @@ const chainBuilderRouter = Router();
 // handles automatically.
 // ─────────────────────────────────────────────────────────────────────────────
 
+type FeatureKey =
+  | "evm" | "zvm" | "smartContracts" | "mempool" | "snapshots"
+  | "archiveMode" | "txIndex" | "websocket" | "metrics" | "txBurn" | "eip1559";
+
+type FeatureFlags = Record<FeatureKey, boolean>;
+
+const FEATURE_KEYS: FeatureKey[] = [
+  "evm", "zvm", "smartContracts", "mempool", "snapshots",
+  "archiveMode", "txIndex", "websocket", "metrics", "txBurn", "eip1559",
+];
+
+const DEFAULT_FEATURES: FeatureFlags = {
+  evm: true, zvm: true, smartContracts: true, mempool: true, snapshots: true,
+  archiveMode: false, txIndex: true, websocket: true, metrics: true,
+  txBurn: false, eip1559: true,
+};
+
 interface ChainConfig {
+  // identity
   chainName: string;
   chainId: number;
   symbol: string;
   decimals: number;
+  description?: string;
+  // tokenomics
   totalSupplyZbx: number;
+  fixedSupply: boolean;
   founderPremineZbx: number;
+  mintPerBlockZbx: number;
+  halvingBlocks: number;
   blockTimeSecs: number;
+  // consensus / PoS
+  consensus: "pos" | "poa";
+  minValidatorStakeZbx: number;
+  maxValidators: number;
+  slashPercent: number;
+  unbondingDays: number;
+  // governance
+  governanceEnabled: boolean;
+  votingPeriodBlocks: number;
+  quorumPercent: number;
+  proposalThresholdZbx: number;
+  executionDelayBlocks: number;
+  // network
   rpcPort: number;
   p2pPort: number;
-  description?: string;
+  // features
+  features: FeatureFlags;
 }
 
 const SLUG_RE = /^[a-z][a-z0-9-]{1,30}$/;
+
+function intInRange(v: any, min: number, max: number): number | null {
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < min || n > max) return null;
+  return n;
+}
 
 function validate(cfg: any): { ok: true; value: ChainConfig } | { ok: false; error: string } {
   if (!cfg || typeof cfg !== "object") return { ok: false, error: "config object required" };
@@ -68,40 +111,105 @@ function validate(cfg: any): { ok: true; value: ChainConfig } | { ok: false; err
   if (!/^[A-Z]{2,8}$/.test(symbol))
     return { ok: false, error: "symbol: 2-8 uppercase letters" };
 
-  const decimals = Number(cfg.decimals);
-  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 36)
-    return { ok: false, error: "decimals: 0..36" };
+  const decimals = intInRange(cfg.decimals, 0, 36);
+  if (decimals === null) return { ok: false, error: "decimals: 0..36" };
 
-  const totalSupplyZbx = Number(cfg.totalSupplyZbx);
-  if (!Number.isInteger(totalSupplyZbx) || totalSupplyZbx < 1 || totalSupplyZbx > 1_000_000_000_000)
+  const totalSupplyZbx = intInRange(cfg.totalSupplyZbx, 1, 1_000_000_000_000);
+  if (totalSupplyZbx === null)
     return { ok: false, error: "totalSupplyZbx: integer 1..1_000_000_000_000 (whole tokens)" };
 
-  const founderPremineZbx = Number(cfg.founderPremineZbx);
-  if (!Number.isInteger(founderPremineZbx) || founderPremineZbx < 0 || founderPremineZbx > totalSupplyZbx)
-    return { ok: false, error: "founderPremineZbx: integer 0..totalSupplyZbx" };
+  const fixedSupply = Boolean(cfg.fixedSupply);
 
-  const blockTimeSecs = Number(cfg.blockTimeSecs);
-  if (!Number.isInteger(blockTimeSecs) || blockTimeSecs < 1 || blockTimeSecs > 60)
+  const founderPremineZbx = intInRange(cfg.founderPremineZbx, 0, 1_000_000_000_000);
+  if (founderPremineZbx === null)
+    return { ok: false, error: "founderPremineZbx: non-negative integer" };
+  if (fixedSupply && founderPremineZbx > totalSupplyZbx)
+    return { ok: false, error: "founderPremineZbx: cannot exceed totalSupplyZbx on a fixed-supply chain" };
+
+  const mintPerBlockZbx = intInRange(cfg.mintPerBlockZbx, 0, 1_000_000);
+  if (mintPerBlockZbx === null)
+    return { ok: false, error: "mintPerBlockZbx: integer 0..1_000_000" };
+  if (fixedSupply && mintPerBlockZbx > 0)
+    return { ok: false, error: "mintPerBlockZbx: must be 0 on a fixed-supply chain" };
+
+  const halvingBlocks = intInRange(cfg.halvingBlocks, 0, 100_000_000);
+  if (halvingBlocks === null)
+    return { ok: false, error: "halvingBlocks: integer 0..100_000_000 (0 = no halving)" };
+
+  const blockTimeSecs = intInRange(cfg.blockTimeSecs, 1, 60);
+  if (blockTimeSecs === null)
     return { ok: false, error: "blockTimeSecs: integer 1..60" };
 
-  const rpcPort = Number(cfg.rpcPort);
-  if (!Number.isInteger(rpcPort) || rpcPort < 1024 || rpcPort > 65_535)
-    return { ok: false, error: "rpcPort: 1024..65535" };
+  const consensus = String(cfg.consensus || "pos").toLowerCase();
+  if (consensus !== "pos" && consensus !== "poa")
+    return { ok: false, error: "consensus: pos | poa" };
 
-  const p2pPort = Number(cfg.p2pPort);
-  if (!Number.isInteger(p2pPort) || p2pPort < 1024 || p2pPort > 65_535)
-    return { ok: false, error: "p2pPort: 1024..65535" };
+  const minValidatorStakeZbx = intInRange(cfg.minValidatorStakeZbx, 0, 1_000_000_000_000);
+  if (minValidatorStakeZbx === null)
+    return { ok: false, error: "minValidatorStakeZbx: non-negative integer" };
+  if (fixedSupply && minValidatorStakeZbx > totalSupplyZbx)
+    return { ok: false, error: "minValidatorStakeZbx: cannot exceed totalSupplyZbx" };
+
+  const maxValidators = intInRange(cfg.maxValidators, 1, 1000);
+  if (maxValidators === null)
+    return { ok: false, error: "maxValidators: integer 1..1000" };
+
+  const slashPercent = intInRange(cfg.slashPercent, 0, 100);
+  if (slashPercent === null)
+    return { ok: false, error: "slashPercent: integer 0..100" };
+
+  const unbondingDays = intInRange(cfg.unbondingDays, 0, 365);
+  if (unbondingDays === null)
+    return { ok: false, error: "unbondingDays: integer 0..365" };
+
+  const governanceEnabled = Boolean(cfg.governanceEnabled);
+  let votingPeriodBlocks = 0;
+  let quorumPercent = 0;
+  let proposalThresholdZbx = 0;
+  let executionDelayBlocks = 0;
+  if (governanceEnabled) {
+    const v1 = intInRange(cfg.votingPeriodBlocks, 1, 100_000_000);
+    if (v1 === null) return { ok: false, error: "votingPeriodBlocks: integer 1..100_000_000" };
+    votingPeriodBlocks = v1;
+    const v2 = intInRange(cfg.quorumPercent, 0, 100);
+    if (v2 === null) return { ok: false, error: "quorumPercent: integer 0..100" };
+    quorumPercent = v2;
+    const v3 = intInRange(cfg.proposalThresholdZbx, 0, 1_000_000_000_000);
+    if (v3 === null) return { ok: false, error: "proposalThresholdZbx: non-negative integer" };
+    if (fixedSupply && v3 > totalSupplyZbx)
+      return { ok: false, error: "proposalThresholdZbx: cannot exceed totalSupplyZbx" };
+    proposalThresholdZbx = v3;
+    const v4 = intInRange(cfg.executionDelayBlocks, 0, 10_000_000);
+    if (v4 === null) return { ok: false, error: "executionDelayBlocks: integer 0..10_000_000" };
+    executionDelayBlocks = v4;
+  }
+
+  const rpcPort = intInRange(cfg.rpcPort, 1024, 65_535);
+  if (rpcPort === null) return { ok: false, error: "rpcPort: 1024..65535" };
+
+  const p2pPort = intInRange(cfg.p2pPort, 1024, 65_535);
+  if (p2pPort === null) return { ok: false, error: "p2pPort: 1024..65535" };
   if (p2pPort === rpcPort)
     return { ok: false, error: "p2pPort and rpcPort must differ" };
+
+  const featuresIn = (cfg.features && typeof cfg.features === "object") ? cfg.features : {};
+  const features: FeatureFlags = { ...DEFAULT_FEATURES };
+  for (const k of FEATURE_KEYS) {
+    if (k in featuresIn) features[k] = Boolean(featuresIn[k]);
+  }
+  if (!features.evm && !features.zvm)
+    return { ok: false, error: "features: at least one VM (evm or zvm) must be enabled" };
 
   const description = String(cfg.description || "").slice(0, 280);
 
   return {
     ok: true,
     value: {
-      chainName, chainId, symbol, decimals,
-      totalSupplyZbx, founderPremineZbx, blockTimeSecs,
-      rpcPort, p2pPort, description,
+      chainName, chainId, symbol, decimals, description,
+      totalSupplyZbx, fixedSupply, founderPremineZbx, mintPerBlockZbx, halvingBlocks, blockTimeSecs,
+      consensus: consensus as "pos" | "poa", minValidatorStakeZbx, maxValidators, slashPercent, unbondingDays,
+      governanceEnabled, votingPeriodBlocks, quorumPercent, proposalThresholdZbx, executionDelayBlocks,
+      rpcPort, p2pPort, features,
     },
   };
 }
@@ -121,6 +229,62 @@ function resolveBaseUrl(req: any): string {
   const proto = (req.headers["x-forwarded-proto"] as string)?.split(",")[0] || req.protocol || "http";
   const host = req.get("host") || "localhost";
   return `${proto}://${host}`.replace(/\/+$/, "");
+}
+
+function yamlString(s: string): string {
+  // Quote with double quotes, escape backslashes and quotes only.
+  return '"' + String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+}
+
+function genChainConfigYaml(c: ChainConfig): string {
+  const featuresYaml = FEATURE_KEYS.map((k) => `  ${k}: ${c.features[k] ? "true" : "false"}`).join("\n");
+  return `# chain.config.yaml — generated by Zebvix Chain Builder
+# This file is read by ${c.chainName}-node at startup.
+# Settings under [tokenomics] CHAIN_ID / TOTAL_SUPPLY_ZBX / FOUNDER_PREMINE_ZBX / BLOCK_TIME_SECS
+# are ALSO sed-patched into src/tokenomics.rs at build time and baked into the binary.
+# Settings under [consensus], [governance] and [features] are read here at runtime
+# (where the binary supports them) and otherwise recorded for audit and upcoming releases.
+# Edit, then: sudo systemctl restart ${c.chainName}-node
+
+schema_version: 1
+generated_by: zebvix-chain-builder
+
+chain:
+  name: ${yamlString(c.chainName)}
+  id: ${c.chainId}
+  symbol: ${yamlString(c.symbol)}
+  decimals: ${c.decimals}
+  description: ${yamlString(c.description || "")}
+
+tokenomics:
+  total_supply_zbx: ${c.totalSupplyZbx}
+  fixed_supply: ${c.fixedSupply ? "true" : "false"}
+  founder_premine_zbx: ${c.founderPremineZbx}
+  mint_per_block_zbx: ${c.mintPerBlockZbx}
+  halving_blocks: ${c.halvingBlocks}
+  block_time_secs: ${c.blockTimeSecs}
+
+consensus:
+  algorithm: ${c.consensus}
+  min_validator_stake_zbx: ${c.minValidatorStakeZbx}
+  max_validators: ${c.maxValidators}
+  slash_percent: ${c.slashPercent}
+  unbonding_days: ${c.unbondingDays}
+
+governance:
+  enabled: ${c.governanceEnabled ? "true" : "false"}
+  voting_period_blocks: ${c.votingPeriodBlocks}
+  quorum_percent: ${c.quorumPercent}
+  proposal_threshold_zbx: ${c.proposalThresholdZbx}
+  execution_delay_blocks: ${c.executionDelayBlocks}
+
+network:
+  rpc_port: ${c.rpcPort}
+  p2p_port: ${c.p2pPort}
+
+features:
+${featuresYaml}
+`;
 }
 
 function genSystemdUnit(c: ChainConfig): string {
@@ -251,6 +415,18 @@ sed -i -E "s|^pub const BLOCK_TIME_SECS: u64 = [0-9]+;|pub const BLOCK_TIME_SECS
 echo "  Patched values:"
 grep -E "^pub const (CHAIN_ID|TOTAL_SUPPLY_ZBX|FOUNDER_PREMINE_ZBX|BLOCK_TIME_SECS)" "$TOK"
 
+# 5b. ────────────────────────────────────────────────────────────────────────
+step "Installing chain.config.yaml (PoS, governance, mint, features)"
+SCRIPT_DIR="$( cd "$( dirname "\${BASH_SOURCE[0]}" )" && pwd )"
+if [[ -f "$SCRIPT_DIR/chain.config.yaml" ]]; then
+  install -m 0644 "$SCRIPT_DIR/chain.config.yaml" "$CFG_DIR/chain.config.yaml"
+  chown "$CHAIN_NAME":"$CHAIN_NAME" "$CFG_DIR/chain.config.yaml"
+  echo "  ✓ Installed: $CFG_DIR/chain.config.yaml"
+  echo "    (read at startup; edit + 'systemctl restart $CHAIN_NAME-node' to apply)"
+else
+  echo "  WARN: chain.config.yaml missing from bundle — runtime will fall back to defaults"
+fi
+
 # 6. ─────────────────────────────────────────────────────────────────────────
 step "Building $CHAIN_NAME-node binary (this takes 5-10 minutes on a 4 vCPU VPS)"
 cargo build --release --bin zebvix-node
@@ -335,24 +511,51 @@ fi
 function genReadme(c: ChainConfig, baseUrl: string): string {
   const supplyFmt = c.totalSupplyZbx.toLocaleString("en-US");
   const premineFmt = c.founderPremineZbx.toLocaleString("en-US");
+  const enabledFeatures = FEATURE_KEYS.filter((k) => c.features[k]);
+  const disabledFeatures = FEATURE_KEYS.filter((k) => !c.features[k]);
   return `# ${c.chainName.toUpperCase()} Chain — 15-minute Setup
 
 Generated by **Zebvix Chain Builder**.
 
-## Your chain at a glance
+## Active vs declared settings
+
+The installer **sed-patches the four core constants directly into \`src/tokenomics.rs\`** before
+\`cargo build\`, baking them into the binary. Everything else is captured in
+\`chain.config.yaml\` (installed at \`/etc/${c.chainName}/chain.config.yaml\`) and read by the
+node at startup where supported, otherwise recorded for audit and upcoming binary releases.
+
+### Patched into the binary (immutable post-build)
 
 | Property         | Value                                     |
 |------------------|-------------------------------------------|
-| Chain name       | \`${c.chainName}\`                            |
 | Chain ID         | \`${c.chainId}\` (\`0x${c.chainId.toString(16)}\`) |
-| Symbol           | \`${c.symbol}\`                               |
-| Decimals         | ${c.decimals}                                  |
 | Total supply     | \`${supplyFmt}\` ${c.symbol}                   |
 | Founder pre-mine | \`${premineFmt}\` ${c.symbol} (to validator at genesis) |
 | Block time       | ${c.blockTimeSecs} s                           |
-| RPC port         | ${c.rpcPort}                                   |
-| P2P port         | ${c.p2pPort}                                   |
-| Base source      | ${baseUrl}/api/download/newchain               |
+
+### Declared in chain.config.yaml (editable, restart to apply)
+
+| Section    | Setting                  | Value                                       |
+|------------|--------------------------|---------------------------------------------|
+| chain      | name / symbol / decimals | \`${c.chainName}\` / \`${c.symbol}\` / ${c.decimals} |
+| tokenomics | supply model             | ${c.fixedSupply ? "fixed (hard cap)" : "inflationary"} |
+| tokenomics | mint per block           | ${c.mintPerBlockZbx} ${c.symbol}            |
+| tokenomics | halving                  | ${c.halvingBlocks === 0 ? "none" : `every ${c.halvingBlocks} blocks`} |
+| consensus  | algorithm                | ${c.consensus.toUpperCase()}                |
+| consensus  | min validator stake      | ${c.minValidatorStakeZbx.toLocaleString()} ${c.symbol} |
+| consensus  | max validators           | ${c.maxValidators}                          |
+| consensus  | slash percent            | ${c.slashPercent}%                          |
+| consensus  | unbonding days           | ${c.unbondingDays}                          |
+| governance | enabled                  | ${c.governanceEnabled ? "yes" : "no"}       |
+${c.governanceEnabled ? `| governance | voting period            | ${c.votingPeriodBlocks} blocks              |
+| governance | quorum                   | ${c.quorumPercent}%                         |
+| governance | proposal threshold       | ${c.proposalThresholdZbx.toLocaleString()} ${c.symbol} |
+| governance | execution delay          | ${c.executionDelayBlocks} blocks            |
+` : ""}| network    | rpc / p2p ports          | ${c.rpcPort} / ${c.p2pPort}                 |
+| features   | enabled (${enabledFeatures.length})            | ${enabledFeatures.join(", ") || "none"}    |
+${disabledFeatures.length ? `| features   | disabled (${disabledFeatures.length})           | ${disabledFeatures.join(", ")}             |
+` : ""}
+**Base source:** ${baseUrl}/api/download/newchain
 
 ## One-command install (Ubuntu 22.04+ / Debian)
 
@@ -446,6 +649,7 @@ chainBuilderRouter.post("/chain-builder/generate", async (req, res) => {
       path.join(root, "systemd", `${cfg.chainName}-node.service`),
       genSystemdUnit(cfg),
     );
+    fs.writeFileSync(path.join(root, "chain.config.yaml"), genChainConfigYaml(cfg));
     const installPath = path.join(root, "install.sh");
     fs.writeFileSync(installPath, genInstallSh(cfg, baseUrl));
     fs.chmodSync(installPath, 0o755);
@@ -492,6 +696,7 @@ chainBuilderRouter.post("/chain-builder/preview", (req, res) => {
   const install = genInstallSh(cfg, baseUrl);
   const readme = genReadme(cfg, baseUrl);
   const systemd = genSystemdUnit(cfg);
+  const yamlCfg = genChainConfigYaml(cfg);
 
   const installHash = crypto.createHash("sha256").update(install).digest("hex");
 
@@ -501,11 +706,12 @@ chainBuilderRouter.post("/chain-builder/preview", (req, res) => {
     files: {
       "install.sh": install,
       "README.md": readme,
+      "chain.config.yaml": yamlCfg,
       [`systemd/${cfg.chainName}-node.service`]: systemd,
     },
     summary: {
       installHash,
-      totalBytes: install.length + readme.length + systemd.length,
+      totalBytes: install.length + readme.length + systemd.length + yamlCfg.length,
       estimatedBuildMinutes: 12,
     },
   });
