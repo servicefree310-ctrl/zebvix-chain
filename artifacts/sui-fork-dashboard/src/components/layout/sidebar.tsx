@@ -57,7 +57,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { iconFor } from "@/lib/icon-map";
 import { adminApi, type NavItem } from "@/lib/admin-client";
-import { useFeatureFlags, type FeatureFlags } from "@/lib/use-brand-config";
+import { useFeatureFlags, usePublicConfig, type FeatureFlags } from "@/lib/use-brand-config";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Feature-flag → href predicate. Pages whose href matches a DISABLED feature
@@ -67,6 +67,9 @@ import { useFeatureFlags, type FeatureFlags } from "@/lib/use-brand-config";
 function featureForHref(href: string): keyof FeatureFlags | null {
   const h = href.toLowerCase();
   if (h === "/admin") return null;
+  // /launch is gated by launchEnabled (a system setting, not a feature flag),
+  // handled separately via useEffectiveSections's filterByLaunch.
+  if (h === "/launch") return null;
   if (h.startsWith("/dex") || h.startsWith("/swap") || h.startsWith("/token-trade") || h.startsWith("/token-liquidity") || h.startsWith("/pool-explorer"))
     return "featuresDexEnabled";
   if (h.startsWith("/bridge")) return "featuresBridgeEnabled";
@@ -103,6 +106,7 @@ type NavLink = {
 
 const CORE_NAV: NavLink[] = [
   { href: "/", label: "Overview", icon: BookOpen },
+  { href: "/launch", label: "Launch & Roadmap", icon: Rocket, badge: "NEW" },
   { href: "/chain-builder", label: "Build Your Own Chain", icon: Hammer, badge: "NEW" },
   { href: "/docs", label: "Documentation", icon: BookOpen },
   { href: "/quick-start", label: "Quick Start Script", icon: PlayCircle },
@@ -191,6 +195,8 @@ function useEffectiveSections(): SidebarSection[] {
     retry: 1,
   });
   const flags = useFeatureFlags();
+  const cfg = usePublicConfig();
+  const launchOn = cfg.launchEnabled !== false;
   return useMemo(() => {
     const filterByFlags = (link: NavLink): boolean => {
       const flagKey = featureForHref(link.href);
@@ -202,7 +208,9 @@ function useEffectiveSections(): SidebarSection[] {
     if (items.length === 0) {
       return FALLBACK_SECTIONS.map((s) => ({
         ...s,
-        items: s.items.filter(filterByFlags),
+        items: s.items
+          .filter((l) => l.href !== "/launch" || launchOn)
+          .filter(filterByFlags),
       }));
     }
     const buckets: Record<string, NavLink[]> = { core: [], live: [], addons: [] };
@@ -218,10 +226,10 @@ function useEffectiveSections(): SidebarSection[] {
       if (!filterByFlags(link)) continue;
       buckets[section].push(link);
     }
+    const allHrefs = new Set(items.map((i: NavItem) => i.href));
     // Always make sure the Admin Panel itself is reachable from the sidebar
     // even if the admin disabled it by mistake (otherwise they'd be locked out
     // unless they remember the /admin URL). Append silently if missing.
-    const allHrefs = new Set(items.map((i: NavItem) => i.href));
     if (!allHrefs.has("/admin")) {
       buckets.addons.push({
         href: "/admin",
@@ -230,12 +238,31 @@ function useEffectiveSections(): SidebarSection[] {
         badge: "PRO",
       });
     }
+    // Force-add /launch when launchEnabled is true and the admin-managed nav
+    // doesn't already include it. Pinned to the top of the core bucket so the
+    // "Launch & Roadmap" tile is always visible when the system flag says it
+    // should be. If the admin turns launchEnabled off, we remove any /launch
+    // entry that may have been added in the admin nav too.
+    if (launchOn) {
+      if (!allHrefs.has("/launch")) {
+        buckets.core.unshift({
+          href: "/launch",
+          label: "Launch & Roadmap",
+          icon: Rocket,
+          badge: "NEW",
+        });
+      }
+    } else {
+      for (const k of Object.keys(buckets) as (keyof typeof buckets)[]) {
+        buckets[k] = buckets[k].filter((l) => l.href !== "/launch");
+      }
+    }
     return [
       { id: "core", title: "Build & Configure", icon: Settings, accent: "text-primary", items: buckets.core },
       { id: "live", title: "Live VPS RPC", icon: Radio, accent: "text-emerald-400", items: buckets.live },
       { id: "addons", title: "Add-ons & Tools", icon: Sparkles, accent: "text-violet-400", items: buckets.addons },
     ];
-  }, [data, flags]);
+  }, [data, flags, launchOn]);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

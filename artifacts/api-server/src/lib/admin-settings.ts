@@ -99,6 +99,13 @@ export const SETTING_DEFS: SettingDef[] = [
   { key: "announcementText", group: "system", label: "Announcement text", kind: "string", defaultValue: "", isPublic: true },
   { key: "announcementLevel", group: "system", label: "Announcement level", kind: "enum", defaultValue: "info", isPublic: true, options: ["info", "success", "warn", "critical"] },
   { key: "announcementUrl", group: "system", label: "Announcement link URL", kind: "url", defaultValue: "", isPublic: true, hint: "Optional — turns the banner into a link." },
+
+  // Launch / Countdown — drives the public /launch page (mainnet + exchange
+  // launch announcement). All public so the page can render without auth.
+  { key: "launchEnabled", group: "system", label: "Show /launch page in nav", kind: "boolean", defaultValue: true, isPublic: true, hint: "Hides the launch tile from the sidebar when off. Page is still reachable by URL." },
+  { key: "launchHeadline", group: "system", label: "Launch headline", kind: "string", defaultValue: "Zebvix Mainnet & Exchange — Coming Soon", isPublic: true },
+  { key: "launchSubline", group: "system", label: "Launch subline", kind: "string", defaultValue: "Full-service L1 blockchain and a Binance-grade crypto exchange. Web first — mobile wallet & exchange apps right after.", isPublic: true },
+  { key: "launchDateIso", group: "system", label: "Launch date (ISO 8601 UTC)", kind: "string", defaultValue: "2026-07-28T12:00:00.000Z", isPublic: true, hint: "e.g. 2026-07-28T12:00:00.000Z. Drives the countdown on /launch." },
 ];
 
 const DEF_BY_KEY = new Map(SETTING_DEFS.map((d) => [d.key, d]));

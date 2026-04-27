@@ -61,6 +61,10 @@ export type SystemConfig = {
   announcementText: string;
   announcementLevel: "info" | "success" | "warn" | "critical";
   announcementUrl: string;
+  launchEnabled: boolean;
+  launchHeadline: string;
+  launchSubline: string;
+  launchDateIso: string;
 };
 
 export type AdminPublicConfig = BrandConfig &
@@ -126,6 +130,11 @@ const DEFAULT_SYSTEM: SystemConfig = {
   announcementText: "",
   announcementLevel: "info",
   announcementUrl: "",
+  launchEnabled: true,
+  launchHeadline: "Zebvix Mainnet & Exchange — Coming Soon",
+  launchSubline:
+    "Full-service L1 blockchain and a Binance-grade crypto exchange. Web first — mobile wallet & exchange apps right after.",
+  launchDateIso: "2026-07-28T12:00:00.000Z",
 };
 
 export const DEFAULT_PUBLIC_CONFIG: AdminPublicConfig = {
@@ -172,7 +181,7 @@ function coerce(values: Record<string, unknown>): AdminPublicConfig {
   return out;
 }
 
-function usePublicConfig(): AdminPublicConfig {
+export function usePublicConfig(): AdminPublicConfig {
   const { data } = useQuery({
     queryKey: ["public-settings"],
     queryFn: () => adminApi.publicSettings(),

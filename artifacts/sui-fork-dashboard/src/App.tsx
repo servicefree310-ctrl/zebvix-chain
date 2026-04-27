@@ -29,6 +29,7 @@ import TokenTrade from "@/pages/token-trade";
 import TokenLiquidity from "@/pages/token-liquidity";
 import TokenMetadata from "@/pages/token-metadata";
 import Dex from "@/pages/dex";
+import Launch from "@/pages/launch";
 import ZbxTokenomics from "@/pages/zbx-tokenomics";
 import Implementation from "@/pages/implementation";
 import Rebranding from "@/pages/rebranding";
@@ -110,6 +111,7 @@ function Router() {
         <Route path="/token-liquidity" component={TokenLiquidity} />
         <Route path="/token-metadata" component={TokenMetadata} />
         <Route path="/dex" component={Dex} />
+        <Route path="/launch" component={Launch} />
         <Route path="/zbx-tokenomics" component={ZbxTokenomics} />
         <Route path="/implementation" component={Implementation} />
         <Route path="/rebranding" component={Rebranding} />
