@@ -87,43 +87,32 @@ pub struct BlockHeader {
     pub tx_root: Hash,
     pub timestamp_ms: u64,
     pub proposer: Address,
-    /// **Phase B.3.2.4 — Tendermint LastCommit binding.**
-    ///
-    /// `keccak256(bincode(Vec<Vote>))` of the parent height's 2/3+ Precommits
-    /// that justify committing the parent block. Stored in the header (not
-    /// the body) so it is covered by the proposer signature — this prevents
-    /// a byzantine proposer from gossiping different `last_commit` payloads
-    /// to different peers (they would all hash differently and fail the
-    /// header-signature check).
-    ///
-    /// Genesis-adjacent rule: at `height <= 1` this MUST be `Hash::ZERO` and
-    /// `Block.last_commit` MUST be empty (no parent to commit on). Verified
-    /// by `state.rs::verify_block_last_commit` when
-    /// `ZEBVIX_BFT_COMMIT_GATE_ACTIVATION_HEIGHT` is reached.
-    pub last_commit_hash: Hash,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Block {
     pub header: BlockHeader,
     pub txs: Vec<SignedTx>,
-    /// **Phase B.3.2.4 — Tendermint LastCommit payload.**
-    ///
-    /// `bincode::serialize(&Vec<Vote>)` of the parent height's Precommits
-    /// proving 2/3+ voting power voted for `header.parent_hash`. Empty at
-    /// height <= 1. Stored as raw bytes (not `Vec<Vote>` directly) to keep
-    /// `types.rs` free of the cyclic dependency on `vote.rs` (which already
-    /// imports `Address`/`Hash`/`Validator` from here).
-    ///
-    /// Hash binding to `header.last_commit_hash` is enforced in
-    /// `state.rs::verify_block_last_commit`.
-    pub last_commit: Vec<u8>,
-    /// Proposer signature over header bytes (header includes
-    /// `last_commit_hash`, so the LastCommit payload is transitively
-    /// authenticated even though it lives in the body).
+    /// Proposer signature over `header_signing_bytes(&header)`.
     #[serde(with = "BigArray")]
     pub signature: [u8; 64],
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Phase B.3.2.4 — BFT LastCommit lives in a SIDE TABLE, not in `Block`.
+//
+// Persisted at `CF_META` key `bft/c/<32-byte block_hash>` →
+// `bincode::serialize(&Vec<Vote>)` of the 2/3+ Precommits that justified
+// committing that block. Helper accessors live in `state.rs`
+// (`put_bft_commit`, `get_bft_commit`).
+//
+// Why a side table instead of a `Block` field: keeping `Block` byte-stable
+// avoids a forced DB wipe on every BFT-related schema bump. Block hash is
+// computed from `header_signing_bytes(&header)` (which excludes the
+// commit), so chain history continuity is preserved across upgrades.
+// Proposer-signature binding to the commit hash is deferred to a future
+// versioned `HeaderV2` activated at a specific height.
+// ─────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────
 // Phase B.1 — Validator set on-chain (Tendermint BFT prep).
