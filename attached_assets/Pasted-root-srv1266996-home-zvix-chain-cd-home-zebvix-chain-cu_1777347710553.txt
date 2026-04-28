@@ -1,0 +1,180 @@
+root@srv1266996:/home/zvix-chain# cd /home/zebvix-chain && \ \
+curl -fsSL "https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/api/download/newchain" -o newchain.tgz && \
+tar -xzf newchain.tgz && \
+ls -la src/tokenomics.rs src/mempool.rs src/state.rs scripts/testnet-deploy.sh && \
+rm newchain.tgz && \
+echo "✓ source updated"
+-rwxr-xr-x 1 ubuntu ubuntu   8134 Apr 28 03:14 scripts/testnet-deploy.sh
+-rw-r--r-- 1 ubuntu ubuntu  11815 Apr 28 03:24 src/mempool.rs
+-rw-r--r-- 1 ubuntu ubuntu 283733 Apr 28 03:31 src/state.rs
+-rw-r--r-- 1 ubuntu ubuntu  21013 Apr 28 03:24 src/tokenomics.rs
+✓ source updated
+root@srv1266996:/home/zebvix-chain# cd /home/zebvix-chain && \
+ZVB_CI_FEATURES=zvm bash scripts/ci-check.sh && \
+cargo build --release --features zvm && \
+sudo install -m 755 target/release/zebvix-node /usr/local/bin/zebvix-node && \
+sudo systemctl restart zebvix.service && \
+sleep 3 && \
+sudo journalctl -u zebvix.service -n 30 --no-pager
+▶ Phase D-10 CI gate
+  chain_root = /home/zebvix-chain
+  features   = zvm
+  timeout    = 600s per step
+  mode       = full
+
+── cargo check --features zvm ──
+✓ PASS: cargo check --features zvm
+
+── cargo clippy --features zvm (warnings denied) ──
+✓ PASS: cargo clippy --features zvm (warnings denied)
+
+── cargo test --lib --features zvm ──
+
+running 202 tests
+....................................................................................... 87/202
+....................................................................................... 174/202
+............................
+test result: ok. 202 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.80s
+
+✓ PASS: cargo test --lib --features zvm
+
+
+✅ ALL CHECKS PASSED
+   target/.last-ci-pass updated → 2026-04-28T03:38:16Z
+   Tarball handler will accept fresh deploys for the next 24h.
+   Compiling zebvix-node v0.1.0 (/home/zebvix-chain)
+    Finished `release` profile [optimized] target(s) in 1m 44s
+Apr 28 03:39:46 srv1266996.hstgr.cloud zebvix-node[1169017]: 2026-04-28T03:39:46.828509Z  INFO zebvix_node: 🗳  emitted prevote h=56624 block=0xcc1a919d875a1d5ed69cfd19a612a9f68df0dae0a4e5cbcfeb55c8683a7c4747  ✅ QUORUM
+Apr 28 03:39:46 srv1266996.hstgr.cloud zebvix-node[1169017]: 2026-04-28T03:39:46.829045Z  INFO zebvix_node: 🗳  emitted precommit h=56624 block=0xcc1a919d875a1d5ed69cfd19a612a9f68df0dae0a4e5cbcfeb55c8683a7c4747  ✅ QUORUM
+Apr 28 03:39:46 srv1266996.hstgr.cloud zebvix-node[1169017]: 2026-04-28T03:39:46.829183Z  INFO zebvix_node: 📜 BFT commit persisted h=56624 hash=0xcc1a919d875a1d5ed69cfd19a612a9f68df0dae0a4e5cbcfeb55c8683a7c4747 precommits=1 bytes=297
+Apr 28 03:39:52 srv1266996.hstgr.cloud zebvix-node[1169017]: 2026-04-28T03:39:52.669892Z  INFO zebvix_node::consensus: ⛏  block #56625 produced  proposer=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315  round=0  txs=0  hash=0xc17a0fde2ddcb577052ae81eecc5bf948bee123e9abc761555d080faa357ab4b
+Apr 28 03:39:52 srv1266996.hstgr.cloud zebvix-node[1169017]: 2026-04-28T03:39:52.828649Z  INFO zebvix_node: 🗳  emitted prevote h=56625 block=0xc17a0fde2ddcb577052ae81eecc5bf948bee123e9abc761555d080faa357ab4b  ✅ QUORUM
+Apr 28 03:39:52 srv1266996.hstgr.cloud zebvix-node[1169017]: 2026-04-28T03:39:52.828987Z  INFO zebvix_node: 🗳  emitted precommit h=56625 block=0xc17a0fde2ddcb577052ae81eecc5bf948bee123e9abc761555d080faa357ab4b  ✅ QUORUM
+Apr 28 03:39:52 srv1266996.hstgr.cloud zebvix-node[1169017]: 2026-04-28T03:39:52.829116Z  INFO zebvix_node: 📜 BFT commit persisted h=56625 hash=0xc17a0fde2ddcb577052ae81eecc5bf948bee123e9abc761555d080faa357ab4b precommits=1 bytes=297
+Apr 28 03:39:58 srv1266996.hstgr.cloud zebvix-node[1169017]: 2026-04-28T03:39:58.670182Z  INFO zebvix_node::consensus: ⛏  block #56626 produced  proposer=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315  round=0  txs=0  hash=0x81d26dbfec72e60c609b873a04a1a6f9eaff7820f18a188222bbaf759c6ae05b
+Apr 28 03:39:58 srv1266996.hstgr.cloud zebvix-node[1169017]: 2026-04-28T03:39:58.828924Z  INFO zebvix_node: 🗳  emitted prevote h=56626 block=0x81d26dbfec72e60c609b873a04a1a6f9eaff7820f18a188222bbaf759c6ae05b  ✅ QUORUM
+Apr 28 03:39:58 srv1266996.hstgr.cloud zebvix-node[1169017]: 2026-04-28T03:39:58.829216Z  INFO zebvix_node: 🗳  emitted precommit h=56626 block=0x81d26dbfec72e60c609b873a04a1a6f9eaff7820f18a188222bbaf759c6ae05b  ✅ QUORUM
+Apr 28 03:39:58 srv1266996.hstgr.cloud zebvix-node[1169017]: 2026-04-28T03:39:58.829316Z  INFO zebvix_node: 📜 BFT commit persisted h=56626 hash=0x81d26dbfec72e60c609b873a04a1a6f9eaff7820f18a188222bbaf759c6ae05b precommits=1 bytes=297
+Apr 28 03:40:00 srv1266996.hstgr.cloud systemd[1]: Stopping zebvix.service - Zebvix L1 Blockchain Node...
+Apr 28 03:40:00 srv1266996.hstgr.cloud systemd[1]: zebvix.service: Deactivated successfully.
+Apr 28 03:40:00 srv1266996.hstgr.cloud systemd[1]: Stopped zebvix.service - Zebvix L1 Blockchain Node.
+Apr 28 03:40:00 srv1266996.hstgr.cloud systemd[1]: zebvix.service: Consumed 7.146s CPU time, 7.1M memory peak, 0B memory swap peak.
+Apr 28 03:40:00 srv1266996.hstgr.cloud systemd[1]: Started zebvix.service - Zebvix L1 Blockchain Node.
+Apr 28 03:40:00 srv1266996.hstgr.cloud zebvix-node[1188903]: 2026-04-28T03:40:00.976206Z  INFO zebvix_node: 🚀 Zebvix node starting
+Apr 28 03:40:00 srv1266996.hstgr.cloud zebvix-node[1188903]: 2026-04-28T03:40:00.976254Z  INFO zebvix_node:    chain_id  : 7878
+Apr 28 03:40:00 srv1266996.hstgr.cloud zebvix-node[1188903]: 2026-04-28T03:40:00.976259Z  INFO zebvix_node:    proposer  : 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315
+Apr 28 03:40:00 srv1266996.hstgr.cloud zebvix-node[1188903]: 2026-04-28T03:40:00.976286Z  INFO zebvix_node:    tip       : height=56626 hash=0x81d26dbfec72e60c609b873a04a1a6f9eaff7820f18a188222bbaf759c6ae05b
+Apr 28 03:40:00 srv1266996.hstgr.cloud zebvix-node[1188903]: 2026-04-28T03:40:00.976292Z  INFO zebvix_node:    rpc       : http://0.0.0.0:8545
+Apr 28 03:40:00 srv1266996.hstgr.cloud zebvix-node[1188903]: 2026-04-28T03:40:00.977232Z  INFO zebvix_node:    p2p       : tcp/30333  peer_id=12D3KooWKH7nryXJLNAJqfTkeJg5yPxuSxSD2cbneBWtM8Xdy4Jz
+Apr 28 03:40:00 srv1266996.hstgr.cloud zebvix-node[1188903]: 2026-04-28T03:40:00.977248Z  INFO zebvix_node:    mdns      : DISABLED (default — pass --enable-mdns to opt in)
+Apr 28 03:40:00 srv1266996.hstgr.cloud zebvix-node[1188903]: 2026-04-28T03:40:00.977271Z  INFO zebvix_node::rpc: 🛡  RPC in-process concurrency cap: max 256 in-flight requests (set ZEBVIX_RPC_MAX_INFLIGHT to tune; per-IP limiting still recommended via nginx / Cloudflare in front)
+Apr 28 03:40:00 srv1266996.hstgr.cloud zebvix-node[1188903]: 2026-04-28T03:40:00.977280Z  INFO zebvix_node::rpc: 🛡  RPC CORS: localhost-only (default). Set ZEBVIX_RPC_CORS_ORIGINS=<csv> to add public origins, or ZEBVIX_RPC_CORS_ORIGINS=* to allow any.
+Apr 28 03:40:00 srv1266996.hstgr.cloud zebvix-node[1188903]: 2026-04-28T03:40:00.978104Z  INFO zebvix_node::consensus: ⛏  producer started: my_address=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315, mode=ROUND_ROBIN+TIMEOUTS (B.3.2.2) pacing=5s propose_timeout=8s tick=500ms
+Apr 28 03:40:00 srv1266996.hstgr.cloud zebvix-node[1188903]: 2026-04-28T03:40:00.979672Z  INFO zebvix_node: 🗳  emitted prevote h=56626 block=0x81d26dbfec72e60c609b873a04a1a6f9eaff7820f18a188222bbaf759c6ae05b  ✅ QUORUM
+Apr 28 03:40:00 srv1266996.hstgr.cloud zebvix-node[1188903]: 2026-04-28T03:40:00.980335Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWKH7nryXJLNAJqfTkeJg5yPxuSxSD2cbneBWtM8Xdy4Jz
+Apr 28 03:40:00 srv1266996.hstgr.cloud zebvix-node[1188903]: 2026-04-28T03:40:00.980364Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/93.127.213.192/tcp/30333/p2p/12D3KooWKH7nryXJLNAJqfTkeJg5yPxuSxSD2cbneBWtM8Xdy4Jz
+Apr 28 03:40:00 srv1266996.hstgr.cloud zebvix-node[1188903]: 2026-04-28T03:40:00.980820Z  INFO zebvix_node: 🗳  emitted precommit h=56626 block=0x81d26dbfec72e60c609b873a04a1a6f9eaff7820f18a188222bbaf759c6ae05b  ✅ QUORUM
+root@srv1266996:/home/zebvix-chain# cd /home/zebvix-chain && \
+ZVB_CI_FEATURES=zvm bash scripts/ci-check.sh && \
+echo "─── mainnet build ───" && \
+cargo build --release --features zvm && \
+sudo install -m 755 target/release/zebvix-node /usr/local/bin/zebvix-node && \
+sudo systemctl restart zebvix.service && \
+echo "─── testnet build (CHAIN_ID=78787) ───" && \
+ZVB_CI_FEATURES=zvm,testnet bash scripts/ci-check.sh && \
+sudo bash scripts/testnet-deploy.sh --build-only && \
+sudo systemctl restart zebvix-testnet.service 2>/dev/null || sudo bash scripts/testnet-deploy.sh --service-only && \
+sleep 3 && \
+echo "─── mainnet status ───" && \
+sudo journalctl -u zebvix.service -n 15 --no-pager && \
+echo "─── testnet status ───" && \
+sudo journalctl -u zebvix-testnet.service -n 15 --no-pager
+▶ Phase D-10 CI gate
+  chain_root = /home/zebvix-chain
+  features   = zvm
+  timeout    = 600s per step
+  mode       = full
+
+── cargo check --features zvm ──
+✓ PASS: cargo check --features zvm
+
+── cargo clippy --features zvm (warnings denied) ──
+✓ PASS: cargo clippy --features zvm (warnings denied)
+
+── cargo test --lib --features zvm ──
+
+running 202 tests
+....................................................................................... 87/202
+....................................................................................... 174/202
+............................
+test result: ok. 202 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.89s
+
+✓ PASS: cargo test --lib --features zvm
+
+
+✅ ALL CHECKS PASSED
+   target/.last-ci-pass updated → 2026-04-28T03:40:33Z
+   Tarball handler will accept fresh deploys for the next 24h.
+─── mainnet build ───
+    Finished `release` profile [optimized] target(s) in 0.26s
+─── testnet build (CHAIN_ID=78787) ───
+▶ Phase D-10 CI gate
+  chain_root = /home/zebvix-chain
+  features   = zvm,testnet
+  timeout    = 600s per step
+  mode       = full
+
+── cargo check --features zvm,testnet ──
+✓ PASS: cargo check --features zvm,testnet
+
+── cargo clippy --features zvm,testnet (warnings denied) ──
+✓ PASS: cargo clippy --features zvm,testnet (warnings denied)
+
+── cargo test --lib --features zvm,testnet ──
+
+running 205 tests
+....................................................................................... 87/205
+....................................................................................... 174/205
+...............................
+test result: ok. 205 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.90s
+
+✓ PASS: cargo test --lib --features zvm,testnet
+
+
+✅ ALL CHECKS PASSED
+   target/.last-ci-pass updated → 2026-04-28T03:41:10Z
+   Tarball handler will accept fresh deploys for the next 24h.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🧪  Zebvix TESTNET deploy — Phase E / Phase 0
+    source : /home/zebvix-chain
+    binary : /usr/local/bin/zebvix-node-testnet
+    home   : /root/.zebvix-testnet
+    rpc    : 0.0.0.0:18545    p2p :31333
+    mode   : build
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▶ building testnet binary (cargo build --release --features zvm,testnet)...
+  this re-uses target/ from any prior mainnet build (incremental, ~30s warm)
+scripts/testnet-deploy.sh: line 105: cargo: command not found
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🧪  Zebvix TESTNET deploy — Phase E / Phase 0
+    source : /home/zebvix-chain
+    binary : /usr/local/bin/zebvix-node-testnet
+    home   : /root/.zebvix-testnet
+    rpc    : 0.0.0.0:18545    p2p :31333
+    mode   : service
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▶ writing systemd unit /etc/systemd/system/zebvix-testnet.service...
+Created symlink /etc/systemd/system/multi-user.target.wants/zebvix-testnet.service → /etc/systemd/system/zebvix-testnet.service.
+
+▶ starting / restarting service...
+● zebvix-testnet.service - Zebvix L1 Blockchain Node — TESTNET (Phase E)
+     Loaded: loaded (/etc/systemd/system/zebvix-testnet.service; enabled; preset: enabled)
+     Active: activating (auto-restart) (Result: exit-code) since Tue 2026-04-28 03:41:10 UTC; 3s ago
+       Docs: https://github.com/zebvix-org/zebvix-chain
+    Process: 1191613 ExecStart=/usr/local/bin/zebvix-node-testnet start --rpc 0.0.0.0:18545 --p2p-port 31333 --home /root/.zebvix-testnet (code=exited, status=203/EXEC)
+   Main PID: 1191613 (code=exited, status=203/EXEC)
+        CPU: 5ms
+
+root@srv1266996:/home/zebvix-chain# 

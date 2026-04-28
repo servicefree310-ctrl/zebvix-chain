@@ -44,6 +44,41 @@ if [[ "${EUID}" -ne 0 ]]; then
     exit 2
 fi
 
+# ── 0b. cargo PATH discovery (sudo-safe) ──────────────────────────────────
+# `sudo` strips most env vars including PATH, so a rust toolchain installed
+# under the invoking user's home (e.g. ~ubuntu/.cargo/bin) is invisible by
+# default — that's exactly what bit us on the first VPS run, where
+# `sudo bash testnet-deploy.sh --build-only` died with `cargo: command not
+# found` and the `||` fallback then created a systemd unit pointing at a
+# binary that was never built. Fix: walk the standard install locations
+# (root, $SUDO_USER, $HOME, system-wide) and prepend the first hit to PATH.
+# Honours `CARGO` env var as an explicit override for non-standard installs.
+if ! command -v cargo >/dev/null 2>&1; then
+    _cargo_candidates=()
+    [[ -n "${CARGO:-}" ]]      && _cargo_candidates+=("$(dirname "$CARGO")")
+    [[ -n "${SUDO_USER:-}" ]]  && _cargo_candidates+=("/home/${SUDO_USER}/.cargo/bin")
+    [[ -n "${HOME:-}" ]]       && _cargo_candidates+=("${HOME}/.cargo/bin")
+    _cargo_candidates+=(
+        "/root/.cargo/bin"
+        "/usr/local/cargo/bin"
+        "/usr/local/bin"
+    )
+    for _d in "${_cargo_candidates[@]}"; do
+        if [[ -x "${_d}/cargo" ]]; then
+            export PATH="${_d}:${PATH}"
+            echo "  (cargo discovered at ${_d}/cargo — sudo PATH was incomplete)"
+            break
+        fi
+    done
+    unset _cargo_candidates _d
+fi
+if ! command -v cargo >/dev/null 2>&1; then
+    echo "❌ cargo not found in PATH or any of: \$CARGO, \$SUDO_USER's ~/.cargo/bin," >&2
+    echo "   \$HOME/.cargo/bin, /root/.cargo/bin, /usr/local/cargo/bin, /usr/local/bin." >&2
+    echo "   Install rust (https://rustup.rs) or set CARGO=/path/to/cargo and re-run." >&2
+    exit 2
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_DIR="$(dirname "$SCRIPT_DIR")"
 if [[ ! -f "${SOURCE_DIR}/Cargo.toml" ]]; then
