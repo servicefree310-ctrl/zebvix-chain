@@ -128,9 +128,13 @@ function Header() {
             <Cpu className="h-8 w-8 text-violet-400" /> ZVM Explorer
           </h1>
           <p className="text-sm text-muted-foreground max-w-2xl">
-            Native Zebvix RPC playground. <span className="font-mono text-foreground">zbx_*</span> methods (always-on)
-            aur <span className="font-mono text-foreground">eth_*</span>/<span className="font-mono text-foreground">net_*</span>/<span className="font-mono text-foreground">web3_*</span> ZVM-namespace
-            (gated behind <span className="font-mono text-foreground">--features zvm</span>) directly Zebvix L1 par execute hote hain — koi proxy emulation nahi.
+            Native Zebvix RPC playground. The always-on{" "}
+            <span className="font-mono text-foreground">zbx_*</span> methods, plus the{" "}
+            <span className="font-mono text-foreground">eth_*</span>/
+            <span className="font-mono text-foreground">net_*</span>/
+            <span className="font-mono text-foreground">web3_*</span> ZVM namespace
+            (gated behind <span className="font-mono text-foreground">--features zvm</span>),
+            execute directly on Zebvix L1 — no proxy or emulation layer.
           </p>
         </div>
       </div>
@@ -1812,7 +1816,7 @@ function SmartSearch({ seed, onSeed }: { seed: string; onSeed: (v: string) => vo
   }
 
   const samples = [
-    { label: "Pool admin (address)", value: "0x40907000ac0a1a73e4cd89889b4d7ee8980c0315" },
+    { label: "Governor address", value: "0x40907000ac0a1a73e4cd89889b4d7ee8980c0315" },
     { label: "AMM pool (contract addr)", value: "0x7a73776170000000000000000000000000000000" },
     { label: "Block #1", value: "1" },
     { label: "latest", value: "latest" },

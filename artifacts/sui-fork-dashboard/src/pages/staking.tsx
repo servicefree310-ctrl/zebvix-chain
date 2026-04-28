@@ -138,9 +138,9 @@ export default function StakingPage() {
             Staking Dashboard
           </h1>
           <p className="text-sm text-muted-foreground max-w-2xl">
-            Bhai, delegate karo apna ZBX validators ko aur har epoch reward
-            commission ke baad earn karo. Unbonding{" "}
-            {overview?.unbonding_epochs ?? 7} epochs ka hota hai.
+            Delegate your ZBX to a validator and earn rewards every epoch
+            (after the validator's commission). Unbonding takes{" "}
+            {overview?.unbonding_epochs ?? 7} epochs.
           </p>
         </div>
         <button
@@ -303,8 +303,8 @@ function NoWalletNotice() {
       <div>
         <div className="font-semibold">No wallet connected</div>
         <div className="text-muted-foreground text-xs mt-0.5">
-          Bhai, top-right wallet picker se ek wallet add ya select karo to
-          delegate / unstake / claim karne ke liye.
+          Use the wallet picker in the top-right to add or select a wallet so
+          you can delegate, unstake, or claim rewards.
         </div>
       </div>
     </div>
@@ -379,9 +379,9 @@ function MyStakeSummary({
         </div>
       </div>
       <p className="text-[11px] text-muted-foreground mt-2">
-        Locked-rewards drip releases ke baad har staker (delegator OR validator
-        operator) wallet-level claim kar sakta hai — chahe currently delegation
-        zero hi kyun na ho.
+        After each locked-rewards drip release, every staker (delegator or validator
+        operator) can perform a wallet-level claim — even if their current delegation
+        is zero.
       </p>
     </div>
   );
@@ -876,15 +876,15 @@ function ActionDialog({
 
           {target.kind === "claim" && (
             <p className="text-xs text-muted-foreground">
-              Yeh tx aapke locked-rewards drip + commission pool dono claim
-              karega (jo bhi available hai).
+              This transaction claims both your locked-rewards drip and your commission pool
+              (whichever is available).
             </p>
           )}
 
           {target.kind === "unstake" && (
             <p className="text-[11px] text-muted-foreground">
-              Unstaked amount {overview?.unbonding_epochs ?? 7} epochs ke baad
-              wallet mein wapis ayega.
+              Unstaked amount becomes withdrawable after {overview?.unbonding_epochs ?? 7} epochs
+              and is then returned to your wallet.
             </p>
           )}
         </div>

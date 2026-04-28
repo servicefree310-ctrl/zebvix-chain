@@ -1,34 +1,34 @@
 import React, { useState } from "react";
-import { CheckCircle2, XCircle, AlertCircle, ChevronDown, ChevronRight, Brush, Check, Zap, Layers, Code2 } from "lucide-react";
+import { CheckCircle2, XCircle, AlertCircle, ChevronDown, ChevronRight, Brush, Check, Zap } from "lucide-react";
 import { CodeBlock } from "@/components/ui/code-block";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 
 const CATEGORIES = [
   {
-    label: "KARO — Safe to Rebrand",
-    description: "Yeh sab user-facing hain — Zebvix brand yahaan zaroori hai",
+    label: "DO — Safe to Rebrand",
+    description: "User-facing surfaces — the Zebvix brand belongs here.",
     color: "text-emerald-400",
     border: "border-emerald-500/30",
     bg: "bg-emerald-500/5",
     icon: <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0" />,
     items: [
       {
-        title: "Binary / Executable name",
+        title: "Binary / executable name",
         where: "Cargo.toml [[bin]] section",
         status: "Already done",
         from: "sui-node",
         to: "zebvix-node",
-        note: "Users is binary ko run karte hain — Zebvix naam zaroor aana chahiye",
-        code: `# Cargo.toml mein (already done):\n[[bin]]\nname = "zebvix-node"   ← YEH\npath = "src/main.rs"`,
+        note: "End users invoke this binary on their machine — the Zebvix name must be visible.",
+        code: `# Cargo.toml (already done):\n[[bin]]\nname = "zebvix-node"   ← required\npath = "src/main.rs"`,
       },
       {
-        title: "Config directory",
+        title: "Configuration directory",
         where: "~/.sui/ → ~/.zebvix/",
         status: "Already done",
         from: ".sui",
         to: ".zebvix",
-        note: "Jab user apne machine pe node chalayega, config folder Zebvix ka dikhega",
+        note: "When a user runs the node, the config folder shows the Zebvix identity.",
         code: `# Already renamed in code:\nSUI_CONFIG_DIR → ZEBVIX_CONFIG_DIR\n~/.sui/         → ~/.zebvix/\nkeystore file   → zebvix.keystore`,
       },
       {
@@ -37,26 +37,26 @@ const CATEGORIES = [
         status: "Already done",
         from: "SUI",
         to: "ZBX",
-        note: "Wallet mein, explorer mein — sab jagah ZBX dikhega",
+        note: "Wallets, explorers, and balances surface ZBX everywhere.",
         code: `// gas_coin.rs (already done):\npub const MIST_PER_ZBX: u64 = 1_000_000_000;\npub const TOTAL_SUPPLY_ZBX: u64 = 150_000_000;`,
       },
       {
-        title: "Chain ID / Network identifier",
+        title: "Chain ID / network identifier",
         where: "genesis.yaml → chain_id",
         status: "Do in Phase 1",
         from: "sui-mainnet",
         to: "zebvix-mainnet-1",
-        note: "RPC se jab bhi chain query hogi — yeh name return hoga",
-        code: `# genesis.yaml mein:\nchain_id: "zebvix-mainnet-1"\n\n# Test:\ncurl localhost:9000 -d '{"method":"sui_getChainIdentifier"}'\n# Returns: "zebvix-mainnet-1"`,
+        note: "Every RPC chain query returns this identifier.",
+        code: `# genesis.yaml:\nchain_id: "zebvix-mainnet-1"\n\n# Test:\ncurl localhost:9000 -d '{"method":"sui_getChainIdentifier"}'\n# Returns: "zebvix-mainnet-1"`,
       },
       {
         title: "Node info / version string",
         where: "crates/sui-node/src/main.rs",
-        status: "Optional but good",
+        status: "Optional but recommended",
         from: "Sui Node v1.69.2",
         to: "Zebvix Node v1.0.0",
-        note: "Node start hone pe terminal mein version dikhta hai",
-        code: `# main.rs mein find karo:\ngrep -n "Sui Node\\|sui-node" crates/sui-node/src/main.rs\n\n# Replace:\nsed -i 's/Sui Node/Zebvix Node/g' crates/sui-node/src/main.rs`,
+        note: "Printed in the terminal banner when the node starts.",
+        code: `# In main.rs, locate the banner:\ngrep -n "Sui Node\\|sui-node" crates/sui-node/src/main.rs\n\n# Replace:\nsed -i 's/Sui Node/Zebvix Node/g' crates/sui-node/src/main.rs`,
       },
       {
         title: "Systemd service name",
@@ -64,7 +64,7 @@ const CATEGORIES = [
         status: "Do in Phase 4",
         from: "sui-node.service",
         to: "zebvix-node.service",
-        note: "Server pe service ka naam — Zebvix ka brand",
+        note: "The service unit on the server should carry the Zebvix brand.",
         code: `# Service file:\n/etc/systemd/system/zebvix-node.service\nDescription=Zebvix Node — Zebvix Technologies Pvt Ltd`,
       },
       {
@@ -73,14 +73,14 @@ const CATEGORIES = [
         status: "Already in our setup",
         from: "sui-node.log",
         to: "zebvix-node.log",
-        note: "~/zebvix-data/logs/ mein sab Zebvix naam se",
+        note: "All logs under ~/zebvix-data/logs/ now use the Zebvix prefix.",
         code: `~/zebvix-data/logs/build.log\n~/zebvix-data/logs/zebvix-node.log\n~/zebvix-data/logs/consensus.log`,
       },
     ],
   },
   {
-    label: "SOCH KE KARO — Optional / Careful",
-    description: "Technically possible hai lekin consequences hain — carefully decide karo",
+    label: "THINK FIRST — Optional / Careful",
+    description: "Technically possible, but each carries trade-offs — decide deliberately.",
     color: "text-amber-400",
     border: "border-amber-500/30",
     bg: "bg-amber-500/5",
@@ -89,11 +89,11 @@ const CATEGORIES = [
       {
         title: "JSON-RPC method names (sui_* → zebvix_*)",
         where: "crates/sui-json-rpc/",
-        status: "Break wallet compatibility",
+        status: "Breaks wallet compatibility",
         from: "sui_getBalance, sui_transfer...",
         to: "zebvix_getBalance, zebvix_transfer...",
-        note: "Agar rename karoge toh standard Sui wallets (Suiet, Martian) kaam nahi karenge. Custom wallet banani padegi. Recommend: mat karo pehle phase mein.",
-        code: `# Agar karna hai future mein:\ngrep -rl '"sui_' crates/sui-json-rpc/src/ | head -10\n# ~50+ methods hain — bada kaam hai\n# Custom wallet banane ke baad hi karo`,
+        note: "Renaming breaks standard Sui-compatible wallets (Suiet, Martian). A custom wallet must be shipped first. Recommendation: defer to a later phase.",
+        code: `# When you eventually rename:\ngrep -rl '"sui_' crates/sui-json-rpc/src/ | head -10\n# ~50+ methods — non-trivial migration\n# Ship a custom wallet first, then rename.`,
       },
       {
         title: "Move module paths (0x2::sui::*)",
@@ -101,63 +101,63 @@ const CATEGORIES = [
         status: "On-chain contracts break",
         from: "use sui::coin::Coin",
         to: "use zebvix::coin::Coin",
-        note: "Sare deployed Move contracts break ho jayenge. Recommend: ecosystem ready hone ke baad karna.",
-        code: `# crates/sui-framework/packages/ mein:\nsui-framework/     ← 0x2\nsui-system/        ← 0x3  \nmove-stdlib/       ← 0x1\n\n# Rename bahut complex hai — baad mein karna`,
+        note: "Every deployed Move contract would break. Recommendation: rename only after the ecosystem is mature.",
+        code: `# Inside crates/sui-framework/packages/:\nsui-framework/     ← 0x2\nsui-system/        ← 0x3\nmove-stdlib/       ← 0x1\n\n# Renaming is a major migration — defer.`,
       },
       {
         title: "Internal Rust constant names (MIST_PER_SUI etc.)",
         where: "crates/sui-types/src/*.rs",
-        status: "Already done, careful with grep",
+        status: "Already done — verify with grep",
         from: "MIST_PER_SUI, TOTAL_SUPPLY_SUI",
         to: "MIST_PER_ZBX, TOTAL_SUPPLY_ZBX",
-        note: "Humne yeh pehle se kar diya — but agar aur files miss rahi hain toh build fail hoga",
-        code: `# Check karo koi SUI constants miss toh nahi:\ngrep -rn "MIST_PER_SUI\\|TOTAL_SUPPLY_SUI" crates/ --include="*.rs"\n# Koi result nahi aana chahiye`,
+        note: "We have already migrated these — confirm no stragglers remain or the build will fail.",
+        code: `# Confirm no SUI-prefixed supply constants remain:\ngrep -rn "MIST_PER_SUI\\|TOTAL_SUPPLY_SUI" crates/ --include="*.rs"\n# Expected: zero results.`,
       },
     ],
   },
   {
-    label: "MAT KARO — Will Break Build/Network",
-    description: "Yeh internal implementation details hain — rename karne se build fail ya network broken ho jayega",
+    label: "DO NOT — Will Break Build / Network",
+    description: "Internal implementation surfaces — renaming these will break the build or fork the network.",
     color: "text-rose-400",
     border: "border-rose-500/30",
     bg: "bg-rose-500/5",
     icon: <XCircle className="h-5 w-5 text-rose-400 shrink-0" />,
     items: [
       {
-        title: "Cargo package names (sui-node, sui-types etc.)",
-        where: "Every crate's Cargo.toml [package].name",
+        title: "Cargo package names (sui-node, sui-types, etc.)",
+        where: "Each crate's Cargo.toml [package].name",
         status: "Build completely breaks",
         from: 'name = "sui-types"',
-        to: 'name = "zebvix-types" — MAT KARO',
-        note: "800+ crates ek doosre ko package name se reference karte hain. Rename karo toh sab dependency links toot jayenge.",
-        code: `# YEH MAT KARO:\n# crates/sui-types/Cargo.toml\nname = "sui-types"  ← ISKO CHHODDO\n\n# Sirf binary name change karo (Cargo.toml [[bin]])\n# Package name alag cheez hai`,
+        to: 'name = "zebvix-types" — DO NOT',
+        note: "800+ crates reference each other by package name. Renaming snaps every dependency edge.",
+        code: `# DO NOT do this:\n# crates/sui-types/Cargo.toml\nname = "sui-types"  ← LEAVE AS-IS\n\n# Only change the binary name (Cargo.toml [[bin]]).\n# Package name is a separate concept.`,
       },
       {
-        title: "Rust module/crate names in code (use sui_types::*)",
-        where: "Thousands of files across codebase",
+        title: "Rust module/crate references (use sui_types::*)",
+        where: "Thousands of files across the codebase",
         status: "Thousands of compile errors",
         from: "use sui_types::base_types::*",
-        to: "use zebvix_types::*— MAT KARO",
-        note: "50,000+ lines of code mein ye pattern hai. Yeh internal implementation — users nahi dekhte.",
-        code: `# Count karo kitni jagah hai:\ngrep -r "use sui_types\\|use sui_core\\|use sui_node" crates/ | wc -l\n# ~5000+ lines — karna impossible hai cleanly`,
+        to: "use zebvix_types::* — DO NOT",
+        note: "50,000+ lines reference this pattern. It is internal implementation that users never see.",
+        code: `# Count the call sites first:\ngrep -r "use sui_types\\|use sui_core\\|use sui_node" crates/ | wc -l\n# ~5000+ matches — cleanly renaming is impractical.`,
       },
       {
         title: "P2P protocol identifiers / libp2p keys",
         where: "crates/anemo/ or network config",
-        status: "Nodes connect nahi kar paayenge",
+        status: "Nodes will not connect",
         from: "sui/1.0.0 protocol",
         to: "zebvix/1.0.0 — network breaks",
-        note: "Agar protocol ID change kiya toh 2 nodes ek doosre ko recognize nahi karenge. Multi-node testnet fail ho jayega.",
-        code: `# Network protocol — CHHODO:\ngrep -r "sui/1\\." crates/anemo/ --include="*.rs" | head -5\n# Isko rename mat karna`,
+        note: "If the protocol identifier changes, two nodes can no longer recognise each other and the multi-node testnet will fail to gossip.",
+        code: `# Network protocol — leave alone:\ngrep -r "sui/1\\." crates/anemo/ --include="*.rs" | head -5\n# Do not rename this identifier.`,
       },
       {
-        title: "RocksDB column family names",
+        title: "RocksDB column-family names",
         where: "crates/typed-store/ storage layer",
-        status: "Existing database unreadable",
+        status: "Existing database becomes unreadable",
         from: '"sui_object_store"',
-        to: '"zebvix_object_store" — MAT KARO',
-        note: "Database ek baar bana aur agar column names change kiye toh purana data read nahi hoga. Fresh start bhi permanent damage.",
-        code: `# Database schema — CHHODO:\ngrep -r "column_family\\|cf_name" crates/typed-store/ | head -5`,
+        to: '"zebvix_object_store" — DO NOT',
+        note: "Once the database has been written, renaming column families means existing data can no longer be read. Even a fresh start will not recover historical data.",
+        code: `# Database schema — leave alone:\ngrep -r "column_family\\|cf_name" crates/typed-store/ | head -5`,
       },
     ],
   },
@@ -258,7 +258,7 @@ export default function Rebranding() {
           Rebranding Guide
         </h1>
         <p className="text-lg text-muted-foreground max-w-3xl">
-          Kahan Zebvix brand lagao, kahan nahi — clear breakdown with exact files aur commands.
+          Where the Zebvix brand belongs and where it does not — a precise breakdown with the exact files and commands.
         </p>
 
         <div className="border-l-4 border-l-emerald-500/50 bg-emerald-500/5 p-3 rounded-md flex gap-3 max-w-3xl">
@@ -267,16 +267,16 @@ export default function Rebranding() {
             <div className="text-foreground font-semibold">The Golden Rule</div>
             <ul className="list-disc pl-4 space-y-0.5">
               <li>
-                <strong className="text-emerald-400">User jo dekhta hai</strong> → Zebvix brand lagao.
+                <strong className="text-emerald-400">What the user sees</strong> → apply Zebvix branding.
               </li>
               <li>
-                <strong className="text-emerald-400">Compiler/runtime jo dekhta hai</strong> → Mat chhuo.
+                <strong className="text-emerald-400">What the compiler / runtime sees</strong> → leave untouched.
               </li>
               <li>
                 Binary name, token symbol, chain ID = <strong className="text-emerald-400">Zebvix</strong>.
               </li>
               <li>
-                Cargo packages, Rust modules, DB schema = <strong className="text-emerald-400">Internal</strong>.
+                Cargo packages, Rust modules, DB schema = <strong className="text-emerald-400">internal implementation</strong>.
               </li>
             </ul>
           </div>
@@ -322,10 +322,10 @@ export default function Rebranding() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <Zap className="w-5 h-5 text-primary" />
-            Abhi tak kya kiya ja chuka hai
+            Status so far
           </CardTitle>
           <CardDescription>
-            Current status of rebranding efforts in the codebase.
+            Current state of the rebranding work in the codebase.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -334,9 +334,9 @@ export default function Rebranding() {
               { done: true, text: "Binary: zebvix-node (Cargo.toml [[bin]] section)" },
               { done: true, text: "Config dir: .sui → .zebvix" },
               { done: true, text: "Token: SUI → ZBX (MIST_PER_ZBX, TOTAL_SUPPLY_ZBX)" },
-              { done: false, text: "Chain ID: genesis.yaml mein zebvix-mainnet-1 (Phase 1 mein)" },
-              { done: false, text: "Node version string: main.rs mein Zebvix Node" },
-              { done: false, text: "Systemd service: zebvix-node.service (Phase 4 mein)" },
+              { done: false, text: "Chain ID: zebvix-mainnet-1 in genesis.yaml (Phase 1)" },
+              { done: false, text: "Node version banner: Zebvix Node in main.rs" },
+              { done: false, text: "Systemd service: zebvix-node.service (Phase 4)" },
             ].map((item, i) => (
               <div key={i} className="flex items-center gap-3">
                 {item.done

@@ -230,7 +230,7 @@ export default function EconomicDesign() {
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground mb-2">Economic Design</h1>
-          <p className="text-muted-foreground">ZBX tokenomics — parameters change karo, live results dekho</p>
+          <p className="text-muted-foreground">ZBX tokenomics — adjust the parameters and see the results live.</p>
         </div>
         <button
           onClick={resetAll}
@@ -242,8 +242,8 @@ export default function EconomicDesign() {
 
       {/* Live stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="Max Supply" value={`${(p.maxSupply / 1e6).toFixed(0)}M ZBX`} sub="Hard cap — kabhi exceed nahi" color="border-primary/30" />
-        <StatCard label="Genesis Supply" value={`${(p.genesisSupply / 1e6).toFixed(1)}M ZBX`} sub="Chain start mein" color="border-green-500/30" />
+        <StatCard label="Max Supply" value={`${(p.maxSupply / 1e6).toFixed(0)}M ZBX`} sub="Hard cap — never exceeded" color="border-primary/30" />
+        <StatCard label="Genesis Supply" value={`${(p.genesisSupply / 1e6).toFixed(1)}M ZBX`} sub="Minted at chain start" color="border-green-500/30" />
         <StatCard label="Blocks / Day" value={computed.blocksPerDay} sub={`${p.blockTimeMs}ms block time`} color="border-blue-500/30" />
         <StatCard label="Full Emission" value={`~${computed.totalYears} years`} sub={`${computed.totalDays} days total`} color="border-yellow-500/30" />
       </div>
@@ -258,8 +258,8 @@ export default function EconomicDesign() {
               <span className="w-6 h-6 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-bold">1</span>
               Supply Parameters
             </h3>
-            <NumInput label="Max Total Supply (Hard Cap)" value={p.maxSupply} onChange={v => update("maxSupply", v)} min={10_000_000} step={1_000_000} unit="ZBX" note="Kabhi bhi exceed nahi hoga — permanent limit" />
-            <NumInput label="Genesis Supply" value={p.genesisSupply} onChange={v => update("genesisSupply", v)} min={100_000} step={100_000} unit="ZBX" note="Chain start hone pe kitna ZBX mint hoga" />
+            <NumInput label="Max Total Supply (Hard Cap)" value={p.maxSupply} onChange={v => update("maxSupply", v)} min={10_000_000} step={1_000_000} unit="ZBX" note="Will never be exceeded — permanent limit." />
+            <NumInput label="Genesis Supply" value={p.genesisSupply} onChange={v => update("genesisSupply", v)} min={100_000} step={100_000} unit="ZBX" note="The amount of ZBX minted when the chain starts." />
             <NumInput label="1st Halving at" value={p.firstHalving} onChange={v => update("firstHalving", v)} min={p.genesisSupply} step={1_000_000} unit="ZBX minted" />
             <NumInput label="2nd Halving at" value={p.secondHalving} onChange={v => update("secondHalving", v)} min={p.firstHalving} step={1_000_000} unit="ZBX minted" />
           </div>
@@ -270,7 +270,7 @@ export default function EconomicDesign() {
               <span className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 text-xs flex items-center justify-center font-bold">2</span>
               Block & Time Settings
             </h3>
-            <NumInput label="Genesis Block Reward" value={p.blockRewardGenesis} onChange={v => update("blockRewardGenesis", v)} min={0.001} step={0.01} unit="ZBX/block" note="Halving ke baad automatically half hoga" />
+            <NumInput label="Genesis Block Reward" value={p.blockRewardGenesis} onChange={v => update("blockRewardGenesis", v)} min={0.001} step={0.01} unit="ZBX/block" note="Automatically halves at each halving" />
             <NumInput label="Block Time" value={p.blockTimeMs} onChange={v => update("blockTimeMs", v)} min={100} max={10000} step={100} unit="milliseconds" note={`= ${(p.blockTimeMs / 1000).toFixed(1)}s per block, ${computed.blocksPerDay} blocks/day`} />
             <NumInput label="Epoch Duration" value={p.epochDurationHrs} onChange={v => update("epochDurationHrs", v)} min={1} max={168} unit="hours" note={`${computed.blocksPerEpoch} blocks per epoch`} />
           </div>
@@ -285,21 +285,21 @@ export default function EconomicDesign() {
             <div className="grid grid-cols-2 gap-3 rounded-lg bg-pink-500/5 border border-pink-500/20 p-3">
               <div className="col-span-2 text-xs font-semibold text-pink-400 mb-1">Validator Slot Configuration</div>
               <div className="col-span-1">
-                <NumInput label="Max Validator Slots" value={p.maxValidators} onChange={v => update("maxValidators", v)} min={1} max={200} step={1} unit="slots" note="Sirf 41 active validators — baad mein naya nahi" />
+                <NumInput label="Max Validator Slots" value={p.maxValidators} onChange={v => update("maxValidators", v)} min={1} max={200} step={1} unit="slots" note="Only 41 active validator slots — no new ones can join after that." />
               </div>
               <div className="col-span-1">
                 <NumInput label="Max Stake / Slot" value={p.maxStakePerValidator} onChange={v => update("maxStakePerValidator", v)} min={10_000} step={100_000} unit="ZBX" note={`41 slots × ${(p.maxStakePerValidator/1e6).toFixed(1)}M = ${computed.maxNetworkStake} ZBX max network stake (${computed.maxNetworkStakePct}% of supply)`} />
               </div>
             </div>
 
-            <NumInput label="Min Validator Stake (self)" value={p.minValidatorStake} onChange={v => update("minValidatorStake", v)} min={100} step={1000} unit="ZBX" note="Koi bhi isse stake + node chalaye → validator slot lo" />
+            <NumInput label="Min Validator Stake (self)" value={p.minValidatorStake} onChange={v => update("minValidatorStake", v)} min={100} step={1000} unit="ZBX" note="Anyone who self-stakes this amount and runs a node is eligible for a validator slot" />
 
             {/* APR config */}
             <div className="rounded-lg bg-muted/10 border border-border p-3 space-y-3">
               <div className="text-xs font-semibold text-muted-foreground">APR Settings</div>
-              <NumInput label="Validator Self-Stake APR" value={p.validatorStakingApr} onChange={v => update("validatorStakingApr", v)} min={1} max={500} step={5} unit="% APR" note={`Min stake (${p.minValidatorStake.toLocaleString()} ZBX) pe = ${computed.validatorYearlyReward} ZBX/year — apne staked amount pe`} />
-              <NumInput label="Delegator APR" value={p.delegatorApr} onChange={v => update("delegatorApr", v)} min={1} max={400} step={5} unit="% APR" note={`10,000 ZBX delegate pe = ${computed.delegatorYearlyReward10k} ZBX/year — bina node chalaye`} />
-              <NumInput label="Validator Delegation Bonus APR" value={p.validatorDelegationBonus} onChange={v => update("validatorDelegationBonus", v)} min={1} max={300} step={5} unit="% APR" note={`Delegators ke staked amount pe validator ko extra — max slot (${computed.maxDelegatedPerSlot} ZBX delegated) pe = ${computed.validatorBonusAtMaxDelegation} ZBX/year bonus`} />
+              <NumInput label="Validator Self-Stake APR" value={p.validatorStakingApr} onChange={v => update("validatorStakingApr", v)} min={1} max={500} step={5} unit="% APR" note={`At the minimum stake (${p.minValidatorStake.toLocaleString()} ZBX) = ${computed.validatorYearlyReward} ZBX/year — earned on the validator's own self-stake`} />
+              <NumInput label="Delegator APR" value={p.delegatorApr} onChange={v => update("delegatorApr", v)} min={1} max={400} step={5} unit="% APR" note={`Delegating 10,000 ZBX = ${computed.delegatorYearlyReward10k} ZBX/year — without running a node`} />
+              <NumInput label="Validator Delegation Bonus APR" value={p.validatorDelegationBonus} onChange={v => update("validatorDelegationBonus", v)} min={1} max={300} step={5} unit="% APR" note={`Extra APR paid to the validator on top of delegated stake — at a fully filled slot (${computed.maxDelegatedPerSlot} ZBX delegated) = ${computed.validatorBonusAtMaxDelegation} ZBX/year bonus`} />
               {/* APR flow explanation */}
               <div className="rounded bg-primary/5 border border-primary/20 p-2.5 space-y-1 text-[11px]">
                 <div className="font-semibold text-primary">APR Flow:</div>
@@ -307,7 +307,7 @@ export default function EconomicDesign() {
                   <div>• <strong className="text-foreground">Delegator</strong> stakes 10K ZBX → gets <strong className="text-green-400">{p.delegatorApr}% APR</strong> = {computed.delegatorYearlyReward10k} ZBX/year</div>
                   <div>• <strong className="text-foreground">Validator</strong> self-stakes → gets <strong className="text-blue-400">{p.validatorStakingApr}% APR</strong> on own stake</div>
                   <div>• <strong className="text-foreground">Validator</strong> also gets <strong className="text-purple-400">{p.validatorDelegationBonus}% APR</strong> on all delegated amount in their slot</div>
-                  <div className="text-primary">→ Jitne zyada delegators, utna zyada validator ka bonus!</div>
+                  <div className="text-primary">→ The more delegators a validator attracts, the larger their delegation bonus.</div>
                 </div>
               </div>
             </div>
@@ -334,23 +334,23 @@ export default function EconomicDesign() {
                 ))}
               </div>
               <div className="text-[10px] text-muted-foreground pt-1 border-t border-border/50">
-                E_GLOBAL_CAP_REACHED: total 5M ZBX pool bhar gaya → reject | E_MAX_VALIDATOR_STAKE: validator apna 250K se zyada → reject | E_VALIDATOR_CAP_REACHED: 41 validators active → reject | E_BOND_WRONG_AMOUNT: bond_coin ≠ 100 ZBX → reject
+                E_GLOBAL_CAP_REACHED: 5M ZBX global stake pool is full → reject | E_MAX_VALIDATOR_STAKE: validator self-stake exceeds 250K → reject | E_VALIDATOR_CAP_REACHED: all 41 validator slots are active → reject | E_BOND_WRONG_AMOUNT: bond_coin ≠ 100 ZBX → reject
               </div>
             </div>
 
-            <NumInput label="Node Runner Daily Reward" value={p.nodeRunnerDailyReward} onChange={v => update("nodeRunnerDailyReward", v)} min={0.1} step={0.5} unit="ZBX/day" note="Staking APR ke upar alag se — sirf node chalane walo ko (delegator ko nahi)" />
-            <NumInput label="Node Runner Pool Cap" value={p.nodeRunnerPoolCap} onChange={v => update("nodeRunnerPoolCap", v)} min={100} step={100} unit="ZBX/day total" note="Sabhi node runners milake max yeh le sakte hain" />
-            <NumInput label="Validator Max Reward / Epoch" value={p.validatorMaxRewardEpoch} onChange={v => update("validatorMaxRewardEpoch", v)} min={10} step={100} unit="ZBX" note="Genesis phase mein — halving ke baad half hoga" />
+            <NumInput label="Node Runner Daily Reward" value={p.nodeRunnerDailyReward} onChange={v => update("nodeRunnerDailyReward", v)} min={0.1} step={0.5} unit="ZBX/day" note="Paid on top of the staking APR — only to operators actually running a node (delegators do not receive this)." />
+            <NumInput label="Node Runner Pool Cap" value={p.nodeRunnerPoolCap} onChange={v => update("nodeRunnerPoolCap", v)} min={100} step={100} unit="ZBX/day total" note="The maximum that all node runners combined can earn per day." />
+            <NumInput label="Validator Max Reward / Epoch" value={p.validatorMaxRewardEpoch} onChange={v => update("validatorMaxRewardEpoch", v)} min={10} step={100} unit="ZBX" note="Genesis-phase value — halves at each halving." />
 
             {/* Pre-validator & Founder Treasury rule */}
             <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-3 space-y-2 mt-1">
               <div className="text-xs font-semibold text-amber-400">Founder Treasury Rules:</div>
               <div className="space-y-1.5 text-xs text-muted-foreground">
-                <div className="flex gap-2"><span className="text-amber-400">•</span><span><strong className="text-foreground">Pre-validator period (0 validators):</strong> Poori epoch reward → founder treasury (koi validator active nahi to kisi ko reward nahi)</span></div>
-                <div className="flex gap-2"><span className="text-amber-400">•</span><span><strong className="text-foreground">Partial launch (N &lt; 41 validators):</strong> N/41 × reward → active validators ko (APR claim karenge) | (41−N)/41 × reward → founder treasury (khali slots ka subsidy)</span></div>
-                <div className="flex gap-2"><span className="text-amber-400">•</span><span><strong className="text-foreground">Full launch (41 validators):</strong> Poori reward → reward_balance — validator + delegator APR claim karte hain</span></div>
-                <div className="flex gap-2"><span className="text-amber-400">•</span><span><strong className="text-foreground">Founder Admin Cap:</strong> Core chain change nahi kar sakta — sirf naye features add kar sakta hai (MultiSig 4/6)</span></div>
-                <div className="flex gap-2"><span className="text-green-400">→</span><span>Founder wallet = Admin MultiSig, akele kuch nahi badal sakta — supermajority required</span></div>
+                <div className="flex gap-2"><span className="text-amber-400">•</span><span><strong className="text-foreground">Pre-validator period (0 validators):</strong> the entire epoch reward flows to the founder treasury (no active validator means there is no one to pay).</span></div>
+                <div className="flex gap-2"><span className="text-amber-400">•</span><span><strong className="text-foreground">Partial launch (N &lt; 41 validators):</strong> N/41 × reward → active validators (claimed as APR) | (41−N)/41 × reward → founder treasury (a subsidy for the empty slots).</span></div>
+                <div className="flex gap-2"><span className="text-amber-400">•</span><span><strong className="text-foreground">Full launch (41 validators):</strong> the full epoch reward goes to <code className="font-mono">reward_balance</code>; validators and delegators then claim their APR share.</span></div>
+                <div className="flex gap-2"><span className="text-amber-400">•</span><span><strong className="text-foreground">Founder Governance Cap:</strong> cannot change core chain rules — it can only register new features, gated behind a 4/6 MultiSig.</span></div>
+                <div className="flex gap-2"><span className="text-green-400">→</span><span>The founder wallet is a 4/6 MultiSig — no single key can change anything; supermajority required.</span></div>
               </div>
             </div>
           </div>
@@ -364,9 +364,9 @@ export default function EconomicDesign() {
                 Total: {computed.gasBurnCheck}% {computed.isValidFee ? "✓" : "≠ 100%"}
               </span>
             </h3>
-            <NumInput label="Node Runners Share" value={p.gasNodePct} onChange={v => update("gasNodePct", v)} min={0} max={100} unit="%" note="Sirf node chalane walo ko — validator ya delegator bhi ho sakta hai" />
-            <NumInput label="Validators Share" value={p.gasValidatorPct} onChange={v => update("gasValidatorPct", v)} min={0} max={100} unit="%" note="Saare active validators mein split (staking reward)" />
-            <NumInput label="Delegators Share" value={p.gasDelegatorPct} onChange={v => update("gasDelegatorPct", v)} min={0} max={100} unit="%" note="Saare delegators mein unke stake ke anupaat mein split" />
+            <NumInput label="Node Runners Share" value={p.gasNodePct} onChange={v => update("gasNodePct", v)} min={0} max={100} unit="%" note="Paid only to operators actively running a node — they may also be a validator or delegator" />
+            <NumInput label="Validators Share" value={p.gasValidatorPct} onChange={v => update("gasValidatorPct", v)} min={0} max={100} unit="%" note="Split across all active validators (staking reward)" />
+            <NumInput label="Delegators Share" value={p.gasDelegatorPct} onChange={v => update("gasDelegatorPct", v)} min={0} max={100} unit="%" note="Split across all delegators in proportion to their stake" />
             <NumInput label="Treasury Share" value={p.gasTreasuryPct} onChange={v => update("gasTreasuryPct", v)} min={0} max={100} unit="%" note="Zebvix Technologies founder treasury" />
             <NumInput label="Burn Share 🔥" value={p.gasBurnPct} onChange={v => update("gasBurnPct", v)} min={0} max={100} unit="%" note="Automatically deducted from every transaction gas fee" />
             <NumInput label="Min Gas Price" value={p.minGasPrice} onChange={v => update("minGasPrice", v)} min={100} step={100} unit="MIST" note={`= ${(p.minGasPrice / 1e9).toFixed(6)} ZBX minimum per transaction`} />
@@ -375,29 +375,29 @@ export default function EconomicDesign() {
             <div className="border-t border-border pt-4 space-y-3">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-semibold text-orange-400">🔥 Max Burn Cap</span>
-                <span className="text-xs text-muted-foreground">— burn isse zyada kabhi nahi hoga</span>
+                <span className="text-xs text-muted-foreground">— burns will never exceed this amount</span>
               </div>
               <NumInput
                 label="Max Burn (% of total supply)"
                 value={p.maxBurnPct}
                 onChange={v => update("maxBurnPct", Math.min(v, 100))}
                 min={1} max={100} step={5} unit="%"
-                note={`= ${(computed.maxBurnZBX / 1e6).toFixed(1)}M ZBX maximum burn — phir burn permanently band`}
+                note={`= ${(computed.maxBurnZBX / 1e6).toFixed(1)}M ZBX maximum burn — after which burning is permanently disabled`}
               />
               <div className="rounded-lg bg-orange-500/10 border border-orange-500/20 p-3 space-y-2">
                 <div className="text-xs font-semibold text-orange-400">Burn Cap Rules:</div>
                 <div className="space-y-1 text-xs text-muted-foreground">
-                  <div className="flex gap-2"><span className="text-orange-400">•</span><span>Har transaction mein gas fee ka <strong className="text-foreground">{p.gasBurnPct}%</strong> automatically burn hoga</span></div>
-                  <div className="flex gap-2"><span className="text-orange-400">•</span><span>Koi bhi user burn trigger kar sakta hai — sirf fee se hoga, manually nahi</span></div>
-                  <div className="flex gap-2"><span className="text-orange-400">•</span><span>Jab total burned = <strong className="text-foreground">{(computed.maxBurnZBX / 1e6).toFixed(1)}M ZBX</strong> ho jaye → burn permanently stop</span></div>
-                  <div className="flex gap-2"><span className="text-green-400">→</span><span>After cap: burn share validators ko milega (<strong className="text-foreground">{computed.afterBurnValidatorPct}% total</strong>)</span></div>
+                  <div className="flex gap-2"><span className="text-orange-400">•</span><span><strong className="text-foreground">{p.gasBurnPct}%</strong> of every transaction's gas fee is burned automatically.</span></div>
+                  <div className="flex gap-2"><span className="text-orange-400">•</span><span>Any user can trigger a burn — but only the fee-driven amount burns; there is no manual burn endpoint.</span></div>
+                  <div className="flex gap-2"><span className="text-orange-400">•</span><span>Once total burned reaches <strong className="text-foreground">{(computed.maxBurnZBX / 1e6).toFixed(1)}M ZBX</strong>, the burn permanently stops.</span></div>
+                  <div className="flex gap-2"><span className="text-green-400">→</span><span>After the cap, the burn share is redirected to validators (<strong className="text-foreground">{computed.afterBurnValidatorPct}% total</strong>).</span></div>
                 </div>
               </div>
             </div>
 
             {!computed.isValidFee && (
               <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded p-2">
-                ⚠️ Fee split {computed.gasBurnCheck}% hai — exactly 100% hona chahiye!
+                ⚠️ Fee split is {computed.gasBurnCheck}% — must equal exactly 100%.
               </div>
             )}
           </div>

@@ -349,11 +349,11 @@ export default function TokenCreatePage() {
             Create Your Own Token
           </h1>
           <p className="text-sm text-muted-foreground max-w-2xl">
-            Bhai, koi bhi user permissionless apna fungible token chain par
-            launch kar sakta hai. Sirf standard gas fee lagti hai — koi extra
-            burn nahi. Symbol globally unique hota hai (case-insensitive).
-            Mint authority sirf creator ke paas rehti hai — kabhi transfer /
-            freeze nahi ho sakti.
+            Any user can launch a fungible token on-chain, permissionlessly —
+            you only pay the standard gas fee, with no extra protocol cost
+            and no burn. The symbol is globally unique (case-insensitive).
+            Mint authority always remains with the creator — it cannot be
+            transferred or frozen.
           </p>
         </div>
       </header>
@@ -535,8 +535,8 @@ function NoWalletNotice() {
       <div>
         <div className="font-semibold">No wallet connected</div>
         <div className="text-muted-foreground text-xs mt-0.5">
-          Bhai, top-right wallet picker se wallet add karo (sirf ~0.01 ZBX
-          gas hona chahiye token launch karne ke liye).
+          Use the wallet picker in the top-right to add a wallet (you only
+          need ~0.01 ZBX of gas to launch a token).
         </div>
       </div>
     </div>

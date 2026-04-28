@@ -110,7 +110,7 @@ journalctl -u zebvix-node -n 200 --no-pager | grep -E '🌐 p2p listening|🔗 c
   {
     id: "B.3.2",
     title: "Phase B.3.2 — Tendermint Round Bumping + Validator Power Edit + Governor Rotate",
-    subtitle: "Liveness fallback when proposer is silent + admin-key rotation as a tx",
+    subtitle: "Liveness fallback when the proposer is silent, plus governor-key rotation as a transaction",
     status: "LIVE",
     steps: [
       {
@@ -186,20 +186,20 @@ journalctl -u zebvix-node -n 200 --no-pager | grep -E '🌐 p2p listening|🔗 c
   {
     id: "B.10",
     title: "Phase B.10 — Explicit On-Chain AMM Swap",
-    subtitle: "Uniswap V2 x·y=k with explicit fee bucket, transparent loan repayment, then 50/50 admin/LP split",
+    subtitle: "Uniswap V2 x·y=k with explicit fee bucket, transparent loan repayment, then 50/50 protocol-treasury / LP split",
     status: "LIVE",
     steps: [
       {
         title: "Single ZBX/zUSD pool — permissionless, auto-routed",
         files: ["zebvix-chain/src/pool.rs", "zebvix-chain/src/transaction.rs:84"],
-        description: "Single permissionless ZBX/zUSD pool seeded at genesis with $0.50/ZBX. No admin can withdraw the genesis liquidity. Anyone can swap.",
+        description: "Single permissionless ZBX/zUSD pool seeded at genesis at $0.50/ZBX. No privileged role can withdraw the genesis liquidity — the seed is locked to the pool address forever. Anyone can swap.",
         detail: "Two interaction paths: (1) direct TxKind::Swap { direction: SwapDirection::{ZbxToZusd | ZusdToZbx}, min_out: u128 } with explicit slippage protection — body.amount is the input amount, output is always credited back to body.from, principal refunded on slippage trip; OR (2) implicit auto-router that intercepts plain transfers to POOL_ADDRESS and swaps the sent token for the other side.",
       },
       {
         title: "Fee bucket + 10M zUSD genesis-loan repayment economics",
         files: ["zebvix-chain/src/pool.rs"],
         description: "Each swap takes 0.3% from the input token into a sequestered fee bucket — NOT immediately added to reserves. settle_fees() runs after every swap.",
-        detail: "While loan_outstanding_zusd > 0: fees go entirely to repaying the 10M zUSD genesis liquidity loan (tokens move into reserves). Once loan = 0: future fees split 50/50 between the admin address (real income) and reserves (compounding LP value).",
+        detail: "While loan_outstanding_zusd > 0: fees go entirely to repaying the 10M zUSD genesis liquidity loan (tokens move into reserves). Once loan = 0: future fees split 50/50 between the protocol treasury (governance-controlled, multisig-held) and pool reserves (compounding LP value).",
       },
     ],
   },
@@ -220,7 +220,7 @@ journalctl -u zebvix-node -n 200 --no-pager | grep -E '🌐 p2p listening|🔗 c
 #   FOUNDER_PUBKEY_HEX (compressed secp256k1) → 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315
 #   private key       = keccak256("zebvix-genesis-founder-v1")
 #                     = 0xa8674e60d95ec1fa2b37f264b01b8407d2fbb0789bd836382472d181973ebbf8
-# Import that hex into MetaMask → control the founder/admin/governor roles on this chain.
+# Import that hex into MetaMask → control the founder / governor role on this chain.
 # Production deployments MUST rotate to a fresh ETH key via env-var override before going live.`,
       },
     ],
@@ -230,13 +230,13 @@ journalctl -u zebvix-node -n 200 --no-pager | grep -E '🌐 p2p listening|🔗 c
   {
     id: "B.12",
     title: "Phase B.12 — Cross-Chain Bridge",
-    subtitle: "Native lock-and-mint / burn-and-release; single-trusted-oracle MVP; admin-extensible network registry",
+    subtitle: "Native lock-and-mint / burn-and-release. MVP: single-oracle (governor-signed); roadmap target: M-of-N multisig committee. Network registry is governance-extensible.",
     status: "LIVE",
     steps: [
       {
         title: "bridge.rs module + 6 BridgeOp variants",
         files: ["zebvix-chain/src/bridge.rs", "zebvix-chain/src/state.rs:1189"],
-        description: "Native Rust bridge with admin registry of foreign networks (BSC, ETH, Polygon, …) and per-asset mappings (e.g. ZBX ↔ BEP-20 wZBX). 4096-event ring buffer for outbound, 32-byte hash replay-protection for inbound.",
+        description: "Native Rust bridge with a governance-controlled registry of foreign networks (BSC, ETH, Polygon, …) and per-asset mappings (e.g. ZBX ↔ BEP-20 wZBX). 4096-event ring buffer for outbound, 32-byte hash replay protection for inbound.",
         detail: "Lock vault address BRIDGE_LOCK_ADDRESS_HEX = 0x7a627264670…  (ASCII 'zbrdg' + zero-pad). Off-chain oracle service (operator-supplied) polls zbx_recentBridgeOutEvents and submits zbx_sendTransaction { BridgeIn { source_tx_hash, … } } in the reverse direction. See Cross-Chain Bridge page for full architecture, RPC table, CLI workflows, and trust caveats.",
       },
     ],
@@ -376,13 +376,13 @@ journalctl -u zebvix-node -n 200 --no-pager | grep -E '🌐 p2p listening|🔗 c
       {
         title: "Bridge multisig oracle committee",
         files: ["zebvix-chain/src/bridge.rs", "zebvix-chain/src/multisig.rs"],
-        description: "Replace the single-admin gate on BridgeIn with an N-of-M signature aggregate using the existing multisig.rs module. Eliminates single-key-compromise as a bridge-drain vector.",
+        description: "Replace the single-key gate on BridgeIn with an N-of-M signature aggregate using the existing multisig.rs module. Eliminates single-key compromise as a bridge-drain vector.",
         detail: "",
       },
       {
         title: "Bridge SPV / light-client proof",
         files: ["zebvix-chain/src/bridge.rs"],
-        description: "Replace admin signature on BridgeIn entirely with an inclusion proof against the foreign chain's header chain (admin only signs header batches). Eliminates the trusted-oracle layer for inbound transfers.",
+        description: "Replace the signature gate on BridgeIn entirely with an inclusion proof against the foreign chain's header chain (the multisig committee then only signs header batches). Eliminates the trusted-oracle layer for inbound transfers.",
         detail: "",
       },
       {
@@ -406,7 +406,7 @@ journalctl -u zebvix-node -n 200 --no-pager | grep -E '🌐 p2p listening|🔗 c
       {
         title: "Bridge fee market via Phase D ParamChange",
         files: ["zebvix-chain/src/bridge.rs", "zebvix-chain/src/proposal.rs"],
-        description: "Per-asset bridge fee parameter (set via ParamChange proposal) so the off-chain oracle's foreign-chain gas costs can be reimbursed from user volume rather than the admin treasury.",
+        description: "Per-asset bridge fee parameter (set via a ParamChange governance proposal) so the off-chain oracle's foreign-chain gas costs can be reimbursed from user volume rather than the protocol treasury.",
         detail: "",
       },
     ],

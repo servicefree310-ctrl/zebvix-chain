@@ -490,7 +490,7 @@ function FeeEconomicsCard({ pool, stats }: { pool: PoolFull | null; stats: PoolS
       <div className="grid grid-cols-2 md:grid-cols-4 gap-0 divide-x divide-border/40">
         <Cell label="Fee rate" value={pool?.fee_pct ? `${pool.fee_pct}%` : "0.30%"} />
         <Cell label="Lifetime fees" value={pool ? `${weiHexToZbx(pool.lifetime_fees_zusd)} zUSD` : "—"} />
-        <Cell label="Lifetime → admin" value={pool ? `${weiHexToZbx(pool.lifetime_admin_paid_zusd)} zUSD` : "—"} />
+        <Cell label="Lifetime → treasury" value={pool ? `${weiHexToZbx(pool.lifetime_admin_paid_zusd)} zUSD` : "—"} />
         <Cell label="Lifetime → reinvest" value={pool ? `${weiHexToZbx(pool.lifetime_reinvested_zusd)} zUSD` : "—"} />
         <Cell label="Window swaps (recent)" value={stats ? `${stats.window_swap_count}` : "—"} />
         <Cell label="Window volume" value={stats ? `${weiHexToZbx(stats.window_swap_amount_sum)} zUSD-eq` : "—"} />
@@ -579,7 +579,7 @@ function PoolIdentityCard({ pool }: { pool: PoolFull | null }) {
       </h3>
       <div className="grid md:grid-cols-2 gap-4 text-xs">
         <Identity label="Pool address" value={pool?.pool_address ?? "0x7a73776170…"} />
-        <Identity label="Admin address" value={pool?.admin_address ?? "—"} />
+        <Identity label="Governor address" value={pool?.admin_address ?? "—"} />
         <Identity label="Init height" value={pool ? `${pool.init_height}` : "—"} />
         <Identity label="Last update" value={pool ? `${pool.last_update_height}` : "—"} />
         <Identity label="LP supply" value={pool ? pool.lp_supply : "—"} />

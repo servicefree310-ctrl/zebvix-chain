@@ -191,7 +191,7 @@ export default function ChainCode() {
       <div>
         <h1 className="text-3xl font-bold text-white mb-2">Chain Source Code</h1>
         <p className="text-slate-400 text-sm">
-          Zebvix L1 — full source browser. Auto-refresh har 30 sec, jab bhi naya feature add karoge yahan dikhega.
+          Zebvix L1 — full source browser. Auto-refreshes every 30 seconds; any new feature you ship surfaces here automatically.
         </p>
       </div>
 
@@ -225,7 +225,7 @@ export default function ChainCode() {
               {treeError && (
                 <div className="flex items-start gap-2 text-red-400 text-xs px-2 py-3">
                   <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                  <span>API server reachable nahi hai</span>
+                  <span>API server is not reachable</span>
                 </div>
               )}
               {tree && (
@@ -265,7 +265,7 @@ export default function ChainCode() {
               {file && <CodeView path={file.path} content={file.content} />}
               {!selected && !fileLoading && (
                 <div className="text-slate-500 text-xs px-4 py-6">
-                  Left tree se file select karo
+                  Select a file from the tree on the left
                 </div>
               )}
             </ScrollArea>

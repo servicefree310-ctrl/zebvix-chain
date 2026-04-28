@@ -39,7 +39,7 @@ const RUST_CHANGES: ChangeItem[] = [
       "FIRST_HALVING_ZBX = 50_000_000  (50M minted → halving starts)",
       "SECOND_HALVING_ZBX = 100_000_000 (100M minted → 2nd halving)",
       "INITIAL_BLOCK_REWARD_MIST = 100_000_000 (0.1 ZBX per block)",
-      "GAS_NODE_BPS = 2200       (22% gas → node runners — jo node chalate hain)",
+      "GAS_NODE_BPS = 2200       (22% gas → active node operators)",
       "GAS_VALIDATOR_BPS = 3000  (30% gas → validators staking reward)",
       "GAS_DELEGATOR_BPS = 2000  (20% gas → delegators)",
       "GAS_TREASURY_BPS = 1800   (18% gas → founder treasury)",
@@ -196,9 +196,9 @@ const MOVE_MODULES: ChangeItem[] = [
     lines: "117 lines",
     icon: ArrowUpDown,
     color: "text-orange-400",
-    summary: "Decentralized AMM base pool — no admin, anti-rug locked",
+    summary: "Decentralized AMM base pool — no privileged role, anti-rug locked",
     details: [
-      "struct MasterPool has key (shared, NO admin field)",
+      "struct MasterPool has key (shared, NO privileged-role field)",
       "  zbx_reserve: Balance<ZBX>",
       "  fee_bps = 30 (0.3%), total_volume, total_fees",
       "add_liquidity() → PERMANENTLY aborts E_ADD_LIQ_DISABLED (100)",
@@ -240,22 +240,22 @@ const MOVE_MODULES: ChangeItem[] = [
     lines: "136 lines",
     icon: Shield,
     color: "text-red-400",
-    summary: "MultiSig 4/6 Founder AdminCap — new features only",
+    summary: "MultiSig 4/6 Founder GovernanceCap — new features only",
     details: [
-      "struct FounderAdminCap has key,store — held by 4/6 MultiSig wallet",
-      "  admin_addr: address, features_added: u64",
+      "struct FounderGovernanceCap has key,store — held by 4/6 MultiSig wallet",
+      "  governor_addr: address, features_added: u64",
       "struct FeatureRecord has key — on-chain log of each added feature",
       "struct FeatureAdded has copy,drop — event emitted per feature",
-      "IMMUTABLE CORE (cannot change via AdminCap):",
+      "IMMUTABLE CORE (cannot change via GovernanceCap):",
       "  MAX_TOTAL_SUPPLY_ZBX = 150M  ← immutable",
       "  MAX_BURN_SUPPLY_ZBX = 75M    ← immutable",
       "  MAX_VALIDATORS = 41           ← immutable",
       "  SUI_ADDRESS_LENGTH = 20       ← immutable",
       "  GAS split 72/18/10            ← immutable",
       "  Manual liquidity = DISABLED   ← immutable",
-      "fn transfer_to_multisig() — hand off cap to MultiSig once",
+      "fn transfer_to_multisig() — hand off cap to the 4/6 MultiSig once",
       "fn add_feature() — creates FeatureRecord + emits event",
-      "fn update_admin() — key rotation (requires current admin sig)",
+      "fn rotate_governor() — key rotation (requires current governor signature)",
     ],
   },
 ];
@@ -328,7 +328,7 @@ const CONFIG_FILES: ChangeItem[] = [
 
 const STATS = [
   { label: "Rust Files Modified", value: "3", color: "text-amber-400", sub: "gas_coin, base_types, Cargo.toml" },
-  { label: "Move Modules Added", value: "6", color: "text-green-400", sub: "zbx, pay_id, staking, amm×2, admin" },
+  { label: "Move Modules Added", value: "6", color: "text-green-400", sub: "zbx, pay_id, staking, amm×2, governance" },
   { label: "Config / Script Files", value: "4+", color: "text-blue-400", sub: "genesis, scripts, INSTALL.md" },
   { label: "Total Lines Changed", value: "~2,400", color: "text-violet-400", sub: "across all files" },
   { label: "Supply Changed", value: "10B → 150M", color: "text-red-400", sub: "ZBX max supply" },
@@ -421,8 +421,9 @@ export default function CodeReview() {
           </div>
         </div>
         <p className="text-sm text-muted-foreground mt-3">
-          Ye saari changes hai jo Sui source code mein ki gayi hain — kya add hua, kya modify hua,
-          har file mein kya exactly badla. Har item pe click karo full details dekhne ke liye.
+          A complete inventory of every change made on top of the Sui source — what was added,
+          what was modified, and exactly what shifted in each file. Click any item to expand the
+          full details.
         </p>
       </div>
 
@@ -441,11 +442,11 @@ export default function CodeReview() {
       <div className="flex flex-wrap gap-4 mb-6 text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5">
           <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-[10px]">~ MODIFIED</Badge>
-          Existing file mein changes
+          Changes inside an existing file
         </span>
         <span className="flex items-center gap-1.5">
           <Badge className="bg-green-500/15 text-green-400 border-green-500/30 text-[10px]">+ ADDED</Badge>
-          Nai file / module
+          New file or module
         </span>
       </div>
 
@@ -478,8 +479,8 @@ export default function CodeReview() {
         <div className="flex items-start gap-3">
           <AlertCircle className="h-4 w-4 text-primary mt-0.5 shrink-0" />
           <div className="text-xs text-muted-foreground space-y-1">
-            <p className="font-semibold text-foreground text-sm">Kya nahi badla — Core Sui</p>
-            <p>Consensus engine (Mysticeti), P2P layer (Anemo), RPC API, Storage engine, Transaction execution VM, Move bytecode interpreter — ye sab original Sui ka hai. Sirf tokenomics constants, address size, binary name, aur Move application layer add hui hai.</p>
+            <p className="font-semibold text-foreground text-sm">What did not change — Core Sui</p>
+            <p>The consensus engine (Mysticeti), P2P layer (Anemo), RPC API, storage engine, transaction-execution VM, and Move bytecode interpreter all remain the original Sui implementation. Only the tokenomics constants, address size, binary name, and the Move application layer have been added on top.</p>
             <p className="mt-2 text-primary/70 font-mono">
               Final archive: <strong>zebvix-full-source.tar.gz</strong> (78MB) — Sui clone + all patches applied
             </p>

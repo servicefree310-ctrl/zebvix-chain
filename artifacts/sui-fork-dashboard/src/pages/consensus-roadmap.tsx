@@ -144,7 +144,7 @@ const STAGES: Stage[] = [
       { name: "B.4 — Share-based delegated staking", desc: "MIN_SELF_BOND_WEI=100 ZBX, MIN_DELEGATION_WEI=10 ZBX, EPOCH_BLOCKS=17280, UNBONDING_EPOCHS=7", status: "done" },
       { name: "B.7 — Pay-ID alias (RegisterPayId)", desc: "<handle>@zbx, permanent; zbx_lookupPayId / zbx_getPayIdOf / zbx_payIdCount RPCs", status: "done" },
       { name: "B.8 — Multisig wallet (5 ops)", desc: "Create/Propose/Approve/Revoke/Execute, 2..=10 owners, MultisigAction::Transfer (v1 only)", status: "done" },
-      { name: "B.10 — ZBX/zUSD AMM pool", desc: "x·y=k, 0.3% fee, 10M zUSD genesis loan repayment then 50/50 admin/LP split", status: "done" },
+      { name: "B.10 — ZBX/zUSD AMM pool", desc: "x·y=k, 0.3% fee, 10M zUSD genesis loan repayment then 50/50 protocol-treasury / LP split", status: "done" },
       { name: "B.11 — secp256k1 chain crypto (k256)", desc: "MetaMask-compatible; SignedTx { body, pubkey:[u8;33], signature:[u8;64] } — sender RECOMPUTED, no recovery byte", status: "done" },
       { name: "B.12 — Cross-chain bridge", desc: "single-trusted-oracle MVP, lock-and-mint + burn-and-release, MAX_OUT_EVENTS=4096 ring", status: "done" },
       { name: "RPCs: zbx_listValidators / zbx_voteStats", desc: "Live registry + per-validator vote rate", status: "done" },
@@ -400,12 +400,14 @@ export default function ConsensusRoadmap() {
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold text-white mb-2 flex items-center gap-2">
-          <GitBranch className="h-7 w-7 text-purple-400" /> Consensus Roadmap — DAG-BFT Tak Ka Safar
+          <GitBranch className="h-7 w-7 text-purple-400" /> Consensus Roadmap — Path to DAG-BFT
         </h1>
         <p className="text-slate-400 max-w-3xl">
-          Zebvix L1 ke <strong className="text-slate-300">consensus engine</strong> ka step-by-step evolution
-          plan — aaj ka single-validator PoA + round-bump safety net se le ke long-term DAG-BFT research goal
-          tak. Har stage ek concrete milestone hai jiske source-file refs neeche diye gaye hain.
+          A step-by-step evolution plan for the Zebvix L1{" "}
+          <strong className="text-slate-300">consensus engine</strong> — from today's
+          single-validator PoA with round-bump safety net all the way to the long-term
+          DAG-BFT research goal. Each stage is a concrete milestone with the source-file
+          references listed below.
         </p>
       </div>
 
@@ -416,7 +418,7 @@ export default function ConsensusRoadmap() {
             <Info className="h-5 w-5 text-blue-300 mt-0.5 shrink-0" />
             <div>
               <h3 className="text-sm font-semibold text-blue-200 mb-1">
-                "Stage" yahan ≠ "Phase" in Implementation Roadmap
+                "Stage" here is not the same as "Phase" in the Implementation Roadmap
               </h3>
               <p className="text-xs text-slate-300 leading-relaxed">
                 The zebvix-chain source uses Phase-letter markers (

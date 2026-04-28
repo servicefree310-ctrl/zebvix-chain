@@ -248,8 +248,8 @@ fn distribute_gas_fees(
         <div className="p-3 rounded-lg border border-red-500/20 bg-red-500/5 text-xs">
           <span className="font-semibold text-red-400">Deflationary Effect: </span>
           <span className="text-muted-foreground">
-            Jaise network usage badhega, zyada fees burn hongi. Agar daily 1M txns hain @ 0.001 ZBX fee → 1000 ZBX/day burn.
-            Long-term mein circulating supply reduce hoti rahegi.
+            As network usage grows, more fees are burned. At 1M daily transactions @ 0.001 ZBX fee → 1,000 ZBX burned per day.
+            Over the long term, circulating supply trends down.
           </span>
         </div>
       </div>
@@ -260,7 +260,7 @@ fn distribute_gas_fees(
           <span className="text-primary font-mono text-lg">04</span> Delegator Rewards (also Halving-affected)
         </h2>
         <p className="text-sm text-muted-foreground">
-          ZBX holders jo validators ko delegate karte hain — unhe bhi halving se rewards affect hogi.
+          ZBX holders who delegate to validators are also subject to the halving — their rewards scale by the same multiplier.
         </p>
         <CodeBlock language="move" code={`// Delegator reward calculation in Move (sui-system module)
 // sources/sui_system/validator_set.move
@@ -362,7 +362,7 @@ fn mint_zbx(
                 ["Validator stake req", "10,000 ZBX min", "genesis.yaml"],
                 ["Validator max reward", "1,000 ZBX/epoch (halving applies)", "Rust — reward cap"],
                 ["Node bond", "100 ZBX locked collateral", "Move — ValidatorStake.node_bond"],
-                ["Gas → node runners", "22% (sirf node chalane wale) — bond required", "Rust — gas distribution"],
+                ["Gas → node runners", "22% (active node operators only) — bond required", "Rust — gas distribution"],
                 ["Gas → validators", "30% (staking reward)", "Rust — gas distribution"],
                 ["Gas → delegators", "20% (proportional)", "Rust — gas distribution"],
                 ["Gas → treasury", "18% (founder treasury)", "Rust — gas distribution"],

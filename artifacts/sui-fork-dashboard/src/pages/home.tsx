@@ -744,7 +744,7 @@ function MetaMaskConnectCard() {
         <h3 className="text-sm font-semibold">Connect MetaMask</h3>
       </div>
       <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
-        MetaMask, Foundry, ethers.js — sab native chalti hain. ZVM ka JSON-RPC port {new URL(netMeta.rpcUrl).port || "80"} pe live hai.
+        MetaMask, Foundry, ethers.js — all run natively. The ZVM JSON-RPC endpoint is live on port {new URL(netMeta.rpcUrl).port || "80"}.
       </p>
       <button onClick={addToMetaMask} disabled={adding}
         className="w-full px-4 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-amber-950 font-semibold text-sm flex items-center justify-center gap-2 transition disabled:opacity-50">

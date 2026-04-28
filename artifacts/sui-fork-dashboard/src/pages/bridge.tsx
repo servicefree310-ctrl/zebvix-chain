@@ -108,22 +108,27 @@ export default function Bridge() {
             </div>
             <ul className="list-disc list-inside text-muted-foreground space-y-1.5 pl-1">
               <li>
-                <strong>Single trusted oracle.</strong> The chain admin (current{" "}
-                <code className="text-xs bg-muted px-1 rounded">zbx_getAdmin</code>) IS the
-                oracle: only that key can submit{" "}
+                <strong>Single oracle key, governance-bound (MVP).</strong> Today, one governor
+                key (queryable via{" "}
+                <code className="text-xs bg-muted px-1 rounded">zbx_getAdmin</code>) acts as the
+                bridge oracle and is the only signer authorised to submit{" "}
                 <code className="text-xs bg-muted px-1 rounded">RegisterNetwork</code>,{" "}
                 <code className="text-xs bg-muted px-1 rounded">RegisterAsset</code>,{" "}
                 <code className="text-xs bg-muted px-1 rounded">SetNetworkActive</code>,{" "}
                 <code className="text-xs bg-muted px-1 rounded">SetAssetActive</code>, and{" "}
                 <code className="text-xs bg-muted px-1 rounded">BridgeIn</code>. <strong>
-                Admin-key compromise = full bridge drain.</strong> Hardening (multisig oracle
-                committee, then SPV / light-client proof) is on the roadmap but not yet wired.
+                Compromise of that key would allow a full drain of the lock vault.</strong>{" "}
+                The roadmap replaces this single signer with an M-of-N multisig oracle
+                committee, then with an SPV / light-client inclusion proof so the chain
+                verifies foreign deposits autonomously.
               </li>
               <li>
-                <strong>No on-chain proof of foreign deposit.</strong> The chain trusts whatever{" "}
+                <strong>No on-chain proof of foreign deposit (MVP).</strong> The chain currently
+                trusts whatever{" "}
                 <code className="text-xs bg-muted px-1 rounded">source_tx_hash</code> the
-                admin submits — replay protection is the only safety rail (each 32-byte hash
-                can be claimed exactly once).
+                governor submits — replay protection is the only on-chain safety rail (each
+                32-byte hash can be claimed exactly once). SPV proof verification is the
+                roadmap target that removes this trust assumption.
               </li>
               <li>
                 <strong>Outbound event ring buffer.</strong>{" "}
@@ -168,7 +173,7 @@ export default function Bridge() {
                 language="text"
                 code={`╔═══════════════════════════ Zebvix L1 (chain_id 7878) ═══════════════════════════╗
 ║                                                                                  ║
-║  USER                                              ADMIN (= oracle key)          ║
+║  USER                                              GOVERNOR (= oracle key, MVP)  ║
 ║   │                                                  │                           ║
 ║   │ zebvix-node bridge-out                           │ zebvix-node bridge-in     ║
 ║   │ --asset-id  --dest 0x...                         │ --asset-id --source-tx-hash║
@@ -189,7 +194,7 @@ export default function Bridge() {
              │ zbx_recentBridgeOutEvents (poll)             │ zbx_isBridgeClaimUsed
              ▼                                              ▲ (idempotency check)
   ┌─────────────────────────────────────────────────────────────────────────┐
-  │                  OFF-CHAIN ORACLE SERVICE  (admin runs this)            │
+  │            OFF-CHAIN ORACLE SERVICE  (governor runs this — MVP)         │
   │                                                                         │
   │   1. Poll zbx_recentBridgeOutEvents every N seconds                     │
   │   2. For each new event:  scale amount by BridgeAsset.decimals          │
@@ -236,28 +241,28 @@ export default function Bridge() {
                   <TableBody>
                     <TableRow className="border-b border-border hover:bg-muted/30">
                       <TableCell className="font-mono text-xs">RegisterNetwork {"{ id, name, kind }"}</TableCell>
-                      <TableCell><Badge variant="outline" className="text-amber-400 border-amber-400/40">admin</Badge></TableCell>
+                      <TableCell><Badge variant="outline" className="text-amber-400 border-amber-400/40">governor</Badge></TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         Adds a foreign network to the registry. <code className="text-xs bg-muted px-1 rounded">id</code> is the foreign chain-id (56 = BSC, 1 = ETH, 137 = Polygon, …); <code className="text-xs bg-muted px-1 rounded">kind</code> ∈ {"{Evm, Other}"}; name validated (≤ 32 ASCII alnum + <code className="text-xs bg-muted px-1 rounded">- _ space</code>). Stored at <code className="text-xs bg-muted px-1 rounded">b/n/&lt;be4 id&gt;</code>. Rejected if id already exists. Network starts <code className="text-xs bg-muted px-1 rounded">active = true</code>.
                       </TableCell>
                     </TableRow>
                     <TableRow className="border-b border-border hover:bg-muted/30">
                       <TableCell className="font-mono text-xs">SetNetworkActive {"{ id, active }"}</TableCell>
-                      <TableCell><Badge variant="outline" className="text-amber-400 border-amber-400/40">admin</Badge></TableCell>
+                      <TableCell><Badge variant="outline" className="text-amber-400 border-amber-400/40">governor</Badge></TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         Kill-switch for outbound traffic on a whole network. When <code className="text-xs bg-muted px-1 rounded">active = false</code>, all <code className="text-xs bg-muted px-1 rounded">BridgeOut</code> txs referencing assets on that network are rejected with a fee-only refund. <strong>Note:</strong> <code className="text-xs bg-muted px-1 rounded">BridgeIn</code> in <code className="text-xs bg-muted px-1 rounded">state.rs</code> only checks <em>asset</em>-level active flag, not network-level — so to fully pause a network in both directions, also call <code className="text-xs bg-muted px-1 rounded">SetAssetActive</code> for each of its assets.
                       </TableCell>
                     </TableRow>
                     <TableRow className="border-b border-border hover:bg-muted/30">
                       <TableCell className="font-mono text-xs">RegisterAsset {"{ network_id, native, contract, decimals }"}</TableCell>
-                      <TableCell><Badge variant="outline" className="text-amber-400 border-amber-400/40">admin</Badge></TableCell>
+                      <TableCell><Badge variant="outline" className="text-amber-400 border-amber-400/40">governor</Badge></TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         Maps a Zebvix-native asset (<code className="text-xs bg-muted px-1 rounded">NativeAsset::{"{Zbx, Zusd}"}</code>) to a foreign-chain token. For ZVM kinds, <code className="text-xs bg-muted px-1 rounded">contract</code> must be 40 hex chars (the <code className="text-xs bg-muted px-1 rounded">0x</code> prefix is optional — the validator strips it before length/hex check). Allocates a fresh <code className="text-xs bg-muted px-1 rounded">asset_id = (network_id &lt;&lt; 32) | local_seq</code> — globally unique across networks.
                       </TableCell>
                     </TableRow>
                     <TableRow className="border-b border-border hover:bg-muted/30">
                       <TableCell className="font-mono text-xs">SetAssetActive {"{ asset_id, active }"}</TableCell>
-                      <TableCell><Badge variant="outline" className="text-amber-400 border-amber-400/40">admin</Badge></TableCell>
+                      <TableCell><Badge variant="outline" className="text-amber-400 border-amber-400/40">governor</Badge></TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         Per-asset kill-switch (e.g. pause ZBX→BSC during a bug investigation while leaving zUSD→BSC live).
                       </TableCell>
@@ -271,7 +276,7 @@ export default function Bridge() {
                     </TableRow>
                     <TableRow className="hover:bg-muted/30">
                       <TableCell className="font-mono text-xs">BridgeIn {"{ asset_id, source_tx_hash, recipient, amount }"}</TableCell>
-                      <TableCell><Badge variant="outline" className="text-amber-400 border-amber-400/40">admin</Badge></TableCell>
+                      <TableCell><Badge variant="outline" className="text-amber-400 border-amber-400/40">governor</Badge></TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         Releases <code className="text-xs bg-muted px-1 rounded">amount</code> from the lock vault back to <code className="text-xs bg-muted px-1 rounded">recipient</code>. <strong>Replay-protected:</strong> rejected if <code className="text-xs bg-muted px-1 rounded">b/c/&lt;source_tx_hash&gt;</code> marker already exists. Also rejected if locked balance &lt; release amount (under-collateralisation guard).
                       </TableCell>
@@ -417,12 +422,12 @@ export default function Bridge() {
                 Operator workflows · <code className="text-xs bg-muted px-1.5 py-0.5 rounded">zebvix-node bridge-*</code>
               </CardTitle>
               <CardDescription>
-                Admin-gated commands must be signed with the admin keyfile (queryable via <code className="text-xs bg-muted px-1 rounded">zbx_getAdmin</code>); user commands use any wallet.
+                Governor-gated commands must be signed with the governor keyfile (queryable via <code className="text-xs bg-muted px-1 rounded">zbx_getAdmin</code> — name kept for RPC compatibility); user commands can use any wallet.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <div className="text-sm font-semibold mb-2">1 · Admin: bootstrap registry (one-time per network)</div>
+                <div className="text-sm font-semibold mb-2">1 · Governor: bootstrap registry (one-time per network)</div>
                 <CodeBlock
                   language="bash"
                   code={`# Register BSC (chain-id 56) as a bridgeable ZVM destination
@@ -456,7 +461,7 @@ zebvix-node bridge-out \\
               </div>
 
               <div>
-                <div className="text-sm font-semibold mb-2">3 · Admin / oracle: bridge ZBX in (BSC → Zebvix)</div>
+                <div className="text-sm font-semibold mb-2">3 · Governor / oracle: bridge ZBX in (BSC → Zebvix)</div>
                 <CodeBlock
                   language="bash"
                   code={`# Foreign-side flow:
@@ -526,11 +531,11 @@ zebvix-node bridge-in \\
             <CardContent>
               <ul className="text-sm text-muted-foreground space-y-2 list-disc list-inside">
                 <li>
-                  <strong className="text-foreground">Multisig oracle committee.</strong> Replace the single-admin gate on{" "}
+                  <strong className="text-foreground">Multisig oracle committee.</strong> Replace the single-governor gate on{" "}
                   <code className="text-xs bg-muted px-1 rounded">BridgeIn</code> with an N-of-M signature aggregate.
                 </li>
                 <li>
-                  <strong className="text-foreground">SPV / light-client proof.</strong> Replace admin signature on{" "}
+                  <strong className="text-foreground">SPV / light-client proof.</strong> Replace the governor signature on{" "}
                   <code className="text-xs bg-muted px-1 rounded">BridgeIn</code> with an inclusion proof against the foreign chain&apos;s header chain.
                 </li>
                 <li>

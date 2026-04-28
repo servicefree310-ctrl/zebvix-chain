@@ -1639,8 +1639,8 @@ function BurnBanner({ liquidWei, priceUsd }: { liquidWei: string; priceUsd: numb
           <div className="text-xs text-muted-foreground leading-relaxed flex items-start gap-1.5">
             <Info className="h-3 w-3 mt-0.5 shrink-0 opacity-70" />
             <span>
-              Yeh burn sink hai (<code>burn..dead</code> ASCII bytes per <code>tokenomics::BURN_ADDRESS_HEX</code>). Yahan jo bhi ZBX bheji jaati hai woh permanent
-              circulation se hat jaati hai — koi private key se kabhi access nahi hoga. Liquid balance neeche dikhaya hua wo hai jo ab tak burn ho chuki hai.
+              This is the burn sink (<code>burn..dead</code> ASCII bytes per <code>tokenomics::BURN_ADDRESS_HEX</code>). Any ZBX sent here is permanently
+              removed from circulation — no private key can ever access it. The liquid balance shown below is the amount that has already been burned.
             </span>
           </div>
           <div className="mt-3 grid grid-cols-2 gap-3">
@@ -1672,8 +1672,8 @@ function SpecialAddressBanner({ kind, poolState, priceUsd }: {
     : "text-sm font-semibold text-amber-300 mb-0.5";
   const title = isAmm ? "AMM Pool — protocol-reserved address" : "Block-reward Pool — protocol-reserved address";
   const note = isAmm
-    ? "Yeh pool ka magic address hai (`zswap` ASCII bytes). Liquidity reserves yahan account-balance ke roop mein store nahi hote — wo Pool struct (alag column family) mein hain. `getBalance` 0 dikhata hai by design. Real reserves neeche dikhaye gaye hain."
-    : "Yeh block-reward pool ka magic address hai (`rwds` ASCII bytes). Validator rewards yahan se mint hote hain — yeh emission source hai, regular wallet nahi.";
+    ? "This is the pool's magic address (`zswap` ASCII bytes). Liquidity reserves are not stored here as an account balance — they live inside the Pool struct (a separate column family). `getBalance` returns 0 by design. Real reserves are shown below."
+    : "This is the magic address of the block-reward pool (`rwds` ASCII bytes). Validator rewards are minted from here — it is an emission source, not a regular wallet.";
 
   let zbxReserveZbx = 0, zusdReserve = 0, lpSupply = 0, spotPrice = 0;
   if (isAmm && poolState) {
@@ -1718,7 +1718,7 @@ function SpecialAddressBanner({ kind, poolState, priceUsd }: {
 
       {isAmm && !poolState && (
         <div className="mt-4 text-xs text-amber-400/80">
-          Pool state load nahi ho saka — RPC unreachable ya pool initialized nahi.
+          Could not load pool state — RPC is unreachable or the pool has not been initialised yet.
         </div>
       )}
     </div>

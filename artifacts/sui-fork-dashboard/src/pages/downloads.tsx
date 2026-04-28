@@ -9,7 +9,7 @@ const files = [
   {
     key: "newchain",
     title: "Zebvix Chain v0.1 (Scratch — Recommended)",
-    desc: "Brand new Rust L1 — scratch se likhi hui clean chain. ZVM-style 20-byte addresses, RocksDB, JSON-RPC, halving tokenomics. Build + deploy in minutes.",
+    desc: "Brand new Rust L1 — a clean chain written from scratch. ZVM-style 20-byte addresses, RocksDB, JSON-RPC, halving tokenomics. Build and deploy in minutes.",
     size: "13 KB source",
     badge: "NEW · Production",
     badgeColor: "text-violet-400 border-violet-500/40",
@@ -26,7 +26,7 @@ const files = [
   {
     key: "patches",
     title: "Zebvix Sui-Fork Patches (Legacy)",
-    desc: "Sirf patch files — Move contracts, shell scripts, genesis config. Existing Sui codebase pe apply karo.",
+    desc: "Patch files only — Move contracts, shell scripts, genesis config. Apply on top of an existing Sui codebase.",
     size: "27 KB",
     badge: "Legacy",
     badgeColor: "text-blue-400 border-blue-500/40",
@@ -41,7 +41,7 @@ const files = [
   {
     key: "fullsource",
     title: "Zebvix Full Sui-Fork Source (Legacy)",
-    desc: "Complete patched Sui source code — VPS pe directly deploy kar sakte ho.",
+    desc: "Complete patched Sui source code — deploy directly to a VPS.",
     size: "87.5 MB",
     badge: "Legacy · Full Deploy",
     badgeColor: "text-amber-400 border-amber-500/40",
@@ -101,7 +101,7 @@ export default function Downloads() {
           Downloads
         </h1>
         <p className="text-lg text-muted-foreground max-w-3xl">
-          Zebvix chain files — patches ya full source, apni zaroorat ke hisaab se download karo.
+          Zebvix chain files — choose patches or the full source as your deployment requires.
         </p>
 
         <div className="border-l-4 border-l-emerald-500/50 bg-emerald-500/5 p-3 rounded-md flex gap-3 max-w-3xl">
@@ -211,7 +211,7 @@ export default function Downloads() {
         <CardContent className="space-y-4">
           <CodeBlock
             language="bash"
-            code={`# Full source download karke VPS pe deploy karo
+            code={`# Download the full source and deploy on the VPS
 scp zebvix-full-source.zip root@srv1266996:~/
 ssh root@srv1266996
 cd ~
@@ -222,7 +222,7 @@ chmod +x *.sh && bash apply_all.sh`}
           <div className="border-l-4 border-l-amber-500/50 bg-amber-500/5 p-3 rounded-md flex gap-3 text-xs">
             <AlertCircle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
             <div className="text-muted-foreground">
-              <strong className="text-foreground">Note:</strong> Full source (87.5 MB) download slow ho sakti hai — browser mein directly click karo, download manager use mat karo.
+              <strong className="text-foreground">Note:</strong> The full source (87.5 MB) can download slowly — click directly in the browser; do not use a download manager.
             </div>
           </div>
         </CardContent>

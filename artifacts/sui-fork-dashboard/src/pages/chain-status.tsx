@@ -170,21 +170,21 @@ const GROUPS: FeatureGroup[] = [
       },
       {
         name: "Permissionless pool + auto-swap router (POOL_ADDRESS)",
-        desc: "Pool has a magic address (0x7a73776170...) with NO private key — controlled entirely by chain logic. Any normal user who SENDS ZBX to this address triggers an instant auto-swap: their ZBX is consumed by the pool, and zUSD is credited back to their wallet at the current spot rate. Admin transfers are exempted: admin → pool = single-sided liquidity add (no swap, no LP mint). Implemented in State::apply_tx as an interceptor.",
+        desc: "The pool lives at a magic address (0x7a73776170...) with NO private key — control sits entirely in chain logic. Any user who SENDS ZBX to this address triggers an instant auto-swap: their ZBX is consumed by the pool and zUSD is credited back to their wallet at the current spot rate. Governor (protocol-treasury) transfers are exempted: governor → pool = single-sided liquidity add (no swap, no LP mint). Implemented in State::apply_tx as an interceptor.",
         status: "done",
         version: "v0.1.2",
         files: ["src/state.rs", "src/pool.rs", "src/tokenomics.rs", "src/main.rs"],
       },
       {
-        name: "Genesis pool seed (10M ZBX + 10M zUSD loan, admin-bypass)",
-        desc: "On `admin-pool-genesis`, chain mints 10M ZBX directly into pool ZBX reserve AND 10M zUSD into pool zUSD reserve as a 'liquidity loan'. Admin receives ZERO — assets are pool-owned. All LP tokens are locked permanently to POOL_ADDRESS so nobody (not even admin) can withdraw the seed liquidity. Pool is provably permissionless from genesis.",
+        name: "Genesis pool seed (10M ZBX + 10M zUSD loan, governor-bypass)",
+        desc: "On `admin-pool-genesis` (CLI name preserved), the chain mints 10M ZBX directly into the pool ZBX reserve AND 10M zUSD into the pool zUSD reserve as a 'liquidity loan'. The governor receives ZERO — every asset is pool-owned. All LP tokens are locked permanently to POOL_ADDRESS, so nobody (not even the governor multisig) can withdraw the seed liquidity. The pool is provably permissionless from genesis onward.",
         status: "done",
         version: "v0.1.2",
         files: ["src/state.rs", "src/pool.rs", "src/main.rs"],
       },
       {
-        name: "Liquidity loan repayment + 50/50 admin fee split",
-        desc: "0.3% swap fee deducted from input is sequestered into a separate fee bucket (NOT added to reserves). After every swap, settle_fees() runs: while the 10M zUSD loan is outstanding, 100% of fees go to repaying it (tokens move into reserves). Once loan = 0, future fees split 50% to admin (real income) + 50% back into reserves (compounding LP value). Lifetime totals tracked: total_fees_collected, total_admin_paid, total_reinvested — all visible via zbx_getPool RPC.",
+        name: "Liquidity loan repayment + 50/50 protocol-treasury fee split",
+        desc: "The 0.3% swap fee deducted from input is sequestered into a separate fee bucket (NOT added to reserves). After every swap, settle_fees() runs: while the 10M zUSD loan is outstanding, 100% of fees go to repaying it (tokens move into reserves). Once loan = 0, future fees split 50% to the protocol treasury (governor multisig) and 50% back into reserves (compounding LP value). Lifetime totals are tracked: total_fees_collected, total_admin_paid, total_reinvested — all readable via the zbx_getPool RPC (RPC field names retained for API compatibility).",
         status: "done",
         version: "v0.1.2",
         files: ["src/pool.rs"],
@@ -197,8 +197,8 @@ const GROUPS: FeatureGroup[] = [
         files: ["src/pool.rs", "src/tokenomics.rs"],
       },
       {
-        name: "Pool admin commands (faucet / pool-init / swap)",
-        desc: "zebvix-node admin-faucet | admin-pool-init | admin-pool-add | admin-swap | pool-info — direct DB writes (Phase 1, node must be stopped). Phase 2 moves swap/liquidity ops to signed txs through mempool.",
+        name: "Pool governor commands (faucet / pool-init / swap)",
+        desc: "zebvix-node admin-faucet | admin-pool-init | admin-pool-add | admin-swap | pool-info (CLI subcommand names retained for ops continuity) — direct DB writes (Phase 1, node must be stopped). Phase 2 moves swap and liquidity operations to signed transactions through the mempool.",
         status: "done",
         version: "v0.1.2",
         files: ["src/main.rs"],
@@ -821,7 +821,7 @@ export default function ChainStatus() {
           <Sparkles className="h-7 w-7 text-purple-400" /> Chain Features
         </h1>
         <p className="text-slate-400">
-          Zebvix L1 mein abhi tak kya kya hai aur aage kya add hoga — complete progress tracker
+          What ships on Zebvix L1 today and what comes next — a complete progress tracker.
         </p>
       </div>
 

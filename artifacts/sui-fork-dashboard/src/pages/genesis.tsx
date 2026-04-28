@@ -172,7 +172,7 @@ export default function Genesis() {
             language="text"
             code={`ℹ️  Genesis validator (founder, deterministic): 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315 (power=1)
 ℹ️  Local validator key 0xab12... is NOT the founder — it must be added
-    post-genesis via \`validator-add\` tx (admin-signed).`}
+    post-genesis via \`validator-add\` tx (governor-signed).`}
           />
           <p className="text-xs text-muted-foreground italic">
             On-chain rule (enforced in <code className="bg-muted px-1 rounded not-italic">state.rs::apply_tx</code>):
@@ -272,7 +272,7 @@ zebvix-node init --home /root/.zebvix \\
     --alloc 0xfoundation...:3000000 \\
     --alloc 0xteam...:1990000
 
-# No pre-mine at all — admin earns ZBX only via block rewards + swap fees
+# No pre-mine at all — the validator earns ZBX only via block rewards + swap fees
 zebvix-node init --home /root/.zebvix \\
     --validator-key /root/.zebvix/validator.key \\
     --no-default-premine`}

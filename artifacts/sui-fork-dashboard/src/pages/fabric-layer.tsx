@@ -64,7 +64,7 @@ const CUSTOM_TOKEN_CODE = `module zebvix::mytoken {
     use sui::coin::{Self, TreasuryCap};
     use sui::tx_context::TxContext;
 
-    // One-time witness — naam capital mein
+    // One-time witness — name in capitals
     struct MYTOKEN has drop {}
 
     fun init(witness: MYTOKEN, ctx: &mut TxContext) {
@@ -287,7 +287,7 @@ module zebvix::sub_pool {
         id: UID,
         zbx_reserve:   Balance<ZBX>,
         token_reserve: Balance<T>,
-        creator_fee_addr: address,   // fee jata hai yahan — NOT owner
+        creator_fee_addr: address,   // fees are routed here — NOT an owner
         fee_bps: u64,                // e.g. 30 = 0.3%
         total_volume: u64,
         // NO owner field — creator only gets fee, nothing else
@@ -400,7 +400,7 @@ const PAY_ID_CODE = `module zebvix::pay_id {
     use sui::coin::Coin;
     use std::string::{Self, String};
 
-    // ── Global registry — chain pe ek hi shared instance ──
+    // ── Global registry — a single shared instance lives on-chain ──
     struct PayIdRegistry has key {
         id: UID,
         // pay_id_name → owner_address  (e.g. "rahul" → 0xABC...)
@@ -427,7 +427,7 @@ const PAY_ID_CODE = `module zebvix::pay_id {
     const E_PAY_ID_NOT_FOUND:   u64 = 5;  // recipient not found
     const E_DISPLAY_NAME_EMPTY: u64 = 6;  // display_name missing ← NEW
 
-    // ── Init: registry ek bar create hota hai ──
+    // ── Init: the registry is created exactly once ──
     fun init(ctx: &mut TxContext) {
         transfer::share_object(PayIdRegistry {
             id: object::new(ctx),
@@ -436,7 +436,7 @@ const PAY_ID_CODE = `module zebvix::pay_id {
         });
     }
 
-    // ── Register: DONO fields mandatory ──
+    // ── Register: BOTH fields are mandatory ──
     // pay_id      = short unique ID   (e.g. b"rahul")        → becomes rahul@zbx
     // display_name = real full name   (e.g. b"Rahul Kumar")  → stored on-chain
     public fun register_pay_id(
@@ -452,8 +452,8 @@ const PAY_ID_CODE = `module zebvix::pay_id {
         // ── Validations ──
         assert!(string::length(&id_str)    > 0, E_NAME_EMPTY);         // pay_id must not be empty
         assert!(string::length(&dname_str) > 0, E_DISPLAY_NAME_EMPTY); // display_name must not be empty
-        // NOTE: display_name has NO uniqueness check — "Rahul Kumar" ya koi bhi naam
-        //       do alag log rakh sakte hain. Sirf pay_id globally unique hota hai.
+        // NOTE: display_name has NO uniqueness check — "Rahul Kumar" or any other
+        //       name can be reused by different users. Only pay_id is globally unique.
         assert!(!table::contains(&registry.addr_to_name, sender),  E_ALREADY_REGISTERED);
         assert!(!table::contains(&registry.name_to_addr, id_str),  E_NAME_TAKEN); // pay_id unique check
 
@@ -476,7 +476,7 @@ const PAY_ID_CODE = `module zebvix::pay_id {
         }, sender);
     }
 
-    // ── Resolve: pay_id naam se wallet address lo ──
+    // ── Resolve: look up the wallet address from a pay_id name ──
     public fun resolve_pay_id(
         registry: &PayIdRegistry,
         pay_id: vector<u8>,
@@ -486,10 +486,10 @@ const PAY_ID_CODE = `module zebvix::pay_id {
         *table::borrow(&registry.name_to_addr, id_str)
     }
 
-    // ── Transfer: pay_id se seedha coin/token bhejo ──
+    // ── Transfer: send a coin/token directly via pay_id ──
     public fun transfer_to_pay_id<T>(
         registry: &PayIdRegistry,
-        pay_id: vector<u8>,   // recipient ka pay_id, e.g. b"rahul"
+        pay_id: vector<u8>,   // recipient's pay_id, e.g. b"rahul"
         coin: Coin<T>,
         _ctx: &mut TxContext
     ) {
@@ -616,12 +616,12 @@ export default function FabricLayer() {
       <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 p-4 flex gap-3">
         <BookOpen className="h-5 w-5 text-violet-400 shrink-0 mt-0.5" />
         <div className="text-sm space-y-1">
-          <div className="font-semibold text-violet-300">Fabric Layer kya hai?</div>
+          <div className="font-semibold text-violet-300">What is the Fabric Layer?</div>
           <div className="text-muted-foreground">
-            Zebvix chain ka programmable layer — jisme Move modules (smart contracts) run karte hain. 
-            Sui ka MoveVM use hota hai, isliye sab Sui Move packages directly deploy ho sakte hain. 
-            Native token <strong className="text-foreground">ZBX</strong> gas fee ke liye use hota hai — 
-            custom tokens Move contracts se banate hain.
+            Zebvix's programmable layer — where Move modules (smart contracts) execute.
+            It uses the Sui MoveVM, so any Sui Move package can be deployed directly.
+            The native token <strong className="text-foreground">ZBX</strong> is used for gas; custom
+            tokens are issued from Move contracts.
           </div>
         </div>
       </div>
@@ -660,14 +660,14 @@ export default function FabricLayer() {
           {/* Custom Token */}
           <Section icon={Coins} title="Custom Token (Fungible)" color="border-primary/30 bg-primary/3" badge="coin::create_currency">
             <p className="text-sm text-muted-foreground">
-              ZBX ke alawa apna custom token banao — ERC-20 jaisa. 
-              <strong className="text-foreground"> TreasuryCap</strong> ke paas mint/burn authority hoti hai.
+              Mint your own custom token alongside ZBX — ERC-20 style. The
+              <strong className="text-foreground"> TreasuryCap</strong> holds mint/burn authority.
             </p>
             <div className="grid grid-cols-3 gap-3 text-xs">
               {[
                 { k: "Decimals", v: "9 (MIST style)" },
-                { k: "Mint", v: "TreasuryCap se" },
-                { k: "Transfer", v: "Koi bhi kar sakta" },
+                { k: "Mint", v: "via TreasuryCap" },
+                { k: "Transfer", v: "Anyone can transfer" },
               ].map(r => (
                 <div key={r.k} className="rounded-lg bg-muted/20 p-3 border border-border/50">
                   <div className="text-muted-foreground">{r.k}</div>
@@ -681,13 +681,13 @@ export default function FabricLayer() {
           {/* NFT */}
           <Section icon={Image} title="NFT Collection" color="border-pink-500/30 bg-pink-500/3" badge="has key, store">
             <p className="text-sm text-muted-foreground">
-              On-chain NFT — image URL, name, description chain pe store hoti hai. 
-              <strong className="text-foreground"> MintCap</strong> se mint authority control hoti hai.
+              On-chain NFT — image URL, name, and description are all stored on-chain.
+              <strong className="text-foreground"> MintCap</strong> controls mint authority.
             </p>
             <div className="grid grid-cols-3 gap-3 text-xs">
               {[
                 { k: "Storage", v: "On-chain object" },
-                { k: "Mint", v: "MintCap se" },
+                { k: "Mint", v: "via MintCap" },
                 { k: "Transfer", v: "public_transfer" },
               ].map(r => (
                 <div key={r.k} className="rounded-lg bg-muted/20 p-3 border border-border/50">
@@ -702,8 +702,8 @@ export default function FabricLayer() {
           {/* DeFi Vault */}
           <Section icon={ArrowLeftRight} title="DeFi — Simple Vault (Deposit / Withdraw)" color="border-blue-500/30 bg-blue-500/3" badge="Balance<T>">
             <p className="text-sm text-muted-foreground">
-              Basic DeFi building block — coins vault mein deposit karo, baad mein withdraw karo. 
-              Isi pattern se lending protocol, liquidity pool banate hain.
+              A basic DeFi building block — deposit coins into a vault and withdraw them later.
+              The same pattern is used to build lending protocols and liquidity pools.
             </p>
             <CodeBlock code={DEFI_CODE} />
           </Section>
@@ -711,7 +711,7 @@ export default function FabricLayer() {
           {/* DAO */}
           <Section icon={Vote} title="DAO Governance" color="border-yellow-500/30 bg-yellow-500/3" badge="on-chain voting">
             <p className="text-sm text-muted-foreground">
-              Decentralized voting — proposal banao, VoteToken holders vote karein, deadline ke baad execute karo.
+              Decentralized voting — create a proposal, let VoteToken holders vote on it, then execute once the deadline passes.
             </p>
             <div className="grid grid-cols-3 gap-3 text-xs mb-2">
               {[
@@ -731,10 +731,10 @@ export default function FabricLayer() {
           {/* Airdrop */}
           <Section icon={Droplets} title="Airdrop Contract" color="border-cyan-500/30 bg-cyan-500/3" badge="batch transfer">
             <p className="text-sm text-muted-foreground">
-              Ek transaction mein hazaro addresses ko tokens bhejo — TreasuryCap se mint karke direct transfer.
+              Send tokens to thousands of addresses in a single transaction — minted via TreasuryCap and transferred directly.
             </p>
             <div className="rounded-lg bg-cyan-500/10 border border-cyan-500/20 p-3 text-xs text-cyan-300 mb-2">
-              💡 <strong>Tip:</strong> Ek transaction mein max ~500 recipients — badi list ko batches mein split karo
+              💡 <strong>Tip:</strong> A single transaction can include up to ~500 recipients — split larger lists into batches.
             </div>
             <CodeBlock code={AIRDROP_CODE} />
           </Section>
@@ -747,7 +747,7 @@ export default function FabricLayer() {
               <div className="flex flex-col items-center gap-2">
                 <div className="rounded-xl border-2 border-cyan-500/50 bg-cyan-500/10 px-6 py-3 text-center">
                   <div className="text-xs text-cyan-400 font-bold">MasterPool</div>
-                  <div className="text-[10px] text-muted-foreground mt-0.5">ZBX native · No admin · Protocol-owned</div>
+                  <div className="text-[10px] text-muted-foreground mt-0.5">ZBX native · No admin key · Protocol-owned</div>
                 </div>
                 <div className="flex items-center gap-1 text-muted-foreground text-xs">
                   <div className="w-px h-4 bg-border mx-auto" />
@@ -767,7 +767,7 @@ export default function FabricLayer() {
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs mb-3">
               {[
                 { k: "AMM Formula", v: "x × y = k" },
-                { k: "MasterPool Admin", v: "❌ None" },
+                { k: "MasterPool Governor", v: "❌ None" },
                 { k: "SubPool Owner", v: "❌ None" },
                 { k: "Creator role", v: "Fee recipient only" },
                 { k: "Manual Add/Remove", v: "❌ Permanently off" },
@@ -783,10 +783,10 @@ export default function FabricLayer() {
             {/* Key rules box */}
             <div className="rounded-lg bg-red-500/5 border border-red-500/20 p-3 mb-3 space-y-1 text-xs">
               <div className="text-xs font-semibold text-red-400 mb-1">Anti Rug Pull — Hard Rules:</div>
-              <div className="flex gap-2 text-muted-foreground"><span className="text-red-400">•</span><span><code className="font-mono">add_liquidity()</code> → <strong className="text-red-300">abort E_MANUAL_LIQUIDITY_DISABLED</strong> — koi manual add nahi</span></div>
-              <div className="flex gap-2 text-muted-foreground"><span className="text-red-400">•</span><span><code className="font-mono">remove_liquidity()</code> → <strong className="text-red-300">abort E_REMOVE_LIQUIDITY_DISABLED</strong> — drain kabhi nahi</span></div>
-              <div className="flex gap-2 text-muted-foreground"><span className="text-red-400">•</span><span>SubPool mein koi <code className="font-mono">owner</code> field hi nahi — rug pull structurally impossible</span></div>
-              <div className="flex gap-2 text-muted-foreground"><span className="text-cyan-400">→</span><span>Liquidity sirf buy/sell trades se adjust hoti hai — pure AMM</span></div>
+              <div className="flex gap-2 text-muted-foreground"><span className="text-red-400">•</span><span><code className="font-mono">add_liquidity()</code> → <strong className="text-red-300">abort E_MANUAL_LIQUIDITY_DISABLED</strong> — no manual deposits.</span></div>
+              <div className="flex gap-2 text-muted-foreground"><span className="text-red-400">•</span><span><code className="font-mono">remove_liquidity()</code> → <strong className="text-red-300">abort E_REMOVE_LIQUIDITY_DISABLED</strong> — pool can never be drained.</span></div>
+              <div className="flex gap-2 text-muted-foreground"><span className="text-red-400">•</span><span>The SubPool struct has no <code className="font-mono">owner</code> field at all — a rug pull is structurally impossible.</span></div>
+              <div className="flex gap-2 text-muted-foreground"><span className="text-cyan-400">→</span><span>Liquidity only adjusts via buy/sell trades — a pure AMM.</span></div>
             </div>
 
             <CodeBlock code={MASTER_POOL_CODE} />
@@ -814,7 +814,7 @@ export default function FabricLayer() {
                     <span className="text-foreground font-medium">Display Name</span>
                     <span className="text-muted-foreground"> — real full name (mandatory, stored on-chain)</span>
                     <code className="block mt-1 text-xs bg-muted/30 px-3 py-1.5 rounded font-mono text-green-300">Rahul Kumar</code>
-                    <span className="text-xs text-red-400">← bina iske ID register nahi hogi — abort E_DISPLAY_NAME_EMPTY</span>
+                    <span className="text-xs text-red-400">← without this the ID will not register — abort E_DISPLAY_NAME_EMPTY</span>
                   </div>
                 </div>
                 <div className="rounded-lg bg-muted/20 border border-border px-4 py-3 mt-2">
@@ -831,11 +831,11 @@ export default function FabricLayer() {
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs mb-3">
               {[
                 { k: "Pay ID format", v: "name@zbx", note: "✅ Globally unique" },
-                { k: "Display Name", v: "Mandatory", note: "Not unique — same ho sakta" },
-                { k: "Per address", v: "Sirf 1 ID", note: "" },
+                { k: "Display Name", v: "Mandatory", note: "Not unique — duplicates allowed" },
+                { k: "Per address", v: "Only 1 ID", note: "" },
                 { k: "Delete/Edit", v: "❌ Never", note: "" },
                 { k: "Transfer via ID", v: "ZBX + Tokens", note: "" },
-                { k: "ID Uniqueness", v: "Pay ID only", note: "Display Name free hai" },
+                { k: "ID Uniqueness", v: "Pay ID only", note: "Display Name is unconstrained" },
               ].map(r => (
                 <div key={r.k} className="rounded-lg bg-muted/20 p-3 border border-border/50">
                   <div className="text-muted-foreground">{r.k}</div>
@@ -849,11 +849,11 @@ export default function FabricLayer() {
             <div className="grid grid-cols-2 gap-3 mb-3">
               <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-xs">
                 <div className="font-semibold text-primary mb-1">✅ Pay ID — UNIQUE</div>
-                <div className="text-muted-foreground">Sirf ek address ke paas <code className="font-mono text-foreground">rahul@zbx</code> ho sakta hai — globally. Koi duplicate nahi.</div>
+                <div className="text-muted-foreground">Only one address can ever own <code className="font-mono text-foreground">rahul@zbx</code>, globally. No duplicates allowed.</div>
               </div>
               <div className="rounded-lg border border-muted bg-muted/10 p-3 text-xs">
                 <div className="font-semibold text-muted-foreground mb-1">Display Name — NOT unique</div>
-                <div className="text-muted-foreground">Do alag log <code className="font-mono text-foreground">Rahul Kumar</code> naam rakh sakte hain — koi uniqueness check nahi. Sirf Pay ID check hota hai.</div>
+                <div className="text-muted-foreground">Two different users can both register the display name <code className="font-mono text-foreground">Rahul Kumar</code> — there is no uniqueness check on the display name. Only the Pay ID is checked.</div>
               </div>
             </div>
 
@@ -875,7 +875,7 @@ export default function FabricLayer() {
                 ))}
               </div>
               <div className="mt-2 pt-2 border-t border-violet-500/20 text-[10px] text-muted-foreground">
-                💡 Upar teen log ka display name <code className="font-mono">"Rahul Kumar"</code> hai — allowed hai. Lekin Pay ID (<code className="font-mono">rahul@zbx</code>, <code className="font-mono">rahul_k@zbx</code>, <code className="font-mono">validator1@zbx</code>) sab alag hain — yahi unique hain.
+                💡 Three of the entries above share the display name <code className="font-mono">"Rahul Kumar"</code> — that is allowed. But each Pay ID (<code className="font-mono">rahul@zbx</code>, <code className="font-mono">rahul_k@zbx</code>, <code className="font-mono">validator1@zbx</code>) is distinct — those are the values that must be globally unique.
               </div>
             </div>
 
@@ -883,9 +883,9 @@ export default function FabricLayer() {
             <div className="rounded-lg bg-red-500/5 border border-red-500/20 p-3 mb-3 space-y-1 text-xs">
               <div className="text-xs font-semibold text-red-400 mb-1">Hard Rules (chain level enforce):</div>
               <div className="flex gap-2 text-muted-foreground"><span className="text-red-400">•</span><span><strong className="text-foreground">Pay ID empty</strong> = abort E_NAME_EMPTY</span></div>
-              <div className="flex gap-2 text-muted-foreground"><span className="text-red-400">•</span><span><strong className="text-foreground">Display Name empty</strong> = abort E_DISPLAY_NAME_EMPTY — naam mandatory hai</span></div>
-              <div className="flex gap-2 text-muted-foreground"><span className="text-red-400">•</span><span>Ek address = sirf ek Pay ID — dusra try = abort E_ALREADY_REGISTERED</span></div>
-              <div className="flex gap-2 text-muted-foreground"><span className="text-red-400">•</span><span>Same pay_id kisi aur ne liya = abort E_NAME_TAKEN — globally unique</span></div>
+              <div className="flex gap-2 text-muted-foreground"><span className="text-red-400">•</span><span><strong className="text-foreground">Display Name empty</strong> = abort E_DISPLAY_NAME_EMPTY — display name is mandatory.</span></div>
+              <div className="flex gap-2 text-muted-foreground"><span className="text-red-400">•</span><span>One address can hold only one Pay ID — a second attempt aborts with E_ALREADY_REGISTERED.</span></div>
+              <div className="flex gap-2 text-muted-foreground"><span className="text-red-400">•</span><span>If someone else already owns the same pay_id, the call aborts with E_NAME_TAKEN — Pay IDs are globally unique.</span></div>
               <div className="flex gap-2 text-muted-foreground"><span className="text-red-400">•</span><span>PayId: <code className="font-mono">has key</code> only — transfer/delete permanently blocked at VM level</span></div>
             </div>
 
@@ -893,8 +893,8 @@ export default function FabricLayer() {
 
             {/* JS usage */}
             <div className="mt-3">
-              <p className="text-xs text-muted-foreground mb-2 font-semibold">SDK se use karo (TypeScript):</p>
-              <CodeBlock code={`// ── Step 1: Register Pay ID (dono fields mandatory) ──
+              <p className="text-xs text-muted-foreground mb-2 font-semibold">Use it from the SDK (TypeScript):</p>
+              <CodeBlock code={`// ── Step 1: Register Pay ID (both fields are mandatory) ──
 const txb = new TransactionBlock();
 txb.moveCall({
   target: '0xPKG::pay_id::register_pay_id',
@@ -918,7 +918,7 @@ sendTxb.moveCall({
   ],
 });
 
-// ── Step 3: Lookup — naam available hai? ──
+// ── Step 3: Lookup — is this name available? ──
 // devInspect: is_name_available(registry, b"rahul")
 // → true if free, false if taken`} lang="typescript" />
             </div>
@@ -974,7 +974,7 @@ sendTxb.moveCall({
           {/* SDK — Client Setup & Queries */}
           <Section icon={Code2} title="SDK — Client Setup & Queries" color="border-violet-500/30 bg-violet-500/3" badge="@zebvix/sdk">
             <p className="text-sm text-muted-foreground">
-              JavaScript/TypeScript SDK — Sui SDK ke same pattern, sirf RPC URL change karo.
+              JavaScript/TypeScript SDK — same pattern as the Sui SDK; just change the RPC URL.
             </p>
             <CodeBlock code={WEB3_RPC} lang="typescript" />
           </Section>
@@ -982,7 +982,7 @@ sendTxb.moveCall({
           {/* Events & Objects */}
           <Section icon={Zap} title="Events & Object Queries" color="border-orange-500/30 bg-orange-500/3" badge="subscribeEvent">
             <p className="text-sm text-muted-foreground">
-              Real-time events subscribe karo — NFT mint, token transfer, DAO vote sab track kar sakte ho.
+              Subscribe to real-time events — NFT mints, token transfers, DAO votes, and more.
             </p>
             <CodeBlock code={WEB3_EVENTS} lang="typescript" />
           </Section>
@@ -1021,10 +1021,10 @@ signAndExecute({ transactionBlock: txb }, {
             <h3 className="font-bold text-foreground">Common JSON-RPC Methods</h3>
             <div className="space-y-2">
               {[
-                { method: "zbx_getBalance", desc: "Address ka ZBX balance" },
-                { method: "zbx_getOwnedObjects", desc: "Kisi address ke saare objects (NFT, coins, etc.)" },
-                { method: "zbx_getObject", desc: "Single object ki full detail" },
-                { method: "zbx_executeTransactionBlock", desc: "Signed transaction submit karo" },
+                { method: "zbx_getBalance", desc: "ZBX balance for an address" },
+                { method: "zbx_getOwnedObjects", desc: "All objects owned by an address (NFTs, coins, etc.)" },
+                { method: "zbx_getObject", desc: "Full details for a single object" },
+                { method: "zbx_executeTransactionBlock", desc: "Submit a signed transaction" },
                 { method: "zbx_getCheckpoint", desc: "Checkpoint info" },
                 { method: "zbx_subscribeEvent", desc: "WebSocket — live events" },
                 { method: "zbx_devInspectTransactionBlock", desc: "Read-only call — view functions" },

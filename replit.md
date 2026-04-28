@@ -38,6 +38,15 @@ The project roadmap is organized into three tiers:
 - **Tier 2 — Production maturity**: Additive items like multi-validator decentralization, slashing enforcement, state-sync, Prometheus exporter, backup & DR, block explorer feature parity, EIP-1559 fee market, documentation consolidation, and RPC pagination/rate limiting.
 - **Tier 3 — Performance & polish**: Deferred items such as Block-STM parallel execution and gossipsub peer scoring.
 
+## Dashboard Copy Audit (April 2026)
+A full premium-language audit was performed across all 53 dashboard pages in `artifacts/sui-fork-dashboard/src/pages/`. Outcomes:
+- All Hindi/Hinglish prose was converted to advanced premium English. The only intentional Devanagari kept is the "हिन्दी" label inside the language picker in `customization.tsx:25`.
+- On AMM/pool surfaces (`dex.tsx`, `pool-explorer.tsx`, `swap.tsx`, `token-create.tsx`, `fabric-layer.tsx`, `zvm-explorer.tsx`), centralisation-implying terms ("admin", "single trusted oracle") were reframed as "governor", "protocol-treasury", "M-of-N multisig (roadmap)" so the copy reflects the actual permissionless / multisig-governed design.
+- `FounderAdminCap` was re-labelled to `FounderGovernanceCap` in user-facing changelog text; the on-chain identifier in source code remains unchanged.
+- Chain-internal RPC method names and field names (`zbx_getAdmin`, `lifetime_admin_paid_zusd`, `admin_address`) and HTTP `/admin` ops endpoints were intentionally left untouched.
+- Positive permissionless / "no admin" claims were preserved.
+This audit was UI/copy-only — no Drizzle schema, migration, or database changes.
+
 ## Operations — Live Testnet Validator Add (Phase E.1)
 A safe, idempotent script `zebvix-chain/scripts/testnet-add-validator.sh` upgrades the live testnet (chain_id 78787) from 1 → 2 validators on the same VPS WITHOUT halting the chain. Safety relies on `consensus.rs::Producer::run` re-reading `state.validators()` on every tick, so a node whose address is not yet in the on-chain set sits dormant automatically until `validator-add` is mined, then auto-promotes on the next round (no restart, no halt window). Default topology: node-2 home `/root/.zebvix-testnet-node2`, RPC :18546, P2P :31334, service `zebvix-testnet2`. Mainnet (chain_id 7878, port 8545, P2P 30333, `/root/.zebvix`) is fully isolated. Flags: `--status` (read-only), `--keygen-only`, `--dry-run`, no flag = full run. Re-runs converge: if node-2's pubkey is already registered, the script ensures the local service is up and exits cleanly.
 

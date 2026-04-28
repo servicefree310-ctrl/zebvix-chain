@@ -209,7 +209,7 @@ export default function TokenMetadataPage(): React.ReactElement {
     if (!isCreator) {
       toast({
         title: "Not allowed",
-        description: "Bhai, sirf token creator hi metadata set kar sakta hai.",
+        description: "Only the original token creator can update on-chain metadata.",
         variant: "destructive",
       });
       return;
@@ -280,9 +280,9 @@ export default function TokenMetadataPage(): React.ReactElement {
             Token Metadata
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Logo, website, description aur socials on-chain set karo. Sirf token
-            creator wallet hi edit kar sakti hai. Empty fields chhodne se
-            existing values clear ho jayengi.
+            Set the logo, website, description, and social links on-chain. Only the
+            token creator wallet can edit these fields. Leaving a field empty clears
+            the existing value.
           </p>
         </div>
         <Button

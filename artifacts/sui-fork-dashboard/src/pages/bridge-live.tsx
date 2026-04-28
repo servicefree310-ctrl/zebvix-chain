@@ -158,10 +158,11 @@ function LockVaultPanel() {
             <span className="ml-1 text-sm font-medium text-muted-foreground">ZBX</span>
           </div>
           <div className="text-[11px] text-muted-foreground">
-            Sum of every successful BridgeOut. Released only via an
-            admin-signed BridgeIn (today: trusted attestation; the source-tx
-            hash is replay-protected on-chain but not cryptographically
-            verified against the foreign chain).
+            Sum of every successful BridgeOut. Released only via a
+            governor-signed BridgeIn (today a trusted attestation; the
+            source-tx hash is replay-protected on-chain but not yet
+            cryptographically verified against the foreign chain — M-of-N
+            multisig oracle is the next roadmap milestone).
           </div>
         </div>
       </div>
@@ -707,7 +708,7 @@ function DecentralizationCard() {
   const items = [
     {
       label: "User self-custodies the lock",
-      text: "BridgeOut tx is signed locally with the user's own secp256k1 key. No relayer / admin can spend on the user's behalf. The chain only accepts a tx whose signature recovers to the sender address.",
+      text: "BridgeOut transactions are signed locally with the user's own secp256k1 key. No relayer or governor can spend on the user's behalf — the chain only accepts a transaction whose signature recovers to the sender address.",
     },
     {
       label: "Escrow is a public, deterministic address",
@@ -719,15 +720,15 @@ function DecentralizationCard() {
     },
     {
       label: "Replay protection is on-chain",
-      text: "Each BridgeIn carries a (network, source_tx_hash) tuple; the chain marks it consumed atomically and rejects any second submission with the same hash. The admin cannot accidentally double-release the same claim — even if they retry.",
+      text: "Each BridgeIn carries a (network, source_tx_hash) tuple; the chain marks it consumed atomically and rejects any second submission with the same hash. The governor cannot accidentally double-release the same claim — even on retry.",
     },
     {
       label: "Per-asset / per-network kill switches",
-      text: "Admin can pause a specific asset or whole network if a foreign-side issue is detected. New BridgeOuts are rejected with a fee-only refund; existing locks are unaffected.",
+      text: "The governor can pause a specific asset or an entire network if a foreign-side issue is detected. New BridgeOuts are rejected with a fee-only refund; existing locks are unaffected.",
     },
     {
-      label: "Trust caveat (today) — BridgeIn is admin attestation",
-      text: "BridgeIn is signed by a single admin key. The chain enforces (a) the admin's signature, (b) replay protection on the source_tx_hash, and (c) that the destination asset is registered. It does NOT cryptographically verify the foreign-chain deposit (no light client / merkle proof yet). A compromised admin key could submit fake source hashes and drain the lock vault. Multisig oracle (M-of-N validator quorum) is on the roadmap and the primitives already exist in TxKind::Multisig.",
+      label: "Trust caveat (today) — BridgeIn is a governor attestation",
+      text: "Today, BridgeIn is signed by a single governor key. The chain enforces (a) that signature, (b) replay protection on the source_tx_hash, and (c) that the destination asset is registered. It does NOT cryptographically verify the foreign-chain deposit yet (no light client / merkle proof). A compromised governor key could therefore submit fake source hashes and drain the lock vault. The M-of-N validator multisig oracle that closes this gap is the next-up roadmap item — the on-chain primitives already exist in TxKind::Multisig and are awaiting cut-over.",
       warn: true,
     },
   ];
@@ -781,8 +782,8 @@ export default function BridgeLive() {
           User-side bridge actions for Zebvix mainnet. Lock ZBX into the
           public on-chain escrow vault; an off-chain oracle mints the wrapped
           asset on the destination network. Outbound is fully decentralized —
-          inbound (BridgeIn) is admin-gated until the multisig-oracle upgrade
-          ships. See{" "}
+          inbound (BridgeIn) is governor-gated until the M-of-N multisig
+          oracle upgrade ships. See{" "}
           <WLink href="/bridge" className="text-primary hover:underline">/bridge</WLink>{" "}
           for full architecture docs.
         </p>
