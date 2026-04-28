@@ -1,0 +1,85 @@
+root@srv1266996:/home/zebvix-chain# # 1. Process check — kya zebvix-chain abhi chal bhi rahi hai?
+ps auxf | grep -E "zebvix|zbx" | grep -v grep
+pgrep -af zebvix
+ss -tlnp | grep -E "8545|9090|26656|30303"
+
+# 2. Service file check — kahin alag naam se to nahi?
+ls /etc/systemd/system/ | grep -i "zeb\|chain\|node"
+ls /lib/systemd/system/ | grep -i "zeb\|chain\|node"
+systemctl list-units --all | grep -i "zeb\|chain"
+
+# 3. Check kya binary kahin hai already?
+ls -la /home/zebvix-chain/target/release/ 2>/dev/null | grep -E "zbx|zebvix"
+which zebvix-node zebvix zbx 2>/dev/null
+
+# 4. Screen/tmux session?
+screen -ls 2>/dev/null
+tmux ls 2>/dev/null
+
+# 5. Recent shell history mein kaise start hua tha?
+grep -E "zebvix|cargo run|target/release" /root/.bash_history 2>/dev/null | tail -20
+root     3921084  0.2  0.7 1594320 57916 ?       Ssl  Apr24  10:52  \_ node /home/zebvix/b/dist/server.js
+zebvix   3466049  0.0  0.1 228816 10112 ?        S    Apr22   0:00  \_ php-fpm: pool 1775669736182499
+zebvix   3466053  0.0  0.1 228820 10112 ?        S    Apr22   0:00  \_ php-fpm: pool 1775669736182499
+zbx-bri+  521251  0.0  1.1 1128912 90044 ?       Ssl  Apr26   0:00 node /usr/bin/pnpm run start
+zbx-bri+  521291  0.0  0.0   2800  1916 ?        S    Apr26   0:00  \_ sh -c tsx src/index.ts
+zbx-bri+  521292  0.0  0.6 1024908 49144 ?       Sl   Apr26   0:00      \_ node /opt/zebvix/lib/bridge-signer/node_modules/.bin/../tsx/dist/cli.mjs src/index.ts
+zbx-bri+  521321  0.0  1.0 43584860 84400 ?      Sl   Apr26   0:41          \_ /usr/bin/node --require /opt/zebvix/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/preflight.cjs --import file:///opt/zebvix/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/loader.mjs src/index.ts
+zbx-bri+  521339  0.0  0.1 1237580 12804 ?       Sl   Apr26   2:10              \_ /opt/zebvix/node_modules/.pnpm/@esbuild+linux-x64@0.27.3/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.3 --ping
+zbx-bri+  522911  0.0  1.1 1194072 89700 ?       Ssl  Apr26   0:00 node /usr/bin/pnpm run start
+zbx-bri+  522926  0.0  0.0   2800  1920 ?        S    Apr26   0:00  \_ sh -c tsx src/index.ts
+zbx-bri+  522927  0.0  0.6 1024936 51736 ?       Sl   Apr26   0:00      \_ node /opt/zebvix/lib/bridge-relayer/node_modules/.bin/../tsx/dist/cli.mjs src/index.ts
+zbx-bri+  522943  0.1  1.4 43863320 115480 ?     Sl   Apr26   3:15          \_ /usr/bin/node --require /opt/zebvix/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/preflight.cjs --import file:///opt/zebvix/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/loader.mjs src/index.ts
+zbx-bri+  522955  0.0  0.1 1238092 13364 ?       Sl   Apr26   2:08              \_ /opt/zebvix/node_modules/.pnpm/@esbuild+linux-x64@0.27.3/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.3 --ping
+root     1076489  0.1  0.2 470928 20440 ?        Ssl  20:17   0:04 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333
+521292 node /opt/zebvix/lib/bridge-signer/node_modules/.bin/../tsx/dist/cli.mjs src/index.ts
+521321 /usr/bin/node --require /opt/zebvix/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/preflight.cjs --import file:///opt/zebvix/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/loader.mjs src/index.ts
+521339 /opt/zebvix/node_modules/.pnpm/@esbuild+linux-x64@0.27.3/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.3 --ping
+522927 node /opt/zebvix/lib/bridge-relayer/node_modules/.bin/../tsx/dist/cli.mjs src/index.ts
+522943 /usr/bin/node --require /opt/zebvix/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/preflight.cjs --import file:///opt/zebvix/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/loader.mjs src/index.ts
+522955 /opt/zebvix/node_modules/.pnpm/@esbuild+linux-x64@0.27.3/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.3 --ping
+1076489 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333
+3921084 node /home/zebvix/b/dist/server.js
+LISTEN 0      128                             0.0.0.0:8545       0.0.0.0:*    users:(("zebvix-node",pid=1076489,fd=69))                                               
+zebvix.service
+zebvix.service.d
+zebvix2.service
+kmod-static-nodes.service
+  zbx-relayer.service                                                                                       loaded    active   running   Zebvix Bridge Relayer
+  zbx-signer@1.service                                                                                      loaded    active   running   Zebvix Bridge Validator Signer #1
+● zebvix-node.service                                                                                       not-found inactive dead      zebvix-node.service
+  zebvix.service                                                                                            loaded    active   running   Zebvix L1 Blockchain Node
+  zebvix2.service                                                                                           loaded    inactive dead      Zebvix L1 Blockchain Node-2
+-rw-r--r--   1 root root      835 Apr 27 20:13 libzebvix_node.d
+-rw-r--r--   2 root root 16753188 Apr 27 20:09 libzebvix_node.rlib
+-rwxr-xr-x   2 root root  1411744 Apr 27 20:09 zbx
+-rw-r--r--   1 root root      853 Apr 27 20:13 zbx.d
+-rwxr-xr-x   2 root root 16410432 Apr 27 20:10 zebvix-node
+-rwxr-xr-x   1 root root 17203104 Apr 25 04:44 zebvix-node.bak.20260425-044453
+-rwxr-xr-x   1 root root 17371744 Apr 25 05:28 zebvix-node.bak.20260425-052855
+-rw-r--r--   1 root root      858 Apr 27 20:13 zebvix-node.d
+/usr/local/bin/zebvix-node
+/usr/local/bin/zbx
+No Sockets found in /run/screen/S-root.
+
+./target/release/zebvix-node --version
+sudo systemctl restart zebvix
+sudo systemctl status zebvix --no-pager | head -15
+sudo journalctl -u zebvix -n 30 --no-pager
+sudo journalctl -u zebvix -n 100 --no-pager | grep -E "fsm|FSM|height" | head -10
+sudo journalctl -u zebvix -n 100 --no-pager | grep -E "fsm|FSM|height" | head -10
+sudo journalctl -u zebvix --since "5 min ago" --no-pager | grep "producer started" | tail -3
+sudo journalctl -u zebvix --since "2 min ago" --no-pager | grep "BFT commit persisted" | tail -5
+sudo journalctl -u zebvix --since "2 min ago" --no-pager | grep "block #" | tail -5
+strings /usr/local/bin/zebvix-node | grep -iE "fsm|BlockApplied|PrevoteQuorum" | sort -u | head -10
+sudo systemctl show zebvix -p Environment | grep -i ZEBVIX_FSM_ENABLED || echo "✓ ZEBVIX_FSM_ENABLED not set — FSM dormant (correct)"
+sudo cp /usr/local/bin/zebvix-node /usr/local/bin/zebvix-node.bak.$(date +%s) && cd /home/zebvix-chain && curl -fsSL "https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/api/download/newchain" -o newchain.tgz && ls -la newchain.tgz
+cd /home/zebvix-chain && tar -tzf newchain.tgz | grep -E "src/fsm_runtime\.rs|src/lib\.rs|src/fsm\.rs" && tar -xzf newchain.tgz && ls -la src/fsm_runtime.rs
+cd /home/zebvix-chain && time cargo build --release --features zvm 2>&1 | tail -20
+sudo systemctl stop zebvix && sudo cp /home/zebvix-chain/target/release/zebvix-node /usr/local/bin/zebvix-node && sudo systemctl start zebvix && sleep 3 && sudo systemctl status zebvix --no-pager | head -15
+sudo journalctl -u zebvix -n 30 --no-pager | grep -E "producer started|mode=|fsm" && echo "---RPC tip---" && curl -fsS -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' http://127.0.0.1:8545 && echo
+sudo systemctl show zebvix -p Environment | grep -i fsm || echo "✓ ZEBVIX_FSM_ENABLED not set — runtime dormant as expected"
+cd /home/zebvix-chain &&   cp -r src src.bak.$(date +%s) &&   curl -fsSL "https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/api/download/newchain"     -o newchain.tgz &&   ls -la newchain.tgz
+# ─── 3) Extract in-place (paths already relative to /home/zebvix-chain) ───
+cd /home/zebvix-chain && tar -xzf newchain.tgz
+root@srv1266996:/home/zebvix-chain# Connection to 93.127.213.192:10000 closed.
