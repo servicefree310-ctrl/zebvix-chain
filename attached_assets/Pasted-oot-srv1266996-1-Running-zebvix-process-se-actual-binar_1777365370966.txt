@@ -1,0 +1,119 @@
+oot@srv1266996:~# # 1. Running zebvix process se actual binary path nikalo
+ps aux | grep -E 'zebvix|zbx' | grep -v grep
+echo "---"
+# Aur PID se exact exe path
+for pid in $(pgrep -f zebvix); do echo "PID $pid -> $(readlink /proc/$pid/exe)"; done
+echo "---"
+
+# 2. Pure system me zebvix-cli binary search karo
+find / -maxdepth 6 -type f \( -name 'zebvix-cli' -o -name 'zebvix-node' -o -name 'zbx-cli' \) 2>/dev/null
+echo "---"
+
+# 3. PATH me bhi check
+which zebvix-cli zebvix-node zbx 2>&1
+echo "---"
+
+# 4. Common locations
+ls -la /usr/local/bin/ 2>/dev/null | grep -iE 'zeb|zbx'
+ls -la /root/.cargo/bin/ 2>/dev/null | grep -iE 'zeb|zbx'
+ls -la ~/zebvix/ 2>/dev/null
+ls -la /opt/ 2>/dev/null | grep -iE 'zeb|zbx'
+echo "---"
+
+# 5. Keys aur configs search
+find /root /etc /opt -maxdepth 5 -type f \( -name '*.key' -o -name 'deployer*' -o -name 'genesis*.json' \) 2>/dev/null | head -20
+echo "---"
+
+# 6. Systemd service (likely chain ek service ke through chal raha hai)
+systemctl list-units --type=service --state=running 2>/dev/null | grep -iE 'zeb|zbx|chain'
+zbx-bri+  521251  0.0  0.9 1128912 80360 ?       Ssl  Apr26   0:00 node /usr/bin/pnpm run start
+zbx-bri+  521291  0.0  0.0   2800  1916 ?        S    Apr26   0:00 sh -c tsx src/index.ts
+zbx-bri+  521292  0.0  0.4 1024908 39544 ?       Sl   Apr26   0:00 node /opt/zebvix/lib/bridge-signer/node_modules/.bin/../tsx/dist/cli.mjs src/index.ts
+zbx-bri+  521321  0.0  0.9 43584860 73400 ?      Sl   Apr26   0:51 /usr/bin/node --require /opt/zebvix/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/preflight.cjs --import file:///opt/zebvix/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/loader.mjs src/index.ts
+zbx-bri+  521339  0.0  0.0 1237580 4988 ?        Sl   Apr26   2:46 /opt/zebvix/node_modules/.pnpm/@esbuild+linux-x64@0.27.3/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.3 --ping
+zbx-bri+  522911  0.0  0.9 1194072 80000 ?       Ssl  Apr26   0:00 node /usr/bin/pnpm run start
+zbx-bri+  522926  0.0  0.0   2800  1920 ?        S    Apr26   0:00 sh -c tsx src/index.ts
+zbx-bri+  522927  0.0  0.5 1024936 42080 ?       Sl   Apr26   0:00 node /opt/zebvix/lib/bridge-relayer/node_modules/.bin/../tsx/dist/cli.mjs src/index.ts
+zbx-bri+  522943  0.1  1.2 43863576 104192 ?     Sl   Apr26   4:08 /usr/bin/node --require /opt/zebvix/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/preflight.cjs --import file:///opt/zebvix/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/loader.mjs src/index.ts
+zbx-bri+  522955  0.0  0.0 1238092 5628 ?        Sl   Apr26   2:44 /opt/zebvix/node_modules/.pnpm/@esbuild+linux-x64@0.27.3/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.3 --ping
+root     1194086  0.1  0.3 1060984 25164 ?       Ssl  03:47   0:27 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333
+root     1199415  0.1  0.2 536156 22740 ?        Ssl  04:00   0:20 /usr/local/bin/zebvix-node-testnet start --rpc 0.0.0.0:18545 --p2p-port 31333 --home /root/.zebvix-testnet
+zebvix   3466049  0.0  0.1 228816  9952 ?        S    Apr22   0:00 php-fpm: pool 1775669736182499
+zebvix   3466053  0.0  0.1 228820  9952 ?        S    Apr22   0:00 php-fpm: pool 1775669736182499
+root     3921084  0.1  0.5 1593040 48016 ?       Ssl  Apr24  12:13 node /home/zebvix/b/dist/server.js
+---
+PID 521292 -> /usr/bin/node
+PID 521321 -> /usr/bin/node
+PID 521339 -> /opt/zebvix/node_modules/.pnpm/@esbuild+linux-x64@0.27.3/node_modules/@esbuild/linux-x64/bin/esbuild
+PID 522927 -> /usr/bin/node
+PID 522943 -> /usr/bin/node
+PID 522955 -> /opt/zebvix/node_modules/.pnpm/@esbuild+linux-x64@0.27.3/node_modules/@esbuild/linux-x64/bin/esbuild
+PID 1194086 -> /usr/local/bin/zebvix-node
+PID 1199415 -> /usr/local/bin/zebvix-node-testnet
+PID 3921084 -> /usr/bin/node
+---
+/home/zebvix-chain.bak-prebll-1777010304/target/release/zebvix-node
+/home/zebvix-chain.bak.20260428-015058/target/release/zebvix-node
+/home/zebvix-chain.backup-20260423-032011/target/release/zebvix-node
+/home/zebvix-chain-b11.bak/target/release/zebvix-node
+/home/zebvix-chain.backup-20260423-032316/target/release/zebvix-node
+/home/zebvix-chain.bak.20260427_210118/target/release/zebvix-node
+/home/zebvix-chain.bak.20260426_103512/target/release/zebvix-node
+/home/zebvix-chain.backup-20260424-115043/target/release/zebvix-node
+/home/zebvix-chain/target/release/zebvix-node
+/home/zebvix-chain.bak.20260426_103815/target/release/zebvix-node
+/home/zebvix-chain.bak.20260428-014903/target/release/zebvix-node
+/home/zebvix-chain.backup-20260423-032750/target/release/zebvix-node
+/usr/local/bin/zebvix-node
+/root/zebvix-node/target/release/zebvix-node
+---
+/usr/local/bin/zebvix-node
+/usr/local/bin/zbx
+---
+-rwxr-xr-x  1 root root   1438360 Apr 22 16:16 zbx
+-rwxr-xr-x  1 root root  16697712 Apr 28 03:47 zebvix-node
+-rwxr-xr-x  1 root root  16697968 Apr 28 03:49 zebvix-node-testnet
+-rwxr-xr-x  1 root root  17714800 Apr 25 19:19 zebvix-node.backup-1777144778
+-rwxr-xr-x  1 root root  15703712 Apr 23 03:39 zebvix-node.backup-20260423-033910
+-rwxr-xr-x  1 root root  17205552 Apr 24 18:06 zebvix-node.bak.1777053981
+-rwxr-xr-x  1 root root  17541160 Apr 25 09:08 zebvix-node.bak.1777108081
+-rwxr-xr-x  1 root root  16434808 Apr 27 19:05 zebvix-node.bak.1777316757
+-rwxr-xr-x  1 root root  16640584 Apr 27 20:17 zebvix-node.bak.1777321068
+-rwxr-xr-x  1 root root  16677920 Apr 28 02:20 zebvix-node.bak.20260428-022047
+-rwxr-xr-x  1 root root  16410432 Apr 28 00:23 zebvix-node.bak.20260428_002317
+-rwxr-xr-x  1 root root  16677920 Apr 28 00:53 zebvix-node.last-good
+-rwxr-xr-x  1 root root  16494440 Apr 24 04:47 zebvix-node.old
+-rwxr-xr-x  1 root root  16519152 Apr 24 12:15 zebvix-node.old.1777032900
+-rwxr-xr-x  1 root root  16544200 Apr 26 05:02 zebvix-node.prev
+total 12
+drwxr-xr-x  3 root root 4096 Apr 28 08:34 .
+drwx------ 30 root root 4096 Apr 28 08:34 ..
+drwxr-xr-x  3 root root 4096 Apr 28 08:34 keys
+drwxr-xr-x  4 root root 4096 Apr 26 05:50 zebvix
+---
+/root/.zebvix.backup-20260423-033910/validator.key
+/root/.zebvix.backup-20260423-033910/genesis.json
+/root/.zebvix/owner3.key
+/root/.zebvix/validator.key
+/root/.zebvix/owner2.key
+/root/.zebvix/founder.key
+/root/.zebvix/genesis.json
+/root/.zebvix-node1/genesis.json
+/root/.zebvix-testnet/validator-keys/founder.key
+/root/.zebvix-testnet/genesis.json
+/etc/mysql/mysql-ssl.key
+/etc/dovecot/private/dovecot.key
+/etc/ssl/virtualmin/176827589244594/ssl.key
+/etc/ssl/virtualmin/176827618448475/ssl.key
+/etc/ssl/virtualmin/1775669736182499/ssl.key
+/etc/ssl/private/proftpd.key
+/etc/ssl/private/ssl-cert-snakeoil.key
+/etc/bind/rndc.key
+/etc/usermin/srv1266996.hstgr.cloud.key
+/etc/webmin/srv1266996.hstgr.cloud.key
+---
+  zbx-relayer.service         loaded active running Zebvix Bridge Relayer
+  zbx-signer@1.service        loaded active running Zebvix Bridge Validator Signer #1
+  zebvix-testnet.service      loaded active running Zebvix L1 Blockchain Node — TESTNET (Phase E)
+  zebvix.service              loaded active running Zebvix L1 Blockchain Node
+root@srv1266996:~# 
