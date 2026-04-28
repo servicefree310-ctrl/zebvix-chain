@@ -1,0 +1,62 @@
+zbx — friendly wallet/explorer CLI for Zebvix L1.
+
+Default RPC: http://127.0.0.1:8545 (override with --rpc or env ZBX_RPC)
+
+Usage: zbx [OPTIONS] <COMMAND>
+
+Commands:
+  new      Create a brand new wallet (keypair) and save to file
+  show     Show address & pubkey of an existing keyfile
+  address  Print just the address of a keyfile (alias of `show`, address only)
+  import   Import a wallet from a raw 64-char hex secret key
+  balance  Get ZBX balance of an address
+  nonce    Get current pending nonce of an address
+  send     Send ZBX from a wallet to an address
+  tip      Show chain tip (latest block height & hash)
+  info     Show node info: chain id, block time, supply
+  block    Get a block by height
+  supply   Show ZBX supply summary (total / circulating / pre-mine)
+  status   Show node sync/peer status
+  pool     Show on-chain AMM pool state (ZBX/zUSD reserves, price, fee, loan, fees)
+  swap     Swap ZBX → zUSD by sending to the pool address (one-shot helper). Equivalent to `zbx send --to <POOL_ADDRESS> --amount <N>`
+  price    Show current ZBX/USD price (from on-chain pool oracle)
+  gas      Show network's current dynamic gas price + fee per standard transfer
+  zusd     Show zUSD balance of an address
+  lp       Show LP (liquidity-provider) token balance of an address
+  admin    Show admin/founder address info (current address, rotations used, max)
+  help     Faucet-style helper: print common testnet info
+  help     Print this message or the help of the given subcommand(s)
+
+Options:
+      --rpc <RPC>
+          JSON-RPC endpoint of a running Zebvix node
+          
+          [env: ZBX_RPC=]
+          [default: http://127.0.0.1:8545]
+
+  -q, --quiet
+          Quiet output — JSON only, no colors or banners
+
+  -h, --help
+--- multisig subcommands? ---
+--- mainnet alive on :8545? ---
+{"jsonrpc":"2.0","id":1,"result":"0xe965"}
+--- testnet alive on :18545? ---
+{"jsonrpc":"2.0","id":1,"result":{"total":0}}
+--- founder address + balance (mainnet) ---
+error: unexpected argument '--signer-key' found
+
+  tip: to pass '--signer-key' as a value, use '-- --signer-key'
+
+Usage: zbx address [OPTIONS] <KEYFILE>
+FOUNDER=
+
+--- existing owner2 / owner3 addresses ---
+--- node binary version vs CLI binary build time ---
+2026-04-22 16:16:16.824414457 +0000 /usr/local/bin/zbx
+2026-04-28 03:47:39.148919738 +0000 /usr/local/bin/zebvix-node
+2026-04-28 03:49:15.691959940 +0000 /usr/local/bin/zebvix-node-testnet
+--- source dir for CLI rebuild ---
+/home/zebvix-chain/Cargo.toml
+/home/zebvix-chain/src/main.rs
+root@srv1266996:~# 
