@@ -1,0 +1,41 @@
+sudo cp target/release/zebvix-node /usr/local/bin/zebvix-node && \
+sudo systemctl start zebvix && \
+sleep 8 && \
+sudo systemctl status zebvix --no-pager | head -15 && \
+echo "--- D4 metrics ---" && \
+curl -s http://localhost:8545/metrics | grep -E "^(zvb_block_height|zvb_peer_count|zvb_mempool_depth|zvb_blocks_applied_total) " && \
+echo "--- 35s block production check ---" && \
+echo -n "before: "; curl -s http://localhost:8545/metrics | grep "^zvb_block_height " && \
+sleep 35 && \
+echo -n "after : "; curl -s http://localhost:8545/metrics | grep "^zvb_block_height "
+   Compiling zebvix-node v0.1.0 (/home/zebvix-chain)
+    Finished `release` profile [optimized] target(s) in 1m 34s
+
+real    1m34.845s
+user    2m19.158s
+sys     0m7.455s
+-rwxr-xr-x 2 root root 16677920 Apr 28 00:24 target/release/zebvix-node
+● zebvix.service - Zebvix L1 Blockchain Node
+     Loaded: loaded (/etc/systemd/system/zebvix.service; enabled; preset: enabled)
+    Drop-In: /etc/systemd/system/zebvix.service.d
+             └─override.conf
+     Active: active (running) since Tue 2026-04-28 00:24:52 UTC; 8s ago
+   Main PID: 1137333 (zebvix-node)
+      Tasks: 7 (limit: 9483)
+     Memory: 5.5M (peak: 7.9M)
+        CPU: 65ms
+     CGroup: /system.slice/zebvix.service
+             └─1137333 /usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333
+
+Apr 28 00:24:52 srv1266996.hstgr.cloud zebvix-node[1137333]: 2026-04-28T00:24:52.951678Z  INFO zebvix_node::consensus: ⛏  producer started: my_address=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315, mode=ROUND_ROBIN+TIMEOUTS (B.3.2.2) pacing=5s propose_timeout=8s tick=500ms
+Apr 28 00:24:52 srv1266996.hstgr.cloud zebvix-node[1137333]: 2026-04-28T00:24:52.952179Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWA46YU7Qw4NEPaq31Y8TiLDQfV5iVXnf3MnKhhG6bjxwZ
+Apr 28 00:24:52 srv1266996.hstgr.cloud zebvix-node[1137333]: 2026-04-28T00:24:52.952193Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/93.127.213.192/tcp/30333/p2p/12D3KooWA46YU7Qw4NEPaq31Y8TiLDQfV5iVXnf3MnKhhG6bjxwZ
+--- D4 metrics ---
+zvb_block_height 54580
+zvb_blocks_applied_total 1
+zvb_mempool_depth 0
+zvb_peer_count 0
+--- 35s block production check ---
+before: zvb_block_height 54580
+after : zvb_block_height 54586
+root@srv1266996:/home/zebvix-chain# 
