@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { rpc, weiHexToZbx, shortAddr, weiToUsd, fmtUsd } from "@/lib/zbx-rpc";
+import { useNetwork, networkMeta } from "@/lib/use-network";
 import { useFeatureFlags, type FeatureFlags } from "@/lib/use-brand-config";
 import {
   Activity, Box, Users, Coins, ArrowLeftRight, Wifi, ShieldCheck, Hash,
@@ -45,6 +46,8 @@ interface BurnStats {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function Home() {
   const flags = useFeatureFlags();
+  const net = useNetwork();
+  const netMeta = networkMeta(net);
   const [tip, setTip] = useState<BlockInfo | null>(null);
   const [recent, setRecent] = useState<BlockInfo[]>([]);
   const [price, setPrice] = useState<PriceInfo | null>(null);
@@ -197,7 +200,7 @@ export default function Home() {
             <div className="font-semibold text-red-500 mb-1">VPS RPC unreachable</div>
             <code className="text-xs text-muted-foreground break-all">{err}</code>
             <div className="text-xs text-muted-foreground mt-1">
-              Node should be reachable at <span className="font-mono">93.127.213.192:8545</span>. Service: <span className="font-mono">zebvix.service</span>
+              Node should be reachable at <span className="font-mono">{netMeta.rpcUrl.replace(/^https?:\/\//, "")}</span>. Service: <span className="font-mono">{netMeta.serviceName}</span>
             </div>
           </div>
         </div>
@@ -284,6 +287,8 @@ function Hero({ tip, flash, err, loading, price, validatorCount, evmChainHex, po
   tip: BlockInfo | null; flash: boolean; err: string | null; loading: boolean;
   price: PriceInfo | null; validatorCount: number; evmChainHex: string | null; poolUninit: boolean;
 }) {
+  const net = useNetwork();
+  const netMeta = networkMeta(net);
   const priceNum = price ? parseFloat(price.zbx_usd) : 0;
   return (
     <div className="relative overflow-hidden rounded-2xl border border-border bg-gradient-to-br from-primary/15 via-violet-500/5 to-cyan-500/10 p-6">
@@ -293,10 +298,10 @@ function Hero({ tip, flash, err, loading, price, validatorCount, evmChainHex, po
       <div className="relative flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-2">
           <div className="flex items-center gap-2 flex-wrap">
-            <Badge tone="emerald" pulse={!err}>
-              <Wifi className="h-3 w-3" />{err ? "OFFLINE" : loading ? "CONNECTING" : "MAINNET LIVE"}
+            <Badge tone={netMeta.id === "testnet" ? "amber" : "emerald"} pulse={!err}>
+              <Wifi className="h-3 w-3" />{err ? "OFFLINE" : loading ? "CONNECTING" : `${netMeta.label.toUpperCase()} LIVE`}
             </Badge>
-            <Badge tone="violet"><Hash className="h-3 w-3" />chain_id 7878</Badge>
+            <Badge tone="violet"><Hash className="h-3 w-3" />chain_id {netMeta.chainId}</Badge>
             <Badge tone="cyan"><ShieldCheck className="h-3 w-3" />{validatorCount} validators</Badge>
             <Badge tone="emerald"><Cpu className="h-3 w-3" />ZVM Live</Badge>
           </div>
@@ -305,7 +310,7 @@ function Hero({ tip, flash, err, loading, price, validatorCount, evmChainHex, po
             Zebvix Mission Control
           </h1>
           <p className="text-sm text-muted-foreground max-w-2xl">
-            Real-time on-chain telemetry for the Zebvix L1. Native ZVM (Cancun) JSON-RPC live at <span className="font-mono text-foreground">93.127.213.192:8545</span> · auto-refresh 5s.
+            Real-time on-chain telemetry for the Zebvix L1. Native ZVM (Cancun) JSON-RPC live at <span className="font-mono text-foreground">{netMeta.rpcUrl.replace(/^https?:\/\//, "")}</span> · auto-refresh 5s.
           </p>
           <div className="flex gap-2 mt-3 flex-wrap">
             <Link href="/live-chain">
@@ -657,6 +662,8 @@ function QuickAccessGrid() {
 // Chain Identity Card
 // ─────────────────────────────────────────────────────────────────────────────
 function ChainIdentityCard() {
+  const net = useNetwork();
+  const netMeta = networkMeta(net);
   return (
     <div className="rounded-xl border border-border bg-card p-5">
       <div className="flex items-center gap-2 mb-4">
@@ -664,14 +671,14 @@ function ChainIdentityCard() {
         <h3 className="text-sm font-semibold">Chain Identity</h3>
       </div>
       <div className="space-y-2.5 text-xs">
-        <Row label="Name" value="Zebvix Mainnet" />
+        <Row label="Name" value={`Zebvix ${netMeta.label}`} />
         <Row label="Native Token" value="ZBX (18 decimals)" />
-        <Row label="Chain ID" value="7878 (0x1ec6)" mono />
-        <Row label="RPC HTTP" value="http://93.127.213.192:8545" mono copy />
+        <Row label="Chain ID" value={`${netMeta.chainId} (${netMeta.chainIdHex})`} mono />
+        <Row label="RPC HTTP" value={netMeta.rpcUrl} mono copy />
         <Row label="Consensus" value="Tendermint BFT" />
         <Row label="ZVM" value="Native Cancun-compatible · LIVE" />
         <Row label="VPS" value="srv1266996" mono />
-        <Row label="Service" value="zebvix.service" mono />
+        <Row label="Service" value={netMeta.serviceName} mono />
       </div>
     </div>
   );
@@ -699,6 +706,8 @@ function Row({ label, value, mono, copy }: { label: string; value: string; mono?
 // MetaMask Connect Card
 // ─────────────────────────────────────────────────────────────────────────────
 function MetaMaskConnectCard() {
+  const net = useNetwork();
+  const netMeta = networkMeta(net);
   const [adding, setAdding] = useState(false);
   const [result, setResult] = useState<string | null>(null);
 
@@ -713,14 +722,14 @@ function MetaMaskConnectCard() {
       await eth.request({
         method: "wallet_addEthereumChain",
         params: [{
-          chainId: "0x1ec6",
-          chainName: "Zebvix Mainnet",
+          chainId: netMeta.chainIdHex,
+          chainName: `Zebvix ${netMeta.label}`,
           nativeCurrency: { name: "Zebvix", symbol: "ZBX", decimals: 18 },
-          rpcUrls: ["http://93.127.213.192:8545"],
+          rpcUrls: [netMeta.rpcUrl],
           blockExplorerUrls: [window.location.origin],
         }],
       });
-      setResult("Added to MetaMask — chain id 7878");
+      setResult(`Added to MetaMask — chain id ${netMeta.chainId}`);
     } catch (e: any) {
       setResult(e?.message ?? "user rejected");
     } finally {
@@ -735,17 +744,17 @@ function MetaMaskConnectCard() {
         <h3 className="text-sm font-semibold">Connect MetaMask</h3>
       </div>
       <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
-        MetaMask, Foundry, ethers.js — sab native chalti hain. ZVM ka JSON-RPC port 8545 pe live hai.
+        MetaMask, Foundry, ethers.js — sab native chalti hain. ZVM ka JSON-RPC port {new URL(netMeta.rpcUrl).port || "80"} pe live hai.
       </p>
       <button onClick={addToMetaMask} disabled={adding}
         className="w-full px-4 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-amber-950 font-semibold text-sm flex items-center justify-center gap-2 transition disabled:opacity-50">
-        {adding ? "Adding…" : <><Zap className="h-4 w-4" /> Add Zebvix to MetaMask</>}
+        {adding ? "Adding…" : <><Zap className="h-4 w-4" /> Add Zebvix {netMeta.label} to MetaMask</>}
       </button>
       {result && (
         <div className="mt-3 p-2 rounded-md bg-card border border-border text-[10px] font-mono break-all">{result}</div>
       )}
       <div className="mt-3 text-[10px] text-muted-foreground">
-        Manual config: chain id <span className="font-mono text-foreground">7878</span>, RPC <span className="font-mono text-foreground">http://93.127.213.192:8545</span>, symbol <span className="font-mono text-foreground">ZBX</span>
+        Manual config: chain id <span className="font-mono text-foreground">{netMeta.chainId}</span>, RPC <span className="font-mono text-foreground">{netMeta.rpcUrl}</span>, symbol <span className="font-mono text-foreground">ZBX</span>
       </div>
     </div>
   );
@@ -755,38 +764,43 @@ function MetaMaskConnectCard() {
 // Dev Integration Section
 // ─────────────────────────────────────────────────────────────────────────────
 function DevIntegrationSection() {
+  const net = useNetwork();
+  const netMeta = networkMeta(net);
+  const url = netMeta.rpcUrl;
+  const cid = netMeta.chainId;
+  const cidHex = netMeta.chainIdHex;
   const tabs = [
     {
       id: "ethers", label: "ethers.js", icon: Code2,
       code: `import { JsonRpcProvider, formatEther } from "ethers";
 
-const provider = new JsonRpcProvider("http://93.127.213.192:8545");
+const provider = new JsonRpcProvider("${url}");
 const block = await provider.getBlockNumber();
 const bal   = await provider.getBalance("0xYourAddress");
-console.log({ block, bal: formatEther(bal), chainId: 7878 });`,
+console.log({ block, bal: formatEther(bal), chainId: ${cid} });`,
     },
     {
       id: "foundry", label: "Foundry / cast", icon: FileCode2,
       code: `# Query head block
-cast block-number --rpc-url http://93.127.213.192:8545
+cast block-number --rpc-url ${url}
 
 # Get balance
-cast balance 0xYourAddress --rpc-url http://93.127.213.192:8545
+cast balance 0xYourAddress --rpc-url ${url}
 
 # Deploy contract
 forge create src/MyToken.sol:MyToken \\
-  --rpc-url http://93.127.213.192:8545 \\
+  --rpc-url ${url} \\
   --private-key $PRIVATE_KEY \\
-  --chain-id 7878`,
+  --chain-id ${cid}`,
     },
     {
       id: "curl", label: "raw curl", icon: TerminalIcon,
-      code: `curl -s http://93.127.213.192:8545 \\
+      code: `curl -s ${url} \\
   -H 'content-type: application/json' \\
   -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'
-# → {"jsonrpc":"2.0","id":1,"result":"0x1ec6"}
+# → {"jsonrpc":"2.0","id":1,"result":"${cidHex}"}
 
-curl -s http://93.127.213.192:8545 \\
+curl -s ${url} \\
   -H 'content-type: application/json' \\
   -d '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}'`,
     },

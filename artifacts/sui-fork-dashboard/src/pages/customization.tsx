@@ -4,14 +4,20 @@ import {
   Palette, Globe2, Bell, Wifi, Smartphone, Wallet, Shield, ChevronRight,
   Check, Languages, MoonStar, Sun, Monitor, Zap, Radio,
 } from "lucide-react";
+import { MAINNET_META, TESTNET_META } from "@/lib/use-network";
+import { rpcPathFor } from "@/lib/zbx-rpc";
 
 type Theme = "dark" | "light" | "system";
 type Language = "en" | "hi" | "hinglish";
 
+// Source the user-facing endpoint list from the central network registry so
+// it stays in lock-step with the rest of the dashboard. The "vps" entry is
+// the proxied path that the dashboard itself uses (network-aware).
 const RPC_PRESETS = [
-  { id: "mainnet", label: "Mainnet", url: "https://rpc.zebvix.io", chain: 7878, latency: "Live" },
-  { id: "vps",     label: "Production Node", url: "/api/chain", chain: 7878, latency: "Live" },
-  { id: "custom",  label: "Custom Endpoint", url: "", chain: 0, latency: "—" },
+  { id: "mainnet", label: MAINNET_META.label,      url: MAINNET_META.rpcUrl,         chain: MAINNET_META.chainId, latency: "Live" },
+  { id: "testnet", label: TESTNET_META.label,      url: TESTNET_META.rpcUrl,         chain: TESTNET_META.chainId, latency: "Live" },
+  { id: "vps",     label: "Production Node (proxy)", url: rpcPathFor("mainnet"),     chain: MAINNET_META.chainId, latency: "Live" },
+  { id: "custom",  label: "Custom Endpoint",         url: "",                        chain: 0,                    latency: "—" },
 ];
 
 const LANGUAGES: { id: Language; label: string; native: string }[] = [

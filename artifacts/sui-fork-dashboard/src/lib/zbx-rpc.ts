@@ -8,7 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { getNetwork, type ZbxNetwork } from "./use-network";
 
-function rpcPathFor(net: ZbxNetwork): string {
+export function rpcPathFor(net: ZbxNetwork): string {
   return net === "testnet" ? "/api/rpc-testnet" : "/api/rpc";
 }
 

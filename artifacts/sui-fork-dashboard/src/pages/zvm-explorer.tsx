@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { rpc } from "@/lib/zbx-rpc";
+import { rpc, rpcPathFor } from "@/lib/zbx-rpc";
+import { useNetwork, networkMeta } from "@/lib/use-network";
 import {
   Cpu, Search, Send, Box, Hash, Wallet, Code2, Zap, Wifi,
   Check, Copy, AlertCircle, ChevronRight, Layers, Activity, Sparkles,
@@ -99,6 +100,8 @@ export default function ZvmExplorer() {
 // Header
 // ─────────────────────────────────────────────────────────────────────────────
 function Header() {
+  const net = useNetwork();
+  const netMeta = networkMeta(net);
   return (
     <div className="relative overflow-hidden rounded-2xl border border-violet-500/30 bg-gradient-to-br from-violet-500/15 via-primary/5 to-cyan-500/10 p-6">
       <div className="absolute inset-0 opacity-40 pointer-events-none" style={{
@@ -107,14 +110,18 @@ function Header() {
       <div className="relative flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-2">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 animate-pulse">
-              <Wifi className="h-3 w-3" /> ZVM ENDPOINT LIVE
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border animate-pulse ${
+              netMeta.isTestnet
+                ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
+                : "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+            }`}>
+              <Wifi className="h-3 w-3" /> ZVM {netMeta.label.toUpperCase()} LIVE
             </span>
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border border-violet-500/40 bg-violet-500/10 text-violet-300">
               <Cpu className="h-3 w-3" /> Cancun-compatible
             </span>
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border border-cyan-500/40 bg-cyan-500/10 text-cyan-300">
-              <Hash className="h-3 w-3" /> chain_id 0x1ec6
+              <Hash className="h-3 w-3" /> chain_id {netMeta.chainIdHex}
             </span>
           </div>
           <h1 className="text-3xl md:text-4xl font-bold tracking-tight flex items-center gap-3">
@@ -844,6 +851,9 @@ function saveHistory(items: ConsoleHistoryEntry[]) {
 }
 
 function RpcConsole({ seed }: { seed: ConsoleSeed | null }) {
+  const net = useNetwork();
+  const netMeta = networkMeta(net);
+  const rpcPath = rpcPathFor(net);
   const [method, setMethod] = useState("zbx_blockNumber");
   const [params, setParams] = useState("[]");
   const [resp, setResp] = useState<unknown>(null);
@@ -973,8 +983,8 @@ function RpcConsole({ seed }: { seed: ConsoleSeed | null }) {
       method: method.trim(),
       params: parsedParams,
     });
-    return `curl -X POST /api/rpc \\\n  -H 'Content-Type: application/json' \\\n  -d '${body.replace(/'/g, "'\\''")}'`;
-  }, [method, params]);
+    return `curl -X POST ${rpcPath} \\\n  -H 'Content-Type: application/json' \\\n  -d '${body.replace(/'/g, "'\\''")}'`;
+  }, [method, params, rpcPath]);
 
   const fetchSnippet = useMemo(() => {
     // The fetch snippet inlines the params text verbatim so the user sees
@@ -985,8 +995,8 @@ function RpcConsole({ seed }: { seed: ConsoleSeed | null }) {
       const v = JSON.parse(params);
       if (Array.isArray(v)) pretty = JSON.stringify(v, null, 2);
     } catch { /* keep raw text */ }
-    return `await fetch("/api/rpc", {\n  method: "POST",\n  headers: { "Content-Type": "application/json" },\n  body: JSON.stringify({\n    jsonrpc: "2.0",\n    id: 1,\n    method: ${JSON.stringify(method.trim())},\n    params: ${pretty},\n  }),\n}).then(r => r.json());`;
-  }, [method, params]);
+    return `await fetch("${rpcPath}", {\n  method: "POST",\n  headers: { "Content-Type": "application/json" },\n  body: JSON.stringify({\n    jsonrpc: "2.0",\n    id: 1,\n    method: ${JSON.stringify(method.trim())},\n    params: ${pretty},\n  }),\n}).then(r => r.json());`;
+  }, [method, params, rpcPath]);
 
   async function copyText(label: string, text: string) {
     try {

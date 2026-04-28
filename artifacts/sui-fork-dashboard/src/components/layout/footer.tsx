@@ -10,6 +10,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { useBrandConfig } from "@/lib/use-brand-config";
+import { useNetwork, networkMeta } from "@/lib/use-network";
 
 const VERSION = "v1.0.0";
 const YEAR = new Date().getFullYear();
@@ -78,6 +79,12 @@ function Col({ title, items }: { title: string; items: LinkDef[] }) {
 }
 
 export function Footer() {
+  const footerNet = useNetwork();
+  const netMeta = networkMeta(footerNet);
+  return <FooterInner netMeta={netMeta} />;
+}
+
+function FooterInner({ netMeta }: { netMeta: ReturnType<typeof networkMeta> }) {
   const brand = useBrandConfig();
   return (
     <footer className="mt-16 border-t border-border/60 bg-card/30">
@@ -127,9 +134,9 @@ export function Footer() {
             © {YEAR} {brand.brandName} Technologies. All rights reserved.
           </div>
           <div className="flex items-center gap-3 font-mono">
-            <span className="inline-flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              mainnet · 93.127.213.192
+            <span className="inline-flex items-center gap-1.5" data-testid="footer-network">
+              <span className={`h-1.5 w-1.5 rounded-full animate-pulse ${netMeta.isTestnet ? "bg-amber-400" : "bg-emerald-400"}`} />
+              {netMeta.label.toLowerCase()} · {netMeta.rpcUrl.replace(/^https?:\/\//, "").replace(/:[0-9]+$/, "")} · chain {netMeta.chainId}
             </span>
           </div>
         </div>

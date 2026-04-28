@@ -283,7 +283,7 @@ type ChainStatus = {
 // directly from the proxied RPC.  Network-aware via the rpc() helper so the
 // sidebar tracks whichever chain the user is currently looking at.
 import { rpc as zbxRpc } from "@/lib/zbx-rpc";
-import { useNetwork as useZbxNetwork } from "@/lib/use-network";
+import { useNetwork as useZbxNetwork, networkMeta } from "@/lib/use-network";
 
 function hexToIntOrNull(s: unknown): number | null {
   if (typeof s !== "string") return null;
@@ -382,6 +382,8 @@ export function Sidebar() {
   const [location] = useLocation();
   const { progress } = useChecklist();
   const { data: chain } = useLiveChain();
+  const sidebarNet = useZbxNetwork();
+  const netMeta = networkMeta(sidebarNet);
   const [collapsed, setCollapsed] = useLocalState<Record<string, boolean>>(
     "zbx-sidebar-collapsed",
     { core: false, live: false, addons: true }, // addons collapsed by default
@@ -567,7 +569,9 @@ export function Sidebar() {
           </div>
           <div className="flex flex-col col-span-2">
             <span className="text-muted-foreground/60 uppercase tracking-wider text-[9px]">Chain</span>
-            <span className="text-foreground/90">ZBX · 7878 · Cancun</span>
+            <span className="text-foreground/90" data-testid="sidebar-chain-tag">
+              {netMeta.symbol} · {netMeta.chainId} · {netMeta.label}
+            </span>
           </div>
         </div>
       </div>

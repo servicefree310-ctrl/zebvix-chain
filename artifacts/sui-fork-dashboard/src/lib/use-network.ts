@@ -91,6 +91,7 @@ export interface NetworkMeta {
   decimals: number;
   isTestnet: boolean;
   hint: string;
+  serviceName: string;
 }
 
 export const MAINNET_META: NetworkMeta = {
@@ -104,6 +105,7 @@ export const MAINNET_META: NetworkMeta = {
   decimals: 18,
   isTestnet: false,
   hint: "Production Zebvix L1 — real economic value, ~5s blocks",
+  serviceName: "zebvix.service",
 };
 
 export const TESTNET_META: NetworkMeta = {
@@ -117,6 +119,7 @@ export const TESTNET_META: NetworkMeta = {
   decimals: 18,
   isTestnet: true,
   hint: "Developer playground — tokens have NO economic value, may be reset at any time",
+  serviceName: "zebvix-testnet.service",
 };
 
 export function networkMeta(n: ZbxNetwork): NetworkMeta {
