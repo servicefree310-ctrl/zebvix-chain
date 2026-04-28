@@ -1,0 +1,63 @@
+    -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":2}' && \
+echo ""
+─── search for actual mainnet validator key (resolves to 0x40907…) ───
+/root/.gnupg/private-keys-v1.d
+/root/zebvix-full-source/nre/download_and_verify_private_binary.sh
+/root/zebvix-full-source/nre/validator_tool.md
+/root/zebvix-full-source/nre/download_private.sh
+/root/zebvix-full-source/nre/config/validator.yaml
+/root/zebvix-full-source/nre/dashboards/sui_mainnet_validators.json
+/root/zebvix-full-source/crates/sui-test-validator
+/root/zebvix-full-source/zebvix-config/validator.yaml
+/root/zebvix-full-source/bridge/runbook/validator_runbook.md
+/root/zebvix-full-source/scripts/sui-test-validator.sh
+/root/zebvix-full-source/zebvix-scripts/validator.yaml
+/root/.zebvix.backup-20260423-033910/validator.key
+/root/.zebvix/owner3.key
+/root/.zebvix/validator.key
+/root/.zebvix/owner2.key
+/root/.zebvix/founder.key
+/root/.zebvix/validator.key.bak
+/root/zebvix-genesis/validator1
+/root/.zebvix-testnet/validator-keys
+/root/.zebvix-testnet/validator-keys/founder.key
+
+─── inspect mainnet systemd unit to see WHERE it loads its key from ───
+ExecStart=/usr/local/bin/zebvix-node start --home /root/.zebvix --rpc 0.0.0.0:8545 --p2p-port 30333
+
+─── mainnet home dir contents (key is probably here, named differently) ───
+total 104
+drwxr-xr-x  3 root root  4096 Apr 25 12:39 .
+drwx------ 29 root root  4096 Apr 28 03:41 ..
+drwxr-xr-x  2 root root 65536 Apr 28 03:47 data
+-rw-r--r--  1 root root   231 Apr 24 09:25 founder.key
+-rw-r--r--  1 root root   379 Apr 24 09:29 genesis.json
+-rw-r--r--  1 root root    55 Apr 24 09:29 node.json
+-rw-r--r--  1 root root    57 Apr 24 09:21 node.json.bak
+-rw-r--r--  1 root root   229 Apr 23 18:12 owner2.key
+-rw-r--r--  1 root root   229 Apr 23 18:12 owner3.key
+-rw-r--r--  1 root root   229 Apr 23 03:52 validator.key
+-rw-r--r--  1 root root   229 Apr 24 09:21 validator.key.bak
+/root/.zebvix/owner3.key
+/root/.zebvix/data/LOG.old.1777107586486759
+/root/.zebvix/data/LOG.old.1777105677130814
+/root/.zebvix/data/LOG.old.1777103349372676
+/root/.zebvix/data/LOG.old.1777106239137994
+/root/.zebvix/data/LOG.old.1777104299375249
+/root/.zebvix/data/LOG.old.1777105210873425
+/root/.zebvix/data/LOG.old.1777107617889079
+/root/.zebvix/data/LOG.old.1777107073130628
+/root/.zebvix/data/LOG.old.1777105540875044
+/root/.zebvix/data/LOG.old.1777179436842853
+/root/.zebvix/data/LOG.old.1777105069624706
+/root/.zebvix/data/LOG.old.1777299165626751
+/root/.zebvix/data/LOG.old.1777106254874590
+/root/.zebvix/data/LOG.old.1777105982398440
+/root/.zebvix/data/LOG.old.1777105006624345
+/root/.zebvix/data/LOG.old.1777106218129872
+/root/.zebvix/data/LOG.old.1777106312625986
+/root/.zebvix/data/LOG.old.1777106795629551
+/root/.zebvix/data/LOG.old.1777106197126789
+
+─── confirm testnet IS alive (correct RPC method = eth_chainId / eth_blockNumber) ───
+root@srv1266996:/home/zebvix-chain# 
