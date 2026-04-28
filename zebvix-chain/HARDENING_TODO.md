@@ -40,7 +40,8 @@ two Tier-1 gates on the same restart.**
 | ↳ B.3.2.7-F006.1        | FSM runtime adapter scaffold                   | ✅ shipped dormant  |
 | ↳ B.3.2.7-F006.2        | Vote-pool tally APIs (FSM event source primitives) | ✅ shipped dormant  |
 | ↳ B.3.2.7-F006.3        | `FsmAction` → I/O sink (handle_action dispatch) | ✅ shipped dormant ¹ |
-| ↳ F006.4 → F006.7       | Recovery, observability, N=1 cadence, test matrix | ⏳ planned (§B.3.2.7) |
+| ↳ B.3.2.7-F006.4        | Event sources + dispatch loop (vote-pool watcher, tick clock, proposal cache, recovery) | ✅ shipped dormant ⁴ |
+| ↳ F006.5 → F006.7       | Observability, N=1 cadence, test matrix + VPS gate | ⏳ planned (§B.3.2.7) |
 | **C2 / C2.1-C2.6**      | Keccak256 signing migration (EVM-native UX)    | ⏳ planned (§C2)     |
 | **C3 / C3.1-C3.7**      | M-of-N bridge oracle multisig                  | ⏳ planned (§C3)     |
 
@@ -91,6 +92,52 @@ the next session. For now the apply path is reachable from gossip
 relayers and unit tests only; live VPS chain has nothing calling
 it yet, so D2 is fully dormant in practice (zero production-side
 risk).
+
+⁴ **F006.4 footnote.** `FsmRuntime` gained four working components +
+a real event loop, replacing F006.3's warn+sleep `run()` guard.
+**(a) Vote-pool watcher** (`poll_vote_quorums`): walks
+`tally_prevotes_for` / `tally_precommits_for` at the FSM's current
+`(height, round)` and emits `PrevoteQuorum`/`PrecommitQuorum`
+events for every target whose voting power crosses the 2/3+
+threshold. Dedup via a `Mutex<HashSet<(height,round,VoteType,target)>>`
+so a stable quorum doesn't re-fire on every poll; cleared on
+`EnteredHeight` so the new height observes its own quorums fresh.
+**(b) Tick clock** (`tick_once`): drives `FsmEvent::Tick(now)` at
+the same 500ms cadence as the legacy producer (compile-time tied
+to `consensus::PROPOSE_TIMEOUT_SECS` for round-bump parity).
+**(c) Bounded proposal cache** (`cache_proposal`):
+`Mutex<BTreeMap<u64, Block>>` capped at `PROPOSAL_CACHE_CAP = 64`
+entries with smallest-height eviction; `handle_action(CommitBlock)`
+sources the actual `Block` bytes for `state.apply_block` from this
+cache. No production caller exists yet — a future p2p ingress
+hook (F006.4.5 / bundled with F006.7) will populate it.
+**(d) Recovery helper** (`recover_from_state`): derives the FSM
+start height from `state.tip().0 + 1`, honoring the existing
+`State::open` partial-write guard (`state.rs` lines 2767-2780).
+`FsmRuntime::new` now calls this internally (cleaner API; the
+old `start_height` arg is gone). **(e) Real event loop**:
+tick-driven sequential loop (`tokio::time::interval` 500ms wake-up
+→ tick clock → watcher poll → drain feedback events through
+`step` until exhausted, capped at `MAX_EVENTS_PER_TICK = 64` as
+a runaway-feedback guardrail) with a
+`state.tip() >= height` safety guard in `handle_action(CommitBlock)`
+that prevents double-apply over a height the legacy path already
+finalised. Critically, `BuildProposal` / `BroadcastPrevote` /
+`BroadcastPrecommit` remain log-only stubs (matches F006.3
+behaviour) — this is **shadow-observer mode**: the FSM runtime
+runs in parallel with `Producer::run` when enabled, but cannot
+fork the chain because it produces no side effects beyond a
+`CommitBlock` that's gated by tip. F006.7 will lift this
+restriction (and simultaneously stop the legacy producer) once
+F006.5 (cadence) + F006.6 (gating soak) prove the FSM
+byte-identical. Five new tests (197 total chain tests):
+`poll_vote_quorums_emits_prevote_quorum_under_n1`,
+`tick_once_without_quorum_is_noop_on_height`,
+`proposal_cache_caps_and_evicts_smallest_height`,
+`recover_from_state_returns_tip_plus_one`,
+`run_returns_immediately_when_disabled`. Plus three
+`handle_action_*` updates for the new shadow-stub semantics.
+`enabled()` still defaults `false` — live VPS unaffected.
 
 ³ **D4 footnote.** `/metrics` is mounted on the existing RPC port
 instead of a separate `:9090` listener (see `rpc::router`'s
@@ -911,17 +958,90 @@ architect-passed.** This task wires it into the live producer loop.
     one full Tick cycle commits one block and the next height
     starts.
 
-- **F006.4 — Startup recovery.** In `FsmRuntime::run` startup:
-  - Load `current_tip = state.tip()`. Construct
-    `FsmState::new(current_tip + 1, default_timeouts(), now)`.
-  - Inspect `state.get_bft_commit(&tip_hash)` for the tip:
-    - Present + valid → no recovery needed.
-    - Absent BUT a quorum exists in pool → re-emit
-      `PrecommitQuorum` synthetically so the FSM re-issues
-      `CommitBlock` then `BlockApplied` fires.
-  - **Acceptance:** kill `-9` the process during a `Step::Commit`,
-    restart, watch a single `[fsm-recover]` log line and chain
-    resumes from same height.
+- **F006.4 — Event sources + dispatch loop. ✅ SHIPPED (Phase B.3.2.7
+  commit 4).** `FsmRuntime` gained `Arc<VotePool>` + `proposal_cache:
+  Mutex<BTreeMap<u64, Block>>` (cap 64 with smallest-height eviction)
+  + `last_emitted_quorum: Mutex<HashSet<(u64,u32,VoteType,Option<Hash>)>>`
+  fields, plus four working components and a real event loop:
+  - `pub async fn poll_vote_quorums(&self) -> Vec<FsmEvent>` — walks
+    `tally_prevotes_for` / `tally_precommits_for` at the FSM's
+    current `(height, round)` and emits one
+    `PrevoteQuorum` / `PrecommitQuorum` event per target whose
+    voting power crosses the 2/3+ threshold. Dedup via the
+    `last_emitted_quorum` set so a stable quorum doesn't re-fire on
+    every poll; the set is cleared on `EnteredHeight` so the new
+    height observes its own quorums fresh. Lock discipline:
+    acquires `fsm` (read-only snapshot), releases, then
+    `last_emitted_quorum`, releases — never holds two mutexes
+    simultaneously.
+  - `pub async fn tick_once(&self, now: Instant) -> Result<Vec<FsmEvent>>`
+    — feeds a single `FsmEvent::Tick(now)` into the FSM and dispatches
+    every emitted action through `handle_action`. Returns downstream
+    events for the caller to re-feed.
+  - `pub async fn cache_proposal(&self, block: Block)` — bounded LRU
+    insert into `proposal_cache`. Eviction policy: when len exceeds
+    `PROPOSAL_CACHE_CAP = 64`, the smallest height is removed. No
+    production caller exists yet — a future p2p ingress hook
+    (F006.4.5 / bundled with F006.7) will populate it.
+  - `pub fn recover_from_state(state: &State) -> u64` — returns
+    `state.tip().0 + 1`. Honors the existing `State::open`
+    partial-write recovery guard (`state.rs` lines 2767-2780):
+    by the time this runs, `state.tip()` is guaranteed to be a
+    fully-committed height. `FsmRuntime::new` calls this internally
+    (cleaner API; the old `start_height` arg is gone).
+  - `pub async fn run(self: Arc<Self>)` — replaces F006.3's warn+sleep
+    with a tick-driven sequential loop (`tokio::time::interval` 500ms
+    wake-up matching legacy `consensus::Producer::run`, then tick
+    clock → watcher poll → drain feedback events through `step`
+    until exhausted). Each `handle_action` return value (e.g.
+    `BlockApplied` from a `CommitBlock` dispatch) is folded back
+    into the pending-event queue inside the same tick so the FSM
+    advances out of `Step::Commit` immediately — closed-loop
+    "event → action → event" pipeline without a separate broker.
+    Hard cap `MAX_EVENTS_PER_TICK = 64` as a defensive belt against
+    feedback runaway. Not yet a `tokio::select!` because the only
+    awaitable source today is the tick interval; F006.4.5 will add
+    the p2p proposal-ingress channel as a real second arm. Disabled-
+    fast path: returns immediately when `enabled()=false`, no
+    warning, no busy-wait. Shadow-observer mode (default even when
+    enabled): `BuildProposal` / `BroadcastPrevote` /
+    `BroadcastPrecommit` remain log-only stubs; only `CommitBlock`
+    reaches `state.apply_block`, gated by a `state.tip() < height`
+    safety check that prevents double-apply if the legacy path
+    already committed that height (which it always has in F006.4 —
+    legacy producer is still in charge until F006.7).
+  - **Why no legacy pre-emption in F006.4?** The F006 contract
+    requires "byte-identical to legacy over 1000 blocks" with the
+    flag OFF before F006.7 flips it ON. Pre-empting in F006.4
+    without the cadence rate-limiter (F006.6) and the proposal
+    gossip ingress wired (F006.4.5) would risk forking under a
+    cold-start race. Shadow-observer mode lets us soak the FSM
+    code paths in production (with `enabled()=true` set
+    out-of-band by the operator on a test VPS) without touching
+    the legacy consensus drive, so a regression discovered late
+    is recoverable by simply unsetting the env var.
+  - **Five new tests** (chain test count: 192 → 197):
+    - `poll_vote_quorums_emits_prevote_quorum_under_n1` (T001)
+    - `tick_once_without_quorum_is_noop_on_height` (T002)
+    - `proposal_cache_caps_and_evicts_smallest_height` (T003)
+    - `recover_from_state_returns_tip_plus_one` (T004)
+    - `run_returns_immediately_when_disabled` (T005)
+  - Plus three `handle_action_*` test updates for the new
+    shadow-stub semantics (`BuildProposal` no-op,
+    `CommitBlock` below-tip is idempotent, `CommitBlock`
+    above-tip without cache errors with a clear message).
+  - **Acceptance (this commit):** `cargo test --features zvm`
+    on the build host runs all 197 tests green. Live VPS chain
+    rebuild + binary swap shows `mode=ROUND_ROBIN+TIMEOUTS`
+    in the journal (legacy producer still in charge), block
+    height advances at 5s cadence, FSM dormant.
+
+- **F006.4.5 — Proposal gossip ingress** (deferred, can bundle
+  with F006.7). Wire `cache_proposal` to the p2p ingress so
+  every received block proposal lands in the cache before the
+  FSM emits a corresponding `CommitBlock`. Currently the cache
+  is reachable only from tests + manual operator probes — fine
+  for shadow-observer mode, blocking for F006.7 activation.
 
 - **F006.5 — Observability.** Add metrics-style structured INFO logs:
   - `[fsm] tick height=N round=R step=S elapsed_ms=E` (every 5
