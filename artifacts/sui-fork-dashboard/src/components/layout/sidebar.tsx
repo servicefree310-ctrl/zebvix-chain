@@ -50,6 +50,7 @@ import {
   X,
   Package,
   Hammer,
+  FlaskConical,
 } from "lucide-react";
 import { useChecklist } from "@/hooks/useChecklist";
 import { Progress } from "@/components/ui/progress";
@@ -146,6 +147,7 @@ const ADDON_NAV: NavLink[] = [
   { href: "/implementation", label: "Implementation Roadmap", icon: Map },
   { href: "/rebranding", label: "Rebranding Guide", icon: Paintbrush },
   { href: "/zbx-tokenomics", label: "ZBX Tokenomics Design", icon: Coins },
+  { href: "/testnet", label: "Testnet (chain 78787)", icon: FlaskConical, badge: "NEW" },
   { href: "/faucet", label: "Testnet Faucet", icon: Droplets },
   { href: "/bridge", label: "Cross-Chain Bridge", icon: ArrowLeftRight },
   { href: "/bridge-live", label: "Bridge — Lock & Send", icon: Lock, badge: "LIVE" },
@@ -277,19 +279,47 @@ type ChainStatus = {
   ok?: boolean;
 };
 
+// Sidebar chain status — pulls eth_blockNumber + eth_chainId + net_peerCount
+// directly from the proxied RPC.  Network-aware via the rpc() helper so the
+// sidebar tracks whichever chain the user is currently looking at.
+import { rpc as zbxRpc } from "@/lib/zbx-rpc";
+import { useNetwork as useZbxNetwork } from "@/lib/use-network";
+
+function hexToIntOrNull(s: unknown): number | null {
+  if (typeof s !== "string") return null;
+  try {
+    const n = parseInt(s, 16);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
 async function fetchChainStatus(): Promise<ChainStatus | null> {
   try {
-    const r = await fetch("/api/chain/status", { cache: "no-store" });
-    if (!r.ok) return null;
-    return (await r.json()) as ChainStatus;
+    const [height, chainId, peers] = await Promise.all([
+      zbxRpc<string>("eth_blockNumber").catch(() => null),
+      zbxRpc<string>("eth_chainId").catch(() => null),
+      zbxRpc<string>("net_peerCount").catch(() => null),
+    ]);
+    const h = hexToIntOrNull(height);
+    const cid = hexToIntOrNull(chainId);
+    if (h === null && cid === null) return null;
+    return {
+      height: h ?? undefined,
+      chainId: cid ?? undefined,
+      peers: hexToIntOrNull(peers) ?? undefined,
+      ok: h !== null && cid !== null,
+    };
   } catch {
     return null;
   }
 }
 
 function useLiveChain() {
+  const net = useZbxNetwork();
   return useQuery({
-    queryKey: ["sidebar-chain-status"],
+    queryKey: ["sidebar-chain-status", net],
     queryFn: fetchChainStatus,
     refetchInterval: 5_000,
     staleTime: 4_000,

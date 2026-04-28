@@ -14,8 +14,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-
-const RPC_PATH = "/api/rpc";
+import { rpc as zbxRpc, ZbxRpcError } from "@/lib/zbx-rpc";
+import { useNetwork, networkMeta } from "@/lib/use-network";
 
 interface MethodSpec {
   name: string;
@@ -107,6 +107,7 @@ interface CallRecord {
 
 export default function RpcPlayground() {
   const { toast } = useToast();
+  const net = useNetwork();
   const [filter, setFilter] = useState("");
   const [picked, setPicked] = useState<MethodSpec>(METHODS[0]);
   const [params, setParams] = useState<string>(METHODS[0].example);
@@ -146,22 +147,29 @@ export default function RpcPlayground() {
     setBusy(true);
     const ts = Date.now();
     try {
-      const r = await fetch(RPC_PATH, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: picked.name, params: parsed }),
-      });
-      const body = await r.json();
+      // Network-aware: routes through /api/rpc on mainnet and /api/rpc-testnet
+      // on testnet automatically based on the user's current selection.
+      const result = await zbxRpc<unknown>(
+        picked.name,
+        Array.isArray(parsed) ? parsed : [parsed],
+      );
       const ms = Date.now() - ts;
-      const ok = !body.error;
+      const body = { jsonrpc: "2.0", id: 1, result };
       const pretty = JSON.stringify(body, null, 2);
-      setResponse({ ok, body: pretty, ms });
-      const okRec: CallRecord = { ts, method: picked.name, params, status: ok ? "ok" : "err", durationMs: ms, body: pretty };
+      setResponse({ ok: true, body: pretty, ms });
+      const okRec: CallRecord = { ts, method: picked.name, params, status: "ok", durationMs: ms, body: pretty };
       setHistory((h) => [okRec, ...h].slice(0, 10));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
       const ms = Date.now() - ts;
-      setResponse({ ok: false, body: JSON.stringify({ error: { message: msg } }, null, 2), ms });
+      // Map ZbxRpcError back into the JSON-RPC envelope so the UI displays
+      // the error code + message exactly the way the proxy returned it.
+      const errBody =
+        e instanceof ZbxRpcError
+          ? { jsonrpc: "2.0", id: 1, error: { code: e.code, message: e.message, data: e.data } }
+          : { jsonrpc: "2.0", id: 1, error: { message: e instanceof Error ? e.message : String(e) } };
+      const pretty = JSON.stringify(errBody, null, 2);
+      const msg = e instanceof Error ? e.message : String(e);
+      setResponse({ ok: false, body: pretty, ms });
       const errRec: CallRecord = { ts, method: picked.name, params, status: "err", durationMs: ms, body: msg };
       setHistory((h) => [errRec, ...h].slice(0, 10));
     } finally {
@@ -175,8 +183,9 @@ export default function RpcPlayground() {
         <h1 className="text-3xl font-bold tracking-tight text-foreground mb-3">RPC Playground</h1>
         <p className="text-lg text-muted-foreground">
           Try every JSON-RPC method exposed by the Zebvix proxy. Pick a method on the
-          left, edit the JSON params, hit Execute. Calls hit the same <code className="text-xs">/api/rpc</code>
-          endpoint the dashboard uses.
+          left, edit the JSON params, hit Execute. Calls automatically route to the currently-selected
+          network (<code className="text-xs">{networkMeta(net).id === "testnet" ? "/api/rpc-testnet" : "/api/rpc"}</code>{" "}
+          → chain {networkMeta(net).chainId}).
         </p>
       </div>
 

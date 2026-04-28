@@ -1,15 +1,20 @@
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import { getEffectiveRpcUrl } from "../lib/admin-settings";
 
 const rpcRouter = Router();
 
-// Default upstream — used by the rate-limit info endpoint and as the ultimate
-// fallback if both the admin override and the env var are missing. The actual
-// proxied call resolves the URL per-request through getEffectiveRpcUrl() which
-// is cached for 5 seconds so admin changes take effect almost immediately
-// without slamming the database on every RPC call.
+// ─────────────────────────────────────────────────────────────────────────────
+// Upstream URLs.  Mainnet is the existing, admin-overridable URL.  Testnet is
+// a *separate* binary on the same VPS at port 18545 (chain_id 78787) — there's
+// deliberately no admin override path for testnet because it's a developer
+// playground, not a production endpoint.  Both routes share the SAME allowlist
+// + rate-limit so we never accidentally drift the surface area.
+// ─────────────────────────────────────────────────────────────────────────────
 const VPS_RPC_URL =
   process.env["ZEBVIX_VPS_RPC"] ?? "http://93.127.213.192:8545";
+
+const VPS_TESTNET_RPC_URL =
+  process.env["ZEBVIX_TESTNET_RPC"] ?? "http://93.127.213.192:18545";
 
 const ALLOWED_METHODS = new Set<string>([
   "zbx_chainInfo",
@@ -64,7 +69,6 @@ const ALLOWED_METHODS = new Set<string>([
   "zbx_getZvmReceipt",
   "zbx_getEvmTransaction",
   "zbx_getEvmReceipt",
-  "zbx_supply",
   // ── User-launched fungible tokens (read-only) ─────────────────────
   "zbx_listTokens",
   "zbx_tokenInfo",
@@ -84,10 +88,6 @@ const ALLOWED_METHODS = new Set<string>([
   "zbx_getTokenPoolByAddress",
   "zbx_isPoolAddress",
   // ── Phase H.1 — Typed tx-by-hash w/ TxKind payload decoding ────────
-  // Surfaces the SEMANTIC fields (e.g. TokenPoolCreate seed amounts,
-  // TokenTransfer recipient, TokenPoolSwap direction+amount_in) that the
-  // legacy `eth_getTransactionByHash` mapping flattens to `value: 0`.
-  // Read-only, scoped to the recent-tx ring window (~1000 txs).
   "zbx_getTxByHash",
   // ── Bridge (read-only) — lock vault + asset registry + events ─────
   "zbx_bridgeStats",
@@ -107,7 +107,6 @@ const ALLOWED_METHODS = new Set<string>([
   "zbx_featureFlagsList",
   "zbx_featureFlagGet",
   // ── Phase C.2 native EVM JSON-RPC (Cancun) ──────────────────────────
-  // Read-side
   "eth_chainId",
   "eth_blockNumber",
   "eth_getBalance",
@@ -134,13 +133,10 @@ const ALLOWED_METHODS = new Set<string>([
   "eth_mining",
   "eth_hashrate",
   "eth_protocolVersion",
-  // Write-side (signed raw txs only — node still validates chain id, sig, gas, nonce)
   "eth_sendRawTransaction",
-  // net_*
   "net_version",
   "net_listening",
   "net_peerCount",
-  // web3_*
   "web3_clientVersion",
   "web3_sha3",
   "rpc_methods",
@@ -150,15 +146,18 @@ interface RateBucket {
   count: number;
   resetAt: number;
 }
+// Two independent rate-limit buckets so a chatty testnet client can't starve
+// mainnet readers (and vice-versa).  Both are still per-IP.
 const rateMap = new Map<string, RateBucket>();
+const rateMapTestnet = new Map<string, RateBucket>();
 const RATE_WINDOW_MS = 60_000;
 const RATE_MAX_REQS = 600;
 
-function rateLimit(ip: string): boolean {
+function rateLimit(map: Map<string, RateBucket>, ip: string): boolean {
   const now = Date.now();
-  const b = rateMap.get(ip);
+  const b = map.get(ip);
   if (!b || b.resetAt < now) {
-    rateMap.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
+    map.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
     return true;
   }
   if (b.count >= RATE_MAX_REQS) return false;
@@ -166,10 +165,10 @@ function rateLimit(ip: string): boolean {
   return true;
 }
 
-// Public info endpoint. We DO NOT leak the resolved upstream URL because the
-// admin can override it with a private hostname/IP that should not be
-// disclosed publicly. Anyone holding the admin token can read the real value
-// from /api/admin/settings.
+// ─────────────────────────────────────────────────────────────────────────────
+// /api/rpc/info — public surface description (does NOT leak the resolved
+// upstream URL since admins can override it with a private endpoint).
+// ─────────────────────────────────────────────────────────────────────────────
 rpcRouter.get("/rpc/info", async (_req, res) => {
   let configured = false;
   try {
@@ -182,16 +181,34 @@ rpcRouter.get("/rpc/info", async (_req, res) => {
     upstream_configured: configured,
     rate_limit_per_min: RATE_MAX_REQS,
     allowed_methods: Array.from(ALLOWED_METHODS).sort(),
+    networks: ["mainnet", "testnet"],
+    testnet_configured: Boolean(VPS_TESTNET_RPC_URL),
   });
 });
 
-rpcRouter.post("/rpc", async (req, res) => {
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared proxy handler — same allowlist, same validation, different upstream.
+// `network` is purely cosmetic (used in error messages + the rate-limit map
+// selection).  `resolveUpstream()` returns the actual URL to call.
+// ─────────────────────────────────────────────────────────────────────────────
+async function handleProxy(
+  req: Request,
+  res: Response,
+  opts: {
+    network: "mainnet" | "testnet";
+    rateMap: Map<string, RateBucket>;
+    resolveUpstream: () => Promise<string>;
+  },
+): Promise<void> {
   const ip = (req.ip ?? "unknown").toString();
-  if (!rateLimit(ip)) {
+  if (!rateLimit(opts.rateMap, ip)) {
     res.status(429).json({
       jsonrpc: "2.0",
       id: req.body?.id ?? null,
-      error: { code: -32005, message: "rate limit exceeded (600 req/min)" },
+      error: {
+        code: -32005,
+        message: `rate limit exceeded (${RATE_MAX_REQS} req/min on ${opts.network})`,
+      },
     });
     return;
   }
@@ -205,8 +222,6 @@ rpcRouter.post("/rpc", async (req, res) => {
     });
     return;
   }
-  // Reject excessively large param payloads early (express.json() already
-  // caps body size to 256kb; this is a softer per-call sanity bound).
   if (body.method.length > 64) {
     res.status(400).json({
       jsonrpc: "2.0",
@@ -215,7 +230,11 @@ rpcRouter.post("/rpc", async (req, res) => {
     });
     return;
   }
-  if (body.params !== undefined && !Array.isArray(body.params) && typeof body.params !== "object") {
+  if (
+    body.params !== undefined &&
+    !Array.isArray(body.params) &&
+    typeof body.params !== "object"
+  ) {
     res.status(400).json({
       jsonrpc: "2.0",
       id: body.id ?? null,
@@ -236,18 +255,19 @@ rpcRouter.post("/rpc", async (req, res) => {
     return;
   }
 
-  const upstream: { jsonrpc: string; id: unknown; method: string; params: unknown } = {
+  const upstream = {
     jsonrpc: "2.0",
     id: body.id ?? 1,
     method: body.method,
     params: body.params ?? [],
   };
 
-  let upstreamUrl = VPS_RPC_URL;
+  let upstreamUrl: string;
   try {
-    upstreamUrl = await getEffectiveRpcUrl();
+    upstreamUrl = await opts.resolveUpstream();
   } catch {
-    // keep the env default if the settings cache miss + DB read both fail
+    upstreamUrl =
+      opts.network === "testnet" ? VPS_TESTNET_RPC_URL : VPS_RPC_URL;
   }
 
   try {
@@ -263,8 +283,6 @@ rpcRouter.post("/rpc", async (req, res) => {
     const text = await r.text();
     res.status(r.status).type("application/json").send(text);
   } catch (err) {
-    // Don't leak the upstream URL or internal stack traces; just signal that
-    // the RPC backend is unreachable + whether it was a timeout.
     const aborted =
       err instanceof Error &&
       (err.name === "AbortError" || /abort/i.test(err.message));
@@ -274,11 +292,35 @@ rpcRouter.post("/rpc", async (req, res) => {
       error: {
         code: -32000,
         message: aborted
-          ? "upstream RPC timeout"
-          : "upstream RPC unreachable",
+          ? `upstream RPC timeout (${opts.network})`
+          : `upstream RPC unreachable (${opts.network})`,
       },
     });
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mainnet route (existing behavior, untouched contract — admin can override
+// the upstream URL via /api/admin/settings).
+// ─────────────────────────────────────────────────────────────────────────────
+rpcRouter.post("/rpc", async (req, res) => {
+  await handleProxy(req, res, {
+    network: "mainnet",
+    rateMap,
+    resolveUpstream: getEffectiveRpcUrl,
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Testnet route — chain_id 78787, port 18545.  No admin override; the URL is
+// either the env var ZEBVIX_TESTNET_RPC or the hard-coded VPS default.
+// ─────────────────────────────────────────────────────────────────────────────
+rpcRouter.post("/rpc-testnet", async (req, res) => {
+  await handleProxy(req, res, {
+    network: "testnet",
+    rateMap: rateMapTestnet,
+    resolveUpstream: async () => VPS_TESTNET_RPC_URL,
+  });
 });
 
 export default rpcRouter;

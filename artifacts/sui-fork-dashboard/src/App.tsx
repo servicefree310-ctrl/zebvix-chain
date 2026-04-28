@@ -44,6 +44,7 @@ import ChainCode from "@/pages/chain-code";
 import ServiceCode from "@/pages/service-code";
 import AdminPage from "@/pages/admin";
 import ChainStatus from "@/pages/chain-status";
+import TestnetPage from "@/pages/testnet";
 import ConsensusRoadmap from "@/pages/consensus-roadmap";
 import LiveChain from "@/pages/live-chain";
 import BalanceLookup from "@/pages/balance-lookup";
@@ -124,6 +125,7 @@ function Router() {
         <Route path="/service-code" component={ServiceCode} />
         <Route path="/admin" component={AdminPage} />
         <Route path="/chain-status" component={ChainStatus} />
+        <Route path="/testnet" component={TestnetPage} />
         <Route path="/consensus-roadmap" component={ConsensusRoadmap} />
         <Route path="/live-chain" component={LiveChain} />
         <Route path="/balance-lookup" component={BalanceLookup} />

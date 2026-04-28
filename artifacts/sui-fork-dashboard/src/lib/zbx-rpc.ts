@@ -1,4 +1,16 @@
-const RPC_PATH = "/api/rpc";
+// ─────────────────────────────────────────────────────────────────────────────
+// RPC routing.  We have two upstream binaries:
+//   • mainnet  → /api/rpc          → http://93.127.213.192:8545   (chain 7878)
+//   • testnet  → /api/rpc-testnet  → http://93.127.213.192:18545 (chain 78787)
+// The selected network is read from localStorage at *call time* so we always
+// route to the right node even if the user toggles mid-session.  (Callers that
+// want absolute control can pass `network` to rpcOn().)
+// ─────────────────────────────────────────────────────────────────────────────
+import { getNetwork, type ZbxNetwork } from "./use-network";
+
+function rpcPathFor(net: ZbxNetwork): string {
+  return net === "testnet" ? "/api/rpc-testnet" : "/api/rpc";
+}
 
 export interface RpcError {
   code: number;
@@ -20,7 +32,18 @@ export async function rpc<T = unknown>(
   method: string,
   params: unknown[] = [],
 ): Promise<T> {
-  const r = await fetch(RPC_PATH, {
+  return rpcOn<T>(getNetwork(), method, params);
+}
+
+// Pinned-network variant — useful for e.g. side-by-side mainnet/testnet
+// comparison widgets that need to call both endpoints regardless of the
+// user's currently-selected default.
+export async function rpcOn<T = unknown>(
+  net: ZbxNetwork,
+  method: string,
+  params: unknown[] = [],
+): Promise<T> {
+  const r = await fetch(rpcPathFor(net), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
