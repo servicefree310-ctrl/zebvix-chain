@@ -1,0 +1,100 @@
+root@srv1266996:/home/zebvix-chain# cd /home/zebvix-chain && \
+ZVB_CI_FEATURES=zvm bash scripts/ci-check.sh && \
+echo "─── mainnet build ───" && \
+cargo build --release --features zvm && \
+install -m 755 target/release/zebvix-node /usr/local/bin/zebvix-node && \
+systemctl restart zebvix.service && \
+echo "─── testnet build (CHAIN_ID=78787) ───" && \
+ZVB_CI_FEATURES=zvm,testnet bash scripts/ci-check.sh && \
+bash scripts/testnet-deploy.sh && \
+sleep 3 && \
+echo "─── mainnet status ───" && \
+journalctl -u zebvix.service -n 12 --no-pager && \
+echo "─── testnet status ───" && \
+journalctl -u zebvix-testnet.service -n 20 --no-pager && \
+echo "─── testnet RPC smoke test ───" && \
+curl -s -X POST http://127.0.0.1:18545 -H 'content-type:application/json' \
+  -d '{"jsonrpc":"2.0","method":"zvb_getTip","id":1}'
+▶ Phase D-10 CI gate
+  chain_root = /home/zebvix-chain
+  features   = zvm
+  timeout    = 600s per step
+  mode       = full
+
+── cargo check --features zvm ──
+✓ PASS: cargo check --features zvm
+
+── cargo clippy --features zvm (warnings denied) ──
+✓ PASS: cargo clippy --features zvm (warnings denied)
+
+── cargo test --lib --features zvm ──
+
+running 202 tests
+....................................................................................... 87/202
+....................................................................................... 174/202
+............................
+test result: ok. 202 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.82s
+
+✓ PASS: cargo test --lib --features zvm
+
+
+✅ ALL CHECKS PASSED
+   target/.last-ci-pass updated → 2026-04-28T03:47:38Z
+   Tarball handler will accept fresh deploys for the next 24h.
+─── mainnet build ───
+    Finished `release` profile [optimized] target(s) in 0.24s
+─── testnet build (CHAIN_ID=78787) ───
+▶ Phase D-10 CI gate
+  chain_root = /home/zebvix-chain
+  features   = zvm,testnet
+  timeout    = 600s per step
+  mode       = full
+
+── cargo check --features zvm,testnet ──
+✓ PASS: cargo check --features zvm,testnet
+
+── cargo clippy --features zvm,testnet (warnings denied) ──
+✓ PASS: cargo clippy --features zvm,testnet (warnings denied)
+
+── cargo test --lib --features zvm,testnet ──
+
+running 205 tests
+....................................................................................... 87/205
+....................................................................................... 174/205
+...............................
+test result: ok. 205 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.86s
+
+✓ PASS: cargo test --lib --features zvm,testnet
+
+
+✅ ALL CHECKS PASSED
+   target/.last-ci-pass updated → 2026-04-28T03:47:41Z
+   Tarball handler will accept fresh deploys for the next 24h.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🧪  Zebvix TESTNET deploy — Phase E / Phase 0
+    source : /home/zebvix-chain
+    binary : /usr/local/bin/zebvix-node-testnet
+    home   : /root/.zebvix-testnet
+    rpc    : 0.0.0.0:18545    p2p :31333
+    mode   : full
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▶ building testnet binary (cargo build --release --features zvm,testnet)...
+  this re-uses target/ from any prior mainnet build (incremental, ~30s warm)
+   Compiling zebvix-node v0.1.0 (/home/zebvix-chain)
+    Finished `release` profile [optimized] target(s) in 1m 34s
+
+▶ atomic install to /usr/local/bin/zebvix-node-testnet (handles ETXTBSY when binary is already running)...
+  installed sha256: 5457e65435bf7234f8ffe03c7cd078fd383aa7e60bfea6634967cea15cebbbd6
+
+▶ writing systemd unit /etc/systemd/system/zebvix-testnet.service...
+
+▶ starting / restarting service...
+● zebvix-testnet.service - Zebvix L1 Blockchain Node — TESTNET (Phase E)
+     Loaded: loaded (/etc/systemd/system/zebvix-testnet.service; enabled; preset: enabled)
+     Active: activating (auto-restart) (Result: exit-code) since Tue 2026-04-28 03:49:16 UTC; 3s ago
+       Docs: https://github.com/zebvix-org/zebvix-chain
+    Process: 1196066 ExecStart=/usr/local/bin/zebvix-node-testnet start --rpc 0.0.0.0:18545 --p2p-port 31333 --home /root/.zebvix-testnet (code=exited, status=1/FAILURE)
+   Main PID: 1196066 (code=exited, status=1/FAILURE)
+        CPU: 5ms
+root@srv1266996:/home/zebvix-chain# 
