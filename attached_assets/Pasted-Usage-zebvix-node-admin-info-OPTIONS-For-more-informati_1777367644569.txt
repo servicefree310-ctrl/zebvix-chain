@@ -1,0 +1,97 @@
+Usage: zebvix-node admin-info [OPTIONS]
+
+For more information, try '--help'.
+=== MAINNET chain-status ===
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║                       ✓  MAINNET                       ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+📊 Chain Status  (http://127.0.0.1:8545)
+
+   ● chain            : Zebvix (id=7878) · token=ZBX
+   ● height           : 0
+   ● block time       : 5s
+   ● supply.burned_wei : "9800085905638529"
+   ● supply.circulating_wei : "30170272990199914094361471"
+   ● supply.current_block_reward_wei : "3000000000000000000"
+   ● supply.height : 60091
+   🎁 rewards-pool    : 273
+   🔥 burned (total)  : 0
+   🥩 validators      : []
+
+   💡 zebvix-node rewards-pool   — pool inspector
+   💡 zebvix-node staking-info   — full staking module dump
+=== MAINNET validators ===
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║                       ✓  MAINNET                       ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+🛡  Active validators: 1 (via RPC http://127.0.0.1:8545)
+   Total voting power : 1
+   Quorum (>2/3)      : 1
+
+   [ 1] 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315  power=1  pubkey=0x035a3d7a0a8ce0607fa8a2ac3f36d4239ad9f582ca044a125d262f42eff3bcf9d3
+=== TESTNET admin-info ===
+error: unexpected argument '--rpc-url' found
+
+Usage: zebvix-node admin-info [OPTIONS]
+
+For more information, try '--help'.
+=== TESTNET chain-status ===
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║                       ✓  MAINNET                       ║
+║         L1 PoS · ZBX · chain_id=7878 · v0.1.0          ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+📊 Chain Status  (http://127.0.0.1:18545)
+
+   ● chain            : Zebvix (id=78787) · token=ZBX
+   ● height           : 0
+   ● block time       : 5s
+   ● supply.burned_wei : "0"
+   ● supply.circulating_wei : "100009693000000000000000000"
+   ● supply.current_block_reward_wei : "3000000000000000000"
+   ● supply.height : 3231
+   🎁 rewards-pool    : 93
+   🔥 burned (total)  : 0
+   🥩 validators      : []
+
+   💡 zebvix-node rewards-pool   — pool inspector
+   💡 zebvix-node staking-info   — full staking module dump
+=== mainnet validator address + balance ===
+VALIDATOR=0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+  Address : 0xe381e1d0d8da56a984a6e65cbdd0a3932050fecc
+  ZBX     : 0 ZBX
+  zUSD    : 0 zUSD
+  Wei     : 0
+=== owner2 mainnet balance ===
+  Address : 0x7b88ccc9774ffd59dc4e24a1e044b4fc9784d52f
+  ZBX     : 0 ZBX
+  zUSD    : 0 zUSD
+  Wei     : 0
+=== owner3 mainnet balance ===
+  Address : 0xd8f28007f9b6cf4a45b33eaa96ad829ddc51848b
+  ZBX     : 0 ZBX
+  zUSD    : 0 zUSD
+  Wei     : 0
+=== faucet/airdrop commands ===
+  admin-faucet               Admin: testnet faucet — mint zUSD to an address (direct DB write; node must be stopped)
+  admin-pool-genesis         Admin: initialize the AMM pool with **genesis liquidity** (node must be stopped). Mints `GENESIS_POOL_ZBX_WEI` (20M ZBX) + `GENESIS_POOL_ZUSD_LOAN` (10M zUSD) directly into pool reserves (no admin debit). Opening spot price = $0.50 per ZBX (Phase B.11.1 — see tokenomics.rs). LP tokens are locked permanently to POOL_ADDRESS — nobody can withdraw. The 10M zUSD is a "loan" repaid via accumulated swap fees
+  stake                      Delegate ZBX to a validator. Mints delegation shares
+  unstake                    Unstake by burning shares. Funds mature after UNBONDING_EPOCHS
+  bridge-out                 User: lock native tokens on Zebvix → emit BridgeOut event for off-chain oracle to mint wrapped tokens on the foreign chain
+root@srv1266996:~# 

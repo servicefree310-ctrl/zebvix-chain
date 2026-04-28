@@ -48,3 +48,9 @@ id = "YuTJIT5SV9XSVXxAv6yyr"
 uri = "file://attached_assets/downloads/zebvix-chain-b11.tar.gz"
 type = "unspecified"
 title = "zebvix-chain-b11.tar.gz (Phase B.11 — secp256k1 cutover)"
+
+[[outputs]]
+id = "73PwHvjZO0_ATw4addyHw"
+uri = "file://exports/zebvix-chain-source-20260428-165206.tar.gz"
+type = "unspecified"
+title = "Zebvix Chain — Full Source Code (Apr 28, 2026)"
