@@ -16,6 +16,7 @@
 
 import { keccak_256 } from "@noble/hashes/sha3.js";
 import { hexToBytes, bytesToHex } from "@noble/hashes/utils.js";
+import { rpc, weiHexToZbx, ZbxRpcError } from "@/lib/zbx-rpc";
 
 const TAG = new TextEncoder().encode("ZBX_MULTISIG_v1");
 
@@ -73,6 +74,55 @@ export function randomSalt(): bigint {
   return v;
 }
 
+/* ─────────────── On-chain lookup ─────────────── */
+
+/** Cached chain-side info about a multisig wallet. */
+export interface MultisigMetadata {
+  owners: string[];
+  threshold: number;
+  balanceWei: string;       // hex string, e.g. "0x0"
+  balanceZbx: string;       // human, e.g. "12.500000000000000000"
+  createdHeight: number;
+  proposalSeq: number;
+  checkedAt: number;        // ms epoch
+}
+
+interface ChainMultisig {
+  address: string;
+  owners: string[];
+  threshold: number;
+  created_height: number;
+  proposal_seq: number;
+}
+
+/** Fetch a multisig from chain. Returns null when the address doesn't resolve. */
+export async function fetchMultisigInfo(
+  address: string,
+): Promise<MultisigMetadata | null> {
+  if (!isValidAddress(address)) return null;
+  const norm = normalizeAddress(address);
+  try {
+    const [info, balRaw] = await Promise.all([
+      rpc<ChainMultisig>("zbx_getMultisig", [norm]),
+      rpc<string>("zbx_getBalance", [norm]).catch(() => "0x0"),
+    ]);
+    return {
+      owners: info.owners.map(normalizeAddress),
+      threshold: info.threshold,
+      balanceWei: balRaw,
+      balanceZbx: weiHexToZbx(balRaw),
+      createdHeight: info.created_height,
+      proposalSeq: info.proposal_seq,
+      checkedAt: Date.now(),
+    };
+  } catch (e) {
+    // -32004 = "multisig {addr} not found" — definitive negative.
+    if (e instanceof ZbxRpcError && e.code === -32004) return null;
+    // Network / parser errors → re-throw so caller can surface them.
+    throw e;
+  }
+}
+
 /* ─────────────── Watchlist (localStorage) ─────────────── */
 
 const WATCHLIST_KEY = "zbx.multisig.watchlist.v1";
@@ -80,7 +130,11 @@ const WATCHLIST_KEY = "zbx.multisig.watchlist.v1";
 export interface WatchlistEntry {
   label: string;
   address: string;
-  added_at: number; // ms epoch
+  added_at: number;             // ms epoch
+  /** Cached chain metadata. Optional for backward compat with v0 entries. */
+  metadata?: MultisigMetadata;
+  /** Free-form note the user can attach (e.g. "treasury", "ops"). */
+  note?: string;
 }
 
 export function loadWatchlist(): WatchlistEntry[] {
@@ -102,11 +156,63 @@ export function saveWatchlist(list: WatchlistEntry[]): void {
   }
 }
 
-export function addToWatchlist(label: string, address: string): WatchlistEntry[] {
+export function addToWatchlist(
+  label: string,
+  address: string,
+  metadata?: MultisigMetadata,
+  note?: string,
+): WatchlistEntry[] {
   const cur = loadWatchlist();
   const norm = normalizeAddress(address);
-  if (cur.some((e) => normalizeAddress(e.address) === norm)) return cur;
-  const next = [...cur, { label: label.trim() || "(unnamed)", address: norm, added_at: Date.now() }];
+  if (cur.some((e) => normalizeAddress(e.address) === norm)) {
+    // Already present → fold in any newer metadata so re-import refreshes.
+    if (metadata) {
+      const next = cur.map((e) =>
+        normalizeAddress(e.address) === norm
+          ? { ...e, metadata, label: label.trim() || e.label, note: note ?? e.note }
+          : e,
+      );
+      saveWatchlist(next);
+      return next;
+    }
+    return cur;
+  }
+  const next = [
+    ...cur,
+    {
+      label: label.trim() || "(unnamed)",
+      address: norm,
+      added_at: Date.now(),
+      ...(metadata ? { metadata } : {}),
+      ...(note ? { note } : {}),
+    },
+  ];
+  saveWatchlist(next);
+  return next;
+}
+
+export function updateWatchlistMetadata(
+  address: string,
+  metadata: MultisigMetadata,
+): WatchlistEntry[] {
+  const norm = normalizeAddress(address);
+  const next = loadWatchlist().map((e) =>
+    normalizeAddress(e.address) === norm ? { ...e, metadata } : e,
+  );
+  saveWatchlist(next);
+  return next;
+}
+
+export function renameWatchlistEntry(
+  address: string,
+  label: string,
+): WatchlistEntry[] {
+  const norm = normalizeAddress(address);
+  const next = loadWatchlist().map((e) =>
+    normalizeAddress(e.address) === norm
+      ? { ...e, label: label.trim() || e.label }
+      : e,
+  );
   saveWatchlist(next);
   return next;
 }
@@ -132,6 +238,8 @@ export function importWatchlistJson(json: string, mode: "merge" | "replace"): Wa
       label: typeof e.label === "string" ? e.label : "(imported)",
       address: normalizeAddress(e.address),
       added_at: typeof e.added_at === "number" ? e.added_at : Date.now(),
+      ...(e.metadata && typeof e.metadata === "object" ? { metadata: e.metadata } : {}),
+      ...(typeof e.note === "string" ? { note: e.note } : {}),
     });
   }
   if (mode === "replace") {
@@ -148,4 +256,22 @@ export function importWatchlistJson(json: string, mode: "merge" | "replace"): Wa
   }
   saveWatchlist(cur);
   return cur;
+}
+
+/** Parse a textarea's worth of addresses (one per line, comma or whitespace ok).
+ *  Returns deduped, normalized, validity-tagged entries. */
+export function parseAddressList(raw: string): Array<{ address: string; valid: boolean; raw: string }> {
+  const seen = new Set<string>();
+  const out: Array<{ address: string; valid: boolean; raw: string }> = [];
+  for (const tok of raw.split(/[\s,;]+/)) {
+    const t = tok.trim();
+    if (!t) continue;
+    const valid = isValidAddress(t);
+    const addr = valid ? normalizeAddress(t) : t;
+    const key = valid ? addr : `__invalid:${t}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ address: addr, valid, raw: t });
+  }
+  return out;
 }
