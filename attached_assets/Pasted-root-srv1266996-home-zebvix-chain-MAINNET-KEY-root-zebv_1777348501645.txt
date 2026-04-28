@@ -1,0 +1,100 @@
+root@srv1266996:/home/zebvix-chain# MAINNET_KEY="/root/.zebvix/validator.key" && \
+[[ -f "$MAINNET_KEY" ]] || { echo "❌ adjust MAINNET_KEY — your mainnet validator key isn't at $MAINNET_KEY"; ls -la /root/.zebvix/; exit 1; } && \
+mkdir -p /root/.zebvix-testnet/validator-keys && \
+chmod 700 /root/.zebvix-testnet/validator-keys && \
+cp -n "$MAINNET_KEY" /root/.zebvix-testnet/validator-keys/founder.key && \
+chmod 600 /root/.zebvix-testnet/validator-keys/founder.key && \
+echo "✓ key copied (cross-chain replay safe via ENFORCE_CHAIN_ID)" && \
+echo "─── initialising testnet genesis (CHAIN_ID=78787, premine=100M ZBX) ───" && \
+/usr/local/bin/zebvix-node-testnet init \
+    --home /root/.zebvix-testnet \
+    --validator-key /root/.zebvix-testnet/validator-keys/founder.key && \
+echo "" && \
+echo "─── testnet genesis file ───" && \
+ls -la /root/.zebvix-testnet/genesis.json && \
+echo "" && \
+echo "─── starting testnet service ───" && \
+systemctl reset-failed zebvix-testnet.service && \
+systemctl restart zebvix-testnet.service && \
+sleep 5 && \
+systemctl status zebvix-testnet.service --no-pager -l | head -15 && \
+echo "" && \
+echo "─── recent journal (look for red 🧪 TESTNET banner) ───" && \
+journalctl -u zebvix-testnet.service -n 25 --no-pager && \
+echo "" && \
+echo "─── RPC smoke test ───" && \
+curl -s -X POST http://127.0.0.1:18545 -H 'content-type:application/json' \
+    -d '{"jsonrpc":"2.0","method":"zvb_getTip","id":1}'
+cp: warning: behavior of -n is non-portable and may change in future; use --update=none instead
+✓ key copied (cross-chain replay safe via ENFORCE_CHAIN_ID)
+─── initialising testnet genesis (CHAIN_ID=78787, premine=100M ZBX) ───
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║                    🧪  TESTNET  🧪                     ║
+║         L1 PoS · ZBX · chain_id=78787 · v0.1.0         ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+⚠  TESTNET BUILD — tokens have ZERO economic value. Mainnet RPC at port 8545 is a DIFFERENT binary.
+
+ℹ️  Foundation pre-mine: 100000000 ZBX (6.66%) → 0x92817ab4155b35e45337911111480cb5d725e1e6
+2026-04-28T03:54:08.853557Z  INFO zebvix_node::state: 🔧 phase-h backfill complete: tokens=0 indexed=0 scrubbed_acct=0 scrubbed_tok=0 skipped_open_pools=0
+ℹ️  Genesis validator (founder, deterministic): 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315 (power=1)
+ℹ️  Local validator key 0x92817ab4155b35e45337911111480cb5d725e1e6 is NOT the founder — it must be added post-genesis via `validator-add` tx (admin-signed).
+✅ Initialized Zebvix chain at /root/.zebvix-testnet
+   chain_id          : 78787
+   validator address : 0x92817ab4155b35e45337911111480cb5d725e1e6
+   genesis           : /root/.zebvix-testnet/genesis.json
+   data dir          : /root/.zebvix-testnet/data
+
+─── testnet genesis file ───
+-rw-r--r-- 1 root root 381 Apr 28 03:54 /root/.zebvix-testnet/genesis.json
+
+─── starting testnet service ───
+● zebvix-testnet.service - Zebvix L1 Blockchain Node — TESTNET (Phase E)
+     Loaded: loaded (/etc/systemd/system/zebvix-testnet.service; enabled; preset: enabled)
+     Active: active (running) since Tue 2026-04-28 03:54:08 UTC; 5s ago
+       Docs: https://github.com/zebvix-org/zebvix-chain
+   Main PID: 1197438 (zebvix-node-tes)
+      Tasks: 7 (limit: 9483)
+     Memory: 2.6M (peak: 3.2M)
+        CPU: 24ms
+     CGroup: /system.slice/zebvix-testnet.service
+             └─1197438 /usr/local/bin/zebvix-node-testnet start --rpc 0.0.0.0:18545 --p2p-port 31333 --home /root/.zebvix-testnet
+
+Apr 28 03:54:08 srv1266996.hstgr.cloud zebvix-testnet[1197438]: 2026-04-28T03:54:08.913853Z  INFO zebvix_node:    proposer  : 0x92817ab4155b35e45337911111480cb5d725e1e6
+Apr 28 03:54:08 srv1266996.hstgr.cloud zebvix-testnet[1197438]: 2026-04-28T03:54:08.913878Z  INFO zebvix_node:    tip       : height=0 hash=0x0000000000000000000000000000000000000000000000000000000000000000
+Apr 28 03:54:08 srv1266996.hstgr.cloud zebvix-testnet[1197438]: 2026-04-28T03:54:08.913884Z  INFO zebvix_node:    rpc       : http://0.0.0.0:18545
+Apr 28 03:54:08 srv1266996.hstgr.cloud zebvix-testnet[1197438]: 2026-04-28T03:54:08.914794Z  INFO zebvix_node:    p2p       : tcp/31333  peer_id=12D3KooWGFtT4sRSeD9kHJGaJYUCHayWDifLryxtgDoUpdV9KXic
+
+─── recent journal (look for red 🧪 TESTNET banner) ───
+Apr 28 03:53:53 srv1266996.hstgr.cloud systemd[1]: zebvix-testnet.service: Failed with result 'exit-code'.
+Apr 28 03:53:59 srv1266996.hstgr.cloud systemd[1]: zebvix-testnet.service: Scheduled restart job, restart counter is at 146.
+Apr 28 03:53:59 srv1266996.hstgr.cloud systemd[1]: Started zebvix-testnet.service - Zebvix L1 Blockchain Node — TESTNET (Phase E).
+Apr 28 03:53:59 srv1266996.hstgr.cloud zebvix-testnet[1197371]: Error: No such file or directory (os error 2)
+Apr 28 03:53:59 srv1266996.hstgr.cloud systemd[1]: zebvix-testnet.service: Main process exited, code=exited, status=1/FAILURE
+Apr 28 03:53:59 srv1266996.hstgr.cloud systemd[1]: zebvix-testnet.service: Failed with result 'exit-code'.
+Apr 28 03:54:04 srv1266996.hstgr.cloud systemd[1]: zebvix-testnet.service: Scheduled restart job, restart counter is at 147.
+Apr 28 03:54:04 srv1266996.hstgr.cloud systemd[1]: Started zebvix-testnet.service - Zebvix L1 Blockchain Node — TESTNET (Phase E).
+Apr 28 03:54:04 srv1266996.hstgr.cloud zebvix-testnet[1197390]: Error: No such file or directory (os error 2)
+Apr 28 03:54:04 srv1266996.hstgr.cloud systemd[1]: zebvix-testnet.service: Main process exited, code=exited, status=1/FAILURE
+Apr 28 03:54:04 srv1266996.hstgr.cloud systemd[1]: zebvix-testnet.service: Failed with result 'exit-code'.
+Apr 28 03:54:08 srv1266996.hstgr.cloud systemd[1]: Stopped zebvix-testnet.service - Zebvix L1 Blockchain Node — TESTNET (Phase E).
+Apr 28 03:54:08 srv1266996.hstgr.cloud systemd[1]: Started zebvix-testnet.service - Zebvix L1 Blockchain Node — TESTNET (Phase E).
+Apr 28 03:54:08 srv1266996.hstgr.cloud zebvix-testnet[1197438]: 2026-04-28T03:54:08.913792Z  INFO zebvix_node: 🚀 Zebvix node starting
+Apr 28 03:54:08 srv1266996.hstgr.cloud zebvix-testnet[1197438]: 2026-04-28T03:54:08.913847Z  INFO zebvix_node:    chain_id  : 78787
+Apr 28 03:54:08 srv1266996.hstgr.cloud zebvix-testnet[1197438]: 2026-04-28T03:54:08.913853Z  INFO zebvix_node:    proposer  : 0x92817ab4155b35e45337911111480cb5d725e1e6
+Apr 28 03:54:08 srv1266996.hstgr.cloud zebvix-testnet[1197438]: 2026-04-28T03:54:08.913878Z  INFO zebvix_node:    tip       : height=0 hash=0x0000000000000000000000000000000000000000000000000000000000000000
+Apr 28 03:54:08 srv1266996.hstgr.cloud zebvix-testnet[1197438]: 2026-04-28T03:54:08.913884Z  INFO zebvix_node:    rpc       : http://0.0.0.0:18545
+Apr 28 03:54:08 srv1266996.hstgr.cloud zebvix-testnet[1197438]: 2026-04-28T03:54:08.914794Z  INFO zebvix_node:    p2p       : tcp/31333  peer_id=12D3KooWGFtT4sRSeD9kHJGaJYUCHayWDifLryxtgDoUpdV9KXic
+Apr 28 03:54:08 srv1266996.hstgr.cloud zebvix-testnet[1197438]: 2026-04-28T03:54:08.914813Z  INFO zebvix_node:    mdns      : DISABLED (default — pass --enable-mdns to opt in)
+Apr 28 03:54:08 srv1266996.hstgr.cloud zebvix-testnet[1197438]: 2026-04-28T03:54:08.914844Z  INFO zebvix_node::rpc: 🛡  RPC in-process concurrency cap: max 128 in-flight requests (set ZEBVIX_RPC_MAX_INFLIGHT to tune; per-IP limiting still recommended via nginx / Cloudflare in front)
+Apr 28 03:54:08 srv1266996.hstgr.cloud zebvix-testnet[1197438]: 2026-04-28T03:54:08.914853Z  INFO zebvix_node::rpc: 🛡  RPC CORS: localhost-only (default). Set ZEBVIX_RPC_CORS_ORIGINS=<csv> to add public origins, or ZEBVIX_RPC_CORS_ORIGINS=* to allow any.
+Apr 28 03:54:08 srv1266996.hstgr.cloud zebvix-testnet[1197438]: 2026-04-28T03:54:08.915482Z  INFO zebvix_node::consensus: ⛏  producer started: my_address=0x92817ab4155b35e45337911111480cb5d725e1e6, mode=ROUND_ROBIN+TIMEOUTS (B.3.2.2) pacing=5s propose_timeout=8s tick=500ms
+Apr 28 03:54:08 srv1266996.hstgr.cloud zebvix-testnet[1197438]: 2026-04-28T03:54:08.915855Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/127.0.0.1/tcp/31333/p2p/12D3KooWGFtT4sRSeD9kHJGaJYUCHayWDifLryxtgDoUpdV9KXic
+Apr 28 03:54:08 srv1266996.hstgr.cloud zebvix-testnet[1197438]: 2026-04-28T03:54:08.915873Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/93.127.213.192/tcp/31333/p2p/12D3KooWGFtT4sRSeD9kHJGaJYUCHayWDifLryxtgDoUpdV9KXic
+
+─── RPC smoke test ───
+{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"method not found: zvb_getTip"}}root@srv1266996:/home/zebvix-chain# 
