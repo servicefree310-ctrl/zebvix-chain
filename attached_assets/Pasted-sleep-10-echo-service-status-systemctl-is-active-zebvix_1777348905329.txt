@@ -1,0 +1,90 @@
+sleep 10 && \
+echo "─── service status ───" && \
+systemctl is-active zebvix-testnet.service && \
+echo "" && \
+echo "─── recent journal (look for 'block #N produced' lines + proposer=0x40907) ───" && \
+journalctl -u zebvix-testnet.service -n 30 --no-pager && \
+echo "" && \
+echo "─── RPC: chain_id (expect 0x133c3 = 78787) ───" && \
+curl -s -X POST http://127.0.0.1:18545 -H 'content-type:application/json' \
+    -d '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}' && \
+echo "" && \
+echo "─── RPC: block height (should be > 0x0 and climbing every ~5s) ───" && \
+curl -s -X POST http://127.0.0.1:18545 -H 'content-type:application/json' \
+    -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":2}' && \
+echo "" && \
+sleep 6 && \
+echo "─── RPC: block height again 6s later (should be HIGHER, proves block production active) ───" && \
+curl -s -X POST http://127.0.0.1:18545 -H 'content-type:application/json' \
+    -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":3}' && \
+echo ""'{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' && \\
+─── verifying founder.key resolves to 0x40907 (the real validator) ───
+-rw-r--r-- 1 root root 231 Apr 24 09:25 /root/.zebvix/founder.key
+─── wiping testnet data + genesis (keeps systemd unit) ───
+✓ correct founder key copied (cross-chain replay safe via ENFORCE_CHAIN_ID)
+─── re-initialising testnet genesis with correct validator ───
+
+╔════════════════════════════════════════════════════════╗
+║                                                        ║
+║                WELCOME TO ZEBVIX CHAIN                 ║
+║                    🧪  TESTNET  🧪                     ║
+║         L1 PoS · ZBX · chain_id=78787 · v0.1.0         ║
+║                                                        ║
+╚════════════════════════════════════════════════════════╝
+
+⚠  TESTNET BUILD — tokens have ZERO economic value. Mainnet RPC at port 8545 is a DIFFERENT binary.
+
+ℹ️  Foundation pre-mine: 100000000 ZBX (6.66%) → 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315
+2026-04-28T04:00:55.444724Z  INFO zebvix_node::state: 🔧 phase-h backfill complete: tokens=0 indexed=0 scrubbed_acct=0 scrubbed_tok=0 skipped_open_pools=0
+ℹ️  Genesis validator (founder, deterministic): 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315 (power=1)
+✅ Initialized Zebvix chain at /root/.zebvix-testnet
+   chain_id          : 78787
+   validator address : 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315
+   genesis           : /root/.zebvix-testnet/genesis.json
+   data dir          : /root/.zebvix-testnet/data
+
+─── starting testnet service ───
+─── service status ───
+active
+
+─── recent journal (look for 'block #N produced' lines + proposer=0x40907) ───
+Apr 28 03:56:19 srv1266996.hstgr.cloud zebvix-testnet[1197438]: 2026-04-28T03:56:19.921799Z  WARN zebvix_node::consensus: ⏰ propose timeout at h=1 r=15 → bumping to r=16
+Apr 28 03:56:28 srv1266996.hstgr.cloud zebvix-testnet[1197438]: 2026-04-28T03:56:28.421545Z  WARN zebvix_node::consensus: ⏰ propose timeout at h=1 r=16 → bumping to r=17
+Apr 28 03:56:36 srv1266996.hstgr.cloud zebvix-testnet[1197438]: 2026-04-28T03:56:36.421636Z  WARN zebvix_node::consensus: ⏰ propose timeout at h=1 r=17 → bumping to r=18
+Apr 28 03:56:44 srv1266996.hstgr.cloud zebvix-testnet[1197438]: 2026-04-28T03:56:44.921164Z  WARN zebvix_node::consensus: ⏰ propose timeout at h=1 r=18 → bumping to r=19
+Apr 28 03:56:52 srv1266996.hstgr.cloud zebvix-testnet[1197438]: 2026-04-28T03:56:52.921247Z  WARN zebvix_node::consensus: ⏰ propose timeout at h=1 r=19 → bumping to r=20
+Apr 28 03:57:01 srv1266996.hstgr.cloud zebvix-testnet[1197438]: 2026-04-28T03:57:01.421253Z  WARN zebvix_node::consensus: ⏰ propose timeout at h=1 r=20 → bumping to r=21
+Apr 28 03:57:09 srv1266996.hstgr.cloud zebvix-testnet[1197438]: 2026-04-28T03:57:09.421310Z  WARN zebvix_node::consensus: ⏰ propose timeout at h=1 r=21 → bumping to r=22
+Apr 28 03:57:17 srv1266996.hstgr.cloud zebvix-testnet[1197438]: 2026-04-28T03:57:17.421523Z  WARN zebvix_node::consensus: ⏰ propose timeout at h=1 r=22 → bumping to r=23
+Apr 28 03:57:25 srv1266996.hstgr.cloud zebvix-testnet[1197438]: 2026-04-28T03:57:25.921683Z  WARN zebvix_node::consensus: ⏰ propose timeout at h=1 r=23 → bumping to r=24
+Apr 28 03:57:34 srv1266996.hstgr.cloud zebvix-testnet[1197438]: 2026-04-28T03:57:34.421483Z  WARN zebvix_node::consensus: ⏰ propose timeout at h=1 r=24 → bumping to r=25
+Apr 28 03:57:35 srv1266996.hstgr.cloud systemd[1]: Stopping zebvix-testnet.service - Zebvix L1 Blockchain Node — TESTNET (Phase E)...
+Apr 28 03:57:35 srv1266996.hstgr.cloud systemd[1]: zebvix-testnet.service: Deactivated successfully.
+Apr 28 03:57:35 srv1266996.hstgr.cloud systemd[1]: Stopped zebvix-testnet.service - Zebvix L1 Blockchain Node — TESTNET (Phase E).
+Apr 28 04:00:55 srv1266996.hstgr.cloud systemd[1]: Started zebvix-testnet.service - Zebvix L1 Blockchain Node — TESTNET (Phase E).
+Apr 28 04:00:55 srv1266996.hstgr.cloud zebvix-testnet[1199415]: 2026-04-28T04:00:55.491651Z  INFO zebvix_node: 🚀 Zebvix node starting
+Apr 28 04:00:55 srv1266996.hstgr.cloud zebvix-testnet[1199415]: 2026-04-28T04:00:55.491686Z  INFO zebvix_node:    chain_id  : 78787
+Apr 28 04:00:55 srv1266996.hstgr.cloud zebvix-testnet[1199415]: 2026-04-28T04:00:55.491691Z  INFO zebvix_node:    proposer  : 0x40907000ac0a1a73e4cd89889b4d7ee8980c0315
+Apr 28 04:00:55 srv1266996.hstgr.cloud zebvix-testnet[1199415]: 2026-04-28T04:00:55.491715Z  INFO zebvix_node:    tip       : height=0 hash=0x0000000000000000000000000000000000000000000000000000000000000000
+Apr 28 04:00:55 srv1266996.hstgr.cloud zebvix-testnet[1199415]: 2026-04-28T04:00:55.491721Z  INFO zebvix_node:    rpc       : http://0.0.0.0:18545
+Apr 28 04:00:55 srv1266996.hstgr.cloud zebvix-testnet[1199415]: 2026-04-28T04:00:55.492372Z  INFO zebvix_node:    p2p       : tcp/31333  peer_id=12D3KooWAdfDKjo9H7GLLSGsvvCLbRTjyrxzEVmw9762kCKf4HoP
+Apr 28 04:00:55 srv1266996.hstgr.cloud zebvix-testnet[1199415]: 2026-04-28T04:00:55.492393Z  INFO zebvix_node:    mdns      : DISABLED (default — pass --enable-mdns to opt in)
+Apr 28 04:00:55 srv1266996.hstgr.cloud zebvix-testnet[1199415]: 2026-04-28T04:00:55.492421Z  INFO zebvix_node::rpc: 🛡  RPC in-process concurrency cap: max 128 in-flight requests (set ZEBVIX_RPC_MAX_INFLIGHT to tune; per-IP limiting still recommended via nginx / Cloudflare in front)
+Apr 28 04:00:55 srv1266996.hstgr.cloud zebvix-testnet[1199415]: 2026-04-28T04:00:55.492429Z  INFO zebvix_node::rpc: 🛡  RPC CORS: localhost-only (default). Set ZEBVIX_RPC_CORS_ORIGINS=<csv> to add public origins, or ZEBVIX_RPC_CORS_ORIGINS=* to allow any.
+Apr 28 04:00:55 srv1266996.hstgr.cloud zebvix-testnet[1199415]: 2026-04-28T04:00:55.493050Z  INFO zebvix_node::consensus: ⛏  producer started: my_address=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315, mode=ROUND_ROBIN+TIMEOUTS (B.3.2.2) pacing=5s propose_timeout=8s tick=500ms
+Apr 28 04:00:55 srv1266996.hstgr.cloud zebvix-testnet[1199415]: 2026-04-28T04:00:55.493325Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/127.0.0.1/tcp/31333/p2p/12D3KooWAdfDKjo9H7GLLSGsvvCLbRTjyrxzEVmw9762kCKf4HoP
+Apr 28 04:00:55 srv1266996.hstgr.cloud zebvix-testnet[1199415]: 2026-04-28T04:00:55.493344Z  INFO zebvix_node::p2p: 🌐 p2p listening on /ip4/93.127.213.192/tcp/31333/p2p/12D3KooWAdfDKjo9H7GLLSGsvvCLbRTjyrxzEVmw9762kCKf4HoP
+Apr 28 04:01:00 srv1266996.hstgr.cloud zebvix-testnet[1199415]: 2026-04-28T04:01:00.494831Z  INFO zebvix_node::consensus: ⛏  block #1 produced  proposer=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315  round=0  txs=0  hash=0x957dc1541d2eb88d8ac4070936191d2a356d45daf50e781cb035b6373abf6914
+Apr 28 04:01:00 srv1266996.hstgr.cloud zebvix-testnet[1199415]: 2026-04-28T04:01:00.994015Z  INFO zebvix_node: 🗳  emitted prevote h=1 block=0x957dc1541d2eb88d8ac4070936191d2a356d45daf50e781cb035b6373abf6914  ✅ QUORUM
+Apr 28 04:01:00 srv1266996.hstgr.cloud zebvix-testnet[1199415]: 2026-04-28T04:01:00.994297Z  INFO zebvix_node: 🗳  emitted precommit h=1 block=0x957dc1541d2eb88d8ac4070936191d2a356d45daf50e781cb035b6373abf6914  ✅ QUORUM
+Apr 28 04:01:00 srv1266996.hstgr.cloud zebvix-testnet[1199415]: 2026-04-28T04:01:00.994388Z  INFO zebvix_node: 📜 BFT commit persisted h=1 hash=0x957dc1541d2eb88d8ac4070936191d2a356d45daf50e781cb035b6373abf6914 precommits=1 bytes=297
+
+─── RPC: chain_id (expect 0x133c3 = 78787) ───
+{"jsonrpc":"2.0","id":1,"result":"0x133c3"}
+─── RPC: block height (should be > 0x0 and climbing every ~5s) ───
+{"jsonrpc":"2.0","id":2,"result":"0x1"}
+─── RPC: block height again 6s later (should be HIGHER, proves block production active) ───
+{"jsonrpc":"2.0","id":3,"result":"0x3"}
+─── sanity: mainnet still climbing independently (ZERO impact) ───
+{"jsonrpc":"2.0","id":1,"result":"0xde11"}
+root@srv1266996:/home/zebvix-chain# 
