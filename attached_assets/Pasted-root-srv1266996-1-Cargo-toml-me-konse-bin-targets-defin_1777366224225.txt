@@ -1,0 +1,118 @@
+root@srv1266996:~# # 1. Cargo.toml me konse [[bin]] targets defined hain?
+echo "=== Cargo.toml bin targets ==="
+grep -B1 -A3 '\[\[bin\]\]' /home/zebvix-chain/Cargo.toml
+
+# 2. Pre-built binaries me kya kya hai?
+echo "=== /home/zebvix-chain/target/release/ binaries ==="
+ls -la /home/zebvix-chain/target/release/ 2>/dev/null | grep -v '^d' | grep -v '\.d$' | grep -v '\.rlib$' | awk '$5 > 100000 {print}' | head -20
+
+# 3. Maybe zebvix-node bundle me hi multisig hai? (single-binary pattern)
+echo "=== zebvix-node subcommands ==="
+/usr/local/bin/zebvix-node --help 2>&1 | head -40
+echo "--- multisig in zebvix-node? ---"
+/usr/local/bin/zebvix-node --help 2>&1 | grep -i multisig
+echo "--- aur subcommands deeper ---"
+/usr/local/bin/zebvix-node 2>&1 | head -20
+
+# 4. Founder address using CORRECT syntax (positional)
+echo "=== founder address ==="
+FOUNDER=$(/usr/local/bin/zbx address /root/.zebvix/founder.key 2>/dev/null | grep -oE '0x[0-9a-fA-F]{40}' | head -1)
+echo "FOUNDER=$FOUNDER"
+[ -n "$FOUNDER" ] && /usr/local/bin/zbx balance $FOUNDER --rpc http://127.0.0.1:8545
+
+echo "=== owner2 / owner3 (mainnet) ==="
+/usr/local/bin/zbx address /root/.zebvix/owner2.key 2>&1 | head -3
+/usr/local/bin/zbx address /root/.zebvix/owner3.key 2>&1 | head -3
+=== Cargo.toml bin targets ===
+
+[[bin]]
+name = "zebvix-node"
+path = "src/main.rs"
+
+=== /home/zebvix-chain/target/release/ binaries ===
+-rwxr-xr-x   2 root root  1418688 Apr 28 03:48 zbx
+-rwxr-xr-x   2 root root 16697968 Apr 28 03:49 zebvix-node
+-rwxr-xr-x   1 root root 17203104 Apr 25 04:44 zebvix-node.bak.20260425-044453
+-rwxr-xr-x   1 root root 17371744 Apr 25 05:28 zebvix-node.bak.20260425-052855
+-rwxr-xr-x   1 root root 16696880 Apr 28 02:12 zebvix-node.bak.20260428-021215
+=== zebvix-node subcommands ===
+Zebvix L1 blockchain node — native ZBX + ZVM (Cancun-EVM-bytecode compatible)
+
+Usage: zebvix-node <COMMAND>
+
+Commands:
+  keygen                     Generate a new keypair and print address
+  zbx-address                Generate a fresh ZBX (Zebvix) wallet address with branded output
+  init                       Initialize a new chain: writes genesis.json and creates data dir
+  start                      Start the node (block producer + JSON-RPC + P2P gossip)
+  send                       Build, sign, and submit a transfer to a running node's RPC
+  admin-faucet               Admin: testnet faucet — mint zUSD to an address (direct DB write; node must be stopped)
+  admin-pool-genesis         Admin: initialize the AMM pool with **genesis liquidity** (node must be stopped). Mints `GENESIS_POOL_ZBX_WEI` (20M ZBX) + `GENESIS_POOL_ZUSD_LOAN` (10M zUSD) directly into pool reserves (no admin debit). Opening spot price = $0.50 per ZBX (Phase B.11.1 — see tokenomics.rs). LP tokens are locked permanently to POOL_ADDRESS — nobody can withdraw. The 10M zUSD is a "loan" repaid via accumulated swap fees
+  admin-pool-add             Admin: add liquidity to the pool (node must be stopped)
+  admin-swap                 Admin: swap ZBX→zUSD or zUSD→ZBX directly (node must be stopped)
+  pool-info                  Print pool state (read-only; works while node is running)
+  admin-change-address       Admin: rotate the admin/founder address (max 3 times, ever). Must be run with the CURRENT admin's keyfile. Node must be stopped
+  admin-info                 Print current admin info (live address, rotations used, remaining)
+  validator-list             List all on-chain validators with voting power
+  validator-add              Admin: add or update a validator. Submits an on-chain transaction (B.3.1+); the change replicates to all nodes via block apply. **Node MUST be running** (this is now an RPC client command)
+  rewards-pool               Inspect the per-block REWARDS_POOL: current balance + blocks-until-next-distribution
+  register-pay-id            Register a permanent Pay-ID (e.g. `alice@zbx`) for the signer's address. Handle 3-25 chars `[a-z0-9_]`, name mandatory. ONE per address. CANNOT be edited or deleted afterwards
+  multisig-create            Create a new M-of-N multisig wallet. Owners 2-10, threshold 1..=N. Address is deterministic from (sorted owners, threshold, salt, creator)
+  multisig-propose           Propose a transfer FROM a multisig wallet. Caller must be an owner. Auto-counts as the first approval. Returns the new proposal_id
+  multisig-approve           Approve a pending multisig proposal as one of the owners
+  multisig-revoke            Revoke your own approval on a pending (un-executed) proposal
+  multisig-execute           Execute a proposal once approvals ≥ threshold (and not expired)
+  multisig-info              Show details of a multisig wallet (owners, threshold, balance, proposal count)
+  multisig-proposals         List all proposals (active + executed) for a multisig wallet
+  multisig-list              List all multisig wallets where the given address is an owner
+  lookup-pay-id              Resolve a Pay-ID (`alice@zbx`) → address + name
+  whois                      Reverse lookup: address → Pay-ID + name (if registered)
+  pool                       AMM pool inspector: reserves, spot price, fees, LP supply, loan status
+  price                      Live ZBX/USD price (from AMM pool spot)
+  balance                    Show ZBX (and zUSD if any) balance for any address
+  chain-status               One-shot dashboard: chain info + height + supply + pool + staking + burn. Great for a quick "is everything healthy?" glance
+  validator-remove           Admin: remove a validator via on-chain tx. Node must be running
+  show-validator             Show a single validator's details (address, pubkey, voting_power). Queries the running node via RPC (`zbx_getValidator`)
+  block-number               Show current chain tip (height, hash, timestamp, proposer). Queries the running node via RPC (`zbx_blockNumber`)
+  governor-info              Show current governor (validator-set authority), distinct from economic admin
+  governor-change            Rotate governor address (max 3 times). Signer must be CURRENT governor
+--- multisig in zebvix-node? ---
+  multisig-create            Create a new M-of-N multisig wallet. Owners 2-10, threshold 1..=N. Address is deterministic from (sorted owners, threshold, salt, creator)
+  multisig-propose           Propose a transfer FROM a multisig wallet. Caller must be an owner. Auto-counts as the first approval. Returns the new proposal_id
+  multisig-approve           Approve a pending multisig proposal as one of the owners
+  multisig-revoke            Revoke your own approval on a pending (un-executed) proposal
+  multisig-execute           Execute a proposal once approvals ≥ threshold (and not expired)
+  multisig-info              Show details of a multisig wallet (owners, threshold, balance, proposal count)
+  multisig-proposals         List all proposals (active + executed) for a multisig wallet
+  multisig-list              List all multisig wallets where the given address is an owner
+--- aur subcommands deeper ---
+Zebvix L1 blockchain node — native ZBX + ZVM (Cancun-EVM-bytecode compatible)
+
+Usage: zebvix-node <COMMAND>
+
+Commands:
+  keygen                     Generate a new keypair and print address
+  zbx-address                Generate a fresh ZBX (Zebvix) wallet address with branded output
+  init                       Initialize a new chain: writes genesis.json and creates data dir
+  start                      Start the node (block producer + JSON-RPC + P2P gossip)
+  send                       Build, sign, and submit a transfer to a running node's RPC
+  admin-faucet               Admin: testnet faucet — mint zUSD to an address (direct DB write; node must be stopped)
+  admin-pool-genesis         Admin: initialize the AMM pool with **genesis liquidity** (node must be stopped). Mints `GENESIS_POOL_ZBX_WEI` (20M ZBX) + `GENESIS_POOL_ZUSD_LOAN` (10M zUSD) directly into pool reserves (no admin debit). Opening spot price = $0.50 per ZBX (Phase B.11.1 — see tokenomics.rs). LP tokens are locked permanently to POOL_ADDRESS — nobody can withdraw. The 10M zUSD is a "loan" repaid via accumulated swap fees
+  admin-pool-add             Admin: add liquidity to the pool (node must be stopped)
+  admin-swap                 Admin: swap ZBX→zUSD or zUSD→ZBX directly (node must be stopped)
+  pool-info                  Print pool state (read-only; works while node is running)
+  admin-change-address       Admin: rotate the admin/founder address (max 3 times, ever). Must be run with the CURRENT admin's keyfile. Node must be stopped
+  admin-info                 Print current admin info (live address, rotations used, remaining)
+  validator-list             List all on-chain validators with voting power
+  validator-add              Admin: add or update a validator. Submits an on-chain transaction (B.3.1+); the change replicates to all nodes via block apply. **Node MUST be running** (this is now an RPC client command)
+  rewards-pool               Inspect the per-block REWARDS_POOL: current balance + blocks-until-next-distribution
+=== founder address ===
+FOUNDER=0x4cc1f1877710e560b286bd8b10f9a746f7a33f48
+  Address : 0x4cc1f1877710e560b286bd8b10f9a746f7a33f48
+  ZBX     : 0 ZBX
+  zUSD    : 0 zUSD
+  Wei     : 0
+=== owner2 / owner3 (mainnet) ===
+0x7b88ccc9774ffd59dc4e24a1e044b4fc9784d52f
+0xd8f28007f9b6cf4a45b33eaa96ad829ddc51848b
+root@srv1266996:~# 
