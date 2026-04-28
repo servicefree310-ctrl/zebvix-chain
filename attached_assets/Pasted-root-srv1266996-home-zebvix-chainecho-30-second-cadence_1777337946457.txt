@@ -1,0 +1,26 @@
+root@srv1266996:/home/zebvix-chainecho "── 30-second cadence check ──"─"
+for i in 1 2 3 4 5; do
+  H=$(curl -s http://localhost:10000/metrics | awk '/^zvb_block_height/ {print $2}')
+  echo "t+${i}x6s  height=$H"
+  sleep 6
+done
+echo "── recent journal (last 30s) ──"
+sudo journalctl -u zebvix --since "30 sec ago" --no-pager | grep -E "✅|height|mode|ERROR|panic|fsm" | tail -20
+── 30-second cadence check ──
+t+1x6s  height=
+t+2x6s  height=
+t+3x6s  height=
+t+4x6s  height=
+t+5x6s  height=
+── recent journal (last 30s) ──
+Apr 28 00:58:08 srv1266996.hstgr.cloud zebvix-node[1146362]: 2026-04-28T00:58:08.024241Z  INFO zebvix_node: 🗳  emitted prevote h=54928 block=0xb0c21ec2ded5873ab4d6c67ea9e04b55e425cb843d46d28ecb3df94716d84420  ✅ QUORUM
+Apr 28 00:58:08 srv1266996.hstgr.cloud zebvix-node[1146362]: 2026-04-28T00:58:08.024557Z  INFO zebvix_node: 🗳  emitted precommit h=54928 block=0xb0c21ec2ded5873ab4d6c67ea9e04b55e425cb843d46d28ecb3df94716d84420  ✅ QUORUM
+Apr 28 00:58:14 srv1266996.hstgr.cloud zebvix-node[1146362]: 2026-04-28T00:58:14.023803Z  INFO zebvix_node: 🗳  emitted prevote h=54929 block=0x2897988d6afb09eb85e70a292b9625004f0a44ad8a19a2807b1e3eedf3bd34df  ✅ QUORUM
+Apr 28 00:58:14 srv1266996.hstgr.cloud zebvix-node[1146362]: 2026-04-28T00:58:14.024140Z  INFO zebvix_node: 🗳  emitted precommit h=54929 block=0x2897988d6afb09eb85e70a292b9625004f0a44ad8a19a2807b1e3eedf3bd34df  ✅ QUORUM
+Apr 28 00:58:19 srv1266996.hstgr.cloud zebvix-node[1146362]: 2026-04-28T00:58:19.523523Z  INFO zebvix_node: 🗳  emitted prevote h=54930 block=0xe99c3c70744ca1f42c898f74a0361ba44b0686ce605265a078813dd82d113e18  ✅ QUORUM
+Apr 28 00:58:19 srv1266996.hstgr.cloud zebvix-node[1146362]: 2026-04-28T00:58:19.523777Z  INFO zebvix_node: 🗳  emitted precommit h=54930 block=0xe99c3c70744ca1f42c898f74a0361ba44b0686ce605265a078813dd82d113e18  ✅ QUORUM
+Apr 28 00:58:25 srv1266996.hstgr.cloud zebvix-node[1146362]: 2026-04-28T00:58:25.023510Z  INFO zebvix_node: 🗳  emitted prevote h=54931 block=0x590b016acd164d60567819f89e00d64565ca5af12a13cfa366ff1559e717d4d9  ✅ QUORUM
+Apr 28 00:58:25 srv1266996.hstgr.cloud zebvix-node[1146362]: 2026-04-28T00:58:25.023764Z  INFO zebvix_node: 🗳  emitted precommit h=54931 block=0x590b016acd164d60567819f89e00d64565ca5af12a13cfa366ff1559e717d4d9  ✅ QUORUM
+Apr 28 00:58:31 srv1266996.hstgr.cloud zebvix-node[1146362]: 2026-04-28T00:58:31.023563Z  INFO zebvix_node: 🗳  emitted prevote h=54932 block=0xb67110a15e8604cd2eb1b7663426c1394616d6e3588f648dcfbca1552fa4d0a4  ✅ QUORUM
+Apr 28 00:58:31 srv1266996.hstgr.cloud zebvix-node[1146362]: 2026-04-28T00:58:31.023974Z  INFO zebvix_node: 🗳  emitted precommit h=54932 block=0xb67110a15e8604cd2eb1b7663426c1394616d6e3588f648dcfbca1552fa4d0a4  ✅ QUORUM
+root@srv1266996:/home/zebvix-chain# 
