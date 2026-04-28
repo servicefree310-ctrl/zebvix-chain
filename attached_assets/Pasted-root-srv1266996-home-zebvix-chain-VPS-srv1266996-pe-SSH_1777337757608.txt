@@ -1,0 +1,85 @@
+root@srv1266996:/home/zebvix-chain# # ===== VPS srv1266996 pe SSH karke run kar =====
+
+# 0. Pre-flight: current chain state note kar (rollback ke liye)
+sudo systemctl status zebvix --no-pager | head -3
+curl -s http://localhost:10000/metrics | grep -E "^zvb_block_height|^zvb_node_uptime"
+LAST_GOOD_BIN="/usr/local/bin/zebvix-node.last-good"
+sudo cp /usr/local/bin/zebvix-node "$LAST_GOOD_BIN"
+echo "backup → $LAST_GOOD_BIN"
+
+# 1. Tarball pull (Replit dev workspace api-server se)
+mkdir -p /home/zebvix-chain && cd /home/zebvix-chain
+curl -fsSL "https://7f6c353a-ec2a-4fe7-81e1-631c9fb77a3e-00-1a0ca41r86kcx.worf.replit.dev/api/download/newchain" -o newchain.tgz
+ls -la newchain.tgz
+# Expect: ~few MB. Agar 0 bytes ya HTML aaye to api-server route check kar.
+
+# 2. Extract over existing source (overwrite-safe — git tracked files)
+tar -xzf newchain.tgz
+# Verify F006.4 changes landed
+grep -c "MAX_EVENTS_PER_TICK" zebvix-chain/src/fsm_runtime.rs   # expect: 2
+grep -c "poll_vote_quorums"   zebvix-chain/src/fsm_runtime.rs   # expect: 5+
+grep -c "recover_from_state"  zebvix-chain/src/fsm_runtime.rs   # expect: 3+
+
+# 3. CI check — sab 197 tests pass hone chahiye
+cd zebvix-chain
+bash scripts/ci-check.sh 2>&1 | tail -40
+# Look for: "test result: ok. 197 passed; 0 failed"
+# Agar fail ho to STOP — binary swap mat kar, mujhe error paste kar.
+
+# 4. Release build
+cargo build --release --features zvm 2>&1 | tail -10
+ls -lh target/release/zebvix-node
+# Expect: ~30-60 MB binary, mtime just now
+
+# 5. Service swap (atomic — minimal downtime ~2s)
+sudo systemctl stop zebvix
+sleep 1
+sudo cp target/release/zebvix-node /usr/local/bin/zebvix-node
+echo "✅ F006.4 deployed. Legacy producer still in charge. FSM code soaking dormant."|panic"
+● zebvix.service - Zebvix L1 Blockchain Node
+     Loaded: loaded (/etc/systemd/system/zebvix.service; enabled; preset: enabled)
+    Drop-In: /etc/systemd/system/zebvix.service.d
+backup → /usr/local/bin/zebvix-node.last-good
+-rw-r--r-- 1 root root 354087 Apr 28 00:53 newchain.tgz
+grep: zebvix-chain/src/fsm_runtime.rs: No such file or directory
+grep: zebvix-chain/src/fsm_runtime.rs: No such file or directory
+grep: zebvix-chain/src/fsm_runtime.rs: No such file or directory
+bash: cd: zebvix-chain: No such file or directory
+▶ Phase D-10 CI gate
+  chain_root = /home/zebvix-chain
+  features   = zvm
+  timeout    = 600s per step
+  mode       = full
+
+── cargo check --features zvm ──
+✓ PASS: cargo check --features zvm
+
+── cargo clippy --features zvm (warnings denied) ──
+✓ PASS: cargo clippy --features zvm (warnings denied)
+
+── cargo test --lib --features zvm ──
+
+running 198 tests
+....................................................................................... 87/198
+....................................................................................... 174/198
+........................
+test result: ok. 198 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.85s
+
+✓ PASS: cargo test --lib --features zvm
+
+
+✅ ALL CHECKS PASSED
+   target/.last-ci-pass updated → 2026-04-28T00:53:29Z
+   Tarball handler will accept fresh deploys for the next 24h.
+   Compiling zebvix-node v0.1.0 (/home/zebvix-chain)
+    Finished `release` profile [optimized] target(s) in 1m 35s
+-rwxr-xr-x 2 root root 16M Apr 28 00:55 target/release/zebvix-node
+● zebvix.service - Zebvix L1 Blockchain Node
+     Loaded: loaded (/etc/systemd/system/zebvix.service; enabled; preset: enabled)
+    Drop-In: /etc/systemd/system/zebvix.service.d
+             └─override.conf
+     Active: active (running) since Tue 2026-04-28 00:55:07 UTC; 3s ago
+Apr 28 00:55:07 srv1266996.hstgr.cloud zebvix-node[1146362]: 2026-04-28T00:55:07.520756Z  INFO zebvix_node:    tip       : height=54897 hash=0x2b62dc34bb09e570d6f158f4963722d9397c4466f480d1375e8c0dbba7e64f42
+Apr 28 00:55:07 srv1266996.hstgr.cloud zebvix-node[1146362]: 2026-04-28T00:55:07.522480Z  INFO zebvix_node::consensus: ⛏  producer started: my_address=0x40907000ac0a1a73e4cd89889b4d7ee8980c0315, mode=ROUND_ROBIN+TIMEOUTS (B.3.2.2) pacing=5s propose_timeout=8s tick=500ms
+✅ F006.4 deployed. Legacy producer still in charge. FSM code soaking dormant.
+root@srv1266996:/home/zebvix-chain# 
