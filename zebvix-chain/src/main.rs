@@ -8,7 +8,9 @@ use zebvix_node::crypto::{address_from_pubkey, generate_keypair, keypair_from_se
 use zebvix_node::mempool::Mempool;
 use zebvix_node::rpc;
 use zebvix_node::state::State;
-use zebvix_node::tokenomics::{self, CHAIN_ID, FOUNDER_PREMINE_WEI, TOTAL_SUPPLY_WEI, WEI_PER_ZBX};
+use zebvix_node::tokenomics::{
+    self, CHAIN_ID, FOUNDER_PREMINE_WEI, TOTAL_SUPPLY_WEI, WEI_PER_ZBX,
+};
 use zebvix_node::types::{Address, TxBody, TxKind, Validator};
 use zebvix_node::vote::{sign_vote, AddVoteResult, Vote, VoteData, VotePool, VoteType};
 
@@ -24,9 +26,25 @@ const C_DIM: &str = "\x1b[2m";
 /// Print the project banner. Shown once at the top of every CLI invocation
 /// (except `start`, which has its own boot log) so users always know which
 /// chain they're talking to and which version the binary is.
+///
+/// **Phase E — network identity in banner.** The banner now includes a
+/// LOUD network label (green `MAINNET` or red `🧪 TESTNET 🧪`) on a
+/// dedicated line above the chain_id sub-line so an operator can never
+/// confuse a mainnet vs testnet binary. The label is sourced from the
+/// compile-time `tokenomics::network_name()` and `tokenomics::is_testnet()`
+/// const fns — built with `--features testnet` flips it automatically.
 fn print_banner() {
     let v = env!("CARGO_PKG_VERSION");
     let title = "WELCOME TO ZEBVIX CHAIN";
+    let net = tokenomics::network_name();
+    // Red box + warning emojis on testnet so it visually shouts at the
+    // operator. Green check-mark on mainnet so production deploys feel
+    // calm and confirmed. Colour codes match the rest of main.rs (ANSI).
+    let net_label = if tokenomics::is_testnet() {
+        format!("\x1b[1;31m🧪  {net}  🧪\x1b[0m")
+    } else {
+        format!("\x1b[1;32m✓  {net}\x1b[0m")
+    };
     let sub = format!("L1 PoS · ZBX · chain_id={CHAIN_ID} · v{v}");
     let inner_w: usize = 56;
     let pad = |s: &str| {
@@ -35,15 +53,44 @@ fn print_banner() {
         let r = space - l;
         format!("{}{}{}", " ".repeat(l), s, " ".repeat(r))
     };
+    // For coloured strings, .chars().count() over-counts because of ANSI
+    // escapes. Use a separate helper that pads based on visible width.
+    let pad_visible = |raw: &str, visible_len: usize| {
+        let space = inner_w.saturating_sub(visible_len);
+        let l = space / 2;
+        let r = space - l;
+        format!("{}{}{}", " ".repeat(l), raw, " ".repeat(r))
+    };
+    // Visible width of the net label: "🧪  TESTNET  🧪" (2+2+7+2+2 = 15)
+    // or "✓  MAINNET" (1+2+7 = 10). Each emoji counts as 2 columns in most
+    // terminals; the leading space-padded form is approximated here.
+    let net_visible_len = if tokenomics::is_testnet() {
+        // 🧪 + 2sp + TESTNET + 2sp + 🧪 = 2 + 2 + 7 + 2 + 2 = 15
+        15
+    } else {
+        // ✓ + 2sp + MAINNET = 1 + 2 + 7 = 10
+        10
+    };
     let bar = "═".repeat(inner_w);
     eprintln!();
     eprintln!("{C_CYAN_B}╔{bar}╗{C_RESET}");
     eprintln!("{C_CYAN_B}║{}║{C_RESET}", pad(""));
     eprintln!("{C_CYAN_B}║{C_YELLOW}{}{C_CYAN_B}║{C_RESET}", pad(title));
+    eprintln!("{C_CYAN_B}║{}{C_CYAN_B}║{C_RESET}", pad_visible(&net_label, net_visible_len));
     eprintln!("{C_CYAN_B}║{C_DIM}{}{C_RESET}{C_CYAN_B}║{C_RESET}", pad(&sub));
     eprintln!("{C_CYAN_B}║{}║{C_RESET}", pad(""));
     eprintln!("{C_CYAN_B}╚{bar}╝{C_RESET}");
     eprintln!();
+    // On testnet, follow up with a one-line WARNING immediately below the
+    // banner (outside the box) so it survives even when the box is wrapped
+    // off-screen on narrow terminals.
+    if tokenomics::is_testnet() {
+        eprintln!(
+            "\x1b[1;31m⚠  TESTNET BUILD — tokens have ZERO economic value. \
+             Mainnet RPC at port 8545 is a DIFFERENT binary.\x1b[0m"
+        );
+        eprintln!();
+    }
 }
 
 #[derive(Parser)]

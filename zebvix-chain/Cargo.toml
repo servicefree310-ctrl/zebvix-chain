@@ -20,6 +20,27 @@ default = []
 # Build with `cargo build --release --features zvm` on the VPS to enable.
 zvm = ["dep:sha2"]
 
+# Phase E — TESTNET BUILD MARKER. When enabled, the binary becomes a
+# CRYPTOGRAPHICALLY ISOLATED testnet node:
+#   - CHAIN_ID flips from 7878 (mainnet) to 78787 (testnet) so signed
+#     transactions CANNOT replay across networks (TxBody.chain_id is part
+#     of the canonical signing payload).
+#   - FOUNDER_PREMINE_ZBX flips from 9.99M (mainnet, real economic value)
+#     to 100M (testnet, ZERO economic value — for operator ops convenience
+#     to pay for validator-add txs and other governance during testing).
+#   - All other tokenomics constants (FOUNDER_PUBKEY_HEX, ADMIN_ADDRESS_HEX,
+#     GOVERNOR_ADDRESS_HEX, BLOCK_TIME_SECS, halving schedule) stay IDENTICAL
+#     so the testnet faithfully simulates mainnet economics — only the
+#     network identity and starting balance differ.
+#   - The startup banner LOUDLY identifies the binary as 🧪 TESTNET 🧪 in
+#     red so an operator can never confuse mainnet and testnet binaries.
+# Mainnet build (default, no feature): cargo build --release --features zvm
+# Testnet build (Phase E):             cargo build --release --features zvm,testnet
+# Recommended install paths:
+#   /usr/local/bin/zebvix-node          (mainnet, listens on :8545 / :30333)
+#   /usr/local/bin/zebvix-node-testnet  (testnet, listens on :18545 / :31333)
+testnet = []
+
 [dependencies]
 k256 = { version = "0.13", features = ["ecdsa", "serde"] }
 sha3 = "0.10"

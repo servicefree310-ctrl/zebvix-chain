@@ -17,6 +17,81 @@ own phase. This file tracks them honestly so they're not forgotten.
 
 ---
 
+## Phase E — Sui/Aptos/Solana-tier Testnet (April 28, 2026 — Phase 0 SHIPPED ✅)
+
+A separate parallel testnet now exists alongside the live mainnet chain
+(h≈55808+ at Phase 0 ship time). All future chain-breaking work — F006.7
+FSM activation, D1 multi-validator deploy, D2 slashing execution, C2
+Keccak signing migration, C3 bridge multisig, H2 Block-STM parallel
+execution, D7 EIP-1559 fee market, etc. — will land on **testnet first**,
+soak for 30+ days, then height-gate-activate on mainnet only after the
+testnet validates the change end-to-end. **Mainnet stays untouched while
+the testnet evolves into a Sui/Aptos/Solana-tier high-security L1.**
+
+### Phase E architecture
+
+| Component       | Mainnet                            | Testnet                                    |
+|-----------------|------------------------------------|--------------------------------------------|
+| Cargo build     | `cargo build --release --features zvm`        | `cargo build --release --features zvm,testnet` |
+| `CHAIN_ID`      | `7878` (`tokenomics.rs:51`)        | `78787` (`tokenomics.rs:53`)               |
+| Founder premine | 9.99M ZBX (real value)             | 100M ZBX (zero value, ops convenience)     |
+| Founder pubkey  | hardcoded `FOUNDER_PUBKEY_HEX`     | SAME (operator convenience)                |
+| Binary path     | `/usr/local/bin/zebvix-node`       | `/usr/local/bin/zebvix-node-testnet`       |
+| Systemd unit    | `zebvix.service`                   | `zebvix-testnet.service`                   |
+| RocksDB home    | `/root/.zebvix`                    | `/root/.zebvix-testnet`                    |
+| RPC listen      | `0.0.0.0:8545`                     | `0.0.0.0:18545`                            |
+| P2P listen      | `30333`                            | `31333`                                    |
+| Cross-chain replay | BLOCKED on testnet — `tokenomics::ENFORCE_CHAIN_ID = true` on testnet builds causes both `Mempool::add` and `State::apply_tx` to reject any tx whose `body.chain_id != CHAIN_ID`, BEFORE state mutation or fee debit. (Mainnet enforcement is deferred to a future height-gated Tier 1 phase to avoid state-sync divergence on historical blocks that pre-date the gate; see `tokenomics::ENFORCE_CHAIN_ID` doc for the full rationale.) |
+
+### Phase E.0 — Testnet bootstrap infrastructure (✅ shipped April 28, 2026)
+
+- `Cargo.toml` — new `testnet` feature flag (zero new deps, gates only `cfg(feature = "testnet")` blocks).
+- `src/tokenomics.rs` — `CHAIN_ID` and `FOUNDER_PREMINE_ZBX` gated; new public `const fn network_name()` and `const fn is_testnet()` for use in banners and logs; new public `const ENFORCE_CHAIN_ID: bool` (testnet=true, mainnet=false) drives the cross-network replay gate documented above.
+- `src/mempool.rs` — `Mempool::add` now rejects wrong-`chain_id` txs immediately after the fee floor and BEFORE the secp256k1 verify (cheap fast-fail: one u64 compare vs a full ECDSA verify on hostile input).
+- `src/state.rs` — `State::apply_tx` rejects wrong-`chain_id` txs at the very TOP of the function so a wrong-chain tx never debits fees, never bumps nonce, never mutates any account. **Architect-flagged liveness fix:** `State::apply_block` ALSO rejects any block containing a wrong-`chain_id` tx in a pre-check that runs BEFORE `set_block_applying_marker(...)`. Without that pre-check, the per-tx rejection inside the runtime apply loop would fire AFTER the crash-safety marker is set, triggering the fail-loud "leave marker stuck" path and bricking the node until manual operator recovery — a DoS via crafted block. New tests: `chain_id_and_enforcement_const_match_build_flavor` (always-on parity guard), `apply_tx_rejects_wrong_chain_id_on_testnet` and `mempool_rejects_wrong_chain_id_on_testnet` (testnet-gated rejection coverage), and `apply_block_rejects_wrong_chain_id_pre_marker_on_testnet` (testnet-gated; explicitly asserts `read_block_applying_marker().is_none()` after rejection so any future regression that moves the pre-check fires this test). Existing apply_tx test fixtures that hardcoded `chain_id: 7878` were lifted to `chain_id: crate::tokenomics::CHAIN_ID` so they remain consistent under both build flavors.
+- `src/main.rs` — `print_banner()` now displays a LOUD network identifier (green `✓ MAINNET` or red `🧪 TESTNET 🧪`) on a dedicated line above the chain_id sub-line; testnet builds also emit a one-line warning below the banner. Operator can never confuse mainnet vs testnet binaries.
+- `scripts/testnet-deploy.sh` — single-script VPS testnet bootstrap (`--build-only` / `--service-only` / `--status` modes); writes `zebvix-testnet.service` systemd unit; uses atomic `install -m 755` to handle ETXTBSY when restarting; verifies TESTNET banner appears in journal post-restart.
+- `scripts/testnet-genesis-keygen.sh` — wrapper around `keygen` for per-node validator keypair generation with restrictive perms (`0600`) and next-step instructions for `validator-add` tx submission.
+- **Mainnet binary behaviour unchanged** — `git diff` shows the only changes to mainnet code path are documentation comments and the gating `#[cfg(not(feature = "testnet"))]` attributes. Mainnet `cargo build --release --features zvm` produces a binary with byte-identical `tokenomics::CHAIN_ID = 7878` and `FOUNDER_PREMINE_ZBX = 9_990_000`.
+
+### Phase E roadmap (Phases 1-12, ~31 sessions to Sui-tier feature parity)
+
+| Phase | Title                                                                  | Sessions | Gating  |
+|-------|------------------------------------------------------------------------|----------|---------|
+| 0     | **Testnet bootstrap infrastructure** ✅ shipped 2026-04-28              | 1        | —       |
+| 1     | F006.7 — Wire FSM into `main.rs` (BFT activation on testnet first)     | 2        | E.0     |
+| 2     | D5 — Backup/DR + Shamir validator key sharding (single biggest residual risk) | 2 | —       |
+| 3     | D1 — Multi-validator deploy (N=3 testnet, then scale to N=20)          | 2        | Phase 1 |
+| 4     | D2 — Slashing jail/burn execution (verifier already shipped ✅)         | 2        | Phase 3 |
+| 5     | H5 — Gossipsub peer scoring + DoS hardening (Lighthouse-grade params)  | 2        | —       |
+| 6     | C3 — M-of-N bridge multisig (replace single-admin oracle, Tier 1)      | 4        | —       |
+| 7     | C2 — Keccak256 signing migration (MetaMask compat, height-gated)        | 3        | —       |
+| 8     | H2 — Block-STM parallel execution (Aptos-style, ≥2.5× target speedup)  | 5        | —       |
+| 9     | D3 — State-sync via RocksDB checkpoint snapshots (fast new-validator bootstrap) | 3 | —       |
+| 10    | D7 — EIP-1559 fee market (base-fee + priority-fee)                     | 2        | —       |
+| 11    | D6 — Block explorer feature parity (sui-fork-dashboard integration)    | 2        | Phase 3, 4 |
+| 12    | Final — DR drills, 30-day testnet soak, mainnet swap planning           | 2        | All     |
+
+**Total: ~31 sessions** to reach Sui/Aptos-tier feature parity. (Note: true Sui-equivalent throughput of 70k+ TPS requires Move VM or similar object-typed parallel runtime — that's a multi-year R&D undertaking beyond this roadmap. Phase 8 Block-STM gives Aptos-tier parallelism, which is the closest L1-EVM-style equivalent.)
+
+### Phase E operator playbook
+
+```bash
+# On the VPS (one-time bootstrap):
+cd /home/zebvix-chain
+git pull
+sudo bash scripts/testnet-deploy.sh                 # builds testnet binary + writes systemd unit
+sudo bash scripts/testnet-deploy.sh --status        # verify TESTNET banner + RPC tip
+
+# Add a second validator (post-genesis):
+sudo bash scripts/testnet-genesis-keygen.sh node-2  # generates keypair, prints next steps
+
+# Subsequent deploys (after pulling new code):
+sudo bash scripts/testnet-deploy.sh                 # rebuild + restart, mainnet untouched
+```
+
+---
+
 ## Roadmap Tier Index
 
 The remaining work is organised into three tiers by risk profile and

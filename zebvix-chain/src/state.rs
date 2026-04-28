@@ -863,6 +863,26 @@ impl State {
     ///   - `ValidatorRemove` → admin-only; deletes a validator (last-validator
     ///                         safety enforced)
     pub fn apply_tx(&self, tx: &SignedTx) -> Result<()> {
+        // ── Phase E.0 — cross-network replay protection (consensus-enforced) ──
+        // When enabled (testnet builds), reject any tx whose body chain_id
+        // does not match this network's CHAIN_ID. Placed FIRST in apply_tx so
+        // a wrong-chain tx never mutates state, never debits fees, and never
+        // advances nonce. Mainnet builds keep `ENFORCE_CHAIN_ID = false` until
+        // a height-gated Tier 1 activation in a future phase (see
+        // `tokenomics::ENFORCE_CHAIN_ID` for the full deferral rationale —
+        // mainnet has 55808+ blocks of unaudited history that pre-date this
+        // gate, so activation must be height-gated to avoid state-sync
+        // divergence on historical replay).
+        if crate::tokenomics::ENFORCE_CHAIN_ID
+            && tx.body.chain_id != crate::tokenomics::CHAIN_ID
+        {
+            return Err(anyhow!(
+                "wrong chain_id: tx signed for {}, this network is {} ({})",
+                tx.body.chain_id,
+                crate::tokenomics::CHAIN_ID,
+                crate::tokenomics::network_name()
+            ));
+        }
         // ── Dynamic USD-pegged fee bounds (consensus-enforced) ──
         // Compute (min_wei, max_wei) from the current AMM pool spot price so
         // every tx pays between $0.001 and $0.01 worth of ZBX. When the pool
@@ -2851,6 +2871,31 @@ impl State {
 
         // Phase B.12 — expose block timestamp to apply_tx (Bridge arm reads it).
         self.current_block_ts_ms.store(block.header.timestamp_ms, Ordering::SeqCst);
+
+        // ── Phase E.0 — cross-network replay protection (block-level pre-check) ──
+        // Reject the WHOLE block BEFORE the crash-safety marker is set if any
+        // tx carries a wrong chain_id. Without this pre-check, a wrong-chain tx
+        // would still be rejected by `apply_tx` inside the runtime apply loop,
+        // but rejection would happen AFTER `set_block_applying_marker(...)` and
+        // trigger the fail-loud "leave marker set" path — bricking the node
+        // until an operator runs the recovery procedure (DoS via crafted block).
+        // Check is skipped on mainnet builds (`ENFORCE_CHAIN_ID=false`) until
+        // the height-gated Tier 1 activation phase ships. Constant-folded to
+        // a no-op on mainnet — mainnet binary behaviour unchanged.
+        if crate::tokenomics::ENFORCE_CHAIN_ID {
+            for tx in &block.txs {
+                if tx.body.chain_id != crate::tokenomics::CHAIN_ID {
+                    return Err(anyhow!(
+                        "block #{}: contains tx with wrong chain_id {} (this network is {} = {})",
+                        block.header.height,
+                        tx.body.chain_id,
+                        crate::tokenomics::network_name(),
+                        crate::tokenomics::CHAIN_ID,
+                    ));
+                }
+            }
+        }
+
         if block.txs.len() >= 4 {
             if !verify_txs_batch(&block.txs) {
                 return Err(anyhow!("bad tx signature in block (batch verify failed)"));
@@ -5134,7 +5179,7 @@ mod state_root_tests {
             amount: 1,
             nonce: 0,
             fee: crate::tokenomics::MIN_TX_FEE_WEI,
-            chain_id: 7878,
+            chain_id: crate::tokenomics::CHAIN_ID,
             kind: TxKind::Transfer,
         };
         let tx = crate::crypto::sign_tx(&sk, body).unwrap();
@@ -5163,7 +5208,7 @@ mod state_root_tests {
             amount: 1,
             nonce: MAX_NONCE_GAP + 1, // cur=0, max gap window exceeded
             fee: crate::tokenomics::MIN_TX_FEE_WEI,
-            chain_id: 7878,
+            chain_id: crate::tokenomics::CHAIN_ID,
             kind: TxKind::Transfer,
         };
         let tx = crate::crypto::sign_tx(&sk, body).unwrap();
@@ -5193,7 +5238,7 @@ mod state_root_tests {
             amount: 0,
             nonce: 0,
             fee,
-            chain_id: 7878,
+            chain_id: crate::tokenomics::CHAIN_ID,
             kind: TxKind::TokenCreate {
                 name: "MyCoin".to_string(),
                 symbol: "MYC".to_string(),
@@ -5220,7 +5265,7 @@ mod state_root_tests {
             amount: 0,
             nonce: 1,
             fee,
-            chain_id: 7878,
+            chain_id: crate::tokenomics::CHAIN_ID,
             kind: TxKind::TokenTransfer {
                 token_id: tok.id,
                 to: bob,
@@ -5255,7 +5300,7 @@ mod state_root_tests {
         st.put_account(&alice, &acc_a).unwrap();
         let fee = crate::tokenomics::MIN_TX_FEE_WEI;
         let create = crate::transaction::TxBody {
-            from: alice, to: Address::ZERO, amount: 0, nonce: 0, fee, chain_id: 7878,
+            from: alice, to: Address::ZERO, amount: 0, nonce: 0, fee, chain_id: crate::tokenomics::CHAIN_ID,
             kind: TxKind::TokenCreate {
                 name: "Foo".to_string(), symbol: "FOO".to_string(),
                 decimals: 6, initial_supply: 100,
@@ -5272,7 +5317,7 @@ mod state_root_tests {
         st.put_account(&bob, &acc_b).unwrap();
 
         let mint_body = crate::transaction::TxBody {
-            from: bob, to: Address::ZERO, amount: 0, nonce: 0, fee, chain_id: 7878,
+            from: bob, to: Address::ZERO, amount: 0, nonce: 0, fee, chain_id: crate::tokenomics::CHAIN_ID,
             kind: TxKind::TokenMint { token_id: tok.id, to: bob, amount: 999 },
         };
         let bad_tx = crate::crypto::sign_tx(&sk_b, mint_body).unwrap();
@@ -5391,7 +5436,7 @@ mod state_root_tests {
         }
         // Alice creates the token.
         let create_body = crate::transaction::TxBody {
-            from: alice, to: Address::ZERO, amount: 0, nonce: 0, fee, chain_id: 7878,
+            from: alice, to: Address::ZERO, amount: 0, nonce: 0, fee, chain_id: crate::tokenomics::CHAIN_ID,
             kind: TxKind::TokenCreate {
                 name: "AliceCoin".to_string(),
                 symbol: "ALC".to_string(),
@@ -5404,7 +5449,7 @@ mod state_root_tests {
 
         // Bob (non-creator) tries to mint — must fail; balance must NOT change.
         let bob_mint = crate::transaction::TxBody {
-            from: bob, to: Address::ZERO, amount: 0, nonce: 0, fee, chain_id: 7878,
+            from: bob, to: Address::ZERO, amount: 0, nonce: 0, fee, chain_id: crate::tokenomics::CHAIN_ID,
             kind: TxKind::TokenMint { token_id: tok.id, to: bob, amount: 999 },
         };
         let res = st.apply_tx(&crate::crypto::sign_tx(&sk_b, bob_mint).unwrap());
@@ -5518,5 +5563,192 @@ mod state_root_tests {
             msg.contains("not in validator set") || msg.contains("offender"),
             "error must call out unknown offender: {msg}"
         );
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // Phase E.0 — cross-network replay protection regression tests
+    // ────────────────────────────────────────────────────────────────
+    //
+    // These tests guard the chain_id enforcement gate added to
+    // `Mempool::add` and `State::apply_tx`. The gate is controlled by
+    // `tokenomics::ENFORCE_CHAIN_ID`, which is `true` on testnet builds
+    // (`--features testnet`) and `false` on mainnet builds. The two
+    // rejection tests are therefore gated on `cfg(feature = "testnet")`
+    // — on mainnet they would not fire (by design, deferred to a future
+    // height-gated Tier 1 activation).
+
+    /// Const-drift guard: regardless of build flavor, CHAIN_ID and
+    /// ENFORCE_CHAIN_ID must move together. If a future refactor changes
+    /// one without the other, this test fires.
+    #[test]
+    fn chain_id_and_enforcement_const_match_build_flavor() {
+        if cfg!(feature = "testnet") {
+            assert_eq!(crate::tokenomics::CHAIN_ID, 78787,
+                "testnet build must use CHAIN_ID=78787");
+            assert!(crate::tokenomics::ENFORCE_CHAIN_ID,
+                "testnet build must enforce chain_id at the tx layer");
+        } else {
+            assert_eq!(crate::tokenomics::CHAIN_ID, 7878,
+                "mainnet build must use CHAIN_ID=7878");
+            assert!(!crate::tokenomics::ENFORCE_CHAIN_ID,
+                "mainnet build must NOT enforce chain_id at the tx layer \
+                 until the height-gated Tier 1 activation phase ships");
+        }
+    }
+
+    /// Testnet-only: a tx crafted for the WRONG network (body.chain_id
+    /// matches a foreign network) must be rejected by `apply_tx` with a
+    /// loud `wrong chain_id` error, BEFORE any state mutation. The
+    /// sender's nonce and balance are sampled both before and after to
+    /// prove the rejection is side-effect-free.
+    #[cfg(feature = "testnet")]
+    #[test]
+    fn apply_tx_rejects_wrong_chain_id_on_testnet() {
+        use crate::transaction::TxBody;
+        let (_td, st) = fresh_state();
+        let (sk, pk) = generate_keypair();
+        let from = crate::crypto::address_from_pubkey(&pk);
+        // Fund sender so balance/nonce checks would otherwise pass.
+        let mut acc = st.account(&from);
+        acc.balance = 100u128 * 1_000_000_000_000_000_000u128;
+        st.put_account(&from, &acc).unwrap();
+
+        // Pick a chain_id that is GUARANTEED foreign. Mainnet's 7878
+        // works on a testnet build, since on testnet CHAIN_ID=78787.
+        let foreign = 7878u64;
+        assert_ne!(foreign, crate::tokenomics::CHAIN_ID,
+            "test fixture: foreign chain_id must differ from this build's CHAIN_ID");
+
+        let body = TxBody {
+            from,
+            to: Address::ZERO,
+            amount: 1,
+            nonce: 0,
+            fee: crate::tokenomics::MIN_TX_FEE_WEI,
+            chain_id: foreign,
+            kind: TxKind::Transfer,
+        };
+        let tx = crate::crypto::sign_tx(&sk, body).unwrap();
+
+        let pre_nonce = st.account(&from).nonce;
+        let pre_balance = st.account(&from).balance;
+        let err = st.apply_tx(&tx).expect_err(
+            "wrong-chain_id tx must be rejected on a testnet build");
+        let msg = format!("{err}");
+        assert!(msg.contains("wrong chain_id"),
+            "rejection must name the gate (got: {msg})");
+        // No state mutation: nonce + balance MUST be untouched.
+        assert_eq!(st.account(&from).nonce, pre_nonce,
+            "rejected tx must not bump nonce");
+        assert_eq!(st.account(&from).balance, pre_balance,
+            "rejected tx must not debit balance");
+    }
+
+    /// Testnet-only: a BLOCK that contains any wrong-chain_id tx must be
+    /// rejected by `apply_block` BEFORE the crash-safety marker is set,
+    /// not by the runtime apply loop AFTER the marker (which would
+    /// trigger the fail-loud "leave marker stuck" path and DoS the node).
+    /// Architect-flagged liveness gap: without this pre-check, a single
+    /// crafted block could brick a testnet node until manual recovery.
+    #[cfg(feature = "testnet")]
+    #[test]
+    fn apply_block_rejects_wrong_chain_id_pre_marker_on_testnet() {
+        use crate::transaction::TxBody;
+        let (_td, st) = fresh_state();
+        let (sk_v, _pk_v, addr_v) = install_validator(&st);
+
+        // Sender funded so balance/nonce are not the rejection reason.
+        let (sk_a, pk_a) = generate_keypair();
+        let alice = crate::crypto::address_from_pubkey(&pk_a);
+        let mut acc_a = st.account(&alice);
+        acc_a.balance = 100u128 * 1_000_000_000_000_000_000u128;
+        st.put_account(&alice, &acc_a).unwrap();
+
+        let foreign = 7878u64;
+        assert_ne!(foreign, crate::tokenomics::CHAIN_ID);
+        let body = TxBody {
+            from: alice,
+            to: Address::ZERO,
+            amount: 1,
+            nonce: 0,
+            fee: crate::tokenomics::MIN_TX_FEE_WEI,
+            chain_id: foreign,
+            kind: TxKind::Transfer,
+        };
+        let bad_tx = crate::crypto::sign_tx(&sk_a, body).unwrap();
+
+        let (h0, parent) = st.tip();
+        let header = BlockHeader {
+            height: h0 + 1,
+            parent_hash: parent,
+            state_root: Hash::ZERO,
+            tx_root: Hash::ZERO,
+            timestamp_ms: 1_700_000_000_000,
+            proposer: addr_v,
+        };
+        let sig = sign_bytes(&sk_v, &header_signing_bytes(&header)).unwrap();
+        let blk = Block { header, txs: vec![bad_tx], signature: sig };
+
+        let res = st.apply_block(&blk);
+        let err = res.expect_err("block with wrong-chain_id tx must be rejected");
+        let msg = format!("{err}");
+        assert!(msg.contains("wrong chain_id"),
+            "rejection must name the gate (got: {msg})");
+
+        // Tip MUST NOT advance.
+        let (h1, _) = st.tip();
+        assert_eq!(h1, h0, "tip must not advance on rejected block");
+        // CRITICAL: marker MUST NOT be set — pre-check fired BEFORE the
+        // marker is touched. If this assertion ever fires, the apply_block
+        // chain_id pre-check has been moved (or removed) and the node is
+        // again vulnerable to crafted-block DoS.
+        let marker = st.read_block_applying_marker();
+        assert!(marker.is_none(),
+            "marker MUST stay clear — wrong-chain block was rejected pre-marker, \
+             not via the runtime fail-loud path (got: {marker:?})");
+        // Sender state must also be untouched.
+        let acc_after = st.account(&alice);
+        assert_eq!(acc_after.nonce, 0, "rejected tx must not bump nonce");
+        assert_eq!(acc_after.balance, 100u128 * 1_000_000_000_000_000_000u128,
+            "rejected tx must not debit balance");
+    }
+
+    /// Testnet-only: same coverage at the mempool admission gate. Cheap
+    /// fast-fail — the rejection happens BEFORE the secp256k1 verify so
+    /// wrong-chain spam costs only one u64 comparison, not a full sig
+    /// check.
+    #[cfg(feature = "testnet")]
+    #[test]
+    fn mempool_rejects_wrong_chain_id_on_testnet() {
+        use crate::mempool::Mempool;
+        use crate::transaction::TxBody;
+        let (_td, st) = fresh_state();
+        let st = std::sync::Arc::new(st);
+        let (sk, pk) = generate_keypair();
+        let from = crate::crypto::address_from_pubkey(&pk);
+        let mut acc = st.account(&from);
+        acc.balance = 100u128 * 1_000_000_000_000_000_000u128;
+        st.put_account(&from, &acc).unwrap();
+
+        let foreign = 7878u64;
+        assert_ne!(foreign, crate::tokenomics::CHAIN_ID);
+
+        let body = TxBody {
+            from,
+            to: Address::ZERO,
+            amount: 1,
+            nonce: 0,
+            fee: crate::tokenomics::MIN_TX_FEE_WEI,
+            chain_id: foreign,
+            kind: TxKind::Transfer,
+        };
+        let tx = crate::crypto::sign_tx(&sk, body).unwrap();
+
+        let mp = Mempool::new(st.clone(), 64);
+        let err = mp.add(tx).expect_err(
+            "mempool must reject wrong-chain_id tx on a testnet build");
+        let msg = format!("{err}");
+        assert!(msg.contains("wrong chain_id"),
+            "rejection must name the gate (got: {msg})");
     }
 }

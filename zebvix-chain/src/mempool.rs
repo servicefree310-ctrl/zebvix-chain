@@ -37,7 +37,7 @@
 
 use crate::crypto::{tx_hash, verify_tx};
 use crate::state::State;
-use crate::tokenomics::MIN_TX_FEE_WEI;
+use crate::tokenomics::{ENFORCE_CHAIN_ID, MIN_TX_FEE_WEI};
 use crate::types::SignedTx;
 use anyhow::{anyhow, Result};
 use parking_lot::RwLock;
@@ -64,6 +64,21 @@ impl Mempool {
             return Err(anyhow!(
                 "fee too low: {} wei < min {} wei (0.001 ZBX)",
                 tx.body.fee, MIN_TX_FEE_WEI
+            ));
+        }
+        // ── Phase E.0 — cross-network replay protection (transaction layer) ──
+        // When enabled (testnet builds), reject any tx whose body chain_id
+        // does not match this network's CHAIN_ID. Placed BEFORE the expensive
+        // secp256k1 verify so wrong-chain spam costs only one u64 comparison.
+        // Mainnet builds keep ENFORCE_CHAIN_ID = false until a height-gated
+        // Tier 1 activation in a future phase — see tokenomics::ENFORCE_CHAIN_ID
+        // doc for the full deferral rationale.
+        if ENFORCE_CHAIN_ID && tx.body.chain_id != crate::tokenomics::CHAIN_ID {
+            return Err(anyhow!(
+                "wrong chain_id: tx signed for {}, this network is {} ({})",
+                tx.body.chain_id,
+                crate::tokenomics::CHAIN_ID,
+                crate::tokenomics::network_name()
             ));
         }
         if !verify_tx(&tx) {

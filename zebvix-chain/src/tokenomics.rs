@@ -18,7 +18,18 @@ pub const TOTAL_SUPPLY_WEI: u128 = TOTAL_SUPPLY_ZBX * WEI_PER_ZBX;
 /// It is publicly disclosed and counted in `circulating_wei` so on-chain supply
 /// reporting reflects the true spendable balance held by the foundation.
 /// Industry context: most major L1s allocate 25–35% to founding teams — Zebvix at ~6.66%.
+///
+/// **Phase E — testnet override.** On testnet builds (`--features testnet`)
+/// this is bumped to 100M ZBX (NOT 6.66% of testnet supply — a flat ops
+/// convenience amount). Testnet tokens have ZERO economic value; the
+/// 100M figure exists purely so the operator has enough faucet-source
+/// balance to fund validator-add txs, governance txs, bridge oracle txs,
+/// and load-test transfers without running out during multi-month soak.
+/// Mainnet behavior unchanged.
+#[cfg(not(feature = "testnet"))]
 pub const FOUNDER_PREMINE_ZBX: u128 = 9_990_000u128;
+#[cfg(feature = "testnet")]
+pub const FOUNDER_PREMINE_ZBX: u128 = 100_000_000u128;
 pub const FOUNDER_PREMINE_WEI: u128 = FOUNDER_PREMINE_ZBX * WEI_PER_ZBX;
 
 /// Initial block reward = 3 ZBX.
@@ -31,8 +42,75 @@ pub const HALVING_INTERVAL: u64 = 25_000_000;
 /// Block time in seconds.
 pub const BLOCK_TIME_SECS: u64 = 5;
 
-/// Chain ID for Zebvix mainnet.
+/// **Phase E — network identity, compile-time gated.**
+///
+/// `CHAIN_ID` is part of the canonical signing payload (`TxBody.chain_id`)
+/// so signatures are inherently cryptographically isolated across networks:
+/// a tx signed for chain 7878 (mainnet) will NEVER verify against the same
+/// body bytes on chain 78787 (testnet) — replay-protection by construction.
+///
+///   - **Mainnet build** (default, no feature): `CHAIN_ID = 7878`
+///   - **Testnet build** (`--features testnet`): `CHAIN_ID = 78787`
+///
+/// 78787 chosen because (a) memorable as "mainnet doubled with overflow",
+/// (b) outside the Ethereum / BSC / Polygon / Avalanche reserved range,
+/// (c) clearly distinguishable in any explorer UI from the 7878 mainnet.
+#[cfg(not(feature = "testnet"))]
 pub const CHAIN_ID: u64 = 7878;
+#[cfg(feature = "testnet")]
+pub const CHAIN_ID: u64 = 78787;
+
+/// **Phase E — network name** (`"MAINNET"` or `"TESTNET"`). Used by the
+/// startup banner and tracing logs so operators can never confuse which
+/// binary they are running. `const fn` so it can be used in `const`
+/// contexts (e.g., compile-time concatenation in banner strings).
+#[inline]
+pub const fn network_name() -> &'static str {
+    if cfg!(feature = "testnet") { "TESTNET" } else { "MAINNET" }
+}
+
+/// **Phase E — testnet flag**. Returns true ONLY when the binary was built
+/// with `--features testnet`. Use this for any runtime check that must
+/// behave differently on testnet (e.g., loud "TESTNET TOKENS HAVE NO VALUE"
+/// warnings on first wallet receive, faucet RPC endpoints gated open, etc).
+#[inline]
+pub const fn is_testnet() -> bool {
+    cfg!(feature = "testnet")
+}
+
+/// **Phase E — runtime chain_id enforcement gate for the TRANSACTION layer.**
+///
+/// When `true`, both mempool admission (`Mempool::add`) and block apply
+/// (`State::apply_tx`) reject any tx whose `body.chain_id != CHAIN_ID`.
+/// This is the *consensus-enforced* half of cross-network replay protection
+/// — without it, the chain_id byte in `TxBody` is just a number that gets
+/// signed but never compared, so a mainnet-signed tx could be replayed on
+/// testnet (and vice versa) provided nonce/balance line up.
+///
+/// Note: the BFT vote and evidence layers (`vote.rs:148`, `vote.rs:481`,
+/// `evidence.rs:146`) ALREADY enforce chain_id at runtime, so cross-network
+/// vote replay was already blocked. This const closes the matching gap on
+/// the transaction path.
+///
+///   - **Testnet build** (`--features testnet`): `ENFORCE_CHAIN_ID = true`.
+///     Testnet starts from a fresh genesis with no historical transactions,
+///     so enforcement at h=0 is safe — there is no replay surface to break.
+///     This is the WHOLE POINT of Phase E.0: testnet must be cryptographically
+///     isolated from mainnet from block 1 onward.
+///   - **Mainnet build** (default, no feature): `ENFORCE_CHAIN_ID = false`.
+///     Mainnet is at h≈55808+ with thousands of historical transactions, all
+///     of which were submitted *without* this gate. Activating the gate at
+///     genesis would make a state-syncing new node diverge if any historical
+///     tx happens to carry a body.chain_id != 7878 (unlikely in practice
+///     because every wallet uses the `CHAIN_ID` const, but not formally
+///     audited). Mainnet activation is therefore deferred to a future
+///     **Tier 1 height-gated change** ("Phase X — chain_id enforcement on
+///     mainnet") with its own ACTIVATION_HEIGHT env and operator playbook,
+///     coordinated with the C2 Keccak migration cycle.
+#[cfg(feature = "testnet")]
+pub const ENFORCE_CHAIN_ID: bool = true;
+#[cfg(not(feature = "testnet"))]
+pub const ENFORCE_CHAIN_ID: bool = false;
 
 /// Gas units required for a standard ZBX transfer (EVM-standard).
 pub const MIN_GAS_UNITS: u64 = 21_000;
