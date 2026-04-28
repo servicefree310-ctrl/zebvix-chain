@@ -40,8 +40,11 @@ two Tier-1 gates on the same restart.**
 | ↳ B.3.2.7-F006.1        | FSM runtime adapter scaffold                   | ✅ shipped dormant  |
 | ↳ B.3.2.7-F006.2        | Vote-pool tally APIs (FSM event source primitives) | ✅ shipped dormant  |
 | ↳ B.3.2.7-F006.3        | `FsmAction` → I/O sink (handle_action dispatch) | ✅ shipped dormant ¹ |
-| ↳ B.3.2.7-F006.4        | Event sources + dispatch loop (vote-pool watcher, tick clock, proposal cache, recovery) | ✅ shipped dormant ⁴ |
-| ↳ F006.5 → F006.7       | Observability, N=1 cadence, test matrix + VPS gate | ⏳ planned (§B.3.2.7) |
+| ↳ B.3.2.7-F006.4        | Event sources + dispatch loop (vote-pool watcher, tick clock, proposal cache, recovery) | ✅ **LIVE on VPS** 2026-04-28 ⁴ |
+| ↳ B.3.2.7-F006.4.5      | Proposal gossip ingress (p2p → `cache_proposal` channel) | ⏳ planned (§B.3.2.7, can bundle with F006.7) |
+| ↳ B.3.2.7-F006.5        | N=1 cadence rate-limiter (FSM locked to legacy 5s pacing for byte-identical commits) | ⏳ planned (§B.3.2.7) |
+| ↳ B.3.2.7-F006.6        | Gating soak harness (1000-block FSM-shadow vs legacy commit-blob byte-diff) | ⏳ planned (§B.3.2.7) |
+| ↳ B.3.2.7-F006.7        | Legacy `Producer::run` pre-emption + `ZEBVIX_FSM_ENABLED=true` activation | ⏳ planned (§B.3.2.7) |
 | **C2 / C2.1-C2.6**      | Keccak256 signing migration (EVM-native UX)    | ⏳ planned (§C2)     |
 | **C3 / C3.1-C3.7**      | M-of-N bridge oracle multisig                  | ⏳ planned (§C3)     |
 
@@ -130,7 +133,8 @@ fork the chain because it produces no side effects beyond a
 `CommitBlock` that's gated by tip. F006.7 will lift this
 restriction (and simultaneously stop the legacy producer) once
 F006.5 (cadence) + F006.6 (gating soak) prove the FSM
-byte-identical. Five new tests (197 total chain tests):
+byte-identical. Five new tests (**198 total chain tests** — VPS
+CI confirmed 2026-04-28):
 `poll_vote_quorums_emits_prevote_quorum_under_n1`,
 `tick_once_without_quorum_is_noop_on_height`,
 `proposal_cache_caps_and_evicts_smallest_height`,
@@ -138,6 +142,15 @@ byte-identical. Five new tests (197 total chain tests):
 `run_returns_immediately_when_disabled`. Plus three
 `handle_action_*` updates for the new shadow-stub semantics.
 `enabled()` still defaults `false` — live VPS unaffected.
+**Deploy outcome (2026-04-28 00:55:07 UTC):** binary 16 MB
+(`cargo build --release --features zvm` 1m 35s on VPS),
+`systemctl restart zebvix` clean, pre-deploy tip h=54897 →
+post-deploy first quorum h=54928 → cadence-verified h=54980 over
+24 s (~6 s per block, exactly matching `pacing=5s
+propose_timeout=8s tick=500ms` from the producer banner). Zero
+`fsm_runtime` log lines in the journal — FSM not constructed in
+`main.rs` yet, code soaking purely as a static-analysis target
+until F006.7 wires the spawn.
 
 ³ **D4 footnote.** `/metrics` is mounted on the existing RPC port
 instead of a separate `:9090` listener (see `rpc::router`'s
