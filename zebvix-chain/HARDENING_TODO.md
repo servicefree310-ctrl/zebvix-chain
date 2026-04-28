@@ -42,7 +42,7 @@ two Tier-1 gates on the same restart.**
 | ↳ B.3.2.7-F006.3        | `FsmAction` → I/O sink (handle_action dispatch) | ✅ shipped dormant ¹ |
 | ↳ B.3.2.7-F006.4        | Event sources + dispatch loop (vote-pool watcher, tick clock, proposal cache, recovery) | ✅ **LIVE on VPS** 2026-04-28 ⁴ |
 | ↳ B.3.2.7-F006.4.5      | Proposal gossip ingress (p2p → `cache_proposal` channel) | ⏳ planned (§B.3.2.7, can bundle with F006.7) |
-| ↳ B.3.2.7-F006.5        | N=1 cadence rate-limiter (FSM locked to legacy 5s pacing for byte-identical commits) | ⏳ planned (§B.3.2.7) |
+| ↳ B.3.2.7-F006.5        | N=1 cadence rate-limiter (defense-in-depth backstop in `handle_action(CommitBlock)`, FSM locked to legacy `BLOCK_TIME_SECS` pacing for byte-identical commits) | ✅ shipped dormant ⁵ |
 | ↳ B.3.2.7-F006.6        | Gating soak harness (1000-block FSM-shadow vs legacy commit-blob byte-diff) | ⏳ planned (§B.3.2.7) |
 | ↳ B.3.2.7-F006.7        | Legacy `Producer::run` pre-emption + `ZEBVIX_FSM_ENABLED=true` activation | ⏳ planned (§B.3.2.7) |
 | **C2 / C2.1-C2.6**      | Keccak256 signing migration (EVM-native UX)    | ⏳ planned (§C2)     |
@@ -65,7 +65,7 @@ activation needed.
 | **D6**                  | Block explorer feature parity                  | ⏳ planned (§Phase D) |
 | **D7**                  | EIP-1559 fee market (height-gated, but additive) | ⏳ planned (§Phase D) |
 | **D8**                  | Operator runbook consolidation                 | ⏳ planned (§Phase D) |
-| **D9**                  | RPC pagination + range caps (DoS hardening)    | ⏳ planned (§Phase D) |
+| **D9 / H1**             | RPC pagination + range caps + in-process concurrency cap (DoS hardening) | 🟡 H1 concurrency cap shipped 2026-04-28 ⁵ ; pagination + per-method range caps ⏳ |
 | **D10**                 | CI gate (pre-tarball validation)               | 🟢 `scripts/ci-check.sh` + tarball-handler stale-check shipped |
 
 ¹ **F006.3 footnote.** `FsmRuntime::handle_action` dispatches every
@@ -151,6 +151,84 @@ propose_timeout=8s tick=500ms` from the producer banner). Zero
 `fsm_runtime` log lines in the journal — FSM not constructed in
 `main.rs` yet, code soaking purely as a static-analysis target
 until F006.7 wires the spawn.
+
+⁵ **F006.5 + H1 footnote (shipped 2026-04-28).** Two-in-one batch:
+**(a) F006.5 — Cadence rate-limiter backstop** (`fsm_runtime.rs`,
+shipped dormant). New `MIN_BLOCK_INTERVAL: Duration` const
+(compile-time `Duration::from_secs(crate::tokenomics::BLOCK_TIME_SECS)`
+so future tokenomics retunes propagate automatically), new field
+`last_commit_at: Mutex<Option<Instant>>` (renamed from the
+F006.6-stub `last_proposal_at: Mutex<Instant>`; `None` until first
+commit so genesis-bootstrap is never rate-limited), and a defense-
+in-depth gate inside `handle_action(FsmAction::CommitBlock { ... })`
+placed AFTER the existing tip short-circuit but BEFORE
+`proposal_cache.lock().await.remove(&height)`. When elapsed time
+since the previous successful apply is below `MIN_BLOCK_INTERVAL`,
+the dispatch returns `Ok(Vec::new())` (FSM stays in `Step::Commit`,
+next `tick_once` re-issues the same `CommitBlock` — at which point
+either the gate clears or we defer again) and the cached proposal
+is left untouched so the retry hits the same block bytes. The
+timestamp field is updated AFTER `state.apply_block` so a failed
+apply never "consumes" a cadence slot. Why apply-site, not
+`BuildProposal`? (1) `BuildProposal` is a no-op stub in F006.4
+shadow-observer mode — no cadence to limit yet. (2) Gating at the
+apply site is what actually matters for byte-identical commit
+blobs (timestamp is set at proposal time, but the on-chain effect
+of cadence is the spacing between `state.apply_block` calls).
+(3) F006.7 will additionally raise `Timeouts.commit` to
+`BLOCK_TIME_SECS` making this backstop redundant in the happy
+path — it stays as defense-in-depth against future
+misconfiguration. Three new tests
+(`min_block_interval_matches_block_time_secs` parity guard,
+`handle_action_commit_block_rate_limited_returns_empty_and_preserves_cache`,
+`handle_action_commit_block_rate_limit_clears_after_min_interval`)
+bring the chain test count to **201 total** (was 198 after F006.4).
+F006.5 is shipped DORMANT — `enabled()` still defaults `false`,
+the gate only fires when the FSM is actually driving commits
+(activated under F006.7). Live VPS chain at h≈54980+ continues
+unaffected.
+**(b) H1 — In-process RPC concurrency cap** (`rpc.rs`, ACTIVE on
+deploy). Identified in earlier security audit as the single
+remaining "no in-process backstop" risk: a misconfigured or absent
+nginx/Cloudflare front could let an RPC flood saturate the tokio
+runtime and starve the consensus producer task. Fix: new module-
+level `pub(crate) const RPC_DEFAULT_MAX_INFLIGHT: usize = 256`,
+`pub(crate) static RPC_INFLIGHT_SEMAPHORE: Lazy<Arc<Semaphore>>`
+(once_cell + tokio — both already in workspace deps, **zero new
+crates**) tunable at startup via `ZEBVIX_RPC_MAX_INFLIGHT=<n>`,
+and `pub(crate) async fn rpc_concurrency_limit_middleware(req,
+next) -> Response` that calls `try_acquire_owned()` (NEVER
+`acquire_owned().await` — queueing on overflow would defeat the
+purpose by holding tokio tasks open) and returns HTTP 503 +
+"too many concurrent requests, please retry shortly" on
+exhaustion. Wired into the existing `pub fn router(ctx) ->
+Router` chain via `.layer(axum::middleware::from_fn(...))` placed
+between `.with_state(ctx)` and `.layer(cors)`, so layer order is
+**cors (outermost) → concurrency_limit → body_limit → handler**
+— concurrency check fires BEFORE body parsing (rejects 503
+without reading payload bytes) but AFTER CORS preflight (cheap
+browser handshakes never consume permits). `Lazy::force(&...)`
+called at the top of `router()` so the configured cap is logged
+at startup, not on first request. Why a global semaphore rather
+than per-IP token bucket? (1) Per-IP needs IP extraction from
+the proxied connection (X-Forwarded-For parsing is fragile across
+nginx/Cloudflare/Cloudflare-tunnel topologies) and a GC'd HashMap
+of buckets — both reasonable to defer to the out-of-process
+limiter that already does them well. (2) The single risk this
+layer must defeat is "the producer task misses a tick deadline
+because tokio's runtime is saturated with cheap RPC reads" — a
+global concurrency cap is the minimal mechanism that does that.
+(3) Per-IP rate limiting remains delegated to nginx / Cloudflare
+in front of the public RPC (out-of-process limiters survive node
+restarts and can share state across multiple RPC nodes). Existing
+RPC-side defenses unchanged: 256 KiB body limit, mempool fee
+floor (`MIN_TX_FEE_WEI`), mempool max_size (50 000), per-block
+tx cap (`MAX_TXS_PER_BLOCK = 5 000`). H1 is **active on next
+deploy** (no flag to flip, no height gate — pure defense-in-
+depth that can only reject excess load, never produce wrong
+state). Operator action item: rotate `ADMIN_TOKEN` (separate
+audit finding M1, still pending) + add nginx `limit_req` per-IP
+budget in front of the RPC (audit finding M3, still pending).
 
 ³ **D4 footnote.** `/metrics` is mounted on the existing RPC port
 instead of a separate `:9090` listener (see `rpc::router`'s

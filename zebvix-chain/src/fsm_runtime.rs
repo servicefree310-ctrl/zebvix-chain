@@ -98,6 +98,24 @@ const PROPOSAL_CACHE_CAP: usize = 64;
 /// `propose_timeout=8s` semantics under N=1 — keep them in lockstep.
 const TICK_INTERVAL_MS: u64 = 500;
 
+/// **F006.5 — Minimum cadence interval between successive successful
+/// `CommitBlock` applies.** Locked to `BLOCK_TIME_SECS` (5s) so the
+/// FSM cannot outpace the legacy producer's commit cadence under N=1,
+/// guaranteeing byte-identical commit blobs once F006.7 lifts the
+/// shadow-observer.
+///
+/// This is a **defense-in-depth backstop**, not the primary cadence
+/// gate — that role belongs to the FSM's `Timeouts.commit` (currently
+/// 1s; F006.7 will raise it to `BLOCK_TIME_SECS`). The backstop here
+/// catches the case where someone tunes `Timeouts.commit` below
+/// `BLOCK_TIME_SECS` and breaks the byte-identical guarantee. Compile-
+/// time tied to `crate::tokenomics::BLOCK_TIME_SECS` so a future
+/// pacing change in tokenomics propagates here automatically; the
+/// `min_block_interval_matches_block_time_secs` test enforces this
+/// binding.
+const MIN_BLOCK_INTERVAL: Duration =
+    Duration::from_secs(crate::tokenomics::BLOCK_TIME_SECS);
+
 /// Reads the `ZEBVIX_FSM_ENABLED` env var. Returns `true` only for the
 /// canonical truthy strings (`1`, `true`, `yes`, `on` — case-insensitive).
 /// Anything else — including unset, empty, malformed, `0`, `false` — is
@@ -186,11 +204,18 @@ pub struct FsmRuntime {
     /// cycles on every poll.
     last_emitted_quorum: Mutex<HashSet<(u64, u32, VoteType, Option<Hash>)>>,
 
-    /// Wall-clock instant of our last broadcast `BuildProposal` action.
-    /// F006.6 will use this to rate-limit consecutive proposals to
-    /// `BLOCK_TIME_SECS` (5s) so N=1 timestamps stay stable.
-    #[allow(dead_code)] // wired up in F006.6
-    last_proposal_at: Mutex<Instant>,
+    /// **F006.5 — Wall-clock instant of our last successful
+    /// `CommitBlock` state apply.** Consulted by
+    /// `handle_action(CommitBlock)` to enforce the
+    /// [`MIN_BLOCK_INTERVAL`] floor between commits. `None` until the
+    /// first apply succeeds, so the genesis-bootstrap commit (or the
+    /// first commit after a node restart with no prior commits this
+    /// session) is never rate-limited. Updated atomically AFTER the
+    /// `state.apply_block` call so a failed apply does not "consume"
+    /// a cadence slot. Defense-in-depth: the FSM's `Timeouts.commit`
+    /// is the primary cadence enforcement; this field powers a second
+    /// gate in case of misconfiguration.
+    last_commit_at: Mutex<Option<Instant>>,
 }
 
 impl FsmRuntime {
@@ -208,7 +233,7 @@ impl FsmRuntime {
             vote_pool,
             proposal_cache: Mutex::new(BTreeMap::new()),
             last_emitted_quorum: Mutex::new(HashSet::new()),
-            last_proposal_at: Mutex::new(Instant::now()),
+            last_commit_at: Mutex::new(None),
         }
     }
 
@@ -354,6 +379,42 @@ impl FsmRuntime {
                     // Step::Commit. Without this it would be stuck.
                     return Ok(vec![FsmEvent::BlockApplied { height, hash }]);
                 }
+                // **F006.5 — Cadence rate-limiter backstop.** Defer this
+                // commit if less than `MIN_BLOCK_INTERVAL` (== legacy
+                // `BLOCK_TIME_SECS`, currently 5s) has elapsed since
+                // the previous successful apply. Returning an empty
+                // event vector keeps the FSM in `Step::Commit`, so the
+                // next `tick_once` re-issues the same `CommitBlock`
+                // action — at which point either enough time has
+                // passed (rate-limit clears) or we defer again. The
+                // `proposal_cache` is intentionally untouched on this
+                // path so the retry hits the same cached block bytes.
+                //
+                // Why gate here, not at `BuildProposal`?
+                // 1. `BuildProposal` is a no-op stub in F006.4
+                //    shadow-observer mode — no cadence to limit yet.
+                // 2. Gating at the apply site is what actually matters
+                //    for byte-identical-to-legacy commit blobs (the
+                //    timestamp in the block header is set at proposal
+                //    time, but the on-chain effect of cadence is the
+                //    spacing between `state.apply_block` calls).
+                // 3. F006.7 will additionally raise `Timeouts.commit`
+                //    to `BLOCK_TIME_SECS`, making this backstop
+                //    redundant in the happy path — it stays as
+                //    defense-in-depth against future misconfiguration.
+                {
+                    let last = self.last_commit_at.lock().await;
+                    if let Some(prev) = *last {
+                        let elapsed = prev.elapsed();
+                        if elapsed < MIN_BLOCK_INTERVAL {
+                            tracing::debug!(
+                                "fsm_runtime: CommitBlock(h={height}) rate-limited (elapsed={:?} < min={:?}) — deferring to next tick",
+                                elapsed, MIN_BLOCK_INTERVAL
+                            );
+                            return Ok(Vec::new());
+                        }
+                    }
+                }
                 let cached = self.proposal_cache.lock().await.remove(&height);
                 let block = cached.ok_or_else(|| {
                     anyhow!(
@@ -368,6 +429,11 @@ impl FsmRuntime {
                     ));
                 }
                 self.state.apply_block(&block)?;
+                // **F006.5** — record the apply timestamp AFTER a
+                // successful apply so a failed apply does not "consume"
+                // a cadence slot (a retry would otherwise be incorrectly
+                // rate-limited even though no commit actually happened).
+                *self.last_commit_at.lock().await = Some(Instant::now());
                 Ok(vec![FsmEvent::BlockApplied { height, hash }])
             }
             FsmAction::BroadcastPrevote { target } => {
@@ -743,5 +809,91 @@ mod tests {
             .await
             .expect("run() must return immediately when disabled");
         assert!(start.elapsed() < Duration::from_millis(100));
+    }
+
+    // ─── F006.5 — Cadence rate-limiter tests ─────────────────────────
+
+    /// **F006.5 acceptance — Parity guard.** `MIN_BLOCK_INTERVAL` MUST
+    /// equal `BLOCK_TIME_SECS`. If a future tokenomics change tweaks
+    /// the legacy producer's pacing, this test fails until F006.5 is
+    /// re-tuned in lockstep — preventing silent byte-divergence
+    /// between FSM and legacy commits.
+    #[test]
+    fn min_block_interval_matches_block_time_secs() {
+        assert_eq!(
+            MIN_BLOCK_INTERVAL,
+            Duration::from_secs(crate::tokenomics::BLOCK_TIME_SECS),
+            "F006.5 cadence drifted from legacy BLOCK_TIME_SECS — fix one or the other"
+        );
+    }
+
+    /// **F006.5 acceptance — Recent commit triggers rate-limit defer.**
+    /// With `last_commit_at = Some(now)`, an above-tip CommitBlock that
+    /// would otherwise hit the cache-miss error path MUST instead be
+    /// short-circuited by the rate-limiter and return `Ok(empty)`. The
+    /// fact that we never reach the cache lookup proves the gate fires
+    /// BEFORE cache mutation — preserving cache integrity for the
+    /// retry on the next tick.
+    #[tokio::test(flavor = "current_thread")]
+    async fn handle_action_commit_block_rate_limited_returns_empty_and_preserves_cache() {
+        let (_td, rt, _sk, _pk, _addr) = fresh_runtime_fixture();
+        // Cache a dummy proposal at h=5 so we can prove cache survives.
+        rt.cache_proposal(dummy_block_at(5)).await;
+        assert_eq!(
+            rt.proposal_cache.lock().await.len(),
+            1,
+            "precondition: one cached proposal"
+        );
+        // Simulate a recent successful commit (just now).
+        *rt.last_commit_at.lock().await = Some(Instant::now());
+
+        // Try to commit at h=5 (above tip 0). The rate-limiter must
+        // fire BEFORE the cache lookup. Without the gate, the next
+        // line would error or apply.
+        let dummy_hash = Hash([3u8; 32]);
+        let evs = rt
+            .handle_action(FsmAction::CommitBlock { height: 5, hash: dummy_hash })
+            .await
+            .expect("rate-limited commit must NOT propagate as error");
+        assert!(
+            evs.is_empty(),
+            "rate-limited commit must return empty events (FSM stays in Step::Commit)"
+        );
+        // Cache entry MUST be preserved so the next-tick retry can use it.
+        assert_eq!(
+            rt.proposal_cache.lock().await.len(),
+            1,
+            "cache must be preserved when commit is rate-limit-deferred"
+        );
+    }
+
+    /// **F006.5 acceptance — Rate-limit clears after `MIN_BLOCK_INTERVAL`.**
+    /// With `last_commit_at` set to longer than `MIN_BLOCK_INTERVAL`
+    /// ago, the gate MUST clear and the dispatch MUST proceed past
+    /// the rate-limiter into the cache-lookup path (and error there
+    /// because the cache is empty — that error is the proof we got
+    /// past the gate). Belt-and-braces test that elapsed-time math
+    /// is correct (no off-by-one or sign errors).
+    #[tokio::test(flavor = "current_thread")]
+    async fn handle_action_commit_block_rate_limit_clears_after_min_interval() {
+        let (_td, rt, _sk, _pk, _addr) = fresh_runtime_fixture();
+        // Set last_commit_at to slightly more than MIN_BLOCK_INTERVAL ago.
+        let past = Instant::now()
+            .checked_sub(MIN_BLOCK_INTERVAL + Duration::from_millis(50))
+            .expect("system clock must support subtraction (CI runs on uptime > 5s)");
+        *rt.last_commit_at.lock().await = Some(past);
+
+        // No cached proposal at h=5 → after rate-limit gate clears,
+        // we hit the cache-miss error. That error proves the gate
+        // cleared (otherwise we'd see Ok(empty) instead).
+        let dummy_hash = Hash([4u8; 32]);
+        let err = rt
+            .handle_action(FsmAction::CommitBlock { height: 5, hash: dummy_hash })
+            .await
+            .expect_err("rate-limit cleared, expected to reach cache-miss error");
+        assert!(
+            format!("{err}").contains("no proposal cached"),
+            "expected cache-miss error proving rate-limit cleared, got: {err}"
+        );
     }
 }

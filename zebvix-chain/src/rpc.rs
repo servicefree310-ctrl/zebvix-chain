@@ -2327,7 +2327,134 @@ fn try_zvm_dispatch(
     })
 }
 
+// ── F006.5/H1 — In-process RPC concurrency cap (shipped 2026-04-28) ──
+//
+// Defense-in-depth backstop alongside the recommended nginx /
+// Cloudflare per-IP rate limiter. Caps total concurrent in-flight
+// JSON-RPC requests to `RPC_DEFAULT_MAX_INFLIGHT` (256), tunable at
+// startup via the `ZEBVIX_RPC_MAX_INFLIGHT=<n>` env var. Excess
+// requests are rejected with HTTP 503 + a short retry-after message
+// so the consensus producer task is shielded from RPC-driven runtime
+// starvation if the upstream proxy is misconfigured or absent.
+//
+// Why a global semaphore rather than per-IP token bucket?
+// 1. Per-IP needs IP extraction from the proxied connection (X-
+//    Forwarded-For parsing is fragile across nginx/Cloudflare/
+//    Cloudflare-tunnel topologies) and a GC'd HashMap of buckets.
+//    Both are reasonable to defer to the out-of-process limiter
+//    that already does them well.
+// 2. The single risk this layer must defeat is "the producer task
+//    misses a tick deadline because tokio's runtime is saturated
+//    with cheap RPC reads". A global concurrency cap is the
+//    minimal mechanism that does that.
+// 3. Zero new deps: `tokio::sync::Semaphore` + `once_cell::sync::
+//    Lazy` are already pulled by the workspace.
+//
+// The permit is acquired with `try_acquire_owned()` (NEVER
+// `acquire_owned().await`) so over-cap requests fail FAST with 503
+// rather than queueing in the runtime — queueing would defeat the
+// purpose by holding tokio tasks open and starving consensus.
+pub(crate) const RPC_DEFAULT_MAX_INFLIGHT: usize = 256;
+
+/// **F006.5/H1 — Resolved effective cap.** Populated by the
+/// `RPC_INFLIGHT_SEMAPHORE` `Lazy` initializer to whatever cap the
+/// semaphore was actually built with (env override or default). Used
+/// by `rpc_concurrency_limit_middleware` so overload warn logs show
+/// the EFFECTIVE cap, not the compile-time default — critical for
+/// ops debugging during incidents (an operator who set
+/// `ZEBVIX_RPC_MAX_INFLIGHT=1024` but is still seeing 503s needs to
+/// see "max=1024" in the log, not "max=256"). Stays at 0 until
+/// `Lazy::force(&RPC_INFLIGHT_SEMAPHORE)` runs at `router()` startup.
+pub(crate) static RPC_EFFECTIVE_MAX_INFLIGHT: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+pub(crate) static RPC_INFLIGHT_SEMAPHORE: once_cell::sync::Lazy<
+    std::sync::Arc<tokio::sync::Semaphore>,
+> = once_cell::sync::Lazy::new(|| {
+    // Fail-loud env parsing: if `ZEBVIX_RPC_MAX_INFLIGHT` is SET (i.e.
+    // the operator intended to override) but cannot be parsed as a
+    // positive integer, emit a WARN log naming the bad value before
+    // falling back to the default. Silent fallback would mislead ops
+    // ("I set the env but the cap didn't change?!"). Unset env is
+    // treated as "no override" and stays silent (default-only path).
+    let raw = std::env::var("ZEBVIX_RPC_MAX_INFLIGHT").ok();
+    let cap = match raw.as_deref() {
+        None => RPC_DEFAULT_MAX_INFLIGHT,
+        Some(s) => match s.trim().parse::<usize>() {
+            Ok(n) if n > 0 => n,
+            // n == 0 path (n > 0 guard above is the only "valid" path)
+            Ok(_) => {
+                tracing::warn!(
+                    "rpc: ZEBVIX_RPC_MAX_INFLIGHT='{s}' parsed to zero — \
+                     a zero cap would reject all requests; falling back to default {default} \
+                     (set a positive integer to override)",
+                    default = RPC_DEFAULT_MAX_INFLIGHT,
+                );
+                RPC_DEFAULT_MAX_INFLIGHT
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "rpc: ZEBVIX_RPC_MAX_INFLIGHT='{s}' is not a valid positive integer ({e}) — \
+                     falling back to default {default}",
+                    default = RPC_DEFAULT_MAX_INFLIGHT,
+                );
+                RPC_DEFAULT_MAX_INFLIGHT
+            }
+        },
+    };
+    RPC_EFFECTIVE_MAX_INFLIGHT.store(cap, std::sync::atomic::Ordering::SeqCst);
+    tracing::info!(
+        "🛡  RPC in-process concurrency cap: max {cap} in-flight requests \
+         (set ZEBVIX_RPC_MAX_INFLIGHT to tune; per-IP limiting still \
+         recommended via nginx / Cloudflare in front)"
+    );
+    std::sync::Arc::new(tokio::sync::Semaphore::new(cap))
+});
+
+/// **F006.5/H1 — RPC concurrency-cap middleware.** Acquires one
+/// permit from the global [`RPC_INFLIGHT_SEMAPHORE`] before
+/// dispatching to the inner handler. On semaphore exhaustion, fails
+/// fast with HTTP 503 + a short text body — does NOT queue (queueing
+/// would defeat the purpose by tying up tokio tasks). The permit is
+/// held via RAII `_permit` binding so it auto-releases on every exit
+/// path including handler panic (which under our `panic = "abort"`
+/// release profile is moot — process dies — but it's the right
+/// pattern regardless).
+pub(crate) async fn rpc_concurrency_limit_middleware(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+    let _permit = match RPC_INFLIGHT_SEMAPHORE.clone().try_acquire_owned() {
+        Ok(p) => p,
+        Err(_) => {
+            // Show the EFFECTIVE configured cap (env override applied),
+            // not the compile-time default — critical for ops debugging.
+            // An operator who set ZEBVIX_RPC_MAX_INFLIGHT=1024 but is
+            // still seeing 503s needs to see "max=1024" here, not 256.
+            let effective_cap =
+                RPC_EFFECTIVE_MAX_INFLIGHT.load(std::sync::atomic::Ordering::Relaxed);
+            tracing::warn!(
+                "rpc: concurrency cap hit (max={effective_cap} in-flight), rejecting with HTTP 503 — \
+                 set ZEBVIX_RPC_MAX_INFLIGHT higher or front the RPC with nginx/Cloudflare"
+            );
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "rpc: too many concurrent requests, please retry shortly\n",
+            )
+                .into_response();
+        }
+    };
+    next.run(req).await
+}
+
 pub fn router(ctx: RpcCtx) -> Router {
+    // Force-evaluate the semaphore at startup (rather than first-
+    // request) so the configured cap appears in the boot log and any
+    // env-parsing surprise is caught before traffic arrives.
+    once_cell::sync::Lazy::force(&RPC_INFLIGHT_SEMAPHORE);
+
     // ── Phase B.3.3 — RPC hardening ──
     //
     // CORS: default behaviour preserved (open) so existing dashboards keep
@@ -2338,10 +2465,20 @@ pub fn router(ctx: RpcCtx) -> Router {
     // JSON-RPC request on this chain is a raw EVM-format ZVM tx (~128 KiB
     // ceiling), so 256 KiB is plenty of headroom.
     //
-    // Per-IP rate limiting is intentionally NOT done in-process — operators
-    // should put nginx / Cloudflare in front of the public RPC for that
-    // (out-of-process limiters survive node restarts and can share state
-    // across multiple RPC nodes). The chain still enforces:
+    // **Concurrency cap (F006.5/H1, shipped 2026-04-28):** in-process
+    // backstop limiting in-flight RPC requests to RPC_DEFAULT_MAX_INFLIGHT
+    // (256, tunable via `ZEBVIX_RPC_MAX_INFLIGHT`). When exceeded, requests
+    // are rejected with HTTP 503 + a short retry-after message; the
+    // consensus producer task is shielded from RPC-driven runtime
+    // starvation. See the static `RPC_INFLIGHT_SEMAPHORE` and
+    // `rpc_concurrency_limit_middleware` defined above this function for
+    // the full rationale (zero-new-deps + fail-fast vs queue-on-overflow).
+    //
+    // Per-IP rate limiting is still delegated to nginx / Cloudflare in
+    // front of the public RPC (out-of-process limiters survive node
+    // restarts and can share state across multiple RPC nodes; in-process
+    // semaphore here is a global cap, not per-IP). The chain additionally
+    // enforces:
     //   • mempool fee floor (MIN_TX_FEE_WEI) → economic rate-limit on writes
     //   • mempool max_size (50 000) → hard upper bound on pending state
     //   • per-block tx cap (MAX_TXS_PER_BLOCK = 5 000) → consensus throttle
@@ -2419,6 +2556,15 @@ pub fn router(ctx: RpcCtx) -> Router {
         .route("/metrics", get(metrics_handler))
         .layer(body_limit)
         .with_state(ctx)
+        // ── F006.5/H1 — Concurrency-cap middleware ──
+        // Layered AFTER `with_state` so it wraps the state-bound router.
+        // Layer order (outermost first): cors → concurrency_limit →
+        // body_limit → handler. Concurrency check fires BEFORE body
+        // parsing (rejects 503 without reading payload bytes) but AFTER
+        // CORS preflight (preflight OPTIONS responses do not consume
+        // semaphore permits — they're cheap browser handshakes that
+        // should never starve us out of capacity).
+        .layer(axum::middleware::from_fn(rpc_concurrency_limit_middleware))
         .layer(cors)
 }
 
